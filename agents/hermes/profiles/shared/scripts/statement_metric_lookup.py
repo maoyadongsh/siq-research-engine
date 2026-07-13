@@ -254,6 +254,69 @@ def source_unit_hint(records: list[dict[str, Any]], payload: dict[str, Any]) -> 
     return str(payload.get("unit") or "元")
 
 
+def column_financial_scopes(parsed: dict[str, Any]) -> dict[str, str]:
+    """Map flattened table headers back to explicit consolidated/parent labels."""
+
+    headers = [str(header or "") for header in parsed.get("headers") or ()]
+    header_rows = [row for row in parsed.get("header_rows") or () if isinstance(row, list)]
+    scopes: dict[str, str] = {}
+    for index, header in enumerate(headers):
+        tokens = [
+            re.sub(r"\s+", "", str(row[index] or ""))
+            for row in header_rows
+            if index < len(row) and str(row[index] or "").strip()
+        ]
+        tokens.append(re.sub(r"\s+", "", header))
+        is_consolidated = any(
+            token in {"合并", "本集团", "集团"} or token.endswith("合并") or "合并口径" in token
+            for token in tokens
+        )
+        is_parent = any(
+            token in {"公司", "本公司", "母公司"} or token.endswith("公司") or "母公司口径" in token
+            for token in tokens
+        )
+        if is_consolidated != is_parent:
+            scopes[header] = "consolidated" if is_consolidated else "parent_company"
+    return scopes
+
+
+def _header_period_key(header: str) -> str:
+    match = re.search(r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", str(header))
+    if match:
+        return "-".join((match.group(1), match.group(2).zfill(2), match.group(3).zfill(2)))
+    match = re.search(r"\b(20\d{2})\b", str(header))
+    return match.group(1) if match else ""
+
+
+def source_financial_scope(
+    records: list[dict[str, Any]],
+    headers: list[str],
+    column_scopes: dict[str, str],
+) -> str:
+    """Return a table scope only when every sourced metric agrees on it."""
+
+    explicit_scopes = {scope for scope in column_scopes.values() if scope}
+    if len(explicit_scopes) > 1:
+        return ""
+    periods = [period for header in headers if (period := _header_period_key(header))]
+    if len(periods) != len(set(periods)) and not explicit_scopes:
+        return ""
+    source_scopes = {
+        str(record.get("financial_scope") or record.get("statement_scope") or record.get("scope") or "").strip()
+        for record in records
+    }
+    source_scopes.discard("")
+    normalized_source_scopes = {
+        "consolidated" if scope in {"consolidated", "group"} else "parent_company"
+        if scope in {"parent", "parent_company", "company", "standalone"}
+        else scope
+        for scope in source_scopes
+    }
+    if explicit_scopes:
+        return next(iter(explicit_scopes)) if not normalized_source_scopes or normalized_source_scopes == explicit_scopes else ""
+    return next(iter(normalized_source_scopes)) if len(normalized_source_scopes) == 1 else ""
+
+
 def clean_table_records(headers: list[str], records: list[dict[str, str]]) -> list[dict[str, str]]:
     if not headers or not records:
         return records
@@ -377,6 +440,7 @@ def resolve_statement_metrics(
         html = extract_table_html(report_md, md_line)
         parsed = parse_html_table(html or "")
         headers = parsed.get("headers") or []
+        column_scopes = column_financial_scopes(parsed)
         records = clean_table_records(headers, parsed.get("records") or [])
         filtered_records = filter_statement_records(records, statement_type)
         filtered_records = filter_requested_statement_records(filtered_records, metric_text)
@@ -400,6 +464,8 @@ def resolve_statement_metrics(
                 "table_index": table_index,
                 "md_line": md_line,
                 "unit": source_unit_hint(source_records, payload),
+                "financial_scope": source_financial_scope(source_records, headers, column_scopes),
+                "column_scopes": column_scopes,
                 "headers": headers,
                 "records": filtered_records,
                 "open_pdf_page_url": public_api_url(f"/api/pdf_page/{task_id}/{pdf_page}?format=html"),

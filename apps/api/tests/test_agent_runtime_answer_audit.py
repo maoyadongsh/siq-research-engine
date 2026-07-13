@@ -254,6 +254,57 @@ def test_answer_audit_trace_keeps_full_trusted_json_behind_compact_summary():
     assert "siq_financial_calculation_trace_v1" not in reply
 
 
+def test_answer_audit_validates_trusted_amount_normalization_without_legacy_heading():
+    identity = {
+        "market": "CN",
+        "company_id": "002594-比亚迪",
+        "filing_id": "CN:002594-比亚迪:2025-annual",
+        "parse_run_id": "run-byd-2025",
+    }
+    receipt = {
+        "status": "ok",
+        "operation": "normalize_amount",
+        "input": {"value": "4427571", "unit": "千元", "currency": "CNY"},
+        "result": {
+            "native_base_value": "4427571000",
+            "native_100m_value": "44.27571",
+            "cny_base_value": "4427571000",
+            "cny_100m_value": "44.27571",
+        },
+        "receipt_source": "hermes_session_tool",
+        "receipt_tool_call_id": "call-normalize",
+    }
+    reply = (
+        "比亚迪 2025 年商誉为 4,427,571 千元（约 44.27571 亿元）。\n"
+        "[D1] source_type=wiki_metrics market=CN company_id=002594-比亚迪 "
+        "filing_id=CN:002594-比亚迪:2025-annual parse_run_id=run-byd-2025 "
+        "canonical_name=goodwill metric_name=商誉 period_key=2025-12-31 "
+        'value=4427571 unit=千元 evidence_id=E-BYD-GOODWILL quote="商誉 4,427,571" '
+        f"task_id={WIKI_TASK_ID} pdf_page=123 table_index=108 md_line=3014"
+    )
+
+    record = audit.build_answer_audit_trace(
+        message="比亚迪商誉是多少？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="trusted-normalize",
+        raw_reply=reply,
+        final_reply=reply,
+        trusted_calculation_runs=(receipt,),
+    )
+
+    assert record["calculation_trace_validation"] == {
+        "checked": True,
+        "allowed": True,
+        "reason": None,
+        "structured_run_count": 1,
+    }
+    trusted = [item for item in record["calculator_runs"] if item["source"] == "runtime_tool_receipt"]
+    assert trusted[0]["operation"] == "normalize_amount"
+    assert trusted[0]["validated"] is True
+    assert record["guardrail_result"]["has_calculator_runs"] is True
+
+
 def test_answer_audit_trace_extracts_research_identity_context():
     context = {
         "research_identity": {

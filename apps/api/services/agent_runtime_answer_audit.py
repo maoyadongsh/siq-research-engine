@@ -861,7 +861,8 @@ def build_answer_audit_trace(
         expected_identity=agent_runtime_context.research_identity(context),
         require_calculator=has_legacy_calculation_marker
         or any(
-            str(item.get("operation") or "") in {"yoy", "yoy_growth", "ratio", "cagr", "per_capita"}
+            str(item.get("operation") or "")
+            in {"normalize_amount", "yoy", "yoy_growth", "ratio", "cagr", "per_capita"}
             for item in trusted_calculation_runs
         ),
         require_reconciliation=has_legacy_reconciliation_marker or any(

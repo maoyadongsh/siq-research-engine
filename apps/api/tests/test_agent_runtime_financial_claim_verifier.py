@@ -644,6 +644,7 @@ def _trusted_goodwill_fact(
         "pdf_page": 206,
         "table_index": 163,
         "md_line": 4325,
+        "financial_scope": "consolidated",
         **MIDEA_IDENTITY,
     }
 
@@ -714,6 +715,310 @@ def test_evidence_recompute_accepts_formula_clause_before_same_line_status_check
     assert result.allowed is True
 
 
+def test_evidence_recompute_accepts_trusted_numeric_expression_inside_equality_chain():
+    result = _validate_goodwill_reconciliation(
+        "- gross − allowance = 34,813,270 − 556,411 = 34,256,859 = 三表商誉净额 ✓"
+    )
+
+    assert result.allowed is True
+    assert result.reason == ""
+    assert len(result.runs) == 1
+    assert result.runs[0]["trace_origin"] == "backend_evidence_recompute"
+
+
+@pytest.mark.parametrize(
+    "line",
+    (
+        "gross − allowance = 34,256,859 = 34,813,270 − 556,411 = 三表商誉净额",
+        "gross − allowance = 556,411 − 34,813,270 = 34,256,859 = 三表商誉净额",
+        "gross − allowance = 34,813,270 + 556,411 = 34,256,859 = 三表商誉净额",
+        "gross − allowance = 999 = 34,813,270 − 556,411 = 34,256,859 = 三表商誉净额",
+        "gross − allowance = 34,813,270 − 556,411 = 34,256,859 = 999",
+        "gross − allowance = 34,813,270 − 556,411 = 中间结果 = 34,256,859",
+    ),
+)
+def test_evidence_recompute_rejects_untrusted_or_malformed_equality_chain(line: str):
+    result = _validate_goodwill_reconciliation(line)
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def test_evidence_recompute_accepts_adjacent_role_bound_goodwill_table_rows_without_formula():
+    result = _validate_goodwill_reconciliation(
+        "\n".join(
+            (
+                "| 商誉原值（未扣减） | 34,813,270 | 30,150,019 |",
+                "| 减:减值准备 | (556,411) | (569,005) |",
+                "| 账面净值 | 34,256,859 | 29,581,014 |",
+            )
+        )
+    )
+
+    assert result.allowed is True
+    assert result.reason == ""
+    assert len(result.runs) == 1
+    assert result.runs[0]["display_line_number"] == 1
+
+
+@pytest.mark.parametrize(
+    "rows",
+    (
+        (
+            "| 账面原值小计 | 34,813,270 |",
+            "| 账面净值 | 34,256,859 |",
+        ),
+        (
+            "| 账面原值小计 | 999 |",
+            "| 减:减值准备 | (556,411) |",
+            "| 账面净值 | 34,256,859 |",
+        ),
+        (
+            "| 账面原值小计 | 34,813,270 |",
+            "| 说明 | 以下为减值数据 |",
+            "| 减:减值准备 | (556,411) |",
+            "| 账面净值 | 34,256,859 |",
+        ),
+        (
+            "| 账面原值小计 | 34,813,270 |",
+            "| 账面净值 | 556,411 |",
+            "| 减:减值准备 | 34,256,859 |",
+        ),
+    ),
+)
+def test_evidence_recompute_rejects_incomplete_wrong_or_nonadjacent_goodwill_fact_rows(rows: tuple[str, ...]):
+    result = _validate_goodwill_reconciliation("\n".join(rows))
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def test_evidence_recompute_rejects_goodwill_fact_rows_backed_by_mixed_periods():
+    gross, allowance, net = _trusted_goodwill_evidence()
+    allowance = {**allowance, "period": "2024-12-31", "period_key": "2024-12-31"}
+    rows = "\n".join(
+        (
+            "| 账面原值小计 | 34,813,270 |",
+            "| 减:减值准备 | (556,411) |",
+            "| 账面净值 | 34,256,859 |",
+        )
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = validate_calculation_traces(
+        f"{rows}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def test_evidence_recompute_does_not_treat_source_quote_as_visible_goodwill_fact_rows():
+    source = (
+        "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325 "
+        'quote="账面原值小计 34,813,270；减值准备 556,411；账面净值 34,256,859"'
+    )
+
+    result = _validate_goodwill_reconciliation("仅见附注引用。", source)
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def _trusted_goodwill_component_evidence() -> tuple[dict, ...]:
+    return (
+        _trusted_period_goodwill_fact(
+            "goodwill_component_kuka",
+            "KUKA 集团",
+            "2025-12-31",
+            "23435302",
+            "midea-kuka-2025",
+            ("KUKA 集团", "KUKA", "库卡"),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_component_tlsc",
+            "TLSC 集团",
+            "2025-12-31",
+            "2085854",
+            "midea-tlsc-2025",
+            ("TLSC 集团", "TLSC"),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_component_swan",
+            "小天鹅",
+            "2025-12-31",
+            "1361306",
+            "midea-swan-2025",
+            ("小天鹅",),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_component_other_i",
+            "其他(i)",
+            "2025-12-31",
+            "7930808",
+            "midea-other-2025",
+            ("其他(i)", "其他(i)商誉"),
+        ),
+    )
+
+
+def _verify_goodwill_component_claims(line: str, evidence: tuple[dict, ...] | None = None):
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    return verify_financial_claims(
+        f"{line}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=evidence or _trusted_goodwill_component_evidence(),
+    )
+
+
+def test_claim_verifier_binds_each_amount_in_real_multi_component_sentence_to_its_local_alias():
+    line = (
+        "商誉主要由 KUKA 集团（23,435,302 千元，占 68.4%）、TLSC 集团（2,085,854 千元，6.1%）、"
+        "小天鹅（1,361,306 千元，4.0%）以及其他（7,930,808 千元，22.9%）构成。"
+    )
+
+    result = _verify_goodwill_component_claims(line)
+
+    assert result.allowed is True
+    assert [(claim.metric, claim.value) for claim in result.claims] == [
+        ("goodwill_component_kuka", 23435302.0),
+        ("goodwill_component_tlsc", 2085854.0),
+        ("goodwill_component_swan", 1361306.0),
+        ("goodwill_component_other_i", 7930808.0),
+    ]
+
+
+def test_claim_verifier_reports_wrong_footnote_short_alias_value_against_that_metric_not_previous_metric():
+    line = "小天鹅（1,361,306 千元，4.0%）以及其他（1,361,306 千元，22.9%）构成。"
+
+    result = _verify_goodwill_component_claims(line)
+
+    assert result.allowed is False
+    assert len(result.violations) == 1
+    assert result.violations[0].metric == "goodwill_component_other_i"
+    assert result.violations[0].evidence_value == 7930808.0
+
+
+def test_claim_verifier_does_not_guess_when_footnote_stripped_alias_is_ambiguous():
+    other_i = _trusted_period_goodwill_fact(
+        "goodwill_component_other_i",
+        "其他(i)",
+        "2025-12-31",
+        "7930808",
+        "midea-other-i-2025",
+        ("其他(i)",),
+    )
+    other_ii = _trusted_period_goodwill_fact(
+        "goodwill_component_other_ii",
+        "其他(ii)",
+        "2025-12-31",
+        "123456",
+        "midea-other-ii-2025",
+        ("其他(ii)",),
+    )
+
+    result = _verify_goodwill_component_claims("其他（7,930,808 千元）", (other_i, other_ii))
+
+    assert result.allowed is True
+    assert result.claims == ()
+
+
+def test_claim_verifier_does_not_bind_a_different_explicit_footnote_to_stripped_alias():
+    other_i = (_trusted_goodwill_component_evidence()[3],)
+
+    result = _verify_goodwill_component_claims("其他(ii)（7,930,808 千元）", other_i)
+
+    assert result.allowed is True
+    assert result.claims == ()
+
+
+def test_claim_verifier_does_not_reuse_previous_alias_for_unlabelled_following_amount():
+    evidence = _trusted_goodwill_component_evidence()[2:]
+
+    result = _verify_goodwill_component_claims(
+        "小天鹅（1,361,306 千元）以及未披露项（7,930,808 千元）",
+        evidence,
+    )
+
+    assert result.allowed is True
+    assert [(claim.metric, claim.value) for claim in result.claims] == [("goodwill_component_swan", 1361306.0)]
+
+
+def test_claim_verifier_keeps_support_for_parenthetical_alias_after_amount():
+    evidence = (_trusted_goodwill_component_evidence()[2],)
+
+    result = _verify_goodwill_component_claims("1,361,306 千元（小天鹅）", evidence)
+
+    assert result.allowed is True
+    assert [(claim.metric, claim.value) for claim in result.claims] == [("goodwill_component_swan", 1361306.0)]
+
+
+@pytest.mark.parametrize((("amount", "allowed")), (("9,671", True), ("96,710", False)))
+def test_claim_verifier_checks_parenthesized_impairment_amounts(amount: str, allowed: bool):
+    evidence = (
+        _trusted_period_goodwill_fact(
+            "goodwill_impairment_allowance",
+            "商誉减值准备",
+            "2025-12-31",
+            "9671",
+            "byd-allowance-2025",
+            ("商誉减值准备", "减值准备"),
+        ),
+    )
+
+    result = _verify_goodwill_component_claims(f"商誉减值准备为（{amount}）千元。", evidence)
+
+    assert result.allowed is allowed
+    assert len(result.claims) == 1
+    assert result.claims[0].metric == "goodwill_impairment_allowance"
+    assert bool(result.violations) is not allowed
+
+
+def _trusted_impairment_flow_evidence() -> tuple[dict, ...]:
+    allowance = _trusted_period_goodwill_fact(
+        "goodwill_impairment_allowance",
+        "商誉减值准备",
+        "2024-12-31",
+        "1351167582.22",
+        "halo-allowance-2024",
+        ("减值准备", "商誉减值准备"),
+    )
+    flow = _trusted_period_goodwill_fact(
+        "goodwill_impairment_allowance_absolute_change",
+        "商誉减值准备变动额",
+        "2025-12-31",
+        "863685624.45",
+        "halo-allowance-change-2025",
+        ("商誉减值准备变动", "商誉减值准备绝对变动", "本期净增"),
+    )
+    return ({**allowance, "unit": "元"}, {**flow, "unit": "元"})
+
+
+@pytest.mark.parametrize(
+    ("amount", "allowed"),
+    (("863,685,624.45", True), ("800,000,000.00", False)),
+)
+def test_claim_verifier_binds_impairment_recognition_flow_to_change_fact_not_allowance_balance(
+    amount: str,
+    allowed: bool,
+):
+    source = "[D1] source_type=wiki_report_fulltext task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        f"2025 年商誉减值准备计提 {amount} 元。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=_trusted_impairment_flow_evidence(),
+    )
+
+    assert result.allowed is allowed
+    assert result.claims[0].metric == "goodwill_impairment_allowance_absolute_change"
+    if not allowed:
+        assert result.violations[0].evidence_value == 863685624.45
+
+
 def test_evidence_recompute_accepts_attachment_tlsc_rounding_within_business_tolerance():
     evidence = (
         _trusted_period_goodwill_fact(
@@ -744,6 +1049,496 @@ def test_evidence_recompute_accepts_attachment_tlsc_rounding_within_business_tol
     )
 
     assert result.allowed is True
+
+
+@pytest.mark.parametrize(
+    ("metric", "metric_name", "previous", "current", "claim"),
+    (
+        ("goodwill_net", "商誉净额", "29581014", "34256859", "商誉净额增长 15.8%。"),
+        (
+            "goodwill_impairment_allowance",
+            "商誉减值准备",
+            "569005",
+            "556411",
+            "商誉减值准备下降 2.2%。",
+        ),
+    ),
+)
+def test_evidence_recompute_accepts_directional_growth_and_decline_percentages(
+    metric: str,
+    metric_name: str,
+    previous: str,
+    current: str,
+    claim: str,
+):
+    evidence = (
+        _trusted_period_goodwill_fact(
+            metric,
+            metric_name,
+            "2024-12-31",
+            previous,
+            f"{metric}-2024",
+            (metric_name,),
+        ),
+        _trusted_period_goodwill_fact(
+            metric,
+            metric_name,
+            "2025-12-31",
+            current,
+            f"{metric}-2025",
+            (metric_name,),
+        ),
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = validate_calculation_traces(
+        f"{claim}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+
+
+@pytest.mark.parametrize(
+    ("current_overrides", "expected_reason"),
+    (
+        ({"table_index": 164, "md_line": 4400}, "trace_unstructured"),
+        ({"financial_scope": "parent"}, "trace_unstructured"),
+    ),
+)
+def test_evidence_recompute_rejects_yoy_across_table_lineage_or_scope(
+    current_overrides: dict,
+    expected_reason: str,
+):
+    previous = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2024-12-31",
+        "100",
+        "goodwill-net-consolidated-2024",
+        ("商誉净额",),
+    )
+    previous["financial_scope"] = "consolidated"
+    current = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2025-12-31",
+        "40",
+        "goodwill-net-current-2025",
+        ("商誉净额",),
+    )
+    current["financial_scope"] = "consolidated"
+    current.update(current_overrides)
+    sources = (
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_document_links task_id=task-midea "
+        f"pdf_page={current['pdf_page']} table_index={current['table_index']} md_line={current['md_line']}"
+    )
+
+    result = validate_calculation_traces(
+        f"商誉净额同比下降 60%。\n{sources}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=(previous, current),
+    )
+
+    assert result.allowed is False
+    assert result.reason == expected_reason
+
+
+def test_structured_trace_cannot_omit_roles_to_bypass_yoy_lineage_check():
+    previous = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2024-12-31",
+        "100",
+        "goodwill-net-consolidated-2024",
+        ("商誉净额",),
+    )
+    previous.update({"financial_scope": "consolidated", "source_lineage": "lineage-consolidated"})
+    current = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2025-12-31",
+        "40",
+        "goodwill-net-parent-2025",
+        ("商誉净额",),
+    )
+    current.update(
+        {
+            "financial_scope": "parent",
+            "source_lineage": "lineage-parent",
+            "pdf_page": 207,
+            "table_index": 164,
+            "md_line": 4400,
+        }
+    )
+    trace = json.dumps(
+        {
+            "schema_version": "siq_financial_calculation_trace_v1",
+            "tool": "financial_calculator.py",
+            "operation": "yoy",
+            "metric": "goodwill_net_yoy",
+            "period": "2025-12-31",
+            "inputs": {
+                "current": {
+                    "metric": "goodwill_net",
+                    "period": "2025-12-31",
+                    "value": "40",
+                    "unit": "人民币千元",
+                    "evidence_id": current["evidence_id"],
+                },
+                "previous": {
+                    "metric": "goodwill_net",
+                    "period": "2024-12-31",
+                    "value": "100",
+                    "unit": "人民币千元",
+                    "evidence_id": previous["evidence_id"],
+                },
+            },
+            "result": {"rate": "-0.6", "percent": "-60"},
+            "research_identity": MIDEA_IDENTITY,
+        }
+    )
+    reply = (
+        "商誉净额同比下降 60%。\n"
+        f"```json\n{trace}\n```\n"
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=207 table_index=164 md_line=4400"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=(previous, current),
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_input_lineage_mismatch"
+
+
+def test_ratio_recompute_requires_same_lineage_or_explicit_matching_scope():
+    gross_profit = _trusted_period_goodwill_fact(
+        "gross_profit",
+        "毛利润",
+        "2025-12-31",
+        "40",
+        "gross-profit-2025",
+        ("毛利润", "毛利"),
+    )
+    revenue = _trusted_period_goodwill_fact(
+        "revenue",
+        "营业收入",
+        "2025-12-31",
+        "100",
+        "revenue-2025",
+        ("营业收入", "收入"),
+    )
+    revenue.update({"pdf_page": 207, "table_index": 164, "md_line": 4400})
+    gross_profit.pop("financial_scope")
+    revenue.pop("financial_scope")
+    sources = (
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=207 table_index=164 md_line=4400"
+    )
+    reply = f"公司 2025 年毛利率为 40%。\n{sources}"
+
+    unknown_scope = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=(gross_profit, revenue),
+    )
+    gross_profit["financial_scope"] = "consolidated"
+    revenue["financial_scope"] = "consolidated"
+    explicit_same_scope = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=(gross_profit, revenue),
+    )
+
+    assert unknown_scope.allowed is False
+    assert unknown_scope.reason == "trace_unstructured"
+    assert explicit_same_scope.allowed is True
+
+
+@pytest.mark.parametrize(("net_scope", "allowed"), (("consolidated", True), ("parent", False)))
+def test_evidence_recompute_reconciliation_allows_cross_table_only_with_same_scope(
+    net_scope: str,
+    allowed: bool,
+):
+    gross, allowance, net = (dict(item) for item in _trusted_goodwill_evidence())
+    gross["financial_scope"] = "consolidated"
+    allowance["financial_scope"] = "consolidated"
+    net.update(
+        {
+            "financial_scope": net_scope,
+            "pdf_page": 132,
+            "table_index": 89,
+            "md_line": 2497,
+        }
+    )
+    reply = (
+        "商誉账面原值 34,813,270 千元\n"
+        "商誉减值准备 556,411 千元\n"
+        "商誉净额 34,256,859 千元\n"
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_metrics task_id=task-midea "
+        "pdf_page=132 table_index=89 md_line=2497"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is allowed
+    if allowed:
+        assert result.runs[0]["inputs"]["gross"]["evidence_id"] == gross["evidence_id"]
+        assert result.runs[0]["inputs"]["net"]["evidence_id"] == net["evidence_id"]
+    else:
+        assert result.reason == "trace_unstructured"
+
+
+def test_evidence_recompute_accepts_yoy_when_nearest_year_labels_explicit_previous_operand():
+    evidence = (
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2024-12-31",
+            "29581014",
+            "goodwill-net-2024",
+            ("商誉净额",),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2025-12-31",
+            "34256859",
+            "goodwill-net-2025",
+            ("商誉净额",),
+        ),
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = "商誉净额 2025-12-31 为 34,256,859 千元，较 2024-12-31 的 29,581,014 千元增长 15.8%。"
+
+    result = validate_calculation_traces(
+        f"{reply}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+
+
+def test_evidence_recompute_rejects_yoy_with_explicit_untrusted_previous_period_label():
+    evidence = (
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2024-12-31",
+            "29581014",
+            "goodwill-net-2024",
+            ("商誉净额",),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2025-12-31",
+            "34256859",
+            "goodwill-net-2025",
+            ("商誉净额",),
+        ),
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = "商誉净额 2025-12-31 为 34,256,859 千元，较 2023-12-31 的 29,581,014 千元增长 15.8%。"
+
+    result = validate_calculation_traces(
+        f"{reply}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+@pytest.mark.parametrize("claim", ("商誉净额增长 16.8%。", "商誉净额 YoY 16.8%。", "商誉净额增幅 16.8%。"))
+def test_evidence_recompute_rejects_wrong_directional_or_yoy_percentage(claim: str):
+    evidence = (
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2024-12-31",
+            "29581014",
+            "goodwill-net-2024",
+            ("商誉净额",),
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_net",
+            "商誉净额",
+            "2025-12-31",
+            "34256859",
+            "goodwill-net-2025",
+            ("商誉净额",),
+        ),
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = validate_calculation_traces(
+        f"{claim}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+def _trusted_saic_top2_ratio_evidence() -> tuple[dict, ...]:
+    huayu = _trusted_period_goodwill_fact(
+        "goodwill_component_huayu",
+        "华域视觉科技(上海)有限公司",
+        "2025-12-31",
+        "781115081.73",
+        "saic-huayu-2025",
+        ("华域视觉科技(上海)有限公司", "华域视觉"),
+    )
+    finance = _trusted_period_goodwill_fact(
+        "goodwill_component_finance",
+        "上汽通用汽车金融有限责任公司",
+        "2025-12-31",
+        "333378433.68",
+        "saic-finance-2025",
+        ("上汽通用汽车金融有限责任公司", "上汽通用汽车金融", "上汽通用金融"),
+    )
+    top2 = _trusted_period_goodwill_fact(
+        "goodwill_component_sum_top2",
+        "华域视觉 + 上汽通用汽车金融",
+        "2025-12-31",
+        "1114493515.41",
+        "saic-top2-2025",
+        ("华域视觉 + 上汽通用汽车金融", "华域视觉 + 上汽通用金融", "前两大"),
+    )
+    gross = _trusted_period_goodwill_fact(
+        "goodwill_gross",
+        "商誉账面原值",
+        "2025-12-31",
+        "1282085915.36",
+        "saic-gross-2025",
+        ("商誉原值", "账面原值"),
+    )
+    return (
+        {**huayu, "unit": "元"},
+        {**finance, "unit": "元"},
+        {
+            **top2,
+            "unit": "元",
+            "derived_from_evidence_ids": (huayu["evidence_id"], finance["evidence_id"]),
+        },
+        {**gross, "unit": "元"},
+    )
+
+
+def _validate_saic_top2_ratio(line: str):
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    return validate_calculation_traces(
+        f"{line}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=_trusted_saic_top2_ratio_evidence(),
+    )
+
+
+@pytest.mark.parametrize(("amount", "allowed"), (("11.14", True), ("10.14", False)))
+def test_claim_verifier_binds_named_component_sum_amount_to_derived_top2_fact(amount: str, allowed: bool):
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    evidence = _trusted_saic_top2_ratio_evidence()
+
+    result = verify_financial_claims(
+        "华域视觉与上汽通用汽车金融合计原值 "
+        f"{amount} 亿元，占商誉原值 86.91%。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is allowed
+    assert result.claims[0].metric == "goodwill_component_sum_top2"
+    if not allowed:
+        assert result.violations[0].evidence_value == 1114493515.41
+
+
+def test_evidence_recompute_accepts_ratio_with_backend_derived_sum_expanded_on_formula_line():
+    result = _validate_saic_top2_ratio(
+        "华域视觉 + 上汽通用金融占比：(781,115,081.73 + 333,378,433.68) "
+        "/ 1,282,085,915.36 = 86.91%"
+    )
+
+    assert result.allowed is True
+    assert len(result.runs) == 1
+    assert result.runs[0]["operation"] == "ratio"
+
+
+@pytest.mark.parametrize(
+    "line",
+    (
+        "华域视觉 + 上汽通用金融占比：781,115,081.73 / 1,282,085,915.36 = 86.91%",
+        "华域视觉 + 上汽通用金融占比：(781,115,081.73 - 333,378,433.68) / 1,282,085,915.36 = 86.91%",
+        "华域视觉 + 上汽通用金融占比：(781,115,081.73 * 333,378,433.68) / 1,282,085,915.36 = 86.91%",
+        "华域视觉 + 上汽通用金融占比：(781,115,081.73 + 333,378,433.68 + 1) / 1,282,085,915.36 = 86.91%",
+        "华域视觉 781,115,081.73；上汽通用金融 333,378,433.68 / 1,282,085,915.36 = 86.91%",
+    ),
+)
+def test_evidence_recompute_rejects_incomplete_or_malformed_expanded_sum_ratio(line: str):
+    result = _validate_saic_top2_ratio(line)
+
+    assert result.allowed is False
+    assert result.reason == "trace_unstructured"
+
+
+@pytest.mark.parametrize(
+    ("claim", "allowed"),
+    (
+        ("集中度超过 86%", True),
+        ("集中度高于 90%", False),
+        ("集中度低于 90%", True),
+        ("集中度不高于 80%", False),
+        ("集中度约为 87%", True),
+    ),
+)
+def test_evidence_recompute_validates_ratio_threshold_and_approximation_semantics(claim: str, allowed: bool):
+    result = _validate_saic_top2_ratio(
+        "华域视觉 + 上汽通用汽车金融合计 1,114,493,515.41 元，占商誉原值 "
+        f"1,282,085,915.36 元，{claim}。"
+    )
+
+    assert result.allowed is allowed
+    if not allowed:
+        assert result.reason == "trace_unstructured"
 
 
 def test_evidence_recompute_accepts_attachment_concentration_and_pp_business_tolerance():
@@ -985,3 +1780,131 @@ def test_claim_verifier_uses_only_half_display_quantum_and_never_skips_the_whole
     assert rounded.allowed is True
     assert outside_precision.allowed is False
     assert outside_precision.violations[0].reason == "value_mismatch"
+
+
+BYD_IDENTITY = {
+    "market": "CN",
+    "company_id": "002594-比亚迪",
+    "filing_id": "CN:002594-比亚迪:2025-annual",
+    "parse_run_id": "task-byd",
+}
+
+
+def _byd_goodwill_evidence() -> dict:
+    return {
+        "source_type": "trusted_wiki_table_cell",
+        "metric": "goodwill",
+        "canonical_name": "goodwill",
+        "metric_name": "商誉",
+        "aliases": ["商誉", "商誉账面净额"],
+        "period": "2025-12-31",
+        "period_key": "2025-12-31",
+        "value": "4427571",
+        "raw_value": "4427571",
+        "unit": "千元",
+        "evidence_id": "byd-goodwill-2025",
+        "quote": "商誉 4,427,571",
+        "task_id": "task-byd",
+        "pdf_page": 123,
+        "table_index": 108,
+        "md_line": 3014,
+        **BYD_IDENTITY,
+    }
+
+
+def _byd_source(*, include_fact: bool = False) -> str:
+    fact = (
+        " market=CN company_id=002594-比亚迪 filing_id=CN:002594-比亚迪:2025-annual "
+        "parse_run_id=task-byd canonical_name=goodwill metric_name=商誉 period=2025-12-31 "
+        'value=4427571 unit=千元 evidence_id=byd-goodwill-2025 quote="商誉 4,427,571"'
+        if include_fact
+        else ""
+    )
+    return (
+        f"[D1] source_type=wiki_metrics{fact} task_id=task-byd "
+        "pdf_page=123 table_index=108 md_line=3014"
+    )
+
+
+@pytest.mark.parametrize(("converted", "allowed"), (("44.27571", True), ("442.7571", False)))
+def test_claim_verifier_checks_each_cross_unit_restatement_in_same_clause(converted: str, allowed: bool):
+    evidence = (_byd_goodwill_evidence(),)
+    reply = (
+        f"比亚迪 2025 年商誉账面净额为 4,427,571 千元（约 {converted} 亿元）。\n"
+        f"{_byd_source()}"
+    )
+
+    result = verify_financial_claims(
+        reply,
+        expected_identity=BYD_IDENTITY,
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is allowed
+    assert [(claim.value, claim.unit) for claim in result.claims] == [
+        (4427571.0, "千元"),
+        (float(converted), "亿"),
+    ]
+    if not allowed:
+        assert result.violations[0].reason == "value_mismatch"
+        assert result.violations[0].claimed_value == 442.7571
+
+
+def test_evidence_recompute_accepts_correct_amount_normalization_and_rejects_tenfold_error():
+    evidence = (_byd_goodwill_evidence(),)
+
+    def validate(converted: str):
+        reply = (
+            f"比亚迪 2025 年商誉账面净额为 4,427,571 千元（约 {converted} 亿元）。\n"
+            f"{_byd_source()}"
+        )
+        return validate_calculation_traces(
+            reply,
+            expected_identity=BYD_IDENTITY,
+            require_calculator=True,
+            expected_operations=frozenset({"normalize_amount"}),
+            trusted_evidence=evidence,
+        )
+
+    correct = validate("44.27571")
+    wrong = validate("442.7571")
+
+    assert correct.allowed is True
+    assert correct.runs[0]["operation"] == "normalize_amount"
+    assert correct.runs[0]["trace_origin"] == "backend_evidence_recompute"
+    assert wrong.allowed is False
+    assert wrong.reason == "trace_unstructured"
+
+
+def test_trusted_amount_normalization_receipt_is_bound_and_checks_visible_result():
+    evidence = (_byd_goodwill_evidence(),)
+    receipt = {
+        "status": "ok",
+        "operation": "normalize_amount",
+        "input": {"value": "4427571", "unit": "千元", "currency": "CNY"},
+        "result": {
+            "native_base_value": "4427571000",
+            "native_100m_value": "44.27571",
+            "cny_base_value": "4427571000",
+            "cny_100m_value": "44.27571",
+        },
+    }
+
+    def validate(converted: str):
+        reply = (
+            f"比亚迪 2025 年商誉账面净额为 4,427,571 千元（约 {converted} 亿元）。\n"
+            f"{_byd_source(include_fact=True)}"
+        )
+        return validate_calculation_traces(
+            reply,
+            expected_identity=BYD_IDENTITY,
+            require_calculator=True,
+            expected_operations=frozenset({"normalize_amount"}),
+            trusted_runs=(receipt,),
+            trusted_evidence=evidence,
+        )
+
+    assert validate("44.27571").allowed is True
+    wrong = validate("442.7571")
+    assert wrong.allowed is False
+    assert wrong.reason == "trace_claim_result_mismatch"

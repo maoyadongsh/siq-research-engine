@@ -179,6 +179,30 @@ CHINESE_DIGITS = {
     "九": 9,
 }
 
+TOP_LEVEL_NOTE_HEADING_RE = re.compile(
+    r"^#+\s*(?P<number>\d{1,3})\s*[、.．]\s*(?P<title>.+?)\s*$"
+)
+
+
+def report_financial_scope(report_md: Path, line: int | None) -> str:
+    """Infer note scope from the nearest explicit financial-note section heading."""
+
+    if line is None or line <= 0 or not report_md.exists():
+        return ""
+    lines = report_md.read_text(encoding="utf-8", errors="ignore").splitlines()
+    for raw in reversed(lines[:line]):
+        stripped = raw.strip()
+        if not stripped.startswith("#"):
+            continue
+        title = re.sub(r"\s+", "", re.sub(r"^#+\s*", "", stripped))
+        if "财务报表" not in title or not any(term in title for term in ("附注", "注释")):
+            continue
+        if "母公司财务报表" in title:
+            return "parent_company"
+        if "合并财务报表" in title:
+            return "consolidated"
+    return ""
+
 
 def read_json(path: Path, default: Any = None) -> Any:
     try:
@@ -358,7 +382,7 @@ def expand_table(raw_rows: list[list[dict[str, Any]]]) -> list[list[str]]:
         row: list[str] = []
         col = 0
 
-        def fill_active() -> bool:
+        def fill_active(row: list[str] = row) -> bool:
             nonlocal col
             if col not in active:
                 return False
@@ -397,23 +421,40 @@ def parse_html_table(html: str) -> dict[str, Any]:
     parser.feed(html)
     rows = expand_table(parser.raw_rows)
     if not rows:
-        return {"headers": [], "rows": [], "records": []}
+        return {"headers": [], "header_rows": [], "rows": [], "records": []}
 
-    data_start = 0
-    for idx, row in enumerate(rows):
-        has_number = any(re.search(r"\d", cell) for cell in row[1:])
-        first_cell = normalize(row[0])
-        label_count = sum(1 for cell in row[1:] if re.search(r"[\u4e00-\u9fffA-Za-z]", cell) and not re.fullmatch(r"20\d{2}年度?", cell.strip()))
-        non_empty_tail = [cell.strip() for cell in row[1:] if cell.strip()]
-        if has_number and first_cell == "" and non_empty_tail and all(re.fullmatch(r"20\d{2}年度?", cell) for cell in non_empty_tail):
-            continue
-        if has_number and label_count >= 2 and first_cell in {"", "项目", "名称"}:
-            continue
-        if has_number and first_cell not in {"项目", "名称", "合计"} and "被投资单位" not in first_cell:
-            data_start = idx
-            break
+    second_row_scopes = {
+        re.sub(r"\s+", "", cell)
+        for cell in (rows[1][1:] if len(rows) > 1 else ())
+        if str(cell or "").strip()
+    }
+    first_row_period_count = sum(
+        1
+        for cell in (rows[0][1:] if rows else ())
+        if re.search(r"20\d{2}\s*年(?:\s*\d{1,2}\s*月\s*\d{1,2}\s*日)?", str(cell or ""))
+    )
+    if (
+        first_row_period_count >= 2
+        and second_row_scopes.intersection({"合并", "本集团", "集团"})
+        and second_row_scopes.intersection({"公司", "本公司", "母公司"})
+    ):
+        data_start = 2
     else:
-        data_start = min(1, len(rows))
+        data_start = 0
+        for idx, row in enumerate(rows):
+            has_number = any(re.search(r"\d", cell) for cell in row[1:])
+            first_cell = normalize(row[0])
+            label_count = sum(1 for cell in row[1:] if re.search(r"[\u4e00-\u9fffA-Za-z]", cell) and not re.fullmatch(r"20\d{2}年度?", cell.strip()))
+            non_empty_tail = [cell.strip() for cell in row[1:] if cell.strip()]
+            if has_number and first_cell == "" and non_empty_tail and all(re.fullmatch(r"20\d{2}年度?", cell) for cell in non_empty_tail):
+                continue
+            if has_number and label_count >= 2 and first_cell in {"", "项目", "名称"}:
+                continue
+            if has_number and first_cell not in {"项目", "名称", "合计"} and "被投资单位" not in first_cell:
+                data_start = idx
+                break
+        else:
+            data_start = min(1, len(rows))
 
     header_rows = rows[:data_start] or [rows[0]]
     headers: list[str] = []
@@ -439,7 +480,7 @@ def parse_html_table(html: str) -> dict[str, Any]:
         if not any(cell.strip() for cell in row):
             continue
         records.append({headers[idx]: row[idx] if idx < len(row) else "" for idx in range(len(headers))})
-    return {"headers": headers, "rows": data_rows, "records": records}
+    return {"headers": headers, "header_rows": header_rows, "rows": data_rows, "records": records}
 
 
 def report_md_path(company_dir: Path, report_id: str) -> Path:
@@ -669,6 +710,184 @@ def generic_title_penalty(target: dict[str, Any], query: str) -> int:
     return penalty
 
 
+def table_semantic_relation(note_title: str, table_title: str, preview: str) -> str:
+    text = f"{note_title} {table_title} {preview}"
+    if "减值准备" in text or "减值损失" in text:
+        return "impairment_detail"
+    if "账面原值" in text or "商誉原值" in text or "被投资单位名称" in text or "构成" in text:
+        return "composition_detail"
+    if any(
+        keyword in text
+        for keyword in (
+            "期初余额",
+            "本期增加",
+            "本期减少",
+            "期末余额",
+            "年初余额",
+            "本年增加",
+            "本年减少",
+            "年末余额",
+        )
+    ):
+        return "movement_detail"
+    return "detail_disclosure"
+
+
+def strip_note_continuation(title: str) -> str:
+    return re.sub(r"\s*[（(]\s*续\s*[）)]\s*$", "", str(title or "")).strip()
+
+
+def report_table_fallback_links(
+    company_dir: Path,
+    report_id: str,
+    report_md: Path,
+    *,
+    anchor_lines: set[int],
+    anchor_scopes: dict[int, set[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """Recover tables omitted when a note link points at a continuation heading.
+
+    Recovery is restricted to the exact numbered-note section containing an
+    existing semantic note anchor.  This prevents duplicate report bodies or
+    separate scopes with the same note number/title from being mixed together.
+    """
+
+    if not anchor_lines:
+        return []
+    report_json_path = report_artifact_path(company_dir, report_id, "report.json")
+    report_payload = read_json(report_json_path, {}) or {}
+    report_tables = report_payload.get("tables") if isinstance(report_payload.get("tables"), list) else []
+    if not report_tables or not report_md.exists():
+        return []
+
+    lines = report_md.read_text(encoding="utf-8", errors="ignore").splitlines()
+    tables_by_line: dict[int, list[dict[str, Any]]] = {}
+    for table in report_tables:
+        if not isinstance(table, dict):
+            continue
+        table_line = to_int(table.get("line") or table.get("md_line"))
+        if table_line is not None:
+            tables_by_line.setdefault(table_line, []).append(table)
+
+    current_note: dict[str, Any] | None = None
+    current_heading: dict[str, Any] | None = None
+    owned_tables: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    accepted_sections: set[int] = set()
+    accepted_section_scopes: dict[int, set[str]] = {}
+    for line_no, raw in enumerate(lines, start=1):
+        stripped = raw.strip()
+        if stripped.startswith("#"):
+            title = re.sub(r"^#+\s*", "", stripped).strip()
+            current_heading = {"title": title, "line": line_no}
+            note_match = TOP_LEVEL_NOTE_HEADING_RE.match(stripped)
+            if note_match:
+                number = int(note_match.group("number"))
+                note_title = strip_note_continuation(note_match.group("title"))
+                same_section = (
+                    current_note is not None
+                    and current_note["number"] == number
+                    and normalize(current_note["title"]) == normalize(note_title)
+                )
+                if not same_section:
+                    current_note = {
+                        "number": number,
+                        "title": note_title,
+                        "line": line_no,
+                        "section_start": line_no,
+                    }
+                if line_no in anchor_lines:
+                    section_start = int(current_note["section_start"])
+                    accepted_sections.add(section_start)
+                    accepted_section_scopes.setdefault(section_start, set()).update(
+                        (anchor_scopes or {}).get(line_no, set())
+                    )
+
+        for table in tables_by_line.get(line_no, []):
+            if current_note:
+                owned_tables.append((table, dict(current_note), dict(current_heading or {})))
+
+    report_json_file = relative_file(
+        company_dir,
+        report_json_path,
+        f"reports/{report_id}/report.json",
+    )
+    company_key = re.sub(r"[^0-9A-Za-z]+", "_", company_dir.name).strip("_")
+    report_key = re.sub(r"[^0-9A-Za-z]+", "_", report_id).strip("_")
+    fallback_links: list[dict[str, Any]] = []
+    for table, note, heading in owned_tables:
+        if int(note["section_start"]) not in accepted_sections:
+            continue
+        table_index = to_int(table.get("table_index"))
+        table_line = to_int(table.get("line") or table.get("md_line"))
+        if table_index is None or table_line is None:
+            continue
+        note_title = str(note["title"])
+        section_scopes = accepted_section_scopes.get(int(note["section_start"]), set())
+        note_scope = next(iter(section_scopes)) if len(section_scopes) == 1 else ""
+        table_title = str(heading.get("title") or table.get("heading") or note_title)
+        preview = str(table.get("preview") or "")
+        source = {
+            "kind": "note",
+            "name": note_title,
+            "title": note_title,
+            "note_ref": str(note["number"]),
+            "note_title": note_title,
+            "line": note["line"],
+            "md_line": note["line"],
+            "note_scope": note_scope,
+        }
+        target = {
+            "kind": "note_table",
+            "name": table_title,
+            "title": table_title,
+            "note_ref": str(note["number"]),
+            "note_title": note_title,
+            "line": table_line,
+            "md_line": table_line,
+            "pdf_page_number": to_int(table.get("pdf_page_number") or table.get("pdf_page")),
+            "table_index": table_index,
+            "heading": table.get("heading"),
+            "preview": preview,
+            "unit": table.get("unit"),
+            "heading_line": heading.get("line"),
+            "source_confidence": table.get("source_confidence"),
+            "note_scope": note_scope,
+        }
+        confidence = "high"
+        fallback_links.append({
+            "document_link_id": f"report_table_{company_key}_{report_key}_{table_index}",
+            "company_id": company_dir.name,
+            "report_id": report_id,
+            "link_type": "report_table_fallback",
+            "source_layer": "rule",
+            "source": {key: value for key, value in source.items() if value not in (None, "")},
+            "target": {key: value for key, value in target.items() if value not in (None, "")},
+            "relation": {
+                "method": "rule_report_table_same_numbered_note",
+                "confidence": confidence,
+                "semantic_relation": table_semantic_relation(note_title, table_title, preview),
+                "llm_allowed": True,
+            },
+            "confidence": confidence,
+            "needs_review": False,
+            "_source_type": local_source_type("report_table"),
+            "_file": report_json_file,
+        })
+    return fallback_links
+
+
+def link_financial_scope(link: dict[str, Any]) -> str:
+    """Preserve note scope only when the link nodes do not conflict."""
+
+    scopes = {
+        str(node.get("financial_scope") or node.get("note_scope") or node.get("scope") or "").strip()
+        for node in (link, link.get("source") or {}, link.get("target") or {})
+        if isinstance(node, dict)
+    }
+    scopes.discard("")
+    return next(iter(scopes)) if len(scopes) == 1 else ""
+
+
 def link_matches_query(link: dict[str, Any], query: str, relations: set[str]) -> bool:
     return link_match_score(link, query, relations) is not None
 
@@ -748,18 +967,60 @@ def resolve_note_detail_tables(
     document_links_file = relative_file(company_dir, document_links_path, "semantic/document_links.json")
     payload = read_json(document_links_path, {}) or {}
     links = payload.get("links") if isinstance(payload.get("links"), list) else []
+    md_path = report_md_path(company_dir, resolved_report_id)
+    anchor_lines: set[int] = set()
+    anchor_scopes: dict[int, set[str]] = {}
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        for node in (link.get("source"), link.get("target")):
+            if not isinstance(node, dict) or node.get("kind") != "note":
+                continue
+            line = to_int(node.get("md_line") or node.get("line"))
+            if line is None:
+                continue
+            anchor_lines.add(line)
+            scope = str(node.get("financial_scope") or node.get("note_scope") or node.get("scope") or "").strip()
+            if not scope:
+                scope = report_financial_scope(md_path, line)
+            if scope:
+                anchor_scopes.setdefault(line, set()).add(scope)
+    existing_table_keys = {
+        (
+            to_int((link.get("target") or {}).get("table_index")),
+            to_int((link.get("target") or {}).get("md_line") or (link.get("target") or {}).get("line")),
+        )
+        for link in links
+        if isinstance(link, dict) and isinstance(link.get("target"), dict)
+    }
+    fallback_links = [
+        link
+        for link in report_table_fallback_links(
+            company_dir,
+            resolved_report_id,
+            md_path,
+            anchor_lines=anchor_lines,
+            anchor_scopes=anchor_scopes,
+        )
+        if (
+            to_int((link.get("target") or {}).get("table_index")),
+            to_int((link.get("target") or {}).get("md_line") or (link.get("target") or {}).get("line")),
+        )
+        not in existing_table_keys
+    ]
+    candidate_links = [*links, *fallback_links]
     clean_metric_text = clean_metric_query(metric_text, company_dir)
     relations = relation_filter(clean_metric_text)
     scored = [
         (score, link)
-        for link in links
+        for link in candidate_links
         if isinstance(link, dict)
         and (score := link_match_score(link, clean_metric_text, relations)) is not None
     ]
     if not scored and relations:
         scored = [
             (score, link)
-            for link in links
+            for link in candidate_links
             if isinstance(link, dict)
             and (score := link_match_score(link, clean_metric_text, set())) is not None
         ]
@@ -775,7 +1036,6 @@ def resolve_note_detail_tables(
     score_by_id = {id(link): score for score, link in scored}
 
     tables: list[dict[str, Any]] = []
-    md_path = report_md_path(company_dir, resolved_report_id)
     seen: set[tuple[Any, Any]] = set()
     for link in matched:
         target = link.get("target") if isinstance(link.get("target"), dict) else {}
@@ -789,14 +1049,15 @@ def resolve_note_detail_tables(
         parsed = parse_html_table(html or "")
         tables.append({
             "document_link_id": link.get("document_link_id"),
-            "source_type": local_source_type("document_links"),
-            "file": document_links_file,
+            "source_type": link.get("_source_type") or local_source_type("document_links"),
+            "file": link.get("_file") or document_links_file,
             "company_id": company_dir.name,
             "report_id": resolved_report_id,
             "metric": target.get("title") or target.get("name") or metric_text,
             "semantic_relation": (link.get("relation") or {}).get("semantic_relation"),
             "confidence": link.get("confidence") or (link.get("relation") or {}).get("confidence"),
             "match_score": score_by_id.get(id(link)),
+            "financial_scope": link_financial_scope(link) or report_financial_scope(md_path, md_line),
             "unit": target.get("unit"),
             "task_id": report.get("task_id"),
             "pdf_page": to_int(target.get("pdf_page_number") or target.get("pdf_page")),

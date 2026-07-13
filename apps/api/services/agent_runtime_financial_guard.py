@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -10,6 +11,7 @@ from typing import Any, Callable, Mapping, Sequence
 from services import agent_runtime_context
 from services.agent_runtime_financial_claim_verifier import (
     ClaimVerificationResult,
+    has_evidence_bound_unit_normalization,
     validate_calculation_traces,
     verify_financial_claims,
 )
@@ -22,16 +24,58 @@ FINANCIAL_CALCULATOR_PATH_TEXT = str(FINANCIAL_CALCULATOR_PATH)
 FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT = str(FINANCIAL_RECONCILIATION_VALIDATOR_PATH)
 
 RUNTIME_STATUS_PREFIXES = ("[已停止]", "[失败]", "[已取消]", "[错误]")
+YOY_FINANCIAL_TERMS = (
+    "同比",
+    "环比",
+    "yoy",
+    "增长率",
+    "增速",
+    "增幅",
+    "降幅",
+    "增长幅度",
+    "下降幅度",
+)
+YOY_CHANGE_TERMS = ("增长", "下降", "上升", "减少", "增加", "降低", "提升", "下滑")
+_YOY_CHANGE_PATTERN = "|".join(YOY_CHANGE_TERMS)
+_YOY_PERCENTAGE_CHANGE_RE = re.compile(
+    rf"(?:{_YOY_CHANGE_PATTERN})[^，。；;\n]{{0,12}}?[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)"
+    rf"|[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)[^，。；;\n]{{0,6}}?(?:的)?(?:{_YOY_CHANGE_PATTERN})",
+    re.IGNORECASE,
+)
+_YOY_COMPARISON_RE = re.compile(
+    r"(?:较|比|相较(?:于)?|对比)\s*(?:\d{4}\s*年?|上年|上一年|去年|上期|前期|同期|年初|期初)"
+    r"|与\s*(?:\d{4}\s*年?|上年|上一年|去年|上期|前期|同期|年初|期初)[^，。；;\n]{0,16}?相比",
+    re.IGNORECASE,
+)
+_RATIO_PERCENTAGE_RE = re.compile(
+    r"(?:占(?!用|款)[^，。；;\n]{0,32}?|(?:占用率|占款比例)[^，。；;\n]{0,16}?)"
+    r"[+\-−]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)",
+    re.IGNORECASE,
+)
+_AMOUNT_NORMALIZATION_RE = re.compile(
+    r"[+\-−]?\d[\d,，]*(?:\.\d+)?\s*"
+    r"(?P<unit>人民币千元|人民币元|千元|万元|百万元|亿元|元|million|billion|thousand)",
+    re.IGNORECASE,
+)
+_AMOUNT_UNIT_SCALES = {
+    "人民币元": 1,
+    "元": 1,
+    "人民币千元": 1_000,
+    "千元": 1_000,
+    "thousand": 1_000,
+    "万元": 10_000,
+    "百万元": 1_000_000,
+    "million": 1_000_000,
+    "亿元": 100_000_000,
+    "billion": 1_000_000_000,
+}
 DERIVED_FINANCIAL_TERMS = (
     "人均",
     # Directly reported per-share fields (EPS/book value per share) are
     # evidence-bound facts, not calculator outputs.  Keep only generic
     # per-share wording here; explicit derived per-share metrics are listed
     # below so they still require a calculator trace.
-    "同比",
-    "环比",
-    "增长率",
-    "增速",
+    *YOY_FINANCIAL_TERMS,
     "占比",
     "毛利率",
     "净利率",
@@ -174,24 +218,61 @@ def _is_runtime_status_reply(reply: str, *, runtime_status_prefixes: tuple[str, 
 
 
 def _financial_claim_text(reply: str) -> str:
+    text = strip_guardrail_diagnostics(reply)
     return "\n".join(
         line
-        for line in (reply or "").splitlines()
+        for line in text.splitlines()
         if "source_type=" not in line and not line.lstrip().startswith(("guardrail_", "claim_verifier_"))
     )
 
 
-def _reply_has_derived_financial_metric(reply: str) -> bool:
+def _calculation_claim_text(text: str) -> str:
     meaningful_lines = []
-    for line in _financial_claim_text(reply).splitlines():
+    for line in _financial_claim_text(text).splitlines():
         lowered_line = line.lower()
         if any(marker in line for marker in NEGATED_DERIVED_TERM_MARKERS) and any(
-            term.lower() in lowered_line for term in DERIVED_FINANCIAL_TERMS
+            term.lower() in lowered_line for term in (*DERIVED_FINANCIAL_TERMS, *DERIVED_PER_SHARE_TERMS)
         ):
             continue
         meaningful_lines.append(line)
-    text = "\n".join(meaningful_lines)
+    return "\n".join(meaningful_lines)
+
+
+def _has_contextual_yoy_change(text: str) -> bool:
+    for line in (text or "").splitlines():
+        if not any(term in line for term in YOY_CHANGE_TERMS):
+            continue
+        if _YOY_PERCENTAGE_CHANGE_RE.search(line) or _YOY_COMPARISON_RE.search(line):
+            return True
+    return False
+
+
+def _has_contextual_ratio(text: str) -> bool:
+    return any(_RATIO_PERCENTAGE_RE.search(line) for line in (text or "").splitlines())
+
+
+def _has_contextual_amount_normalization(text: str) -> bool:
+    for line in (text or "").splitlines():
+        matches = list(_AMOUNT_NORMALIZATION_RE.finditer(line))
+        for previous, current in zip(matches, matches[1:], strict=False):
+            previous_scale = _AMOUNT_UNIT_SCALES.get(previous.group("unit").lower())
+            current_scale = _AMOUNT_UNIT_SCALES.get(current.group("unit").lower())
+            if previous_scale is None or current_scale is None or previous_scale == current_scale:
+                continue
+            connector = re.sub(r"[\s*`_'\"“”‘’]+", "", line[previous.end() : current.start()]).lower()
+            if connector and re.fullmatch(
+                r"[，,；;:]?[（(\[【]?(?:约(?:为)?|折合(?:为)?|换算(?:为|成)?|相当于|即|≈|~|=|＝|→|->)?",
+                connector,
+            ):
+                return True
+    return False
+
+
+def _reply_has_derived_financial_metric(reply: str) -> bool:
+    text = _calculation_claim_text(reply)
     lowered = text.lower()
+    if _has_contextual_yoy_change(text) or _has_contextual_ratio(text) or _has_contextual_amount_normalization(text):
+        return True
     if any(term.lower() in lowered for term in DERIVED_PER_SHARE_TERMS):
         return True
     # A bare "每股" request is ambiguous and remains conservative, but a
@@ -230,16 +311,25 @@ def _reply_has_reconciliation_metric(reply: str) -> bool:
     return "勾稽" in text or ("=" in text and ("原值" in text or "准备" in text))
 
 
-def _required_calculator_operations(message: str, reply: str) -> frozenset[str]:
-    text = f"{_financial_claim_text(message)}\n{_financial_claim_text(reply)}".lower()
+def _required_calculator_operations(
+    message: str,
+    reply: str,
+    *,
+    trusted_evidence: Sequence[Mapping[str, Any]] = (),
+) -> frozenset[str]:
+    message_text = _calculation_claim_text(message)
+    reply_text = _calculation_claim_text(reply)
+    text = f"{message_text}\n{reply_text}".lower()
     operations: set[str] = set()
+    if _has_contextual_amount_normalization(text) or has_evidence_bound_unit_normalization(reply, trusted_evidence):
+        operations.add("normalize_amount")
     if "cagr" in text or "复合增长率" in text:
         operations.add("cagr")
-    if "同比" in text or "环比" in text or "增长率" in text or "增速" in text:
+    if any(term in text for term in YOY_FINANCIAL_TERMS) or _has_contextual_yoy_change(text):
         operations.update({"yoy", "yoy_growth"})
     if "人均" in text or "/人" in text:
         operations.add("per_capita")
-    if any(term in text for term in ("占比", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")):
+    if any(term in text for term in ("占比", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")) or _has_contextual_ratio(text):
         operations.add("ratio")
     return frozenset(operations)
 
@@ -682,14 +772,22 @@ def enforce_financial_evidence_contract(
     # the preserved answer must still carry main statement, body table, and
     # note citations in deterministic priority order.
     reply = deps.append_primary_data_evidence_if_needed(message, context, reply)
-    needs_calculator_trace = _reply_has_derived_financial_metric(message) or _reply_has_derived_financial_metric(reply)
+    needs_calculator_trace = (
+        _reply_has_derived_financial_metric(message)
+        or _reply_has_derived_financial_metric(reply)
+        or has_evidence_bound_unit_normalization(reply, trusted_calculation_evidence)
+    )
     needs_reconciliation_trace = _reply_has_reconciliation_metric(message) or _reply_has_reconciliation_metric(reply)
     calculation_trace = validate_calculation_traces(
         reply,
         expected_identity=agent_runtime_context.research_identity(context),
         require_calculator=needs_calculator_trace,
         require_reconciliation=needs_reconciliation_trace,
-        expected_operations=_required_calculator_operations(message, reply),
+        expected_operations=_required_calculator_operations(
+            message,
+            reply,
+            trusted_evidence=trusted_calculation_evidence,
+        ),
         trusted_runs=trusted_calculation_runs,
         trusted_evidence=trusted_calculation_evidence,
     )

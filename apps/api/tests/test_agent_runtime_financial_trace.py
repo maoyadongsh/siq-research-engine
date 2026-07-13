@@ -57,6 +57,20 @@ def _ratio_payload() -> dict:
     }
 
 
+def _normalize_payload() -> dict:
+    return {
+        "status": "ok",
+        "operation": "normalize_amount",
+        "input": {"value": "4427571", "unit": "千元", "currency": "CNY"},
+        "result": {
+            "native_base_value": "4427571000",
+            "native_100m_value": "44.27571",
+            "cny_base_value": "4427571000",
+            "cny_100m_value": "44.27571",
+        },
+    }
+
+
 def test_extracts_single_allowlisted_current_turn_receipt(tmp_path):
     profile_dir = tmp_path / "profile"
     script = tmp_path / "financial_calculator.py"
@@ -79,6 +93,29 @@ def test_extracts_single_allowlisted_current_turn_receipt(tmp_path):
     assert receipts[0]["operation"] == "ratio"
     assert receipts[0]["receipt_tool_call_id"] == "call-1"
     assert receipts[0]["receipt_source"] == "hermes_session_tool"
+
+
+def test_extracts_allowlisted_amount_normalization_receipt(tmp_path):
+    profile_dir = tmp_path / "profile"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:normalize-session"
+    _write_session(
+        profile_dir,
+        session_id,
+        command=f"python3 {script} --format json normalize --value 4427571 --unit 千元 --currency CNY",
+        output=_normalize_payload(),
+    )
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=profile_dir,
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert len(receipts) == 1
+    assert receipts[0]["operation"] == "normalize_amount"
+    assert receipts[0]["result"]["native_100m_value"] == "44.27571"
 
 
 def test_extracts_only_newest_exact_session_across_profile_roots(tmp_path):

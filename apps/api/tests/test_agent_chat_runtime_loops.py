@@ -728,7 +728,86 @@ def test_midea_evidence_recompute_rejects_reversed_goodwill_equation(monkeypatch
     guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
 
     assert guarded.count("## 计算校验无效") == 1
-    assert "calculation_trace_reason=trace_unstructured" in guarded
+    # The three amount conversions are valid, but the reversed equation still
+    # cannot satisfy the required gross - allowance = net reconciliation.
+    assert "calculation_trace_reason=reconciliation_trace_missing" in guarded
+
+
+def test_midea_evidence_recompute_accepts_visible_fact_rows_without_model_tool_call(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 美的集团 2025-12-31 商誉净额 34,256,859 千元，较 2024-12-31 增长 15.8%。\n\n"
+        "## 商誉明细\n"
+        "| 项目 | 2025-12-31（千元） | 2024-12-31（千元） |\n"
+        "| --- | ---: | ---: |\n"
+        "| 商誉原值（未扣减） | 34,813,270 | 30,150,019 |\n"
+        "| 减:减值准备 | (556,411) | (569,005) |\n"
+        "| 商誉净额 | 34,256,859 | 29,581,014 |\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
+
+    assert "## 计算校验无效" not in guarded
+    assert "## 计算校验缺失" not in guarded
+    assert "guardrail_status=" not in guarded
+
+
+def test_midea_evidence_recompute_rejects_unbound_model_authored_ratio(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 美的集团 2025-12-31 商誉净额 34,256,859 千元，较 2024-12-31 增长 15.8%。\n"
+        "- KUKA 集团 23,435,302 千元，占 68.4%。\n\n"
+        "## 商誉明细\n"
+        "| 项目 | 2025-12-31（千元） | 2024-12-31（千元） |\n"
+        "| --- | ---: | ---: |\n"
+        "| 商誉原值（未扣减） | 34,813,270 | 30,150,019 |\n"
+        "| 减:减值准备 | (556,411) | (569,005) |\n"
+        "| 商誉净额 | 34,256,859 | 29,581,014 |\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
+
+    assert guarded.count("## 计算校验无效") == 1
+    assert "calculation_trace_reason=trace_operation_missing" in guarded
+
+
+def test_saic_split_note_evidence_recompute_accepts_traceable_calculations(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 上汽集团 2025-12-31 商誉净额 1,183,122,320.47 元，"
+        "较 2024-12-31 的 1,198,210,116.59 元降幅 1.26%。\n"
+        "- 华域视觉与上汽通用汽车金融合计 1,114,493,515.41 元，"
+        "占商誉原值 1,282,085,915.36 元的 86.91%。\n\n"
+        "## 勾稽校验\n"
+        "- gross - allowance = 1,282,085,915.36 - 98,963,594.89 "
+        "= 1,183,122,320.47 = 三表商誉净额。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=65, table_index=84, md_line=1840。\n"
+        "[D2] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=165, md_line=4186。\n"
+        "[D3] source_type=wiki_document_links, task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0, "
+        "pdf_page=137, table_index=166, md_line=4196。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析一下上汽集团的商誉", None, reply)
+
+    assert "## 计算校验无效" not in guarded
+    assert "## 计算校验缺失" not in guarded
+    assert "guardrail_status=" not in guarded
 
 
 def test_direct_note_detail_reply_prioritizes_specific_intent_tables():
@@ -1647,19 +1726,16 @@ def test_broad_financial_analysis_gets_core_metric_sources():
     assert "source_type=wiki_metrics" in reply
 
 
-def test_fulltext_financial_fact_gets_primary_data_sources():
+def test_fulltext_ratio_without_bound_inputs_is_blocked_after_source_lookup():
     reply = runtime.enforce_financial_evidence_contract(
         "上汽集团市场占有率是多少？",
         None,
         "## 结论\n- 上汽集团市场占有率为 13.1%。",
     )
 
-    assert "## 引用来源" in reply
-    assert "## 主要数据溯源补充" not in reply
-    assert "## 主要数据引用来源" not in reply
-    assert "市场占有率" in reply
-    assert "source_type=wiki_report_fulltext" in reply
-    assert "md_line=184" in reply
+    assert "## 计算校验缺失" in reply
+    assert "guardrail_reason=financial_calculation_trace_missing" in reply
+    assert "calculation_trace_reason=calculator_trace_missing" in reply
 
 
 def test_wiki_fulltext_fallback_requires_specific_terms_for_halo_goodwill():

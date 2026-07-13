@@ -720,6 +720,112 @@ def test_explicit_not_applicable_calculation_note_does_not_trigger_calculator_gu
     assert "financial_calculation_trace_missing" not in guarded
 
 
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "营业收入 YoY 为 -1.26%。",
+        "营业收入增幅为 1.26%。",
+        "营业收入降幅为 1.26%。",
+        "营业收入增长幅度为 1.26%。",
+        "营业收入下降幅度为 1.26%。",
+    ),
+)
+def test_yoy_wording_requires_yoy_operations(wording):
+    assert guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset({"yoy", "yoy_growth"})
+
+
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "商誉较 2024 年增长 15.8%。",
+        "商誉较2024年下降2.2%。",
+        "商誉上升约 3.0%。",
+        "商誉减少 2.0％。",
+        "营业收入与上年相比增加 100 万元。",
+    ),
+)
+def test_contextual_change_wording_requires_yoy_operations(wording):
+    assert guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset({"yoy", "yoy_growth"})
+
+
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "处置子公司导致商誉减少 0.21 亿元。",
+        "本期商誉增加 1.5 亿元。",
+    ),
+)
+def test_ordinary_amount_change_does_not_require_yoy_operations(wording):
+    assert not guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset()
+
+
+def test_amount_change_followed_by_percentage_share_requires_only_ratio():
+    wording = "商誉减少 0.21 亿元；占总资产的 0.2%。"
+
+    assert guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset({"ratio"})
+
+
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "华域视觉的商誉原值为 11.15 亿元，占商誉原值前两大组合的 86.91%。",
+        "KUKA（商誉原值 8.77 亿元，占 68.4%）。",
+        "研发资金占用率为 5.2%。",
+        "该客户占销售额的 12 个百分点。",
+    ),
+)
+def test_contextual_percentage_share_requires_ratio_operation(wording):
+    assert guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset({"ratio"})
+
+
+@pytest.mark.parametrize(
+    "wording",
+    (
+        "存货占用资金 5 亿元。",
+        "关联方占款 2 亿元。",
+        "资金占用 5 亿元，利率为 3.2%。",
+        "关联方占款 2 亿元；税率为 25%。",
+    ),
+)
+def test_ordinary_occupancy_or_advance_does_not_require_ratio_operation(wording):
+    assert not guard._reply_has_derived_financial_metric(wording)
+    assert guard._required_calculator_operations("", wording) == frozenset()
+
+
+def test_yoy_wording_in_evidence_reference_does_not_trigger_operations():
+    reference = (
+        "[P1] source_type=wiki_metrics metric_name=营业收入 "
+        'quote="营业收入 YoY 降幅为 1.26%" evidence_id=EVID-REV-2025'
+    )
+
+    assert not guard._reply_has_derived_financial_metric(reference)
+    assert guard._required_calculator_operations("", reference) == frozenset()
+
+
+def test_yoy_wording_in_guardrail_diagnostic_does_not_trigger_operations():
+    diagnostic = (
+        "## 计算校验无效\n"
+        "- 后端未能校验 YoY、增幅或下降幅度。\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_calculation_trace_missing"
+    )
+
+    assert not guard._reply_has_derived_financial_metric(diagnostic)
+    assert guard._required_calculator_operations("", diagnostic) == frozenset()
+
+
+def test_negated_yoy_wording_does_not_trigger_operations():
+    note = "不适用：本题仅披露主表原始值，未涉及 YoY、增幅、降幅或增长幅度。"
+
+    assert not guard._reply_has_derived_financial_metric(note)
+    assert guard._required_calculator_operations("", note) == frozenset()
+
+
 def test_enforce_financial_evidence_contract_blocks_forged_99_percent_yoy_marker_trace():
     reply = guard.enforce_financial_evidence_contract(
         "工商银行 2025 年营业收入同比是多少？",
@@ -980,6 +1086,14 @@ def test_detects_derived_financial_metric_case_insensitively():
     assert guard._reply_has_derived_financial_metric("人均营收为 120 万元/人")
     assert guard._reply_has_derived_financial_metric("ROE 为 12.5%，净息差为 1.42%")
     assert not guard._reply_has_derived_financial_metric("营业收入为 12 亿元")
+
+
+def test_detects_cross_unit_amount_normalization_without_flagging_unrelated_amounts():
+    reply = "比亚迪商誉为 4,427,571 千元（约 44.27571 亿元）。"
+
+    assert guard._reply_has_derived_financial_metric(reply)
+    assert guard._required_calculator_operations("查询比亚迪商誉", reply) == frozenset({"normalize_amount"})
+    assert not guard._reply_has_derived_financial_metric("营业收入为 100 亿元，利润为 20 万元。")
 
 
 def test_directly_reported_eps_does_not_require_calculator_trace():

@@ -22,7 +22,9 @@ _SCRIPT_NAMES = frozenset({"financial_calculator.py", "financial_reconciliation_
 _PYTHON_NAMES = frozenset({"python", "python3", "python3.11", "python3.12"})
 _SHELL_META = (";", "&&", "||", "|", ">", "<", "$(", "`", "\x00")
 _SCRIPT_OPERATIONS = {
-    "financial_calculator.py": frozenset({"yoy", "yoy_growth", "ratio", "cagr", "per_capita"}),
+    "financial_calculator.py": frozenset(
+        {"normalize_amount", "yoy", "yoy_growth", "ratio", "cagr", "per_capita"}
+    ),
     "financial_reconciliation_validator.py": frozenset(
         {"goodwill_reconciliation", "gross_allowance_net_reconciliation"}
     ),

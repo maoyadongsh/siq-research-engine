@@ -46,6 +46,24 @@ CANONICAL_METRIC_ALIASES = {
     "goodwill": ("商誉", "goodwill"),
 }
 SAFE_SHORT_METRIC_ALIASES = {"营收", "毛利", "商誉"}
+FOOTNOTE_ALIAS_SUFFIX_RE = re.compile(
+    r"\s*[（(](?:[ivxlcdm]+|\d+|[一二三四五六七八九十]+)[）)]\s*$",
+    re.IGNORECASE,
+)
+ABSOLUTE_CHANGE_CLAIM_TERMS = (
+    "同比",
+    "变动",
+    "增加",
+    "减少",
+    "上升",
+    "下降",
+    "净增",
+    "差异",
+    "计提",
+    "损失",
+    "本期发生",
+    "报告期发生",
+)
 
 UNIT_MULTIPLIERS = {
     "元": ("currency", 1.0),
@@ -130,7 +148,9 @@ CURRENCY_PREFIX_PATTERN = (
 NUMBER_WITH_UNIT_RE = re.compile(
     r"(?<![A-Za-z0-9_])"
     rf"(?:(?P<currency>{CURRENCY_PREFIX_PATTERN})\s*)?"
-    r"(?P<value>[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    r"(?:[（(]\s*)?"
+    r"(?P<value>[+\-−]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    r"(?:\s*[)）])?"
     r"\s*(?P<unit>人民币元/股|港元/股|美元/股|英镑/股|元/股|百万日元|百万韩元|百万英镑|百万円|백만원|"
     r"亿日元|亿韩元|億元|億円|억원|人民币千元|千元|万元|百万元|人民币元|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
     r"billion|million|thousand|per\s+share|百分点|％|%|亿|元|pct)(?![A-Za-z])",
@@ -170,7 +190,9 @@ CURRENCY_ALIASES = {
 
 CALCULATION_TRACE_SCHEMA = "siq_financial_calculation_trace_v1"
 RECONCILIATION_TRACE_SCHEMA = "siq_financial_reconciliation_trace_v1"
-CALCULATOR_OPERATIONS = frozenset({"yoy", "yoy_growth", "ratio", "cagr", "per_capita"})
+CALCULATOR_OPERATIONS = frozenset(
+    {"normalize_amount", "yoy", "yoy_growth", "ratio", "cagr", "per_capita"}
+)
 RECONCILIATION_OPERATIONS = frozenset({"goodwill_reconciliation", "gross_allowance_net_reconciliation"})
 TRACE_SCHEMAS = frozenset({CALCULATION_TRACE_SCHEMA, RECONCILIATION_TRACE_SCHEMA})
 TRACE_RESULT_RELATIVE_TOLERANCE = Decimal("0.000001")
@@ -209,6 +231,7 @@ class NumericClaim:
     period_text: str
     line_number: int
     line: str
+    match_start: int = 0
 
 
 @dataclass(frozen=True)
@@ -261,6 +284,7 @@ class PercentClaimOccurrence:
     line_number: int
     line: str
     match_start: int
+    comparison: str = "exact"
 
 
 def _trace_decimal(value: Any) -> Decimal | None:
@@ -301,13 +325,13 @@ def extract_structured_calculation_runs(reply: str) -> tuple[Mapping[str, Any], 
     return tuple(_trace_json_objects(reply))
 
 
-def _trace_input_records(inputs: Any) -> list[Mapping[str, Any]]:
+def _trace_input_records(inputs: Any) -> list[tuple[str, Mapping[str, Any]]]:
     if not isinstance(inputs, Mapping):
         return []
-    records: list[Mapping[str, Any]] = []
-    for value in inputs.values():
+    records: list[tuple[str, Mapping[str, Any]]] = []
+    for key, value in inputs.items():
         if isinstance(value, Mapping):
-            records.append(value)
+            records.append((str(key), value))
     return records
 
 
@@ -328,7 +352,7 @@ def _trace_input_scale(item: Mapping[str, Any]) -> Decimal | None:
 def _trace_result_value(result: Any) -> Decimal | None:
     if not isinstance(result, Mapping):
         return None
-    for key in ("rate", "ratio", "value", "native_per", "net"):
+    for key in ("rate", "ratio", "value", "native_per", "net", "native_base_value"):
         number = _trace_decimal(result.get(key))
         if number is not None:
             return number
@@ -339,6 +363,16 @@ def _trace_result_value(result: Any) -> Decimal | None:
 def _trace_result_reason(operation: str, result: Any, expected: Decimal) -> str | None:
     if not isinstance(result, Mapping):
         return "trace_result_missing"
+    if operation == "normalize_amount":
+        base_value = _trace_decimal(result.get("native_base_value"))
+        hundred_million_value = _trace_decimal(result.get("native_100m_value"))
+        if base_value is None or hundred_million_value is None:
+            return "trace_result_missing"
+        if not _trace_numbers_close(base_value, expected):
+            return "trace_result_mismatch"
+        if not _trace_numbers_close(hundred_million_value * Decimal("100000000"), expected):
+            return "trace_result_mismatch"
+        return None
     scalar_keys = {
         "yoy": ("rate",),
         "yoy_growth": ("rate",),
@@ -374,6 +408,9 @@ def _trace_numbers_close(actual: Decimal, expected: Decimal) -> bool:
 
 
 def _trace_expected_result(operation: str, inputs: Mapping[str, Any]) -> Decimal | None:
+    if operation == "normalize_amount":
+        amount = inputs.get("amount", {})
+        return _trace_input_scale(amount) if isinstance(amount, Mapping) else None
     if operation in {"yoy", "yoy_growth"}:
         current = _trace_input_scale(inputs.get("current", {})) if isinstance(inputs.get("current"), Mapping) else None
         previous = (
@@ -428,6 +465,13 @@ def _trace_expected_result(operation: str, inputs: Mapping[str, Any]) -> Decimal
 
 
 def _trace_comparable_input_reason(operation: str, inputs: Mapping[str, Any]) -> str | None:
+    if operation == "normalize_amount":
+        amount = inputs.get("amount")
+        if not isinstance(amount, Mapping):
+            return "trace_inputs_missing"
+        if _unit_multiplier(amount.get("unit")) is None:
+            return "trace_input_unit_invalid"
+        return None
     names = {
         "yoy": ("current", "previous"),
         "yoy_growth": ("current", "previous"),
@@ -527,9 +571,15 @@ def _trace_evidence_reason(
     output_period_tokens = set(_period_tokens(payload.get("period")))
     input_period_tokens: set[str] = set()
     input_metrics: list[str] = []
-    for item in _trace_input_records(inputs):
+    references_by_role: dict[str, Mapping[str, Any]] = {}
+    trusted_reference_roles: set[str] = set()
+    for input_role, item in _trace_input_records(inputs):
         # periods is a mathematical scalar, not a report fact.
-        role = str(item.get("role") or "")
+        declared_role = str(item.get("role") or "").strip()
+        period_count_alias = declared_role == "period_count" and input_role in {"periods", "period_count"}
+        if declared_role and declared_role != input_role and not period_count_alias:
+            return "trace_input_role_mismatch"
+        role = "period_count" if period_count_alias else input_role
         if role == "period_count":
             if _trace_decimal(item.get("value")) is None:
                 return "trace_input_invalid"
@@ -542,6 +592,7 @@ def _trace_evidence_reason(
             return "trace_input_invalid"
         evidence_id = str(item.get("evidence_id") or "")
         reference = trusted_by_id.get(evidence_id)
+        is_server_trusted_reference = reference is not None
         if reference is not None:
             if not _trace_visible_locator_matches(reference, visible_references):
                 return "trace_input_source_locator_missing"
@@ -552,6 +603,10 @@ def _trace_evidence_reason(
             if not matches:
                 return "trace_input_evidence_missing"
             reference = matches[0]
+        if role:
+            references_by_role[role] = reference
+            if is_server_trusted_reference:
+                trusted_reference_roles.add(role)
         input_metrics.append(str(item.get("metric") or "").strip().lower())
         input_period_tokens.update(_period_tokens(item.get("period")))
         for field in IDENTITY_FIELDS:
@@ -578,12 +633,27 @@ def _trace_evidence_reason(
         for role, item in inputs.items()
         if isinstance(item, Mapping) and str(item.get("role") or "") != "period_count"
     }
-    if operation in {"yoy", "yoy_growth", "cagr", "per_capita"} and not any(
+    if operation in {"normalize_amount", "yoy", "yoy_growth", "cagr", "per_capita"} and not any(
         metric and metric in output_metric for metric in input_metrics
     ):
         return "trace_metric_mismatch"
     if operation in {"yoy", "yoy_growth"} and metrics_by_role.get("current") != metrics_by_role.get("previous"):
         return "trace_input_metric_mismatch"
+    if operation in {"yoy", "yoy_growth"}:
+        period_roles = ("current", "previous")
+        period_pair = tuple(
+            references_by_role[role]
+            for role in period_roles
+            if role in references_by_role
+        )
+        # Legacy structured/tool traces can carry only displayed evidence
+        # references.  Enforce lineage/scope when the references are bound to
+        # server-resolved evidence; backend recomputation is always in this path.
+        if set(period_roles).issubset(trusted_reference_roles):
+            if len(period_pair) != 2 or not _same_source_lineage(period_pair):
+                return "trace_input_lineage_mismatch"
+            if not _same_financial_scope(period_pair, require_known=False):
+                return "trace_input_scope_mismatch"
     if operation == "cagr" and metrics_by_role.get("start") != metrics_by_role.get("end"):
         return "trace_input_metric_mismatch"
     ratio_roles = {
@@ -599,6 +669,16 @@ def _trace_evidence_reason(
             return "trace_input_metric_mismatch"
         if metrics_by_role.get("denominator") not in denominator_metrics:
             return "trace_input_metric_mismatch"
+    if operation == "ratio":
+        ratio_reference_roles = ("numerator", "denominator")
+        ratio_references = tuple(
+            references_by_role[role]
+            for role in ratio_reference_roles
+            if role in references_by_role
+        )
+        if set(ratio_reference_roles).issubset(trusted_reference_roles):
+            if len(ratio_references) != 2 or not _ratio_scope_compatible(ratio_references):
+                return "trace_input_scope_mismatch"
     if operation in RECONCILIATION_OPERATIONS:
         expected_roles = {
             "gross": ("gross", "original", "cost"),
@@ -608,15 +688,33 @@ def _trace_evidence_reason(
         for role, aliases in expected_roles.items():
             if not any(alias in metrics_by_role.get(role, "") for alias in aliases):
                 return "trace_input_metric_mismatch"
+        reconciliation_roles = ("gross", "allowance", "net")
+        reconciliation_references = tuple(
+            references_by_role[role]
+            for role in reconciliation_roles
+            if role in references_by_role
+        )
+        if set(reconciliation_roles).issubset(trusted_reference_roles):
+            if len(reconciliation_references) != 3 or not _same_financial_scope(
+                reconciliation_references,
+                require_known=True,
+            ):
+                return "trace_input_scope_mismatch"
     return None
 
 
 DERIVED_PERCENT_CLAIM_RE = re.compile(r"(?P<value>[+\-−]?\d+(?:\.\d+)?)\s*(?P<unit>个百分点|百分点|[%％])")
 DERIVED_PERCENT_TERMS = (
     "同比",
+    "yoy",
     "环比",
+    "增长",
+    "下降",
+    "增幅",
+    "降幅",
     "增长率",
     "增速",
+    "占",
     "占比",
     "集中度",
     "毛利率",
@@ -667,6 +765,26 @@ def _percent_claim_occurrences(
         for match in DERIVED_PERCENT_CLAIM_RE.finditer(line):
             value = _percent_decimal(match.group("value"))
             if value is not None:
+                unsigned_value = not match.group("value").lstrip().startswith(("+", "-", "−"))
+                prefix = line[: match.start()]
+                segment_start = max((prefix.rfind(marker) for marker in ("，", ",", "；", ";", "。")), default=-1)
+                direction_context = prefix[segment_start + 1 :].lower()
+                if unsigned_value and any(
+                    term in direction_context for term in ("下降", "减少", "降低", "降幅", "下滑", "decrease")
+                ):
+                    value = -abs(value)
+                comparison_context = re.sub(r"[\s*`_'\"“”‘’~]+", "", direction_context[-32:])
+                if any(comparison_context.endswith(term) for term in ("不高于", "不超过", "至多", "低于", "小于")):
+                    comparison = "upper_bound"
+                elif any(
+                    comparison_context.endswith(term)
+                    for term in ("不低于", "不少于", "至少", "超过", "高于", "大于", "超")
+                ):
+                    comparison = "lower_bound"
+                elif any(comparison_context.endswith(term) for term in ("大约", "约为", "约", "接近", "近")):
+                    comparison = "approximate"
+                else:
+                    comparison = "exact"
                 claims.append(
                     PercentClaimOccurrence(
                         value=value / Decimal("100"),
@@ -675,6 +793,7 @@ def _percent_claim_occurrences(
                         line_number=line_number,
                         line=line,
                         match_start=match.start(),
+                        comparison=comparison,
                     )
                 )
     return tuple(claims)
@@ -690,6 +809,17 @@ def _percent_display_tolerance(occurrence: PercentClaimOccurrence) -> Decimal:
     half_display_quantum = displayed_percent_quantum / Decimal("200")
     business_tolerance = Decimal("0.0005")  # 0.05 percentage points in ratio units.
     return max(half_display_quantum, business_tolerance) + Decimal("1e-12")
+
+
+def _percent_occurrence_matches_expected(occurrence: PercentClaimOccurrence, expected: Decimal) -> bool:
+    if occurrence.comparison == "lower_bound":
+        return expected >= occurrence.value
+    if occurrence.comparison == "upper_bound":
+        return expected <= occurrence.value
+    tolerance = _percent_display_tolerance(occurrence)
+    if occurrence.comparison == "approximate":
+        tolerance = max(tolerance, Decimal("0.005"))
+    return abs(occurrence.value - expected) <= tolerance
 
 
 def _expected_trace_metrics(reply: str) -> frozenset[str]:
@@ -807,16 +937,22 @@ def materialize_runtime_calculation_runs(
             if not isinstance(raw_input, Mapping):
                 continue
             role_specs = {
-                "yoy": (("current", "current_unit"), ("previous", "previous_unit")),
-                "yoy_growth": (("current", "current_unit"), ("previous", "previous_unit")),
-                "ratio": (("numerator", "numerator_unit"), ("denominator", "denominator_unit")),
-                "cagr": (("start", "start_unit"), ("end", "end_unit")),
-                "per_capita": (("amount", "amount_unit"), ("count", "count_unit")),
+                "normalize_amount": (("amount", "value", "unit"),),
+                "yoy": (("current", "current", "current_unit"), ("previous", "previous", "previous_unit")),
+                "yoy_growth": (
+                    ("current", "current", "current_unit"),
+                    ("previous", "previous", "previous_unit"),
+                ),
+                "ratio": (
+                    ("numerator", "numerator", "numerator_unit"),
+                    ("denominator", "denominator", "denominator_unit"),
+                ),
+                "cagr": (("start", "start", "start_unit"), ("end", "end", "end_unit")),
+                "per_capita": (("amount", "amount", "amount_unit"), ("count", "count", "count_unit")),
             }.get(operation, ())
             inputs: dict[str, Any] = {}
             periods: list[str] = []
-            for role, unit_key in role_specs:
-                value_key, unit_name_key = role, unit_key
+            for role, value_key, unit_name_key in role_specs:
                 reference = _trace_reference_for_value(
                     raw_input.get(value_key),
                     raw_input.get(unit_name_key),
@@ -911,6 +1047,61 @@ def _trusted_evidence_metric(reference: Mapping[str, Any]) -> str:
 
 def _trusted_evidence_period(reference: Mapping[str, Any]) -> str:
     return str(reference.get("period_key") or reference.get("period") or "").strip()
+
+
+def _trusted_evidence_scope(reference: Mapping[str, Any]) -> str:
+    value = str(
+        reference.get("financial_scope")
+        or reference.get("statement_scope")
+        or reference.get("scope")
+        or ""
+    ).strip().lower()
+    compact = re.sub(r"[\s_\-]+", "", value)
+    if compact in {"consolidated", "group", "合并", "集团", "合并报表"}:
+        return "consolidated"
+    if compact in {"parent", "parentcompany", "company", "standalone", "separate", "母公司", "公司", "单体"}:
+        return "parent"
+    if compact:
+        return compact
+    return ""
+
+
+def _trusted_evidence_lineage(reference: Mapping[str, Any]) -> str:
+    if lineage := str(reference.get("source_lineage") or "").strip():
+        return lineage
+    task_id = str(reference.get("parse_run_id") or reference.get("task_id") or "").strip()
+    table_index = str(reference.get("table_index") or "").strip()
+    md_line = str(reference.get("md_line") or "").strip()
+    if not task_id or not (table_index or md_line):
+        return ""
+    return f"{task_id}|{table_index}|{md_line}"
+
+
+def _same_financial_scope(
+    references: Sequence[Mapping[str, Any]],
+    *,
+    require_known: bool,
+) -> bool:
+    scopes = [_trusted_evidence_scope(reference) for reference in references]
+    if require_known and not all(scopes):
+        return False
+    known_scopes = {scope for scope in scopes if scope}
+    return len(known_scopes) <= 1 and (not any(scopes) or all(scopes))
+
+
+def _same_source_lineage(references: Sequence[Mapping[str, Any]]) -> bool:
+    lineages = [_trusted_evidence_lineage(reference) for reference in references]
+    return bool(lineages) and all(lineages) and len(set(lineages)) == 1
+
+
+def _ratio_scope_compatible(references: Sequence[Mapping[str, Any]]) -> bool:
+    """Allow same-table ratios, or cross-table ratios with explicit equal scope."""
+
+    return (
+        _same_financial_scope(references, require_known=False)
+        if _same_source_lineage(references)
+        else _same_financial_scope(references, require_known=True)
+    )
 
 
 def _trusted_evidence_value(reference: Mapping[str, Any]) -> Decimal | None:
@@ -1041,6 +1232,86 @@ def _occurrence_period_matches(
     return nearest.group(1) in expected_tokens
 
 
+def _derived_sum_ratio_formula_matches(
+    line: str,
+    numerator: Mapping[str, Any],
+    denominator: Mapping[str, Any],
+    references: Sequence[Mapping[str, Any]],
+) -> bool:
+    source_ids = numerator.get("derived_from_evidence_ids")
+    if not isinstance(source_ids, Sequence) or isinstance(source_ids, (str, bytes)) or len(source_ids) < 2:
+        return False
+    references_by_id = {str(item.get("evidence_id") or ""): item for item in references}
+    source_references = [references_by_id.get(str(evidence_id or "")) for evidence_id in source_ids]
+    if not all(isinstance(item, Mapping) for item in source_references):
+        return False
+
+    normalized_numerator = _normalized_amount(
+        numerator.get("value", numerator.get("raw_value")),
+        numerator.get("unit") or numerator.get("currency"),
+        scale=numerator.get("scale"),
+    )
+    normalized_sources = [
+        _normalized_amount(
+            item.get("value", item.get("raw_value")),
+            item.get("unit") or item.get("currency"),
+            scale=item.get("scale"),
+        )
+        for item in source_references
+        if isinstance(item, Mapping)
+    ]
+    if (
+        normalized_numerator is None
+        or any(item is None or item[1] != normalized_numerator[1] for item in normalized_sources)
+        or abs(sum(item[0] for item in normalized_sources if item is not None) - normalized_numerator[0])
+        > max(0.01, abs(normalized_numerator[0]) * 0.000001)
+    ):
+        return False
+
+    for division in re.finditer(r"[/÷]", line):
+        equals = re.search(r"[=＝]", line[division.end() :])
+        if equals is None:
+            continue
+        equals_start = division.end() + equals.start()
+        source_spans: list[tuple[int, int]] = []
+        for reference in source_references:
+            spans = [span for span in _trusted_value_occurrences(line, reference) if span[1] <= division.start()]
+            if len(spans) != 1:
+                break
+            source_spans.append(spans[0])
+        else:
+            denominator_spans = [
+                span
+                for span in _trusted_value_occurrences(line, denominator)
+                if division.end() <= span[0] and span[1] <= equals_start
+            ]
+            if len(denominator_spans) != 1:
+                continue
+            denominator_span = denominator_spans[0]
+            ordered_sources = sorted(source_spans)
+            if len(set(ordered_sources)) != len(ordered_sources):
+                continue
+            formula_start = ordered_sources[0][0]
+            numeric_spans = [
+                _normalized_number_span(match, line)
+                for match in PLAIN_CALC_NUMBER_RE.finditer(line)
+                if formula_start <= _normalized_number_span(match, line)[0]
+                and _normalized_number_span(match, line)[1] <= equals_start
+            ]
+            if numeric_spans != [*ordered_sources, denominator_span]:
+                continue
+            numerator_expression = line[formula_start : division.start()]
+            if len(re.findall(r"\+", numerator_expression)) != len(ordered_sources) - 1:
+                continue
+            if re.search(r"[-−*/×÷]", numerator_expression):
+                continue
+            denominator_expression = line[division.end() : equals_start]
+            if re.search(r"[+\-−*/×÷]", denominator_expression):
+                continue
+            return True
+    return False
+
+
 def _matching_percent_occurrences(
     occurrences: Sequence[PercentClaimOccurrence],
     *,
@@ -1050,26 +1321,47 @@ def _matching_percent_occurrences(
     secondary: Mapping[str, Any],
     all_references: Sequence[Mapping[str, Any]],
     output_metric: str = "",
+    visible_reply: str = "",
 ) -> tuple[PercentClaimOccurrence, ...]:
     output_aliases = DERIVED_METRIC_REPLY_ALIASES.get(output_metric, ())
     matches: list[PercentClaimOccurrence] = []
     for occurrence in occurrences:
-        if occurrence.is_percentage_point or abs(occurrence.value - expected) > _percent_display_tolerance(occurrence):
-            continue
-        if not _occurrence_period_matches(occurrence, (primary,)):
+        if occurrence.is_percentage_point or not _percent_occurrence_matches_expected(occurrence, expected):
             continue
         line = occurrence.line
-        primary_value_bound = _line_contains_trusted_value(line, primary)
+        direct_primary_value_bound = _line_contains_trusted_value(line, primary)
+        derived_sum_formula_bound = operation == "ratio" and _derived_sum_ratio_formula_matches(
+            line,
+            primary,
+            secondary,
+            all_references,
+        )
+        primary_value_bound = direct_primary_value_bound or derived_sum_formula_bound
         secondary_value_bound = _line_contains_trusted_value(line, secondary)
-        pair_metrics = {
-            _trusted_evidence_metric(primary).lower(),
-            _trusted_evidence_metric(secondary).lower(),
-        }
+        reply_operands_bound = all(
+            any(
+                "source_type=" not in visible_line
+                and "schema_version" not in visible_line
+                and _line_mentions_reference(visible_line, reference)
+                and _line_contains_trusted_value(visible_line, reference)
+                for visible_line in visible_reply.splitlines()
+            )
+            for reference in (primary, secondary)
+        )
+        period_references = (
+            (primary, secondary)
+            if operation in {"yoy", "yoy_growth"}
+            and ((primary_value_bound and secondary_value_bound) or reply_operands_bound)
+            else (primary,)
+        )
+        if not _occurrence_period_matches(occurrence, period_references):
+            continue
+        primary_metric = _trusted_evidence_metric(primary).lower()
         semantic_metrics = _occurrence_nearest_metrics(occurrence, all_references) | _occurrence_subject_metrics(
             occurrence,
             all_references,
         )
-        semantic_bound = bool(pair_metrics.intersection(semantic_metrics))
+        semantic_bound = primary_metric in semantic_metrics
         output_bound = any(_compact_semantic_text(alias) in _compact_semantic_text(line) for alias in output_aliases)
         if operation in {"yoy", "yoy_growth"}:
             # Both periods share one metric, so one metric label plus a derived
@@ -1080,9 +1372,33 @@ def _matching_percent_occurrences(
             if not ((primary_value_bound and secondary_value_bound) or (semantic_bound and yoy_context)):
                 continue
         elif operation == "ratio":
-            ratio_context = any(term in line.lower() for term in ("占比", "集中度", "比率", "ratio", "/"))
-            if not (
-                output_bound or (primary_value_bound and secondary_value_bound) or (semantic_bound and ratio_context)
+            ratio_context = any(
+                term in line.lower()
+                for term in (
+                    "占",
+                    "集中度",
+                    "比率",
+                    "毛利率",
+                    "净利率",
+                    "资产负债率",
+                    "收益率",
+                    "回报率",
+                    "净息差",
+                    "ratio",
+                    "/",
+                )
+            )
+            expanded_derived_formula = bool(primary.get("derived_from_evidence_ids")) and any(
+                operator in line for operator in ("/", "÷")
+            )
+            component_sum_semantic_bound = "component_sum" in primary_metric and (
+                semantic_bound or _line_mentions_reference(line, primary)
+            )
+            semantic_ratio_bound = component_sum_semantic_bound and not (
+                expanded_derived_formula and not direct_primary_value_bound
+            )
+            if not ratio_context or not (
+                output_bound or (primary_value_bound and secondary_value_bound) or semantic_ratio_bound
             ):
                 continue
         else:
@@ -1196,40 +1512,42 @@ def _reconciliation_equation_clause_matches(
     net: Mapping[str, Any],
 ) -> bool:
     equals_matches = list(re.finditer(r"[=＝]", clause))
-    if len(equals_matches) != 1:
+    if not equals_matches:
         return False
-    equals = equals_matches[0]
-    gross_occurrences = [span for span in _trusted_value_occurrences(clause, gross) if span[1] <= equals.start()]
-    allowance_occurrences = [
-        span for span in _trusted_value_occurrences(clause, allowance) if span[1] <= equals.start()
-    ]
-    net_occurrences = [span for span in _trusted_value_occurrences(clause, net) if span[0] >= equals.end()]
+    gross_occurrences = _trusted_value_occurrences(clause, gross)
+    allowance_occurrences = _trusted_value_occurrences(clause, allowance)
+    net_occurrences = _trusted_value_occurrences(clause, net)
     numeric_spans = tuple(_normalized_number_span(match, clause) for match in PLAIN_CALC_NUMBER_RE.finditer(clause))
-    for gross_span in gross_occurrences:
-        for allowance_span in allowance_occurrences:
-            for net_span in net_occurrences:
-                if not (gross_span[1] <= allowance_span[0] <= equals.start() <= net_span[0]):
-                    continue
-                equation_numbers = [
-                    span for span in numeric_spans if gross_span[0] <= span[0] and span[1] <= net_span[1]
-                ]
-                if equation_numbers != [gross_span, allowance_span, net_span]:
-                    continue
-                if any(
-                    span[0] >= net_span[1] and not _is_inline_reference_or_period_number(clause, span)
-                    for span in numeric_spans
-                ):
-                    continue
-                between_operands = clause[gross_span[1] : allowance_span[0]]
-                after_allowance = clause[allowance_span[1] : equals.start()]
-                before_net = clause[equals.end() : net_span[0]]
-                if len(re.findall(r"[−-]", between_operands)) != 1:
-                    continue
-                if re.search(r"[+*/×÷]", between_operands + after_allowance + before_net):
-                    continue
-                if re.search(r"[−-]", after_allowance + before_net):
-                    continue
-                return True
+    for equals in equals_matches:
+        gross_before_equals = [span for span in gross_occurrences if span[1] <= equals.start()]
+        allowance_before_equals = [span for span in allowance_occurrences if span[1] <= equals.start()]
+        net_after_equals = [span for span in net_occurrences if span[0] >= equals.end()]
+        for gross_span in gross_before_equals:
+            for allowance_span in allowance_before_equals:
+                for net_span in net_after_equals:
+                    if not (gross_span[1] <= allowance_span[0] <= equals.start() <= net_span[0]):
+                        continue
+                    bound_numbers = [gross_span, allowance_span, net_span]
+                    equation_numbers = [
+                        span for span in numeric_spans if gross_span[0] <= span[0] and span[1] <= net_span[1]
+                    ]
+                    if equation_numbers != bound_numbers:
+                        continue
+                    if any(
+                        span not in bound_numbers and not _is_inline_reference_or_period_number(clause, span)
+                        for span in numeric_spans
+                    ):
+                        continue
+                    between_operands = clause[gross_span[1] : allowance_span[0]]
+                    after_allowance = clause[allowance_span[1] : equals.start()]
+                    before_net = clause[equals.end() : net_span[0]]
+                    if len(re.findall(r"[−-]", between_operands)) != 1:
+                        continue
+                    if re.search(r"[+*/×÷]", between_operands + after_allowance + before_net):
+                        continue
+                    if re.search(r"[-−=＝]", after_allowance + before_net):
+                        continue
+                    return True
     return False
 
 
@@ -1246,10 +1564,75 @@ def _reconciliation_equation_line(
     return None
 
 
+RECONCILIATION_ROLE_TERMS = {
+    "gross": ("账面原值", "商誉原值", "原值小计", "gross"),
+    "allowance": ("减值准备", "商誉减值", "allowance", "impairment", "provision"),
+    "net": ("账面净值", "商誉净值", "商誉净额", "账面净额", "账面价值", "net"),
+}
+
+
+def _reconciliation_fact_line_matches(
+    line: str,
+    reference: Mapping[str, Any],
+    role: str,
+) -> bool:
+    """Bind one visible fact row to one trusted reconciliation role."""
+
+    if not line.strip() or "source_type=" in line or "schema_version" in line:
+        return False
+    compact_line = _compact_semantic_text(line)
+    role_terms = RECONCILIATION_ROLE_TERMS[role]
+    if not any(_compact_semantic_text(term) in compact_line for term in role_terms):
+        return False
+    if any(
+        _compact_semantic_text(term) in compact_line
+        for peer_role, terms in RECONCILIATION_ROLE_TERMS.items()
+        if peer_role != role
+        for term in terms
+    ):
+        return False
+    return bool(_trusted_value_occurrences(line, reference))
+
+
+def _reconciliation_fact_block_line(
+    reply: str,
+    gross: Mapping[str, Any],
+    allowance: Mapping[str, Any],
+    net: Mapping[str, Any],
+) -> int | None:
+    """Find adjacent, role-bound gross/allowance/net rows in visible answer text."""
+
+    lines = (reply or "").splitlines()
+    references = (("gross", gross), ("allowance", allowance), ("net", net))
+    matched_lines: list[list[int]] = [[], [], []]
+    for line_number, line in enumerate(lines, start=1):
+        for index, (role, reference) in enumerate(references):
+            if _reconciliation_fact_line_matches(line, reference, role):
+                matched_lines[index].append(line_number)
+
+    for gross_line in matched_lines[0]:
+        for allowance_line in matched_lines[1]:
+            for net_line in matched_lines[2]:
+                if (allowance_line, net_line) != (gross_line + 1, gross_line + 2):
+                    continue
+                fact_rows = lines[gross_line - 1 : net_line]
+                is_markdown_table = all("|" in row for row in fact_rows)
+                is_adjacent_text = all(row.strip() and not row.lstrip().startswith("#") for row in fact_rows)
+                if is_markdown_table or is_adjacent_text:
+                    return gross_line
+    return None
+
+
 def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, Any]) -> bool:
+    if str(numerator.get("evidence_id") or "") == str(denominator.get("evidence_id") or ""):
+        return False
     numerator_metric = _trusted_evidence_metric(numerator).lower()
     denominator_metric = _trusted_evidence_metric(denominator).lower()
-    if "goodwill" in numerator_metric and "goodwill_gross" in denominator_metric:
+    if (
+        denominator_metric == "goodwill_gross"
+        and numerator_metric.startswith("goodwill_component_")
+        and not numerator_metric.endswith("_absolute_change")
+    ):
         return True
     known_pairs = {
         "gross_margin": ({"gross_profit"}, {"revenue", "operating_revenue", "total_operating_revenue"}),
@@ -1299,6 +1682,44 @@ def materialize_evidence_bound_calculation_runs(
     materialized: list[Mapping[str, Any]] = []
     seen: set[tuple[str, ...]] = set()
 
+    if not expected_operations or "normalize_amount" in expected_operations:
+        for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, evidence):
+            tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+            if abs(claim.normalized_value - fact.normalized_value) > tolerance:
+                continue
+            inputs = {"amount": _trusted_trace_input(reference, "amount")}
+            expected = _trace_expected_result("normalize_amount", inputs)
+            if expected is None:
+                continue
+            key = (
+                "normalize_amount",
+                inputs["amount"]["evidence_id"],
+                str(claim.line_number),
+                str(claim.match_start),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            materialized.append(
+                {
+                    "schema_version": CALCULATION_TRACE_SCHEMA,
+                    "tool": "financial_calculator.py",
+                    "operation": "normalize_amount",
+                    "metric": inputs["amount"]["metric"],
+                    "period": inputs["amount"]["period"],
+                    "inputs": inputs,
+                    "result": {
+                        "native_base_value": str(expected),
+                        "native_100m_value": str(expected / Decimal("100000000")),
+                    },
+                    "research_identity": identity,
+                    "trace_origin": "backend_evidence_recompute",
+                    "display_line_number": claim.line_number,
+                    "display_match_start": claim.match_start,
+                    "display_claim": str(claim.value),
+                }
+            )
+
     if not expected_operations or expected_operations.intersection({"yoy", "yoy_growth"}):
         by_metric: dict[str, list[Mapping[str, Any]]] = {}
         for reference in evidence:
@@ -1308,6 +1729,10 @@ def materialize_evidence_bound_calculation_runs(
             for previous_index, previous in enumerate(ordered):
                 for current in ordered[previous_index + 1 :]:
                     if _trusted_evidence_period(previous) == _trusted_evidence_period(current):
+                        continue
+                    if not _same_source_lineage((previous, current)):
+                        continue
+                    if not _same_financial_scope((previous, current), require_known=False):
                         continue
                     previous_year = _trace_period_sort_key(previous)[0]
                     current_year = _trace_period_sort_key(current)[0]
@@ -1327,6 +1752,7 @@ def materialize_evidence_bound_calculation_runs(
                         primary=current,
                         secondary=previous,
                         all_references=evidence,
+                        visible_reply=reply,
                     )
                     for claim in matching_claims:
                         key = (
@@ -1361,6 +1787,8 @@ def materialize_evidence_bound_calculation_runs(
             for numerator in evidence:
                 if _trusted_evidence_period(numerator) != _trusted_evidence_period(denominator):
                     continue
+                if not _ratio_scope_compatible((numerator, denominator)):
+                    continue
                 if not _ratio_pair_allowed(numerator, denominator):
                     continue
                 inputs = {
@@ -1379,6 +1807,7 @@ def materialize_evidence_bound_calculation_runs(
                     secondary=denominator,
                     all_references=evidence,
                     output_metric=output_metric,
+                    visible_reply=reply,
                 )
                 for claim in matching_claims:
                     key = (
@@ -1423,8 +1852,12 @@ def materialize_evidence_bound_calculation_runs(
             for allowance in allowance_records:
                 for net in net_records:
                     periods = {_trusted_evidence_period(item) for item in (gross, allowance, net)}
-                    equation_line = _reconciliation_equation_line(reply, gross, allowance, net)
-                    if len(periods) != 1 or equation_line is None:
+                    if not _same_financial_scope((gross, allowance, net), require_known=True):
+                        continue
+                    display_line = _reconciliation_equation_line(reply, gross, allowance, net)
+                    if display_line is None:
+                        display_line = _reconciliation_fact_block_line(reply, gross, allowance, net)
+                    if len(periods) != 1 or display_line is None:
                         continue
                     inputs = {
                         "gross": _trusted_trace_input(gross, "gross"),
@@ -1450,7 +1883,7 @@ def materialize_evidence_bound_calculation_runs(
                             "status": "passed",
                             "research_identity": identity,
                             "trace_origin": "backend_evidence_recompute",
-                            "display_line_number": equation_line,
+                            "display_line_number": display_line,
                         }
                     )
     return tuple(materialized)
@@ -1566,8 +1999,7 @@ def validate_calculation_traces(
             ]
         else:
             candidate_results = calculator_results
-        display_tolerance = _percent_display_tolerance(occurrence)
-        direct_match = any(abs(occurrence.value - result) <= display_tolerance for result in candidate_results)
+        direct_match = any(_percent_occurrence_matches_expected(occurrence, result) for result in candidate_results)
         difference_candidates = (
             [
                 result
@@ -1578,12 +2010,29 @@ def validate_calculation_traces(
             else candidate_results
         )
         difference_match = occurrence.is_percentage_point and any(
-            abs(occurrence.value - (left - right)) <= display_tolerance
+            _percent_occurrence_matches_expected(occurrence, left - right)
             for left in difference_candidates
             for right in difference_candidates
         )
         if not (direct_match or difference_match):
             return CalculationTraceValidation(True, False, "trace_claim_result_mismatch", runs)
+    normalization_runs = [run for run in runs if str(run.get("operation") or "").lower() == "normalize_amount"]
+    if normalization_runs:
+        for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, trusted_evidence):
+            evidence_id = str(reference.get("evidence_id") or "")
+            expected_values = [
+                _trace_expected_result("normalize_amount", run.get("inputs", {}))
+                for run in normalization_runs
+                if isinstance(run.get("inputs"), Mapping)
+                and isinstance(run.get("inputs", {}).get("amount"), Mapping)
+                and str(run.get("inputs", {}).get("amount", {}).get("evidence_id") or "") == evidence_id
+            ]
+            tolerance = Decimal(str(_display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)))
+            claimed = Decimal(str(claim.normalized_value))
+            if not any(
+                expected is not None and abs(claimed - expected) <= tolerance for expected in expected_values
+            ):
+                return CalculationTraceValidation(True, False, "trace_claim_result_mismatch", runs)
     return CalculationTraceValidation(True, True, runs=runs)
 
 
@@ -1770,6 +2219,12 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
     if isinstance(extra_aliases, Sequence) and not isinstance(extra_aliases, (str, bytes)):
         aliases.extend(str(alias or "").strip() for alias in extra_aliases)
     metric = str(fact.get("metric") or fact.get("canonical_name") or "").lower()
+    if "component_sum" in metric:
+        for alias in tuple(aliases):
+            if "+" not in alias:
+                continue
+            for connector in ("与", "和", "及"):
+                aliases.append(re.sub(r"\s*\+\s*", connector, alias))
     if metric.endswith("_absolute_change"):
         base_aliases: set[str] = set()
         for alias in aliases:
@@ -1786,15 +2241,34 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
                     f"{base}本期减少",
                     f"{base}本年增加",
                     f"{base}本年减少",
+                    f"{base}计提",
+                    f"{base}损失",
+                    f"{base}本期发生",
+                    f"{base}报告期发生",
                 )
             )
         aliases.extend(("本期增加", "本期减少", "本年增加", "本年减少"))
+    footnote_short_aliases: set[str] = set()
+    for alias in tuple(aliases):
+        stripped = FOOTNOTE_ALIAS_SUFFIX_RE.sub("", alias).strip()
+        compact = re.sub(r"\s+", "", stripped.lower())
+        if stripped != alias.strip() and len(compact) >= 2:
+            aliases.append(stripped)
+            footnote_short_aliases.add(compact)
     compact_seen: set[str] = set()
     result: list[str] = []
     for alias in aliases:
         normalized = alias.strip()
         compact = re.sub(r"\s+", "", normalized.lower())
-        if not normalized or (len(compact) < 3 and compact not in SAFE_SHORT_METRIC_ALIASES) or compact in compact_seen:
+        if (
+            not normalized
+            or (
+                len(compact) < 3
+                and compact not in SAFE_SHORT_METRIC_ALIASES
+                and compact not in footnote_short_aliases
+            )
+            or compact in compact_seen
+        ):
             continue
         compact_seen.add(compact)
         result.append(normalized)
@@ -2055,15 +2529,31 @@ def _claim_clauses(line: str) -> tuple[str, ...]:
     return clauses or (line,)
 
 
-def _alias_match_score(clause: str, amount_start: int, fact: EvidenceFact) -> tuple[int, int, int] | None:
+def _alias_match_score(
+    clause: str,
+    amount_start: int,
+    fact: EvidenceFact,
+    *,
+    amount_end: int | None = None,
+) -> tuple[int, int, int] | None:
     compact_clause_chars: list[str] = []
+    compact_source_positions: list[int] = []
     compact_amount_start = 0
+    compact_amount_end = 0
     for index, char in enumerate(clause.lower()):
         if char.isalnum() or "\u4e00" <= char <= "\u9fff":
             compact_clause_chars.append(char)
+            compact_source_positions.append(index)
             if index < amount_start:
                 compact_amount_start += 1
+            if amount_end is not None and index < amount_end:
+                compact_amount_end += 1
     compact_clause = "".join(compact_clause_chars)
+    annotated_bases = {
+        _compact_semantic_text(FOOTNOTE_ALIAS_SUFFIX_RE.sub("", alias))
+        for alias in fact.aliases
+        if FOOTNOTE_ALIAS_SUFFIX_RE.search(alias)
+    }
     best: tuple[int, int, int] | None = None
     for alias in fact.aliases:
         compact_alias = _compact_semantic_text(alias)
@@ -2072,9 +2562,27 @@ def _alias_match_score(clause: str, amount_start: int, fact: EvidenceFact) -> tu
         start = compact_clause.find(compact_alias)
         while start >= 0:
             end = start + len(compact_alias)
+            raw_alias_end = compact_source_positions[end - 1] + 1
+            footnote_match = FOOTNOTE_ALIAS_SUFFIX_RE.search(alias)
+            if footnote_match and not clause[raw_alias_end:].lstrip().startswith((")", "）")):
+                start = compact_clause.find(compact_alias, start + 1)
+                continue
+            if compact_alias in annotated_bases and re.match(
+                r"\s*[（(](?:[ivxlcdm]+|\d+|[一二三四五六七八九十]+)[）)]",
+                clause[raw_alias_end:],
+                re.IGNORECASE,
+            ):
+                start = compact_clause.find(compact_alias, start + 1)
+                continue
             if end <= compact_amount_start:
                 score = (0, compact_amount_start - end, -len(compact_alias))
             else:
+                if amount_end is not None and start >= compact_amount_end:
+                    raw_alias_start = compact_source_positions[start]
+                    between = re.sub(r"[\s*`_'\"“”‘’]+", "", clause[amount_end:raw_alias_start])
+                    if between not in {"(", "（", "[", "【"}:
+                        start = compact_clause.find(compact_alias, start + 1)
+                        continue
                 score = (1, start - compact_amount_start, -len(compact_alias))
             if best is None or score < best:
                 best = score
@@ -2090,17 +2598,24 @@ def _fact_for_amount(
     value_text: str,
     unit: str,
     facts: tuple[EvidenceFact, ...],
+    *,
+    amount_end: int | None = None,
 ) -> EvidenceFact | None:
     candidates: list[tuple[tuple[int, int, int], float, int, EvidenceFact]] = []
     for index, fact in enumerate(facts):
         if fact.value_category != category:
             continue
-        score = _alias_match_score(clause, amount_start, fact)
+        score = _alias_match_score(clause, amount_start, fact, amount_end=amount_end)
         if score is not None:
             candidates.append((score, abs(normalized_value - fact.normalized_value), index, fact))
     if not candidates:
         return None
-    if any(term in clause for term in ("同比", "变动", "增加", "减少", "上升", "下降", "净增", "差异")):
+    best_semantic_score = min(candidate[0] for candidate in candidates)
+    best_metrics = {candidate[3].metric for candidate in candidates if candidate[0] == best_semantic_score}
+    if len(best_metrics) != 1:
+        return None
+    candidates = [candidate for candidate in candidates if candidate[3].metric in best_metrics]
+    if any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
         change_candidates = [
             candidate
             for candidate in candidates
@@ -2151,6 +2666,35 @@ def _parallel_fact_assignments(
     return tuple(ordered_facts)
 
 
+def _is_same_metric_unit_restatement(
+    clause: str,
+    previous_match: re.Match[str],
+    current_match: re.Match[str],
+) -> bool:
+    previous_multiplier = _unit_multiplier(previous_match.group("unit"))
+    current_multiplier = _unit_multiplier(current_match.group("unit"))
+    if (
+        previous_multiplier is None
+        or current_multiplier is None
+        or previous_multiplier[0] != current_multiplier[0]
+        or previous_multiplier[1] == current_multiplier[1]
+    ):
+        return False
+    connector = re.sub(
+        r"[\s*`_'\"“”‘’]+",
+        "",
+        clause[previous_match.end() : current_match.start()],
+    ).lower()
+    if not connector:
+        return False
+    return bool(
+        re.fullmatch(
+            r"[，,；;:]?[（(\[【]?(?:约(?:为)?|折合(?:为)?|换算(?:为|成)?|相当于|即|≈|~|=|＝|→|->)?",
+            connector,
+        )
+    )
+
+
 def _extract_claims(
     reply: str,
     facts: tuple[EvidenceFact, ...],
@@ -2164,6 +2708,7 @@ def _extract_claims(
         for clause in _claim_clauses(line):
             matches = list(NUMBER_WITH_UNIT_RE.finditer(clause))
             parallel_facts = _parallel_fact_assignments(clause, matches, facts)
+            resolved_facts: list[EvidenceFact | None] = [None] * len(matches)
             for match_index, match in enumerate(matches):
                 clause_period_tokens = _nearest_preceding_period_tokens(clause, match.start())
                 value = _clean_number(match.group("value"))
@@ -2174,6 +2719,27 @@ def _extract_claims(
                 normalized_value, category = normalized
                 fact = parallel_facts[match_index] if parallel_facts is not None else None
                 if fact is None:
+                    local_start = matches[match_index - 1].end() if match_index else 0
+                    local_end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(clause)
+                    fact = _fact_for_amount(
+                        clause[local_start:local_end],
+                        match.start() - local_start,
+                        category,
+                        normalized_value,
+                        match.group("value"),
+                        unit,
+                        facts,
+                        amount_end=match.end() - local_start,
+                    )
+                if (
+                    fact is None
+                    and match_index > 0
+                    and resolved_facts[match_index - 1] is not None
+                    and _is_same_metric_unit_restatement(clause, matches[match_index - 1], match)
+                ):
+                    fact = resolved_facts[match_index - 1]
+                if fact is None and any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
+                    change_facts = tuple(item for item in facts if item.metric.endswith("_absolute_change"))
                     fact = _fact_for_amount(
                         clause,
                         match.start(),
@@ -2181,8 +2747,10 @@ def _extract_claims(
                         normalized_value,
                         match.group("value"),
                         unit,
-                        facts,
+                        change_facts,
+                        amount_end=match.end(),
                     )
+                resolved_facts[match_index] = fact
                 if fact is None:
                     continue
                 key = (line_number, fact.metric, normalized_value, unit)
@@ -2202,9 +2770,78 @@ def _extract_claims(
                         period_text=_period_text(clause_period_tokens),
                         line_number=line_number,
                         line=line,
+                        match_start=match.start(),
                     )
                 )
     return tuple(claims)
+
+
+def _evidence_bound_unit_normalization_claims(
+    reply: str,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+) -> tuple[tuple[NumericClaim, Mapping[str, Any], EvidenceFact], ...]:
+    visible_references = _extract_source_references(reply)
+    reference_by_evidence_id: dict[str, Mapping[str, Any]] = {}
+    fact_references: list[dict[str, Any]] = []
+    for item in trusted_evidence:
+        if not isinstance(item, Mapping) or not item.get("evidence_id"):
+            continue
+        if not _trace_visible_locator_matches(item, visible_references):
+            continue
+        reference = dict(item)
+        source_type = str(reference.get("source_type") or "").lower()
+        if not (source_type.startswith("wiki") or source_type.startswith("postgres")):
+            reference["source_type"] = "wiki_metrics"
+        evidence_id = str(reference.get("evidence_id") or "")
+        reference_by_evidence_id[evidence_id] = item
+        fact_references.append(reference)
+    if not fact_references:
+        return ()
+
+    facts = _reference_facts(reply, references=fact_references)
+    claims = _extract_claims(reply, facts)
+    bindings: list[tuple[NumericClaim, Mapping[str, Any], EvidenceFact]] = []
+    seen: set[tuple[int, int, str]] = set()
+    for claim in claims:
+        candidates: list[tuple[float, EvidenceFact, Mapping[str, Any]]] = []
+        for fact in facts:
+            if fact.metric != claim.metric or fact.value_category != claim.value_category:
+                continue
+            if claim.period_tokens:
+                fact_tokens = _period_tokens(fact.period)
+                if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
+                    continue
+            reference = reference_by_evidence_id.get(fact.evidence_id)
+            if reference is None:
+                continue
+            source_scale = _normalized_amount(1, fact.unit, scale=reference.get("scale"))
+            claim_scale = _normalized_amount(1, claim.unit)
+            if (
+                source_scale is None
+                or claim_scale is None
+                or source_scale[1] != claim_scale[1]
+                or math.isclose(source_scale[0], claim_scale[0], rel_tol=0.0, abs_tol=1e-12)
+            ):
+                continue
+            candidates.append((abs(claim.normalized_value - fact.normalized_value), fact, reference))
+        if not candidates:
+            continue
+        _distance, fact, reference = min(candidates, key=lambda item: item[0])
+        key = (claim.line_number, claim.match_start, fact.evidence_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        bindings.append((claim, reference, fact))
+    return tuple(bindings)
+
+
+def has_evidence_bound_unit_normalization(
+    reply: str,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Return whether a visible amount restates trusted evidence in another unit."""
+
+    return bool(_evidence_bound_unit_normalization_claims(reply, trusted_evidence))
 
 
 def _matches_evidence(claim: NumericClaim, fact: EvidenceFact) -> bool:
