@@ -226,6 +226,7 @@ jobs:
             scripts/meeting/meeting_contract_baseline.py verify \
             --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
             --candidate-ref 6727ce3441f2415c7e6dbc65f78c9e1983941168 \
+            --python apps/api/.venv/bin/python \
             --report artifacts/meeting/m0/baseline-self-verify.json
 
       - name: Verify candidate against pre-meeting baseline
@@ -236,12 +237,14 @@ jobs:
             --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
             --approved-delta scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json \
             --candidate-ref 679d456fe3c8e8ce8e3e1d003453cd8f221e7357 \
+            --python apps/api/.venv/bin/python \
             --report artifacts/meeting/m0/reviewed-source-contract-verify.json
           uv run --project apps/api python \
             scripts/meeting/meeting_contract_baseline.py verify \
             --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
             --approved-delta scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json \
             --candidate-ref WORKTREE \
+            --python apps/api/.venv/bin/python \
             --report artifacts/meeting/m0/candidate-contract-verify.json
 
       - name: Upload contract verification

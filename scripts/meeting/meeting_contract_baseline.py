@@ -569,6 +569,18 @@ def _default_python(repo_root: Path) -> Path:
     return candidate if candidate.is_file() else Path(sys.executable)
 
 
+def _python_executable(repo_root: Path, requested: Path | None) -> Path:
+    candidate = requested or _default_python(repo_root)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    # Keep the virtualenv launcher path intact. Resolving its symlink selects
+    # the base interpreter and drops the environment's installed packages.
+    candidate = Path(os.path.abspath(candidate))
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        raise ContractBaselineError("Python with apps/api dependencies is unavailable")
+    return candidate
+
+
 def _probe_environment(source_root: Path, temporary_root: Path) -> dict[str, str]:
     environment = {
         "HOME": str(temporary_root / "home"),
@@ -1163,7 +1175,7 @@ def _capture_command(args: argparse.Namespace) -> int:
         commit, requested_ref = resolve_git_ref(repo_root, args.source_ref)
     else:
         commit, requested_ref = default_baseline_ref(repo_root)
-    python_executable = (args.python or _default_python(repo_root)).resolve()
+    python_executable = _python_executable(repo_root, args.python)
     snapshot = capture_source(
         repo_root=repo_root,
         commit=commit,
@@ -1192,7 +1204,7 @@ def _verify_command(args: argparse.Namespace) -> int:
     baseline = _read_json(args.baseline)
     commit, requested_ref = resolve_git_ref(repo_root, args.candidate_ref)
     worktree = requested_ref == "WORKTREE"
-    python_executable = (args.python or _default_python(repo_root)).resolve()
+    python_executable = _python_executable(repo_root, args.python)
     candidate = capture_source(
         repo_root=repo_root,
         commit=commit,
@@ -1214,7 +1226,7 @@ def _capture_approved_delta_command(args: argparse.Namespace) -> int:
         raise ContractBaselineError("approved delta capture requires a committed Git ref, not WORKTREE")
     baseline = _read_json(args.baseline)
     commit, requested_ref = resolve_git_ref(repo_root, args.candidate_ref)
-    python_executable = (args.python or _default_python(repo_root)).resolve()
+    python_executable = _python_executable(repo_root, args.python)
     candidate = capture_source(
         repo_root=repo_root,
         commit=commit,

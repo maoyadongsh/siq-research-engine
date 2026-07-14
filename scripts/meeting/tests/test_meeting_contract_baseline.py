@@ -165,6 +165,36 @@ def test_capture_is_byte_stable_for_the_same_committed_contract(tmp_path):
     assert json.loads(first.read_text(encoding="utf-8"))["source"]["kind"] == "git-ref"
 
 
+def test_python_executable_preserves_virtualenv_launcher_symlink(tmp_path):
+    module = _load_module()
+    repo_root = tmp_path / "repo"
+    base_python = tmp_path / "base-python"
+    base_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    base_python.chmod(0o755)
+    launcher = repo_root / "apps/api/.venv/bin/python"
+    launcher.parent.mkdir(parents=True)
+    launcher.symlink_to(base_python)
+
+    selected = module._python_executable(repo_root, Path("apps/api/.venv/bin/python"))
+
+    assert selected == launcher.absolute()
+    assert selected != base_python.resolve()
+
+
+def test_python_executable_rejects_missing_or_non_executable_launchers(tmp_path):
+    module = _load_module()
+    repo_root = tmp_path / "repo"
+    missing = Path("apps/api/.venv/bin/python")
+    with pytest.raises(module.ContractBaselineError, match="Python with apps/api dependencies"):
+        module._python_executable(repo_root, missing)
+
+    launcher = repo_root / missing
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("not executable", encoding="utf-8")
+    with pytest.raises(module.ContractBaselineError, match="Python with apps/api dependencies"):
+        module._python_executable(repo_root, missing)
+
+
 def test_exec_start_normalization_is_independent_of_materialization_root(tmp_path):
     module = _load_module()
     source_root = Path("/srv/siq-research-engine")
