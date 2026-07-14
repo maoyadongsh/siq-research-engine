@@ -39,6 +39,11 @@ from services.meeting_hermes_runner import (
     MeetingHermesTargetPool,
     MeetingHermesTargetUnavailable,
 )
+from services.meeting_speaker_recluster import (
+    SpeakerMergeProposal,
+    SpeakerReclusterPlan,
+    SpeakerReclusterPolicy,
+)
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
@@ -130,6 +135,68 @@ class FakeFinalizationService:
         return self.analysis
 
 
+class FakeSpeakerReclusterService:
+    def __init__(self, plan: SpeakerReclusterPlan):
+        self.plan_result = plan
+        self.policy = SpeakerReclusterPolicy(
+            version="speaker-recluster.validated.calibration.v1",
+            final_diarizer_ref="diarizer-test-v1",
+            auto_apply_validated=True,
+            validation_artifact_sha256="b" * 64,
+            operator_enabled=True,
+        )
+        self.calls = []
+
+    async def plan(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.plan_result
+
+
+class MergeAllSpeakerReclusterService:
+    def __init__(self):
+        self.policy = SpeakerReclusterPolicy(
+            version="speaker-recluster.validated.calibration.v1",
+            final_diarizer_ref="diarizer-test-v1",
+            auto_apply_validated=True,
+            validation_artifact_sha256="c" * 64,
+            operator_enabled=True,
+        )
+        self.calls = []
+
+    async def plan(self, **kwargs):
+        self.calls.append(kwargs)
+        active_track_ids = sorted(
+            {segment.speaker_track_id for segment in kwargs["segments"] if segment.speaker_track_id}
+        )
+        assert len(active_track_ids) == 2
+        target_id, source_id = active_track_ids
+        return SpeakerReclusterPlan(
+            track_targets={source_id: target_id},
+            embedded_track_count=2,
+            selected_sample_count=4,
+            encoder_ref="diarization-test-v1",
+            final_diarizer_ref="diarizer-test-v1",
+            policy_version="speaker-recluster.validated.calibration.v1",
+            validation_artifact_sha256="c" * 64,
+            automatic_enabled=True,
+        )
+
+
+class UnvalidatedMappingSpeakerReclusterService:
+    def __init__(self):
+        self.policy = SpeakerReclusterPolicy()
+
+    async def plan(self, **kwargs):
+        active_track_ids = sorted(
+            {segment.speaker_track_id for segment in kwargs["segments"] if segment.speaker_track_id}
+        )
+        return SpeakerReclusterPlan(
+            track_targets={active_track_ids[1]: active_track_ids[0]},
+            policy_version="speaker-recluster.unvalidated.v1",
+            automatic_enabled=True,
+        )
+
+
 async def _engine(path=None):
     if path is None:
         engine = create_async_engine(
@@ -163,6 +230,7 @@ async def _seed_meeting(
     model_ref: str | None = "model:local:primary",
     ai_enabled: bool = True,
     state: str = "live",
+    voiceprint_enabled: bool = False,
 ) -> MeetingSession:
     meeting = MeetingSession(
         owner_user_id=7,
@@ -173,6 +241,7 @@ async def _seed_meeting(
         requested_model_ref=model_ref,
         fallback_policy="disabled",
         postprocess_state="queued",
+        voiceprint_enabled=voiceprint_enabled,
     )
     session.add(meeting)
     await session.flush()
@@ -234,6 +303,7 @@ def _worker(factory, runner, worker_id="worker-a", **overrides):
         finalization_service=overrides.get("finalization_service"),
         job_kinds=overrides.get("job_kinds"),
         audio_sources=overrides.get("audio_sources"),
+        speaker_recluster_service=overrides.get("speaker_recluster_service"),
     )
 
 
@@ -312,6 +382,42 @@ def test_final_minutes_claim_precedes_correction_in_compatible_all_lane():
         claimed = await _worker(factory, FakeRunner()).claim_next()
         assert claimed is not None
         assert claimed.job_kind == MeetingJobKind.FINAL_MINUTES.value
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_final_minutes_waits_for_enabled_voiceprint_jobs_to_finish():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(session, state="stopped", voiceprint_enabled=True)
+            voiceprint = MeetingJob(
+                meeting_id=meeting.id,
+                job_kind=MeetingJobKind.VOICEPRINT_MATCH.value,
+                idempotency_key="voiceprint-before-minutes",
+                state=MeetingJobState.QUEUED.value,
+            )
+            minutes = MeetingJob(
+                meeting_id=meeting.id,
+                job_kind=MeetingJobKind.FINAL_MINUTES.value,
+                idempotency_key="minutes-after-voiceprint",
+                state=MeetingJobState.QUEUED.value,
+            )
+            session.add_all([voiceprint, minutes])
+            await session.commit()
+
+        worker = _worker(factory, FakeRunner())
+        assert await worker.claim_next() is None
+        async with factory() as session:
+            stored = await session.get(MeetingJob, voiceprint.id)
+            stored.state = MeetingJobState.SUCCEEDED.value
+            session.add(stored)
+            await session.commit()
+        claimed = await worker.claim_next()
+        assert claimed is not None
+        assert claimed.id == minutes.id
         await engine.dispose()
 
     anyio.run(scenario)
@@ -968,6 +1074,7 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
                     (),
                     None,
                     0,
+                    "diarizer-test-v1",
                 ),
                 FinalASRSegment(
                     "f2",
@@ -980,6 +1087,7 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
                     (),
                     None,
                     0,
+                    "diarizer-test-v1",
                 ),
                 FinalASRSegment(
                     "f3",
@@ -992,8 +1100,10 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
                     (),
                     None,
                     1,
+                    "diarizer-test-v1",
                 ),
             ),
+            diarizer_ref="diarizer-test-v1",
         )
         finalization = FakeFinalizationService(analysis)
         worker = _worker(
@@ -1024,6 +1134,7 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
                 )
             ).one()
             alignment_payload = decode_json(alignment.content_json, {})
+            assert alignment_payload["diarizer_ref"] == "diarizer-test-v1"
             assert alignment_payload["revised_segment_count"] == 2
             assert alignment_payload["human_protected_segment_count"] == 1
             assert "embedding" not in alignment.content_json
@@ -1117,6 +1228,571 @@ def test_recluster_splits_anonymous_track_using_mapping_event():
             }
             stored_meeting = await session.get(MeetingSession, meeting.id)
             assert stored_meeting.postprocess_state == "succeeded"
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_global_recluster_applies_mapping_and_requeues_voiceprint_for_active_target():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+                voiceprint_enabled=True,
+            )
+            target = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="epoch-1:speaker-0",
+                anonymous_label="发言人 1",
+            )
+            source = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="epoch-2:speaker-0",
+                anonymous_label="发言人 2",
+            )
+            session.add_all([target, source])
+            await session.flush()
+            first = await _add_segment(session, meeting, 1, "甲方发言")
+            second = await _add_segment(session, meeting, 2, "同一人继续")
+            first.speaker_track_id = target.id
+            second.speaker_track_id = source.id
+            session.add_all([first, second])
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "diarizer_ref": "diarizer-test-v1",
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": "final-speaker-a"},
+                            {"stable_segment_id": second.id, "speaker_track_key": "final-speaker-b"},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            old_voiceprint_job = MeetingJob(
+                meeting_id=meeting.id,
+                job_kind=MeetingJobKind.VOICEPRINT_MATCH.value,
+                idempotency_key="old-voiceprint-source",
+                input_watermark=2,
+                state=MeetingJobState.QUEUED.value,
+            )
+            recluster_job = MeetingJob(
+                meeting_id=meeting.id,
+                job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                idempotency_key="global-recluster",
+                input_watermark=2,
+                input_json=encode_json({"alignment_artifact_id": alignment.id}),
+            )
+            session.add_all([old_voiceprint_job, recluster_job])
+            await session.commit()
+
+        recluster = FakeSpeakerReclusterService(
+            SpeakerReclusterPlan(
+                track_targets={source.id: target.id},
+                proposals=(
+                    SpeakerMergeProposal(
+                        source_track_ids=(source.id,),
+                        target_track_id=target.id,
+                        score=0.94,
+                        auto_apply=True,
+                        reason_code="AUTO_MERGE",
+                    ),
+                ),
+                embedded_track_count=2,
+                selected_sample_count=4,
+                skipped_sample_count=1,
+                encoder_ref="diarization-test-v1",
+                final_diarizer_ref="diarizer-test-v1",
+                policy_version="speaker-recluster.validated.calibration.v1",
+                validation_artifact_sha256="b" * 64,
+                automatic_enabled=True,
+            )
+        )
+        worker = _worker(factory, FakeRunner(), speaker_recluster_service=recluster)
+        assert await worker.run_once() is True
+        assert len(recluster.calls) == 1
+        assert recluster.calls[0]["meeting"].id == meeting.id
+
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id == target.id
+            assert stored_second.speaker_track_id == target.id
+
+            artifact = (
+                await session.exec(
+                    select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
+                )
+            ).one()
+            payload = decode_json(artifact.content_json, {})
+            assert payload["global_embedding_recluster"] == {
+                "policy_version": "speaker-recluster.validated.calibration.v1",
+                "final_diarizer_ref": "diarizer-test-v1",
+                "observed_final_diarizer_ref": "diarizer-test-v1",
+                "validation_artifact_sha256": "b" * 64,
+                "automatic_enabled": True,
+                "encoder_ref": "diarization-test-v1",
+                "embedded_track_count": 2,
+                "selected_sample_count": 4,
+                "skipped_sample_count": 1,
+                "degraded_reason": None,
+                "proposals": [
+                    {
+                        "source_track_ids": [source.id],
+                        "target_track_id": target.id,
+                        "score": 0.94,
+                        "auto_apply": True,
+                        "reason_code": "AUTO_MERGE",
+                    }
+                ],
+            }
+            jobs = list((await session.exec(select(MeetingJob))).all())
+            old = next(value for value in jobs if value.id == old_voiceprint_job.id)
+            assert old.state == MeetingJobState.CANCELLED.value
+            assert old.public_error_code == "SPEAKER_RECLUSTER_SUPERSEDED"
+            queued = [
+                value
+                for value in jobs
+                if value.job_kind == MeetingJobKind.VOICEPRINT_MATCH.value
+                and value.state == MeetingJobState.QUEUED.value
+            ]
+            assert len(queued) == 1
+            assert decode_json(queued[0].input_json, {})["speaker_track_id"] == target.id
+            events = list((await session.exec(select(MeetingEvent))).all())
+            assert any(value.event_type == "speaker.track.merged" for value in events)
+            assert any(value.event_type == "voiceprint.match.queued" for value in events)
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_global_recluster_drops_mapping_when_alignment_diarizer_does_not_match_policy():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+            )
+            target = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="runtime-a",
+                anonymous_label="发言人 1",
+            )
+            source = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="runtime-b",
+                anonymous_label="发言人 2",
+            )
+            session.add_all([target, source])
+            await session.flush()
+            first = await _add_segment(session, meeting, 1, "甲方发言")
+            second = await _add_segment(session, meeting, 2, "乙方发言")
+            first.speaker_track_id = target.id
+            second.speaker_track_id = source.id
+            session.add_all([first, second])
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "diarizer_ref": "different-runtime-diarizer-v1",
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": "final-a"},
+                            {"stable_segment_id": second.id, "speaker_track_key": "final-b"},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                    idempotency_key="runtime-diarizer-mismatch",
+                    input_watermark=2,
+                    input_json=encode_json({"alignment_artifact_id": alignment.id}),
+                )
+            )
+            await session.commit()
+
+        recluster = FakeSpeakerReclusterService(
+            SpeakerReclusterPlan(
+                track_targets={source.id: target.id},
+                final_diarizer_ref="diarizer-test-v1",
+                policy_version="speaker-recluster.validated.calibration.v1",
+                validation_artifact_sha256="b" * 64,
+                automatic_enabled=True,
+            )
+        )
+        worker = _worker(factory, FakeRunner(), speaker_recluster_service=recluster)
+        assert await worker.run_once() is True
+
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id != stored_second.speaker_track_id
+            artifact = (
+                await session.exec(
+                    select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
+                )
+            ).one()
+            payload = decode_json(artifact.content_json, {})["global_embedding_recluster"]
+            assert payload["observed_final_diarizer_ref"] == "different-runtime-diarizer-v1"
+            assert payload["automatic_enabled"] is False
+            assert payload["degraded_reason"] == "SPEAKER_RECLUSTER_FINAL_DIARIZER_MISMATCH"
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_import_recluster_embeds_provisional_final_tracks_when_live_tracks_are_missing():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+            )
+            first = await _add_segment(session, meeting, 1, "导入片段一")
+            second = await _add_segment(session, meeting, 2, "导入片段二")
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "diarizer_ref": "diarizer-test-v1",
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": "final-a"},
+                            {"stable_segment_id": second.id, "speaker_track_key": "final-b"},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                    idempotency_key="import-global-recluster",
+                    input_watermark=2,
+                    input_json=encode_json({"alignment_artifact_id": alignment.id}),
+                )
+            )
+            await session.commit()
+
+        recluster = MergeAllSpeakerReclusterService()
+        worker = _worker(factory, FakeRunner(), speaker_recluster_service=recluster)
+        assert await worker.run_once() is True
+        assert len(recluster.calls) == 1
+        assert len(recluster.calls[0]["tracks"]) == 2
+        assert all(segment.speaker_track_id for segment in recluster.calls[0]["segments"])
+
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id == stored_second.speaker_track_id
+            tracks = list((await session.exec(select(MeetingSpeakerTrack))).all())
+            assert len(tracks) == 1
+            artifact = (
+                await session.exec(
+                    select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
+                )
+            ).one()
+            payload = decode_json(artifact.content_json, {})
+            assert payload["global_embedding_recluster"]["embedded_track_count"] == 2
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_pending_recluster_does_not_undo_a_prior_manual_track_merge():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+            )
+            target = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="manual-target",
+                anonymous_label="发言人 1",
+            )
+            source = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="manual-source",
+                anonymous_label="发言人 2",
+            )
+            session.add_all([target, source])
+            await session.flush()
+            first = await _add_segment(session, meeting, 1, "手工合并一")
+            second = await _add_segment(session, meeting, 2, "手工合并二")
+            first.speaker_track_id = target.id
+            second.speaker_track_id = target.id
+            session.add_all([first, second])
+            session.add(
+                MeetingEvent(
+                    meeting_id=meeting.id,
+                    cursor=1,
+                    event_type="speaker.track.merged",
+                    payload_json=encode_json(
+                        {
+                            "schema_version": "siq.meeting.speaker_mapping.v1",
+                            "operation": "merge",
+                            "automatic": False,
+                            "source_track_ids": [source.id],
+                            "target_track_id": target.id,
+                            "segment_ids": [second.id],
+                            "changed_by": "7",
+                        }
+                    ),
+                )
+            )
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": "final-a"},
+                            {"stable_segment_id": second.id, "speaker_track_key": "final-b"},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                    idempotency_key="manual-merge-recluster",
+                    input_watermark=2,
+                    input_json=encode_json({"alignment_artifact_id": alignment.id}),
+                )
+            )
+            await session.commit()
+
+        recluster = FakeSpeakerReclusterService(SpeakerReclusterPlan())
+        worker = _worker(factory, FakeRunner(), speaker_recluster_service=recluster)
+        assert await worker.run_once() is True
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id == target.id
+            assert stored_second.speaker_track_id == target.id
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_unvalidated_global_mapping_is_ignored_even_if_service_returns_targets():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+            )
+            first_track = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="unvalidated-a",
+                anonymous_label="发言人 1",
+            )
+            second_track = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="unvalidated-b",
+                anonymous_label="发言人 2",
+            )
+            session.add_all([first_track, second_track])
+            await session.flush()
+            first = await _add_segment(session, meeting, 1, "未校准一")
+            second = await _add_segment(session, meeting, 2, "未校准二")
+            first.speaker_track_id = first_track.id
+            second.speaker_track_id = second_track.id
+            session.add_all([first, second])
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": None},
+                            {"stable_segment_id": second.id, "speaker_track_key": None},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                    idempotency_key="unvalidated-global-map",
+                    input_watermark=2,
+                    input_json=encode_json({"alignment_artifact_id": alignment.id}),
+                )
+            )
+            await session.commit()
+
+        worker = _worker(
+            factory,
+            FakeRunner(),
+            speaker_recluster_service=UnvalidatedMappingSpeakerReclusterService(),
+        )
+        assert await worker.run_once() is True
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id != stored_second.speaker_track_id
+            artifact = (
+                await session.exec(
+                    select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
+                )
+            ).one()
+            payload = decode_json(artifact.content_json, {})
+            assert (
+                payload["global_embedding_recluster"]["degraded_reason"]
+                == "SPEAKER_RECLUSTER_POLICY_GATE_INVALID"
+            )
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_final_key_does_not_auto_merge_anonymous_track_into_manual_identity():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(
+                session,
+                state="stopped",
+                ai_enabled=False,
+                selection_mode="none",
+                model_ref=None,
+            )
+            manual = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="manual-identity",
+                anonymous_label="发言人 1",
+                display_name="李总",
+                label_source="manual",
+            )
+            anonymous = MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key="anonymous-other",
+                anonymous_label="发言人 2",
+            )
+            session.add_all([manual, anonymous])
+            await session.flush()
+            first = await _add_segment(session, meeting, 1, "具名发言")
+            second = await _add_segment(session, meeting, 2, "匿名发言")
+            first.speaker_track_id = manual.id
+            second.speaker_track_id = anonymous.id
+            session.add_all([first, second])
+            alignment = MeetingArtifact(
+                meeting_id=meeting.id,
+                artifact_type="final_transcript_alignment",
+                version=1,
+                state="ready",
+                content_json=encode_json(
+                    {
+                        "schema_version": FINAL_ALIGNMENT_SCHEMA,
+                        "alignments": [
+                            {"stable_segment_id": first.id, "speaker_track_key": "final-shared"},
+                            {"stable_segment_id": second.id, "speaker_track_key": "final-shared"},
+                        ],
+                    }
+                ),
+                input_from_ordinal=1,
+                input_to_ordinal=2,
+            )
+            session.add(alignment)
+            await session.flush()
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.SPEAKER_RECLUSTER.value,
+                    idempotency_key="protected-final-key",
+                    input_watermark=2,
+                    input_json=encode_json({"alignment_artifact_id": alignment.id}),
+                )
+            )
+            await session.commit()
+
+        worker = _worker(
+            factory,
+            FakeRunner(),
+            speaker_recluster_service=FakeSpeakerReclusterService(SpeakerReclusterPlan()),
+        )
+        assert await worker.run_once() is True
+        async with factory() as session:
+            stored_first = await session.get(MeetingTranscriptSegment, first.id)
+            stored_second = await session.get(MeetingTranscriptSegment, second.id)
+            assert stored_first.speaker_track_id == manual.id
+            assert stored_second.speaker_track_id == anonymous.id
+            artifact = (
+                await session.exec(
+                    select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
+                )
+            ).one()
+            payload = decode_json(artifact.content_json, {})
+            assert payload["review_clusters"][0]["reason_code"] == "PROTECTED_TRACK_MERGE_REQUIRES_REVIEW"
         await engine.dispose()
 
     anyio.run(scenario)

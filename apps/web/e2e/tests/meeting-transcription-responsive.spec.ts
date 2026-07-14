@@ -170,6 +170,7 @@ async function mockMeetingApis(page: Page, options: MeetingMockOptions = {}) {
     capabilities: 0,
     transcriptAfterOrdinals: [] as number[],
     speakerRenameBodies: [] as Array<Record<string, unknown>>,
+    speakerMergeBodies: [] as Array<Record<string, unknown>>,
   }
   await page.addInitScript((user) => {
     window.localStorage.setItem('access_token', 'playwright-token')
@@ -254,6 +255,30 @@ async function mockMeetingApis(page: Page, options: MeetingMockOptions = {}) {
           speaker_track_id: target.id,
           speaker_label: body.display_name,
         },
+      }))
+    }
+    if (request.method() === 'POST' && new RegExp('/speakers/[^/]+/merge$').test(path)) {
+      const body = request.postDataJSON() as {
+        source_track_ids: string[]
+        expected_versions: Record<string, number>
+      }
+      requestCounts.speakerMergeBodies.push(body)
+      const targetId = decodeURIComponent(path.split('/').at(-2) || '')
+      const target = speakers.find((speaker) => speaker.id === targetId) || speakers[0]
+      const sourceIdSet = new Set(body.source_track_ids)
+      const sourceSegments = transcriptSegments.filter((segment) => sourceIdSet.has(String(segment.speaker_track_id)))
+      return route.fulfill(json({
+        operation: 'merge',
+        meeting_id: meeting.id,
+        source_track_ids: body.source_track_ids,
+        target_track_ids: [target.id],
+        segment_ids: sourceSegments.map((segment) => segment.id),
+        event_id: 'speaker-merge',
+        event_cursor: 11,
+        tracks: [
+          { ...target, version: target.version + 1 },
+          ...speakers.filter((speaker) => sourceIdSet.has(speaker.id)).map((speaker) => ({ ...speaker, version: speaker.version + 1 })),
+        ],
       }))
     }
     if (path.endsWith('/transcript')) {
@@ -417,6 +442,36 @@ test('review transcript renames one segment or every segment from the same speak
   await expect(page.getByRole('button', { name: '修改发言人：陈晓' })).toHaveCount(1)
   await expectNoHorizontalOverflow(page)
   await capture(page, testInfo, 'meeting-speaker-rename-mobile')
+})
+
+test('mobile review merges multiple speaker tracks into the retained speaker', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const requestCounts = await mockMeetingApis(page)
+
+  await page.goto(`/meetings/${meeting.id}`)
+  await page.getByRole('tab', { name: '发言人观点' }).click()
+  await page.getByRole('button', { name: '合并发言人' }).click()
+
+  const dialog = page.getByRole('dialog', { name: '合并发言人' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('radio', { name: /张明/ })).toBeChecked()
+  await dialog.getByRole('checkbox', { name: /李然/ }).check()
+  await expect(dialog.getByText('将 1 个轨道的全部发言并入“张明”。')).toBeVisible()
+  await capture(page, testInfo, 'meeting-speaker-merge-dialog-mobile')
+  await dialog.getByRole('button', { name: '合并 1 个轨道' }).click()
+
+  await expect.poll(() => requestCounts.speakerMergeBodies).toEqual([{
+    source_track_ids: ['speaker-2'],
+    expected_versions: { 'speaker-1': 2, 'speaker-2': 1 },
+  }])
+  await expect(page.getByText('本场共 1 段发言已并入“张明”。')).toBeVisible()
+  await expect(page.getByText('李然', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('纪要基于旧版逐字稿。')).toBeVisible()
+
+  await page.getByRole('tab', { name: '逐字稿', exact: true }).click()
+  await expect(page.getByRole('button', { name: '修改发言人：张明' })).toHaveCount(2)
+  await expectNoHorizontalOverflow(page)
+  await capture(page, testInfo, 'meeting-speaker-merge-mobile')
 })
 
 for (const viewport of viewports) {

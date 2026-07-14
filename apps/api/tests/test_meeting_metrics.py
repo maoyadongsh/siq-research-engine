@@ -67,6 +67,10 @@ def test_process_metrics_have_only_bounded_labels_and_no_object_identity(monkeyp
     record_meeting_counter("native_capture_storage_rejection", "unavailable")
     record_meeting_counter("final_asr_window", "succeeded")
     record_meeting_counter("final_asr_window", "meeting-id-must-not-be-a-label")
+    record_meeting_counter("speaker_recluster_run", "degraded")
+    record_meeting_counter("speaker_recluster_run", "meeting-id-must-not-be-a-label")
+    record_meeting_counter("speaker_recluster_decision", "auto_merge", amount=2)
+    record_meeting_counter("speaker_recluster_decision", "speaker-track-id-must-not-be-a-label")
     record_meeting_counter("unknown_metric", "owner-123")
     observe_meeting_latency("segment_persist_latency_seconds", 0.125)
     observe_meeting_latency("final_asr_window_processing_seconds", 12.5)
@@ -85,6 +89,10 @@ def test_process_metrics_have_only_bounded_labels_and_no_object_identity(monkeyp
     assert 'meeting_native_capture_storage_rejection_total{reason="unavailable"}' in rendered
     assert 'meeting_final_asr_window_total{result="succeeded"}' in rendered
     assert 'meeting_final_asr_window_total{result="other"}' in rendered
+    assert 'meeting_speaker_recluster_total{result="degraded"}' in rendered
+    assert 'meeting_speaker_recluster_total{result="other"}' in rendered
+    assert 'meeting_speaker_recluster_decision_total{result="auto_merge"}' in rendered
+    assert 'meeting_speaker_recluster_decision_total{result="other"}' in rendered
     assert "meeting_native_capture_operational 1" in rendered
     assert "meeting_native_capture_storage_probe_success 1" in rendered
     assert re.search(r"meeting_native_capture_storage_free_bytes [1-9]\d*", rendered)
@@ -99,6 +107,7 @@ def test_process_metrics_have_only_bounded_labels_and_no_object_identity(monkeyp
     assert "secret-value" not in rendered
     assert "capture-id-should-not-be-a-label" not in rendered
     assert "meeting-id-must-not-be-a-label" not in rendered
+    assert "speaker-track-id-must-not-be-a-label" not in rendered
     assert "unknown_metric" not in rendered
     assert str(tmp_path) not in rendered
     _assert_no_sensitive_metric_labels(rendered)
@@ -156,10 +165,54 @@ def test_database_metrics_aggregate_without_meeting_user_or_model_labels(tmp_pat
                         idempotency_key="secret-job-key",
                         model_snapshot_id=snapshot.id,
                     ),
+                    MeetingJob(
+                        meeting_id=meeting.id,
+                        job_kind="speaker_recluster",
+                        state="succeeded",
+                        idempotency_key="secret-recluster-success-one",
+                    ),
+                    MeetingJob(
+                        meeting_id=meeting.id,
+                        job_kind="speaker_recluster",
+                        state="succeeded",
+                        idempotency_key="secret-recluster-success-two",
+                    ),
+                    MeetingJob(
+                        meeting_id=meeting.id,
+                        job_kind="speaker_recluster",
+                        state="retry_wait",
+                        idempotency_key="secret-recluster-retry",
+                    ),
+                    MeetingJob(
+                        meeting_id=meeting.id,
+                        job_kind="speaker_recluster",
+                        state="failed",
+                        idempotency_key="secret-recluster-failed",
+                    ),
                     MeetingEvent(
                         meeting_id=meeting.id,
                         cursor=1,
                         event_type="audio.gap.detected",
+                    ),
+                    MeetingEvent(
+                        meeting_id=meeting.id,
+                        cursor=2,
+                        event_type="speaker.recluster.degraded",
+                    ),
+                    MeetingEvent(
+                        meeting_id=meeting.id,
+                        cursor=3,
+                        event_type="speaker.recluster.auto_merge",
+                    ),
+                    MeetingEvent(
+                        meeting_id=meeting.id,
+                        cursor=4,
+                        event_type="speaker.recluster.review_proposal",
+                    ),
+                    MeetingEvent(
+                        meeting_id=meeting.id,
+                        cursor=5,
+                        event_type="speaker.recluster.protected_skip",
                     ),
                 ]
             )
@@ -173,6 +226,13 @@ def test_database_metrics_aggregate_without_meeting_user_or_model_labels(tmp_pat
     assert 'meeting_postprocess_queue_depth{kind="rolling_minutes"} 1' in rendered
     assert 'meeting_ai_job_total{kind="rolling_minutes",status="queued",locality="local"} 1' in rendered
     assert 'meeting_audio_gap_durable_total{reason="recorded"} 1' in rendered
+    assert 'meeting_speaker_recluster_durable_total{result="succeeded"} 1' in rendered
+    assert 'meeting_speaker_recluster_durable_total{result="degraded"} 1' in rendered
+    assert 'meeting_speaker_recluster_durable_total{result="retry_wait"} 1' in rendered
+    assert 'meeting_speaker_recluster_durable_total{result="failed"} 1' in rendered
+    assert 'meeting_speaker_recluster_decision_durable_total{result="auto_merge"} 1' in rendered
+    assert 'meeting_speaker_recluster_decision_durable_total{result="review_proposal"} 1' in rendered
+    assert 'meeting_speaker_recluster_decision_durable_total{result="protected_skip"} 1' in rendered
     assert "meeting_native_capture_durable_batch_count" not in rendered
     for secret in (
         "Secret board meeting",
@@ -183,6 +243,10 @@ def test_database_metrics_aggregate_without_meeting_user_or_model_labels(tmp_pat
         "secret-target",
         "secret-connection-id",
         "secret-job-key",
+        "secret-recluster-success-one",
+        "secret-recluster-success-two",
+        "secret-recluster-retry",
+        "secret-recluster-failed",
     ):
         assert secret not in rendered
     _assert_no_sensitive_metric_labels(rendered)

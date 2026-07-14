@@ -2377,6 +2377,10 @@ meeting_summary_freshness_seconds
 meeting_voice_match_total{decision}
 meeting_model_resolution_total{mode,locality,result}
 meeting_caption_blocked_by_postprocess_total
+meeting_speech_speaker_assignment_total{result}
+meeting_speech_speaker_track_total{result}
+meeting_speaker_recluster_durable_total{result}
+meeting_speaker_recluster_decision_durable_total{result}
 ```
 
 禁止使用 meeting ID、user ID、姓名、model_ref 或正文作为 metric label。

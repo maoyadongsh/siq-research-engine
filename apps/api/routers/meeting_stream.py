@@ -427,6 +427,7 @@ async def _persist_final(
         word_timestamps=list(payload.get("word_timestamps") or []),
         asr_metadata=metadata,
     )
+    speaker_track_key = _epoch_scoped_speaker_track_key(stream_epoch, payload.get("speaker_track_key"))
     async with _database_session() as session:
         before_cursor = int(
             (
@@ -440,7 +441,7 @@ async def _persist_final(
             owner_user_id,
             request,
             trace_id=str(event.get("trace_id") or "") or None,
-            speaker_track_key=(str(payload["speaker_track_key"]) if payload.get("speaker_track_key") else None),
+            speaker_track_key=speaker_track_key,
             speaker_confidence=payload.get("speaker_confidence"),
         )
         if duplicate:
@@ -450,6 +451,27 @@ async def _persist_final(
         result = await repository.events.list_after(meeting_id, after_cursor=before_cursor, limit=20)
         observe_meeting_latency("segment_persist_latency_seconds", time.perf_counter() - persist_started)
         return result
+
+
+def _epoch_scoped_speaker_track_key(stream_epoch: int, value: object) -> str | None:
+    raw_key = str(value or "").strip()
+    if not raw_key:
+        return None
+    prefix = f"epoch-{stream_epoch}:"
+    if raw_key.startswith("epoch-") and not raw_key.startswith(prefix):
+        raise MeetingStreamProtocolError(
+            "SPEAKER_TRACK_SCOPE_INVALID",
+            "speaker track epoch does not match the stream",
+            close_code=1011,
+        )
+    scoped_key = raw_key if raw_key.startswith(prefix) else f"{prefix}{raw_key}"
+    if len(scoped_key) > 128:
+        raise MeetingStreamProtocolError(
+            "SPEAKER_TRACK_KEY_INVALID",
+            "speaker track key exceeds its configured bound",
+            close_code=1011,
+        )
+    return scoped_key
 
 
 async def _pack_audio(

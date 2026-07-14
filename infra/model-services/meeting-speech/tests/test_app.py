@@ -29,13 +29,13 @@ def _settings(**overrides) -> Settings:
     return Settings(**values, _env_file=None)
 
 
-def _start(last_acked_sequence: int = -1) -> dict[str, object]:
+def _start(last_acked_sequence: int = -1, *, stream_epoch: int = 1) -> dict[str, object]:
     return {
         "type": "stream.start",
         "schema_version": "siq.meeting.stream.v1",
         "meeting_id": str(MEETING_ID),
         "client_stream_id": str(CLIENT_STREAM_ID),
-        "stream_epoch": 1,
+        "stream_epoch": stream_epoch,
         "audio": {"encoding": "pcm_s16le", "sample_rate": 16_000, "channels": 1, "chunk_ms": 200},
         "last_acked_sequence": last_acked_sequence,
     }
@@ -51,10 +51,11 @@ def _frame(
     *,
     flags: AudioFlags = AudioFlags.NONE,
     capture_time_ms: int | None = None,
+    stream_epoch: int = 1,
 ) -> bytes:
     return encode_audio_frame(
         AudioFrame(
-            stream_epoch=1,
+            stream_epoch=stream_epoch,
             sequence=sequence,
             capture_time_ms=sequence * 200 if capture_time_ms is None else capture_time_ms,
             flags=flags,
@@ -81,6 +82,7 @@ def test_health_exposes_explicit_mock_degradation() -> None:
         assert body["core_ready"] is True
         assert body["production_capable"] is False
         assert body["reason_code"] == "EXPLICIT_MOCK_ADAPTER"
+        assert body["diarizer_ref"].startswith("siq.meeting.diarizer.v1/none/")
 
 
 def test_websocket_emits_partial_final_ack_and_idempotent_duplicate() -> None:
@@ -111,6 +113,35 @@ def test_websocket_emits_partial_final_ack_and_idempotent_duplicate() -> None:
 
             websocket.send_json({"type": "stream.stop", "schema_version": "siq.meeting.stream.v1"})
             assert websocket.receive_json()["type"] == "stream.stopped"
+
+
+def test_speaker_track_keys_are_isolated_between_stream_epochs() -> None:
+    settings = _settings(speaker_adapter="mock")
+
+    def final_track(client: TestClient, epoch: int) -> str:
+        with client.websocket_connect(
+            f"/v1/stream/{MEETING_ID}",
+            headers={"x-siq-service-token": TOKEN},
+        ) as websocket:
+            websocket.send_json(_start(stream_epoch=epoch))
+            assert websocket.receive_json()["type"] == "stream.ready"
+            assert websocket.receive_json()["type"] == "pipeline.degraded"
+            websocket.send_bytes(_frame(0, 12_000, stream_epoch=epoch))
+            _receive_through_ack(websocket)
+            websocket.send_bytes(_frame(1, 0, stream_epoch=epoch))
+            events = _receive_through_ack(websocket)
+            final = next(event for event in events if event["type"] == "asr.final")
+            websocket.send_json({"type": "stream.stop", "schema_version": "siq.meeting.stream.v1"})
+            assert websocket.receive_json()["type"] == "stream.stopped"
+            return str(final["payload"]["speaker_track_key"])
+
+    with TestClient(create_app(settings)) as client:
+        assert final_track(client, 1) == "epoch-1:mock-speaker-0"
+        assert final_track(client, 2) == "epoch-2:mock-speaker-0"
+        metrics = client.get("/metrics").text
+        assert 'meeting_speech_speaker_assignment_total{result="assigned"} 2' in metrics
+        assert 'meeting_speech_speaker_track_total{result="created"} 2' in metrics
+        assert 'meeting_speech_speaker_track_total{result="reused"} 0' in metrics
 
 
 def test_gap_is_reported_and_reordered_frames_advance_ack() -> None:
@@ -175,9 +206,14 @@ def test_disconnected_session_can_resume_with_retained_ack() -> None:
 
 
 def test_metrics_do_not_include_meeting_or_user_identifiers() -> None:
-    with TestClient(create_app(_settings())) as client:
+    application = create_app(_settings())
+    with TestClient(application) as client:
+        application.state.runtime.metrics.record_speaker_assignment(str(MEETING_ID), "created")
+        application.state.runtime.metrics.record_speaker_assignment("assigned", str(MEETING_ID))
         body = client.get("/metrics").text
         assert "meeting_speech_active_sessions" in body
+        assert "meeting_speech_speaker_assignment_total" in body
+        assert "meeting_speech_speaker_track_total" in body
         assert str(MEETING_ID) not in body
         assert "user_id" not in body
 
@@ -208,6 +244,54 @@ def test_embedding_endpoint_requires_internal_token_consent_and_purpose() -> Non
         assert body["persisted"] is False
 
 
+def test_embedding_endpoint_supports_isolated_diarization_scope_without_voiceprint_consent() -> None:
+    settings = _settings(embedding_endpoint_enabled=True)
+    meeting_id = uuid4()
+    run_id = uuid4()
+    headers = {
+        "x-siq-service-token": TOKEN,
+        "x-siq-speaker-purpose": "diarization",
+        "x-siq-meeting-id": str(meeting_id),
+        "x-siq-diarization-run-id": str(run_id),
+        "x-siq-audio-encoding": "pcm_s16le",
+        "content-type": "application/octet-stream",
+    }
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/v1/speaker/embedding", content=_pcm(1, duration_ms=1_000), headers=headers)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body == {
+            "schema_version": "siq.meeting.speaker_embedding.v1",
+            "encoder_ref": "mock",
+            "dimension": 2,
+            "embedding": [1.0, 0.0],
+            "duration_ms": 1_000,
+            "purpose": "diarization",
+            "persisted": False,
+            "scope": {"meeting_id": str(meeting_id), "run_id": str(run_id)},
+        }
+
+        missing_scope = dict(headers)
+        missing_scope.pop("x-siq-diarization-run-id")
+        invalid = client.post(
+            "/v1/speaker/embedding",
+            content=_pcm(1, duration_ms=1_000),
+            headers=missing_scope,
+        )
+        assert invalid.status_code == 400
+        assert invalid.json()["code"] == "DIARIZATION_SCOPE_INVALID"
+
+        mixed_scope = {**headers, "x-siq-voiceprint-consent": str(uuid4())}
+        mixed = client.post(
+            "/v1/speaker/embedding",
+            content=_pcm(1, duration_ms=1_000),
+            headers=mixed_scope,
+        )
+        assert mixed.status_code == 400
+        assert mixed.json()["code"] == "EMBEDDING_SCOPE_CONFLICT"
+
+
 def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
     settings = _settings(speaker_adapter="mock", finalization_max_window_seconds=2)
     run_id = uuid4()
@@ -234,6 +318,9 @@ def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
             headers=headers(0, 0),
         )
         assert first.status_code == 200
+        diarizer_ref = first.json()["diarizer_ref"]
+        assert diarizer_ref.startswith("siq.meeting.diarizer.v1/mock/")
+        assert len(diarizer_ref) < 192
         assert first.json()["segments"] == []
 
         second = client.post(
@@ -244,8 +331,9 @@ def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
         assert second.status_code == 200
         body = second.json()
         assert body["schema_version"] == "siq.meeting.final_asr_window.v1"
+        assert body["diarizer_ref"] == diarizer_ref
         assert body["segments"][0]["text"] == "[mock speech]"
-        assert body["segments"][0]["speaker_track_key"] == "mock-speaker-0"
+        assert body["segments"][0]["speaker_track_key"] == f"finalization-{run_id}:mock-speaker-0"
         assert "embedding" not in second.text
 
         replay = client.post(
@@ -273,3 +361,12 @@ def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
         )
         assert too_large.status_code == 400
         assert too_large.json()["code"] == "FINALIZATION_WINDOW_TOO_LARGE"
+
+    with TestClient(create_app(settings)) as second_client:
+        repeated = second_client.post(
+            "/v1/finalize-window",
+            content=_pcm(12_000),
+            headers=headers(0, 0),
+        )
+        assert repeated.status_code == 200
+        assert repeated.json()["diarizer_ref"] == diarizer_ref

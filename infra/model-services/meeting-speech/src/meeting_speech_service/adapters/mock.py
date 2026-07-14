@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from meeting_speech_service.adapters.base import (
     EngineSnapshot,
     SessionOptions,
     SpeakerEmbedding,
     SpeechEngine,
     SpeechSession,
+    build_diarizer_ref,
 )
 from meeting_speech_service.adapters.pipeline import (
     BufferedRecognitionSession,
@@ -31,10 +34,30 @@ class _MockDecoder:
 
 
 class MockSpeechEngine(SpeechEngine):
-    def __init__(self, *, transcript_prefix: str, speaker_adapter: str) -> None:
+    def __init__(
+        self,
+        *,
+        transcript_prefix: str,
+        speaker_adapter: str,
+        speaker_metrics_observer: Callable[[str, str | None], None] | None = None,
+    ) -> None:
         self._prefix = transcript_prefix
         self._speaker_adapter = speaker_adapter
+        self._speaker_metrics_observer = speaker_metrics_observer
         self._state = "initializing"
+        effective_adapter = "mock" if speaker_adapter == "mock" else "none"
+        self._diarizer_ref = build_diarizer_ref(
+            adapter=effective_adapter,
+            model_ref="mock-speaker-v1" if effective_adapter == "mock" else "disabled",
+            configuration={
+                "speaker_adapter": speaker_adapter,
+                "clusterer": "mock-single-speaker-v1" if effective_adapter == "mock" else "disabled",
+            },
+        )
+
+    @property
+    def diarizer_ref(self) -> str:
+        return self._diarizer_ref
 
     async def initialize(self) -> None:
         self._state = "degraded"
@@ -49,10 +72,19 @@ class MockSpeechEngine(SpeechEngine):
             components={"asr": "mock", "vad": "energy", "speaker": self._speaker_adapter},
         )
 
-    def create_session(self, options: SessionOptions) -> SpeechSession:
+    def create_session(
+        self,
+        options: SessionOptions,
+        *,
+        speaker_track_namespace: str | None = None,
+    ) -> SpeechSession:
         if self._state != "degraded":
             raise RuntimeError("mock engine is not initialized")
-        speaker = MockSpeakerHook() if self._speaker_adapter == "mock" else NullSpeakerHook()
+        speaker = (
+            MockSpeakerHook(track_namespace=speaker_track_namespace)
+            if self._speaker_adapter == "mock"
+            else NullSpeakerHook()
+        )
         return BufferedRecognitionSession(
             adapter_name="mock",
             options=options,
@@ -64,6 +96,9 @@ class MockSpeechEngine(SpeechEngine):
             ),
             decoder=_MockDecoder(self._prefix),
             speaker=speaker,
+            speaker_metrics_observer=(
+                self._speaker_metrics_observer if self._speaker_adapter == "mock" else None
+            ),
         )
 
     async def speaker_embedding(self, pcm: bytes) -> SpeakerEmbedding:

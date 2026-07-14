@@ -42,6 +42,32 @@ def test_embedding_endpoint_requires_token_even_for_local_development() -> None:
         Settings(embedding_endpoint_enabled=True, _env_file=None)
 
 
+def test_speaker_cluster_hysteresis_bounds_are_validated() -> None:
+    with pytest.raises(ValidationError, match="update_threshold"):
+        Settings(
+            speaker_cluster_threshold=0.8,
+            speaker_cluster_update_threshold=0.79,
+            _env_file=None,
+        )
+    with pytest.raises(ValidationError, match="candidate_threshold"):
+        Settings(
+            speaker_cluster_threshold=0.8,
+            speaker_cluster_update_threshold=0.9,
+            speaker_candidate_threshold=0.79,
+            _env_file=None,
+        )
+    with pytest.raises(ValidationError, match="new_track_min_segment_ms"):
+        Settings(
+            speaker_min_segment_ms=2_000,
+            speaker_new_track_min_segment_ms=1_999,
+            _env_file=None,
+        )
+
+    inherited = Settings(speaker_cluster_threshold=0.9, _env_file=None)
+    assert inherited.resolved_speaker_candidate_threshold == pytest.approx(0.96)
+    assert inherited.resolved_speaker_cluster_update_threshold == pytest.approx(1.0)
+
+
 def test_protected_http_finalizer_must_be_loopback_or_tls() -> None:
     with pytest.raises(ValidationError, match="HTTPS or a loopback"):
         Settings(

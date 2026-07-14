@@ -341,9 +341,20 @@ def test_router_merge_split_enforce_bola_permission_and_conflict(monkeypatch):
     assert stale.status_code == 409
     assert stale.json()["detail"]["code"] == "MEETING_VERSION_CONFLICT"
 
-    merged = client.post(merge_url, json=merge_body)
+    merged = client.post(
+        merge_url,
+        json=merge_body,
+        headers={"Idempotency-Key": "speaker-merge-1"},
+    )
     assert merged.status_code == 200
     assert merged.json()["operation"] == "merge"
+    replayed_merge = client.post(
+        merge_url,
+        json=merge_body,
+        headers={"Idempotency-Key": "speaker-merge-1"},
+    )
+    assert replayed_merge.status_code == 200
+    assert replayed_merge.json() == merged.json()
     split = client.post(
         f"/api/meetings/v1/sessions/{meeting.id}/speakers/{target.id}/split",
         json={
@@ -354,6 +365,11 @@ def test_router_merge_split_enforce_bola_permission_and_conflict(monkeypatch):
     assert split.status_code == 200
     assert split.json()["operation"] == "split"
     assert split.json()["event_cursor"] > merged.json()["event_cursor"]
+    listed = client.get(f"/api/meetings/v1/sessions/{meeting.id}/speakers")
+    assert listed.status_code == 200
+    listed_ids = {item["id"] for item in listed.json()}
+    assert source.id not in listed_ids
+    assert target.id in listed_ids
     anyio.run(engine.dispose)
 
 

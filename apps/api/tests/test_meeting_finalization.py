@@ -3,15 +3,19 @@ from __future__ import annotations
 import re
 
 import anyio
+import httpx
 import pytest
 from services.auth_service import User
 from services.meeting_audio_store import MeetingAudioStore
 from services.meeting_contracts import MEETING_TABLES, MeetingAudioChunk, MeetingSession
 from services.meeting_finalization import (
     FinalASRSegment,
+    FinalASRWindowResult,
     FinalizationWindow,
     FinalWord,
+    HttpFinalASRClient,
     MeetingFinalizationInputInvalid,
+    MeetingFinalizationOutputInvalid,
     MeetingFinalizationService,
     MeetingFinalizationSettings,
     MeetingFinalizationUnavailable,
@@ -23,6 +27,8 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+TEST_DIARIZER_REF = "diarizer-test-v1"
+
 
 class FakeFinalASRClient:
     def __init__(self) -> None:
@@ -30,18 +36,22 @@ class FakeFinalASRClient:
 
     async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
         self.calls.append((window, final_window, run_id))
-        return (
-            FinalASRSegment(
-                segment_token=f"final-{window.index}",
-                text=f"最终文本 {window.index}",
-                start_ms=window.start_ms,
-                end_ms=window.end_ms,
-                adapter="fake-final-asr",
-                speaker_track_key="spk-f0",
-                speaker_confidence=0.91,
-                word_timestamps=(),
-                degraded_reason=None,
-                window_index=window.index,
+        return FinalASRWindowResult(
+            diarizer_ref=TEST_DIARIZER_REF,
+            segments=(
+                FinalASRSegment(
+                    segment_token=f"final-{window.index}",
+                    text=f"最终文本 {window.index}",
+                    start_ms=window.start_ms,
+                    end_ms=window.end_ms,
+                    adapter="fake-final-asr",
+                    speaker_track_key="spk-f0",
+                    speaker_confidence=0.91,
+                    word_timestamps=(),
+                    degraded_reason=None,
+                    window_index=window.index,
+                    diarizer_ref=TEST_DIARIZER_REF,
+                ),
             ),
         )
 
@@ -134,6 +144,7 @@ def test_manifest_is_paged_and_audio_windows_stay_bounded(tmp_path):
         assert result.chunk_count == 5
         assert result.total_audio_bytes == 80_000
         assert result.window_count == 2
+        assert result.diarizer_ref == TEST_DIARIZER_REF
         assert len(result.segments) == 2
         assert [len(call[0].pcm) for call in client.calls] == [64_000, 16_000]
         assert all(len(call[0].pcm) <= service.settings.max_window_bytes for call in client.calls)
@@ -152,6 +163,81 @@ def test_manifest_is_paged_and_audio_windows_stay_bounded(tmp_path):
             _metric_value(before_metrics, "meeting_final_asr_window_total", counter_labels) + 2
         )
         await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_final_asr_rejects_diarizer_change_across_empty_windows(tmp_path):
+    class ChangingDiarizerClient(FakeFinalASRClient):
+        async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
+            self.calls.append((window, final_window, run_id))
+            return FinalASRWindowResult(
+                diarizer_ref=(TEST_DIARIZER_REF if window.index == 0 else "diarizer-other-v1"),
+                segments=(),
+            )
+
+    async def scenario():
+        engine, factory = await _database()
+        store = MeetingAudioStore(tmp_path / "audio")
+        meeting = await _seed_audio(factory, store)
+        service = MeetingFinalizationService(
+            factory,
+            audio_store=store,
+            client=ChangingDiarizerClient(),
+            settings=_settings(),
+        )
+
+        with pytest.raises(MeetingFinalizationOutputInvalid, match="changed between windows"):
+            await service.analyze(meeting.id)
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_http_final_asr_contract_requires_a_valid_diarizer_ref():
+    async def scenario():
+        response_payload = {
+            "schema_version": "siq.meeting.final_asr_window.v1",
+            "diarizer_ref": TEST_DIARIZER_REF,
+            "segments": [],
+        }
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json=response_payload)
+
+        raw_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        settings = MeetingFinalizationSettings(
+            endpoint="http://localhost/v1/finalize-window",
+            service_token="internal-test-token",
+            chunk_page_size=2,
+            window_seconds=2,
+            max_chunk_bytes=64_000,
+            timeout_seconds=5,
+            max_response_bytes=64_000,
+            max_result_segments=100,
+        )
+        client = HttpFinalASRClient(settings, client=raw_client)
+        window = FinalizationWindow(index=0, start_ms=0, end_ms=1_000, pcm=b"\0\0", discontinuity=False)
+
+        valid = await client.finalize_window(
+            window,
+            run_id="finalization-test",
+            language="zh-CN",
+            hotwords=(),
+            final_window=True,
+        )
+        assert valid.diarizer_ref == TEST_DIARIZER_REF
+
+        response_payload.pop("diarizer_ref")
+        with pytest.raises(MeetingFinalizationOutputInvalid, match="diarizer identity"):
+            await client.finalize_window(
+                window,
+                run_id="finalization-test",
+                language="zh-CN",
+                hotwords=(),
+                final_window=True,
+            )
+        await raw_client.aclose()
 
     anyio.run(scenario)
 
@@ -205,6 +291,7 @@ def test_audio_requires_configured_final_asr_but_empty_manifest_can_passthrough(
         passthrough = await service.analyze(empty.id)
         assert passthrough.mode == "stable_transcript_passthrough"
         assert passthrough.segments == ()
+        assert passthrough.diarizer_ref is None
         await engine.dispose()
 
     anyio.run(scenario)
@@ -232,6 +319,7 @@ def test_alignment_uses_word_timestamps_without_changing_stable_ids():
         ),
         degraded_reason=None,
         window_index=0,
+        diarizer_ref=TEST_DIARIZER_REF,
     )
     values = align_final_segments(
         [Stable("stable-a", 1, 0, 500), Stable("stable-b", 2, 500, 1_000)],

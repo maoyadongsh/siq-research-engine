@@ -32,6 +32,82 @@ must record an authorization approval and a non-sensitive approval reference.
 Do not use production meetings or historical chat recordings without explicit
 authorization.
 
+## Diarization and recluster release evaluation
+
+`scripts/meeting/evaluate_diarization_release.py` compares reference and
+hypothesis annotations in strict JSON or RTTM form plus a mandatory strict
+evidence manifest. The hypothesis is the end-to-end result after the base
+final-ASR provisional track partition and global embedding-based cross-key
+merge, not an embedding-only intermediate. The scorer uses a zero-millisecond
+collar, scores overlap, and computes a maximum-overlap one-to-one speaker
+mapping independently for each recording. The output contains aggregate
+metrics, fixed candidate/policy metadata, and hashes only; it excludes
+recording IDs, speaker/track IDs, approval references, transcript text, audio
+paths, and embeddings.
+
+The fixed release gates are:
+
+| Gate | Limit |
+| --- | --- |
+| Diarization error rate | `<= 15%` |
+| Fragmentation excess tracks / reference speakers | `<= 25%` |
+| References assigned to over-merged tracks / reference speakers | `<= 5%` |
+| Reference-overlap track purity | `>= 90%` |
+
+A release-sized input must contain at least 14 non-empty recordings, at least
+14 unique reference speakers, contain only 2-8 reference speakers per
+recording, cover every speaker count from 2 through 8, and provide at least one
+hour of reference speaker time. These minimums are
+fixed code gates. An empty reference is rejected with exit code `2`; a valid
+but insufficient sample emits a non-passing report and exits `1` when
+`--require-passing` is set.
+
+Reference speaker identifiers must be stable pseudonyms across all recordings
+in the holdout so the unique-speaker count is meaningful. They remain only in
+the restricted annotation input and never enter the report.
+
+Run the gate from the repository root:
+
+```bash
+python scripts/meeting/evaluate_diarization_release.py \
+  --evidence-manifest /secure/evidence/recluster-evidence-manifest.json \
+  --reference /secure/evidence/recluster-reference.rttm \
+  --hypothesis /secure/evidence/recluster-hypothesis.rttm \
+  --output /secure/evidence/recluster-validation-report.json \
+  --require-passing
+sha256sum /secure/evidence/recluster-validation-report.json
+```
+
+The manifest has an exact field set. It records approval and an opaque approval
+reference, whether all recordings are authorized, the count of unapproved
+production/history recordings, candidate commit/environment, independent
+holdout declarations and speaker/recording overlap counts, both raw annotation
+SHA-256 values, declared recording/speaker/duration coverage, and the exact
+final-diarizer/encoder/policy threshold identities. The evaluator recomputes
+the annotation hashes and counts; a mismatch is a non-passing gate.
+
+The report repeats only `candidate.commit_sha` and the opaque
+`candidate.environment_profile` so the total release bundle can require exact
+candidate equality; it never repeats the approval reference. The report
+`source_sha256` is a length-prefixed deterministic digest over both
+raw annotation files, while `evidence_manifest_sha256` binds the manifest raw
+bytes without echoing its approval reference. The `sha256sum` of the report itself is the
+`validation_artifact_sha256` stored in the approved
+`SIQ_MEETING_SPEAKER_RECLUSTER_POLICY_JSON`. The evaluator deliberately does
+not infer authorization or candidate identity from filenames: the restricted
+evidence manifest must bind the two inputs, candidate commit, encoder identity,
+exact policy version/thresholds, approval, report path, source digest, and
+report digest.
+
+Passing this evaluator does not turn on embedding-based cross-key automatic
+merge. Keep
+`SIQ_MEETING_SPEAKER_RECLUSTER_AUTO_APPLY_ENABLED=0` until the report and policy
+have separate privacy, security, quality, and rollout approval. Temporary
+diarization vectors are process-local and must never be stored in PostgreSQL or
+Milvus; only mappings, review proposals, and redacted provenance may persist.
+The operator flag neither controls the base final-ASR speaker partition nor
+authorizes automatic split behavior.
+
 ## Voiceprint release evaluation
 
 `scripts/meeting/evaluate_voiceprint_release.py` accepts only anonymized,
@@ -120,9 +196,10 @@ automatic naming.
 
 ## Evidence review
 
-Before approving either report:
+Before approving a report:
 
-1. Match the report `source_sha256` to the immutable evidence object.
+1. Match the report `source_sha256` and `evidence_manifest_sha256` to the
+   immutable annotation pair and strict manifest.
 2. Confirm dataset authorization and development/validation separation with
    the evidence owner.
 3. Confirm the model, encoder, lexicon, and threshold versions match the build
@@ -137,8 +214,15 @@ Before approving either report:
 The main workflow calls `.github/workflows/meeting-contract-gate.yml` as a
 required job. That reusable workflow runs every test under
 `scripts/meeting/tests`, reproduces the immutable pre-meeting baseline, and
-verifies the candidate worktree against it. The candidate report is uploaded
-even when verification fails.
+verifies the candidate worktree against it. It also proves the diarization gate
+rejects an empty reference and returns nonzero for a perfect but release-small
+sample. These generated smoke fixtures are contract checks, never release
+evidence. The candidate report is uploaded even when verification fails.
+
+The separate `.github/workflows/meeting-release-evidence-gate.yml` requires
+ASR, voiceprint, performance, and diarization reports for the same candidate
+commit and environment. Missing diarization evidence blocks the v2 bundle;
+the receipt binds both the report and evidence-manifest SHA-256 values.
 
 Meeting browser coverage is split by build-time feature state:
 

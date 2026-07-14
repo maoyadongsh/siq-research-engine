@@ -287,6 +287,7 @@ def test_import_router_hides_cross_owner_uploads(tmp_path, monkeypatch):
 class _FakeFinalization:
     async def analyze(self, meeting_id: str) -> FinalizationAnalysis:
         del meeting_id
+        diarizer_ref = "diarizer-import-test-v1"
         return FinalizationAnalysis(
             mode="final_asr",
             chunk_count=1,
@@ -305,8 +306,10 @@ class _FakeFinalization:
                     word_timestamps=(),
                     degraded_reason=None,
                     window_index=0,
+                    diarizer_ref=diarizer_ref,
                 ),
             ),
+            diarizer_ref=diarizer_ref,
         )
 
 

@@ -44,6 +44,20 @@ groups:
         annotations:
           summary: Meeting audio persistence or finalization is failing
           runbook: docs/runbooks/meeting-stream-gateway.md
+      - alert: SIQMeetingSpeakerReclusterRetryStalled
+        expr: max(meeting_speaker_recluster_durable_total{result="retry_wait"}) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: A durable speaker-recluster job remains in retry wait
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingSpeakerReclusterFailed
+        expr: max(meeting_speaker_recluster_durable_total{result="failed"}) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: A durable speaker-recluster job reached terminal failure
+          runbook: docs/runbooks/meeting-ai-worker.md
   - name: siq-meeting-capacity
     interval: 30s
     rules:

@@ -15,6 +15,7 @@ const {
   getMeetingModels,
   getMeetingTranscript,
   listMeetings,
+  mergeMeetingSpeakers,
   pauseMeeting,
   regenerateMeetingArtifact,
   renameMeetingSegmentSpeaker,
@@ -170,6 +171,36 @@ test('segment speaker rename sends explicit single-or-all scope and normalizes t
   assert.equal(result.segment.speaker_display_name, '王敏')
   assert.equal(result.segment.revision_no, 2)
   assert.equal(result.segment.text_state, 'human_verified')
+})
+
+test('speaker merge sends every source and optimistic version in one mutation', async () => {
+  const calls = installFetch({
+    operation: 'merge',
+    meeting_id: 'meeting/alpha',
+    source_track_ids: ['track/two', 'track/three'],
+    target_track_ids: ['track/one'],
+    segment_ids: ['segment/one', 'segment/two'],
+    event_id: 'event-merge',
+    event_cursor: 12,
+    tracks: [],
+  })
+
+  const result = await mergeMeetingSpeakers(
+    'meeting/alpha',
+    'track/one',
+    ['track/two', 'track/three'],
+    { 'track/one': 4, 'track/two': 2, 'track/three': 7 },
+    'idem-speaker-merge',
+  )
+
+  assert.equal(calls[0].url, '/api/meetings/v1/sessions/meeting%2Falpha/speakers/track%2Fone/merge')
+  assert.equal(calls[0].method, 'POST')
+  assert.equal(calls[0].headers.get('Idempotency-Key'), 'idem-speaker-merge')
+  assert.deepEqual(calls[0].body, {
+    source_track_ids: ['track/two', 'track/three'],
+    expected_versions: { 'track/one': 4, 'track/two': 2, 'track/three': 7 },
+  })
+  assert.equal(result.segment_ids.length, 2)
 })
 
 test('websocket URL never embeds a long-lived auth token', () => {

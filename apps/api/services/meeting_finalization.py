@@ -10,6 +10,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol, Sequence
@@ -34,6 +35,7 @@ from services.meeting_metrics import observe_meeting_latency, record_meeting_cou
 
 FINAL_ASR_WINDOW_SCHEMA = "siq.meeting.final_asr_window.v1"
 FINAL_ALIGNMENT_SCHEMA = "siq.meeting.final_transcript_alignment.v1"
+_DIARIZER_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,191}")
 
 
 class MeetingFinalizationError(RuntimeError):
@@ -155,6 +157,21 @@ class FinalASRSegment:
     word_timestamps: tuple[FinalWord, ...]
     degraded_reason: str | None
     window_index: int
+    diarizer_ref: str
+
+    def __post_init__(self) -> None:
+        _validate_diarizer_ref(self.diarizer_ref)
+
+
+@dataclass(frozen=True, slots=True)
+class FinalASRWindowResult:
+    diarizer_ref: str
+    segments: tuple[FinalASRSegment, ...]
+
+    def __post_init__(self) -> None:
+        _validate_diarizer_ref(self.diarizer_ref)
+        if any(value.diarizer_ref != self.diarizer_ref for value in self.segments):
+            raise MeetingFinalizationOutputInvalid("final ASR window diarizer identity is inconsistent")
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +182,18 @@ class FinalizationAnalysis:
     window_count: int
     gaps: tuple[tuple[int, int], ...]
     segments: tuple[FinalASRSegment, ...]
+    diarizer_ref: str | None
+
+    def __post_init__(self) -> None:
+        if self.mode == "stable_transcript_passthrough":
+            if self.diarizer_ref is not None:
+                raise MeetingFinalizationOutputInvalid("passthrough analysis cannot claim a diarizer identity")
+            return
+        if self.mode != "final_asr" or self.diarizer_ref is None:
+            raise MeetingFinalizationOutputInvalid("final ASR analysis diarizer identity is missing")
+        _validate_diarizer_ref(self.diarizer_ref)
+        if any(value.diarizer_ref != self.diarizer_ref for value in self.segments):
+            raise MeetingFinalizationOutputInvalid("final ASR analysis contains mixed diarizer identities")
 
 
 class FinalASRClient(Protocol):
@@ -176,7 +205,7 @@ class FinalASRClient(Protocol):
         language: str,
         hotwords: Sequence[str],
         final_window: bool,
-    ) -> tuple[FinalASRSegment, ...]: ...
+    ) -> FinalASRWindowResult: ...
 
 
 class HttpFinalASRClient:
@@ -204,7 +233,7 @@ class HttpFinalASRClient:
         language: str,
         hotwords: Sequence[str],
         final_window: bool,
-    ) -> tuple[FinalASRSegment, ...]:
+    ) -> FinalASRWindowResult:
         headers = {
             "x-siq-service-token": self.settings.service_token or "",
             "x-siq-finalization-id": run_id,
@@ -291,6 +320,7 @@ class MeetingFinalizationService:
         stats = _ManifestStats()
         pending: FinalizationWindow | None = None
         results: list[FinalASRSegment] = []
+        observed_diarizer_ref: str | None = None
         window_count = 0
         run_id = str(uuid4())
         processing_started = time.perf_counter()
@@ -298,14 +328,18 @@ class MeetingFinalizationService:
             if self.client is None:
                 raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
             if pending is not None:
-                values = await self._finalize_window(
+                window_result = await self._finalize_window(
                     pending,
                     run_id=run_id,
                     language=language,
                     hotwords=hotwords,
                     final_window=False,
                 )
-                results.extend(values)
+                observed_diarizer_ref = _bind_diarizer_ref(
+                    observed_diarizer_ref,
+                    window_result.diarizer_ref,
+                )
+                results.extend(window_result.segments)
                 window_count += 1
                 self._check_result_bound(results)
             pending = window
@@ -317,17 +351,22 @@ class MeetingFinalizationService:
                 window_count=0,
                 gaps=(),
                 segments=(),
+                diarizer_ref=None,
             )
         if self.client is None:
             raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
-        values = await self._finalize_window(
+        window_result = await self._finalize_window(
             pending,
             run_id=run_id,
             language=language,
             hotwords=hotwords,
             final_window=True,
         )
-        results.extend(values)
+        observed_diarizer_ref = _bind_diarizer_ref(
+            observed_diarizer_ref,
+            window_result.diarizer_ref,
+        )
+        results.extend(window_result.segments)
         window_count += 1
         self._check_result_bound(results)
         observe_meeting_latency(
@@ -341,6 +380,7 @@ class MeetingFinalizationService:
             window_count=window_count,
             gaps=tuple(stats.gaps),
             segments=tuple(results),
+            diarizer_ref=observed_diarizer_ref,
         )
 
     async def _finalize_window(
@@ -351,7 +391,7 @@ class MeetingFinalizationService:
         language: str,
         hotwords: Sequence[str],
         final_window: bool,
-    ) -> tuple[FinalASRSegment, ...]:
+    ) -> FinalASRWindowResult:
         if self.client is None:
             raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
         started = time.perf_counter()
@@ -545,13 +585,17 @@ def _join_words(words: Sequence[FinalWord]) -> str:
     return " ".join(values)
 
 
-def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> tuple[FinalASRSegment, ...]:
+def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> FinalASRWindowResult:
     try:
         payload = json.loads(payload_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MeetingFinalizationOutputInvalid("final ASR response is not valid JSON") from exc
     if not isinstance(payload, dict) or payload.get("schema_version") != FINAL_ASR_WINDOW_SCHEMA:
         raise MeetingFinalizationOutputInvalid("final ASR schema is invalid")
+    try:
+        diarizer_ref = _validate_diarizer_ref(payload.get("diarizer_ref"))
+    except (TypeError, ValueError) as exc:
+        raise MeetingFinalizationOutputInvalid("final ASR diarizer identity is invalid") from exc
     values = payload.get("segments")
     if not isinstance(values, list) or len(values) > 10_000:
         raise MeetingFinalizationOutputInvalid("final ASR segments are invalid")
@@ -576,6 +620,7 @@ def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> tuple[
                 word_timestamps=words,
                 degraded_reason=_optional_string(item.get("degraded_reason"), 100),
                 window_index=window_index,
+                diarizer_ref=diarizer_ref,
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise MeetingFinalizationOutputInvalid("final ASR segment fields are invalid") from exc
@@ -587,7 +632,20 @@ def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> tuple[
         ):
             raise MeetingFinalizationOutputInvalid("final ASR segment bounds are invalid")
         parsed.append(value)
-    return tuple(parsed)
+    return FinalASRWindowResult(diarizer_ref=diarizer_ref, segments=tuple(parsed))
+
+
+def _validate_diarizer_ref(value: Any) -> str:
+    if not isinstance(value, str) or _DIARIZER_REF_RE.fullmatch(value) is None:
+        raise ValueError("diarizer identity is invalid")
+    return value
+
+
+def _bind_diarizer_ref(current: str | None, observed: str) -> str:
+    _validate_diarizer_ref(observed)
+    if current is not None and current != observed:
+        raise MeetingFinalizationOutputInvalid("final ASR diarizer identity changed between windows")
+    return observed
 
 
 def _parse_words(value: Any) -> tuple[FinalWord, ...]:
@@ -688,6 +746,7 @@ __all__ = [
     "FINAL_ALIGNMENT_SCHEMA",
     "FinalASRClient",
     "FinalASRSegment",
+    "FinalASRWindowResult",
     "FinalWord",
     "FinalizationAnalysis",
     "FinalizationWindow",

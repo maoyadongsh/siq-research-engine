@@ -17,13 +17,13 @@
 | --- | ---: | --- |
 | 实现/自动化成熟度 | **39.5 / 49 = 80.6%** | 49 个 MT 等权；`完成=1`、`部分=0.5`、`缺失=0`。这是工程成熟度，不是发布完成度。 |
 | 严格发布证据完成度 | **0 / 49 = 0%** | 当前没有任何一个 MT 的全部发布证据绑定干净候选提交并闭环。若只看单测会高估完成度。 |
-| 总体发布状态 | **blocked** | MT-000 exact-delta 合同已在本地闭环；授权 ASR/词库与声纹评测、M7 负载/4h 长稳/演练/签字、M8 Xcode/真机证据仍缺失。 |
+| 总体发布状态 | **blocked** | MT-000 的基线与审查来源 exact delta 已闭环，但当前 HEAD 的后续 IC 提交使一个已批准哈希漂移；授权 ASR/词库与声纹评测、M7 负载/4h 长稳/演练/签字、M8 Xcode/真机证据仍缺失。 |
 
 阶段成熟度来自下文逐项状态，不代表阶段门禁通过：
 
 | 阶段 | 完成 | 部分 | 缺失 | 加权成熟度 | 阶段门禁 |
 | --- | ---: | ---: | ---: | ---: | --- |
-| M0 | 2 | 2 | 0 | 3.0/4 = 75.0% | **未通过**：MT-000 合同通过但候选 CI artifact 待生成，MT-001/003 真实评测缺失 |
+| M0 | 2 | 2 | 0 | 3.0/4 = 75.0% | **未通过**：MT-000 审查来源合同通过但当前候选哈希漂移且 CI artifact 未生成，MT-001/003 真实评测缺失 |
 | M1 | 3 | 2 | 0 | 4.0/5 = 80.0% | **未通过**：生产 PostgreSQL/旧版本兼容与全资源 BOLA 证据未闭环 |
 | M2 | 4 | 2 | 0 | 5.0/6 = 83.3% | **未通过**：真实 ASR 指标、真实会议与 4h 存储证据缺失 |
 | M3 | 7 | 1 | 0 | 7.5/8 = 93.8% | **未通过**：真实回放/最终 ASR 质量及词库 A-B 证据缺失 |
@@ -39,20 +39,20 @@
 | --- | --- | --- |
 | 不可变旧合同基线 | `pass` | `scripts/meeting/baselines/pre-meeting-6727ce3.contract.json`，SHA-256 `bf72d31d4fe4a2b4be384d0ba985ef72c3817e93aaed7520e05f80a38a277781` |
 | 基线自校验 | `pass` | `pre-meeting-6727ce3.self-verify.json`，SHA-256 `393e81b20c1ac7ced5f30ad99493190434be78676bf210773865f65eef6bc662` |
-| 候选合同 exact delta | **`pass`（本地）** | `scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json`，SHA-256 `8c23cbe08d1ecb34f33ba77a0e0836675a4552d4ff19334f323619e5d6e3443a`；105 项精确差异：Hermes profile 52、旧 OpenAPI 46、旧 DB 2、runtime metadata 5。逐项绑定 before/after digest，禁止 glob/prefix，CI 仍须复跑。 |
-| 会议后端针对性回归 | 开发验证通过 | 最近一次运行 `211 passed`（`test_meeting_*.py` 203 项 + `test_meetings_router.py` 8 项）；无绑定候选提交的 release artifact，不能提升发布证据为 `pass`。 |
-| 独立 speech service | 开发验证通过 | 最近一次已知运行 `29 passed`；主要为协议、mock/adapter 和服务测试，不是授权音频容量报告。 |
-| 发布工具测试 | 开发验证通过 | 最近一次运行 `48 passed`；评估器能 fail closed，但空模板/合成输入不是发布数据。 |
-| Web 单测/检查/构建 | 开发验证通过 | M8 与发言人改单合入后最近一次报告 `402/402`、lint、TypeScript、production build 通过；未绑定候选提交。 |
-| Web E2E flag 门禁 | 开发验证通过 | 已知 meeting disabled `1/1`、enabled `11/11`、默认套件 `52 passed, 1 skipped`、chat voice mock `1/1`；浏览器 E2E 不等于真实麦克风或 iPhone 后台。 |
+| 候选合同 exact delta | **`blocked`（当前 HEAD）** | `scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json` 在审查来源 `679d456` 上通过；当前 HEAD `c876e87` 的既有 IC 提交把 `golden_case_manifest.json` 的批准摘要 `2ed83fe9...` 改为 `213ed284...`。当前验证为 `mismatched=1, missing=0, unexpected=0`，必须由 IC 治理独立审批，会议任务不覆盖或重签该文件。 |
+| 会议后端针对性回归 | 开发验证通过 | 最近一次运行 `235 passed`（`test_meeting_*.py` + `test_meetings_router.py`）；无绑定候选提交的 release artifact，不能提升发布证据为 `pass`。 |
+| 独立 speech service | 开发验证通过 | 最近一次运行 `38 passed`；主要为协议、mock/adapter 和服务测试，不是授权音频容量报告。 |
+| 发布工具测试 | 开发验证通过 | 最近一次运行 `81 passed`；评估器能 fail closed，但空模板/合成输入不是发布数据。 |
+| Web 单测/检查/构建 | 开发验证通过 | M8 与发言人改单合入后的隔离候选报告 `403/403`、lint、TypeScript、production build 通过；未绑定远端候选 artifact。 |
+| Web E2E flag 门禁 | 开发验证通过 | 已知 meeting disabled `1/1`、enabled `12/12`、默认套件 `52 passed, 1 skipped`、chat voice mock `1/1`；浏览器 E2E 不等于真实麦克风或 iPhone 后台。 |
 | iOS 静态合同 | 开发验证通过 | `apps/ios-meeting-capture` 的 Node 静态合同 `13/13`，12 个 Swift 文件经 tree-sitter 解析且 0 syntax error；Linux 无 Xcode/iOS SDK，Swift XCTest 和真机均未运行。 |
-| 强制全量非回归 | **开发验证通过，候选 CI 待运行** | 既有冻结源码完整 API 为 `2304 passed, 7 skipped, 0 failed`；本轮 IC/发布 closeout `262/262`、meeting API `243/243`、Web 候选源码 `402/402` 加 lint/build、iOS contract `13/13`、meeting contract `58/58` 均通过；touched Python 为 0 个新增指纹。仍无同一最终候选的远端 CI artifact，因此严格发布证据不提升为 `pass`。 |
+| 强制全量非回归 | **开发验证通过，候选 CI 待运行** | 既有冻结源码完整 API 为 `2304 passed, 7 skipped, 0 failed`；本轮 IC/发布 closeout `262/262`、meeting API `235/235`、Web 隔离候选源码 `403/403` 加 lint/build、iOS contract `13/13`、meeting release tools `81/81` 均通过；touched Python 为 0 个新增指纹。仍无同一最终候选的远端 CI artifact，因此严格发布证据不提升为 `pass`。 |
 
 ## 3. M0：合同冻结与技术预研
 
 | MT | 代码/自动化状态 | 发布证据 | 关键文件/测试 | 明确缺口 |
 | --- | --- | --- | --- | --- |
-| MT-000 现有功能合同快照 | **完成** | **partial** | immutable baseline、exact approved delta、`test_meeting_contract_baseline.py`、`meeting-contract-gate.yml` | 105 个非会议差异已逐项绑定并在本地通过；候选 CI、聊天短语音/Hermes 性能比较和绑定候选的全量回归 artifact 尚未形成。 |
+| MT-000 现有功能合同快照 | **完成** | **blocked** | immutable baseline、exact approved delta、`test_meeting_contract_baseline.py`、`meeting-contract-gate.yml` | 基线自校验和审查来源 `679d456` 的 105 个精确差异通过；当前 HEAD 因后续 IC 提交产生 1 个批准摘要漂移。IC 治理审批、候选 CI、聊天短语音/Hermes 性能比较和绑定候选的全量回归 artifact 尚未形成。 |
 | MT-001 FunASR 2pass 预研 | **部分** | **not_run** | `infra/model-services/meeting-speech/`；`evaluate_asr_release.py`；speech service tests | 无授权 30-60 分钟、2/4/8 人与重叠样本报告；partial/stable/DB/visible/ACK/时间戳/CER 指标、30 分钟/4h 资源曲线、候选方案取舍均未实测。现有 8899 行为也未随候选证据复核。 |
 | MT-002 Hermes Run 级模型隔离预研 | **完成** | **partial** | `decisions/2026-07-14-meeting-hermes-immutable-target-pool.md`；`meeting_hermes_runner.py`；`scripts/hermes/meeting_targets.py`；相关 tests | ADR、不可变 target pool 与 exact profile delta 已有，但两场真实并发不同模型、pinned outage、零串用及运行前后 profile hash 的候选级证据未执行。 |
 | MT-003 声纹评测与隐私基线 | **部分** | **not_run** | `evaluate_voiceprint_release.py`；voiceprint worker/repository/tombstone/restore tests；auto-match fail-closed 配置 | 无授权且独立的开发/验证集、真实 encoder 固定报告、2-8 人 DER、Top-1、FAR 校准、加密轮换审查与具名安全/隐私批准；因此 auto-match 必须保持关闭。 |
@@ -82,10 +82,10 @@
 
 | MT | 代码/自动化状态 | 发布证据 | 关键文件/测试 | 明确缺口 |
 | --- | --- | --- | --- | --- |
-| MT-030 实时匿名 Speaker Track | **完成** | **partial** | speech speaker adapter、segment patch、`test_meeting_speaker_mapping.py` | 匿名 track、晚到 patch、unknown 与非阻塞路径有测试；缺授权多说话人/重叠真实会议的 DER 和延迟证据。 |
+| MT-030 实时匿名 Speaker Track | **完成** | **partial** | speech speaker adapter/metrics、segment patch、`evaluate_diarization_release.py`、speaker mapping/evaluator tests | 匿名 track、晚到 patch、unknown、非阻塞路径和低基数 assigned/unassigned/failed、created/reused 指标已有自动化，DER/碎片化/过合并/纯度门禁会对空或小样本失败关闭；授权 2-8 人、重叠真实会议的至少一小时评估报告与延迟证据仍 **not_run**。 |
 | MT-031 人工重命名与优先级 | **完成** | **partial** | segment speaker PATCH；repository alias/version/幂等；`TranscriptTimeline.tsx`、`SpeakerPanel.tsx`；speaker mapping tests；responsive E2E | 已覆盖仅改单段的受控拆轨、同 track 全场批量改名、文本不变、BOLA、version/409、幂等重放及 375px 浏览器交互；仍缺绑定干净候选的真实后端并发与发布审计 artifact。 |
 | MT-032 会后音频封装和 Range 回放 | **完成** | **partial** | `meeting_audio_store.py`、playback router；`MeetingAudioPlayer.tsx`；audio replay/stop finalization tests | Range、鉴权、seek/倍速/音量/跳转与 gap 展示已有；现已禁止请求线程即时封装，但仍缺真实长录音封装、Range 代理兼容与浏览器证据。 |
-| MT-033 会后最终 ASR 与 Speaker 重聚类 | **完成** | **partial** | `meeting_finalization.py`、AI worker；finalization/AI worker/speaker mapping tests | 有界窗口、对齐 revision、merge/split mapping 与人工锁保护已实现；真实样本曾显示约 21m53s 录音 final ASR 约 13m29s，尚无优化后达标重跑。 |
+| MT-033 会后最终 ASR 与 Speaker 重聚类 | **完成** | **partial** | `meeting_finalization.py`、`meeting_speaker_recluster.py`、AI worker、`evaluate_diarization_release.py`；finalization/recluster/AI worker tests | 有界 final ASR、对齐 revision、base final-key provisional partition、全场有界临时 embedding cross-key merge、运行时 `diarizer_ref` 指纹绑定、映射事件、人工/声纹身份 review-only 保护及 policy-report-operator 三重 auto-merge 门禁已实现；operator flag 不控制基础 diarization 或授权自动 split，临时向量不落 PostgreSQL/Milvus。修复后本地样本的 73 段纠错已按 `50+23` 两批与纪要并行，但 final ASR 仍 `331.494s`（RTF `0.325`，策略上限 `0.25`）；真实授权的 base final-key + global merge 报告仍 **not_run**。同 run 有状态 speech 协议不能通过客户端并发安全提速。 |
 | MT-034 句级人工订正 | **完成** | **partial** | repository correction APIs；Meeting detail/live UI；repository/AI worker tests | expected revision、409、撤销、意图与 diff 已实现；缺端到端冲突合并和真实用户可用性验证。 |
 | MT-035 Correction Feedback 管道 | **完成** | **partial** | correction event/contracts/repository；repository/boundary tests | 同事务 revision+feedback、分类/provenance、opt-out/revert 已覆盖；缺授权/用途审查及离线训练数据治理签字。 |
 | MT-036 个人术语候选和版本 | **完成** | **partial** | `meeting_lexicon_service.py`、repository、`MeetingLexicon.tsx`；lexicon tests | 候选、确认/拒绝、手工条目、不可变版本/hash、pause/delete/rollback 和 owner scope 已实现；缺生产数据迁移与真实恢复验证。 |
@@ -110,7 +110,7 @@
 | MT-052 模型选择和切换 | **完成** | **partial** | model setting/snapshot repository、selector UI、AI worker tests | none/pinned/auto、no fallback、云确认、生效 ordinal 与旧 job snapshot 已实现；缺真实切换不影响 ASR 和并发压力证据。 |
 | MT-053 Stable Text Correction | **完成** | **partial** | AI worker correction patch/schema/provenance；worker tests | base revision、关键实体复核、人工锁、diff/undo/provenance 与超时隔离有测试；缺真实模型质量/超时率与 prompt injection 发布证据。 |
 | MT-054 Rolling Minutes | **完成** | **partial** | AI scheduler/worker、rolling artifact UI/tests | debounce、水位幂等、合并、临时标签、更新时间/模型已有；缺真实负载下 freshness P95 <= 90s。 |
-| MT-055 Final Minutes | **完成** | **partial** | final artifact schema/worker/UI；AI worker/review artifact tests | final 水位、结构化产物、source segment、schema fail-closed、再生成版本均有；真实样本曾受串行纠错队列阻塞约 31m24s，虽已拆 worker lane，尚无 P95 <= 180s 重跑。 |
+| MT-055 Final Minutes | **完成** | **partial** | final artifact schema/worker/UI；AI worker/review artifact tests | final 水位、结构化产物、source segment、schema fail-closed、再生成版本均有；修复后样本已证明纪要与纠错并行，`final_minutes` queue-to-complete `282.410s`、创建到首次 ready `616.93s`，仍超过 `180s` 门槛，尚无满足样本量的 P95 发布报告。 |
 
 ## 9. M6：会后完善与长录音导入
 
@@ -118,15 +118,15 @@
 | --- | --- | --- | --- | --- |
 | MT-060 会后工作台 | **完成** | **partial** | `MeetingDetail.tsx`、artifacts/player/speaker components；detail/review artifact tests | tabs、stale、版本/再生成和证据跳转已有；缺真实产物全流程、版本对比视觉验收及候选 E2E artifact。 |
 | MT-061 导出 | **完成** | **partial** | export router/service/worker；`test_meeting_exports.py`；exports runbook | TXT/MD/SRT/VTT/JSON 与 DOCX、layer/version、ticket、转义/完整性/审计路径已有，PDF 明确非阻断不可用；缺真实大文件与代理下载、安全复核。 |
-| MT-062 长录音文件导入 | **完成** | **partial** | import router/service/storage/worker；`MeetingImport.tsx`；import/migration tests；runbook | 独立路由、可续传 chunk、限制、复用 meeting/postprocess 已实现；真实样本证明上传/转码约 4.45s，但整体解析仍慢，且缺优化后 RTF/P95 发布报告。 |
+| MT-062 长录音文件导入 | **完成** | **partial** | import router/service/storage/worker；`MeetingImport.tsx`；import/migration tests；runbook | 独立路由、可续传 chunk、限制、复用 meeting/postprocess 已实现；一条修复后样本的创建到 `postprocess queued` 为 `2.999s`（包含上传/拼接/探测/转码/持久化，不是纯转码），但最终 ASR/纪要仍超门槛，缺优化后 RTF/P95 发布报告。 |
 
 ## 10. M7：生产硬化与发布
 
 | MT | 代码/自动化状态 | 发布证据 | 关键文件/测试 | 明确缺口 |
 | --- | --- | --- | --- | --- |
 | MT-070 安全与隐私测试 | **部分** | **not_run** | 多个 BOLA/ticket/limits/path/symlink/redaction/tombstone/prompt schema tests；release evaluators | 单项安全自动化较多，但没有覆盖任务书完整矩阵的独立运行报告、敏感数据扫描 artifact、渗透结果或具名安全/隐私签字。 |
-| MT-071 性能与长稳 | **部分** | **not_run** | `evaluate_performance_release.py`、worker lane/priority、bounded finalization tests | 评估器已冻结 RTF/AI/rolling/final/soak/recovery门槛，调度已拆 finalization/minutes/correction lane；`C_release`、+20% 负载、4h 数字采样、重启/DB/存储/Hermes 30m/双模型实跑均缺失。 |
-| MT-072 可观测性和运维手册 | **完成** | **partial** | `meeting_metrics.py`、speech metrics、`infra/monitoring/meetings/*`、`docs/runbooks/meeting-*.md` | 低基数指标、Prometheus 告警、Grafana 看板和分层 runbook 已落盘；缺真实 scrape、看板导出版本、告警触发通知与排障演练记录。 |
+| MT-071 性能与长稳 | **部分** | **not_run** | `evaluate_performance_release.py`、worker lane/priority、bounded finalization tests | 评估器已冻结 RTF/AI/rolling/final/soak/recovery门槛，调度已拆 finalization/minutes/correction lane；修复后单样本显示 final ASR RTF `0.325`、纪要创建到 ready `616.93s`，不足以形成 P95 且未达门槛；`C_release`、+20% 负载、4h 数字采样、重启/DB/存储/Hermes 30m/双模型实跑均缺失。 |
+| MT-072 可观测性和运维手册 | **完成** | **partial** | `meeting_metrics.py`、speech/recluster metrics、`infra/monitoring/meetings/*`、`docs/runbooks/meeting-*.md` | 实时 speaker assigned/unassigned/failed、track created/reused 以及 durable recluster result/decision 均为固定枚举低基数指标，Prometheus 告警、Grafana 看板、policy/report/hash 和临时向量边界 runbook 已落盘；真实 scrape、看板导出、告警通知与排障演练仍 **not_run**。 |
 | MT-073 灰度与回滚演练 | **部分** | **not_run** | feature flags、独立 worker lanes、service scripts、flag enabled/disabled E2E、runbooks | 技术开关与 fail-closed 自动化存在；白名单及 5/25/100%、30 分钟会议、网络/组件故障、drain/恢复、旧应用与 voiceprint restore 的真实演练记录不存在。 |
 
 ## 11. M8：iOS 原生采集、补传与立即回放
@@ -146,7 +146,7 @@ M8 当前只能称为隔离原型。`SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED` 不
 
 ## 12. 剩余阶段门禁顺序
 
-1. 在最终候选 CI 重跑 MT-000：immutable baseline、审阅来源 commit 和当前候选都必须通过同一 exact delta；105 项以外的新增、缺失或 hash 变化必须失败。
+1. 先由 IC 治理独立审查当前 `golden_case_manifest.json` 变更并更新批准合同，再在最终候选 CI 重跑 MT-000：immutable baseline、审阅来源 commit 和当前候选都必须通过同一 exact delta；批准范围以外的新增、缺失或 hash 变化必须失败。
 2. 用授权且独立的数据执行 MT-001、MT-003 和 MT-037 评测，产出脱敏报告与 SHA-256；auto-match 在 FAR 门槛和评审通过前保持关闭。
 3. 在同一候选提交上跑强制全量后端/前端/脚本/E2E 非回归，并保存命令、时间、退出码、测试数和 artifact 校验和。
 4. 执行 MT-070 至 MT-073 的安全、负载、`C_release + 20%`、4h soak、故障恢复、告警和灰度/回滚演练；真实导入样本需重新证明 final ASR、rolling/final minutes 达标。

@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from meeting_speech_service.adapters import (
@@ -45,6 +45,7 @@ class StreamSession:
 @dataclass(slots=True)
 class FinalizationSession:
     run_id: str
+    diarizer_ref: str
     speech: SpeechSession
     next_window_index: int
     last_window_index: int
@@ -124,7 +125,10 @@ class SessionRegistry:
                         stream_epoch=start.stream_epoch,
                         trace_id=str(start.trace_id or uuid4()),
                         fingerprint=fingerprint,
-                        speech=self._engine.create_session(options),
+                        speech=self._engine.create_session(
+                            options,
+                            speaker_track_namespace=f"epoch-{start.stream_epoch}",
+                        ),
                         sequencer=FrameSequencer(
                             last_acked_sequence=-1,
                             max_pending_frames=self._settings.max_pending_frames,
@@ -211,7 +215,10 @@ class SpeechRuntime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.metrics = Metrics()
-        self.engine = _build_engine(settings)
+        self.engine = _build_engine(
+            settings,
+            speaker_metrics_observer=self.metrics.record_speaker_assignment,
+        )
         self.registry = SessionRegistry(settings=settings, engine=self.engine, metrics=self.metrics)
         self._initialization_task: asyncio.Task[None] | None = None
         self._embedding_lock = asyncio.Lock()
@@ -270,6 +277,7 @@ class SpeechRuntime:
             "core_ready": core_ready,
             "production_capable": snapshot.production_capable,
             "adapter": snapshot.adapter,
+            "diarizer_ref": self.engine.diarizer_ref,
             "reason_code": snapshot.reason_code,
             "components": snapshot.components,
             "active_sessions": active,
@@ -298,7 +306,7 @@ class SpeechRuntime:
         final_window: bool,
         language: str | None,
         hotwords: tuple[str, ...],
-    ) -> tuple[Recognition, ...]:
+    ) -> tuple[str, tuple[Recognition, ...]]:
         """Decode one bounded window while retaining diarization state for the run."""
 
         run_key = str(run_id)
@@ -359,7 +367,11 @@ class SpeechRuntime:
                 )
                 entry = FinalizationSession(
                     run_id=run_key,
-                    speech=self.engine.create_session(options),
+                    diarizer_ref=self.engine.diarizer_ref,
+                    speech=self.engine.create_session(
+                        options,
+                        speaker_track_namespace=f"finalization-{run_key}",
+                    ),
                     next_window_index=0,
                     last_window_index=-1,
                     last_checksum=None,
@@ -386,7 +398,7 @@ class SpeechRuntime:
                         "finalization window index was reused with different content",
                     )
                 entry.last_activity_monotonic = time.monotonic()
-                return entry.last_result
+                return entry.diarizer_ref, entry.last_result
             if entry.completed or window_index != entry.next_window_index:
                 raise ProtocolError(
                     "FINALIZATION_SEQUENCE_CONFLICT",
@@ -420,14 +432,19 @@ class SpeechRuntime:
             entry.completed = final_window
             if final_window:
                 await entry.speech.close()
-            return entry.last_result
+            return entry.diarizer_ref, entry.last_result
 
 
-def _build_engine(settings: Settings) -> SpeechEngine:
+def _build_engine(
+    settings: Settings,
+    *,
+    speaker_metrics_observer: Callable[[str, str | None], None] | None = None,
+) -> SpeechEngine:
     if settings.adapter == "mock":
         return MockSpeechEngine(
             transcript_prefix=settings.mock_transcript_prefix,
             speaker_adapter=settings.speaker_adapter,
+            speaker_metrics_observer=speaker_metrics_observer,
         )
     return FunASREngine(
         source_root=settings.funasr_source_root,
@@ -449,10 +466,20 @@ def _build_engine(settings: Settings) -> SpeechEngine:
         speaker_adapter=settings.speaker_adapter,
         speaker_model=settings.speaker_model,
         speaker_cluster_threshold=settings.speaker_cluster_threshold,
+        speaker_cluster_update_threshold=settings.resolved_speaker_cluster_update_threshold,
+        speaker_cluster_min_margin=settings.speaker_cluster_min_margin,
+        speaker_candidate_threshold=settings.resolved_speaker_candidate_threshold,
+        speaker_candidate_confirmations=settings.speaker_candidate_confirmations,
+        speaker_candidate_max_gap_ms=settings.speaker_candidate_max_gap_ms,
         speaker_max_tracks=settings.speaker_max_tracks,
         speaker_min_segment_ms=settings.speaker_min_segment_ms,
+        speaker_new_track_min_segment_ms=settings.speaker_new_track_min_segment_ms,
+        speaker_max_prototypes=settings.speaker_max_prototypes,
+        speaker_min_rms=settings.speaker_min_rms,
+        speaker_max_clipping_ratio=settings.speaker_max_clipping_ratio,
         speaker_inference_timeout_seconds=settings.speaker_inference_timeout_seconds,
         embedding_endpoint_enabled=settings.embedding_endpoint_enabled,
+        speaker_metrics_observer=speaker_metrics_observer,
     )
 
 

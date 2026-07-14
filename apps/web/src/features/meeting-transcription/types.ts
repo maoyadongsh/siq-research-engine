@@ -228,6 +228,17 @@ export interface SegmentSpeakerRenameResponse {
   event_cursor: number
 }
 
+export interface MeetingSpeakerMappingResponse {
+  operation: 'merge' | 'split'
+  meeting_id: string
+  source_track_ids: string[]
+  target_track_ids: string[]
+  segment_ids: string[]
+  event_id: string
+  event_cursor: number
+  tracks: MeetingSpeakerTrack[]
+}
+
 export interface MeetingPartialTranscript {
   utterance_id: string
   text: string

@@ -20,6 +20,7 @@ import type {
   MeetingModelSetting,
   MeetingSession,
   MeetingSpeakerTrack,
+  MeetingSpeakerMappingResponse,
   MeetingSpeakerRenameScope,
   MeetingStreamTicket,
   MeetingTermCandidate,
@@ -251,6 +252,26 @@ export async function renameMeetingSegmentSpeaker(
     },
   )
   return { ...response, segment: normalizeTranscriptSegment(response.segment) }
+}
+
+export function mergeMeetingSpeakers(
+  meetingId: string,
+  targetTrackId: string,
+  sourceTrackIds: string[],
+  expectedVersions: Record<string, number>,
+  idempotencyKey?: string,
+) {
+  return apiJson<MeetingSpeakerMappingResponse>(
+    meetingPath(meetingId, `/speakers/${encodeURIComponent(targetTrackId)}/merge`),
+    {
+      method: 'POST',
+      headers: mutationHeaders(idempotencyKey),
+      body: {
+        source_track_ids: sourceTrackIds,
+        expected_versions: expectedVersions,
+      },
+    },
+  )
 }
 
 export function enrollMeetingVoiceprint(

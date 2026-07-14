@@ -152,7 +152,18 @@ export SIQ_MEETING_SPEECH_SPEAKER_ADAPTER=funasr
 export SIQ_MEETING_SPEECH_SPEAKER_MODEL=iic/speech_eres2netv2_sv_zh-cn_16k-common
 ```
 
-Tracks are capped per session and disappear when retained stream state expires. A segment shorter than the configured quality floor remains anonymous. If the encoder fails, ASR final text is still returned with an explicit speaker degradation marker.
+Tracks are capped per session and disappear when retained stream state expires. Track keys include the stream epoch, so a new capture epoch cannot collide with an earlier epoch's anonymous labels. A segment shorter than the configured quality floor, below the RMS floor, or above the clipping-ratio ceiling remains anonymous. New tracks require repeated candidate evidence; borderline matches may be assigned but cannot update the track's bounded robust prototype window. The assignment, update, candidate, Top-2 margin, confirmation, expiry, and signal-quality bounds are independently configurable. If the encoder fails, ASR final text is still returned with an explicit speaker degradation marker.
+
+`/metrics` exposes only fixed speaker-quality outcomes. Use
+`meeting_speech_speaker_assignment_total{result="assigned|unassigned|failed"}`
+to distinguish a successful assignment, a deliberately anonymous result, and
+an adapter failure. Use
+`meeting_speech_speaker_track_total{result="created|reused"}` to monitor
+fragmentation pressure. These metrics contain no meeting, user, track, name,
+text, or embedding labels. `unassigned` includes quality rejection, ambiguous
+matches, and candidates awaiting confirmation; investigate it together with
+the evaluated policy and audio-quality evidence rather than treating every
+sample as a model fault.
 
 `POST /v1/speaker/embedding` is a separate internal worker capability and defaults off. Enabling it requires a configured internal service token even in local mode. The caller must send:
 
@@ -163,6 +174,8 @@ Tracks are capped per session and disappear when retained stream state expires. 
 - A 1-15 second 16 kHz mono PCM16 sample by default.
 
 The endpoint returns a normalized embedding and `persisted=false`; it never stores audio, the consent reference, or the vector. The business worker remains responsible for object authorization, consent state, encryption, retention, matching thresholds, audit, revoke, and delete. This model service is not a consent authority.
+
+The same endpoint supports meeting-scoped, non-identity diarization for an already authorized internal finalization worker. Send `X-SIQ-Speaker-Purpose: diarization`, `X-SIQ-Meeting-ID: <UUID>`, and `X-SIQ-Diarization-Run-ID: <UUID>` instead of either `X-SIQ-Voiceprint-*` header. Mixed voiceprint and diarization scopes are rejected. The response uses `siq.meeting.speaker_embedding.v1`, echoes the meeting/run scope, sets `purpose=diarization` and `persisted=false`, and remains subject to the same token, duration, concurrency, and in-memory processing bounds.
 
 The voiceprint worker should configure `SIQ_MEETING_SPEAKER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding` and reuse the internal service token only in its server-side environment.
 

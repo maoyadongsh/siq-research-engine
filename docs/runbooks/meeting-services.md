@@ -74,6 +74,9 @@ pgrep -af 'meeting_(ai|export|retention|native_capture)_worker|meeting_stream_ga
 
 主 API 与独立 stream gateway 的 `/metrics` 使用 `SIQ_METRICS_TOKEN`
 鉴权，提供会议连接、ASR 延迟、音频缺口、任务队列、模型隔离和声纹决策等低基数指标。
+Meeting Speech 还提供固定枚举的实时说话人分配/轨道指标；主 API 从数据库提供会后
+recluster 成功、降级、重试、失败和决策类别指标。运维看板不得按 meeting、user、
+track 或姓名拆分；未分配率和新轨道率的告警阈值必须由授权、独立的说话人评测集校准。
 监控系统加载 `infra/monitoring/meetings/prometheus-alerts.yml`，Grafana 导入
 `infra/monitoring/meetings/grafana-dashboard.json`。两份配置都禁止把 meeting ID、
 user ID、姓名、model ref、逐字稿或 embedding 放入 label。

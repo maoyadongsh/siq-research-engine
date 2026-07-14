@@ -495,6 +495,7 @@ async def merge_speakers(
     request: SpeakerMergeRequest,
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> SpeakerMappingResponse:
     _require_enabled()
     owner_id = _authorize(current_user, MEETING_UPDATE)
@@ -504,6 +505,7 @@ async def merge_speakers(
             track_id,
             owner_id,
             request,
+            idempotency_key=idempotency_key,
         )
     )
 

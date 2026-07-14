@@ -1,8 +1,37 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Mapping
+
+
+def build_diarizer_ref(
+    *,
+    adapter: str,
+    model_ref: str,
+    configuration: Mapping[str, object],
+) -> str:
+    """Return a stable, non-secret identity for the effective diarizer config."""
+
+    normalized_adapter = adapter.strip().lower()
+    if not normalized_adapter or not normalized_adapter.replace("-", "").isalnum():
+        raise ValueError("diarizer adapter identity is invalid")
+    payload = json.dumps(
+        {
+            "schema_version": "siq.meeting.diarizer.config.v1",
+            "adapter": normalized_adapter,
+            "model_ref": model_ref.strip(),
+            "configuration": dict(configuration),
+        },
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"siq.meeting.diarizer.v1/{normalized_adapter}/{digest}"
 
 
 class AdapterUnavailable(RuntimeError):
@@ -88,6 +117,11 @@ class SpeechSession(ABC):
 
 
 class SpeechEngine(ABC):
+    @property
+    @abstractmethod
+    def diarizer_ref(self) -> str:
+        raise NotImplementedError
+
     @abstractmethod
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -97,7 +131,12 @@ class SpeechEngine(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def create_session(self, options: SessionOptions) -> SpeechSession:
+    def create_session(
+        self,
+        options: SessionOptions,
+        *,
+        speaker_track_namespace: str | None = None,
+    ) -> SpeechSession:
         raise NotImplementedError
 
     async def speaker_embedding(self, pcm: bytes) -> SpeakerEmbedding:

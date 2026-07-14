@@ -115,6 +115,10 @@ _COUNTER_LABEL_VALUES: dict[str, frozenset[str]] = {
     "native_capture_batch_bytes": frozenset({"accepted", "replayed"}),
     "native_capture_storage_rejection": frozenset({"unavailable", "low_space", "quota", "capacity", "integrity"}),
     "final_asr_window": frozenset({"succeeded", "retryable_failure", "permanent_failure"}),
+    "speaker_recluster_run": frozenset({"succeeded", "degraded", "retry_wait", "failed"}),
+    "speaker_recluster_decision": frozenset(
+        {"auto_merge", "auto_split", "review_proposal", "protected_skip", "unchanged"}
+    ),
 }
 
 
@@ -202,6 +206,11 @@ def render_meeting_process_metrics() -> str:
             "reason",
         ),
         "final_asr_window": ("meeting_final_asr_window_total", "result"),
+        "speaker_recluster_run": ("meeting_speaker_recluster_total", "result"),
+        "speaker_recluster_decision": (
+            "meeting_speaker_recluster_decision_total",
+            "result",
+        ),
     }
     for internal, (public, label_name) in counter_contract.items():
         lines.extend([f"# TYPE {public} counter"])
@@ -287,6 +296,61 @@ async def render_meeting_database_metrics(session: AsyncSession) -> str:
             f"meeting_active_leases {int(active or 0)}",
         ]
     )
+
+    recluster_states = (
+        await session.exec(
+            select(MeetingJob.state, func.count(MeetingJob.id))
+            .where(
+                MeetingJob.job_kind == "speaker_recluster",
+                MeetingJob.state.in_(
+                    {
+                        MeetingJobState.SUCCEEDED.value,
+                        MeetingJobState.RETRY_WAIT.value,
+                        MeetingJobState.FAILED.value,
+                    }
+                ),
+            )
+            .group_by(MeetingJob.state)
+        )
+    ).all()
+    recluster_state_counts = Counter({str(state): int(count) for state, count in recluster_states})
+    recluster_event_types = {
+        "speaker.recluster.degraded": "degraded",
+        "speaker.recluster.auto_merge": "auto_merge",
+        "speaker.recluster.auto_split": "auto_split",
+        "speaker.recluster.review_proposal": "review_proposal",
+        "speaker.recluster.protected_skip": "protected_skip",
+        "speaker.recluster.unchanged": "unchanged",
+    }
+    recluster_event_rows = (
+        await session.exec(
+            select(MeetingEvent.event_type, func.count(MeetingEvent.id))
+            .where(MeetingEvent.event_type.in_(set(recluster_event_types)))
+            .group_by(MeetingEvent.event_type)
+        )
+    ).all()
+    recluster_event_counts = Counter(
+        {recluster_event_types[str(event_type)]: int(count) for event_type, count in recluster_event_rows}
+    )
+    degraded_count = recluster_event_counts["degraded"]
+    clean_success_count = max(
+        0,
+        recluster_state_counts[MeetingJobState.SUCCEEDED.value] - degraded_count,
+    )
+    lines.append("# TYPE meeting_speaker_recluster_durable_total gauge")
+    for result, count in (
+        ("succeeded", clean_success_count),
+        ("degraded", degraded_count),
+        ("retry_wait", recluster_state_counts[MeetingJobState.RETRY_WAIT.value]),
+        ("failed", recluster_state_counts[MeetingJobState.FAILED.value]),
+    ):
+        lines.append(f'meeting_speaker_recluster_durable_total{{result="{result}"}} {count}')
+    lines.append("# TYPE meeting_speaker_recluster_decision_durable_total gauge")
+    for result in ("auto_merge", "auto_split", "review_proposal", "protected_skip", "unchanged"):
+        lines.append(
+            f'meeting_speaker_recluster_decision_durable_total{{result="{result}"}} '
+            f"{recluster_event_counts[result]}"
+        )
 
     queued_states = {
         MeetingJobState.QUEUED.value,

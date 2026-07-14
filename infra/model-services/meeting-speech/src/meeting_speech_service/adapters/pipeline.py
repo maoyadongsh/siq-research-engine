@@ -4,7 +4,7 @@ import asyncio
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Literal, Protocol
 from uuid import uuid4
 
 import numpy as np
@@ -38,6 +38,7 @@ class FinalDecode:
 class SpeakerAssignment:
     track_key: str
     confidence: float | None = None
+    track_result: Literal["created", "reused"] = "reused"
 
 
 class Vad(Protocol):
@@ -65,8 +66,16 @@ class NullSpeakerHook:
 
 
 class MockSpeakerHook:
+    def __init__(self, *, track_namespace: str | None = None) -> None:
+        self._track_namespace = track_namespace.strip() if track_namespace else None
+        self._created = False
+
     def assign(self, pcm: bytes, *, start_ms: int, end_ms: int) -> SpeakerAssignment | None:
-        return SpeakerAssignment(track_key="mock-speaker-0", confidence=1.0)
+        local_key = "mock-speaker-0"
+        track_key = f"{self._track_namespace}:{local_key}" if self._track_namespace else local_key
+        track_result = "reused" if self._created else "created"
+        self._created = True
+        return SpeakerAssignment(track_key=track_key, confidence=1.0, track_result=track_result)
 
 
 class EnergyVad:
@@ -130,12 +139,14 @@ class BufferedRecognitionSession(SpeechSession):
         vad: Vad,
         decoder: Decoder,
         speaker: SpeakerHook | None = None,
+        speaker_metrics_observer: Callable[[str, str | None], None] | None = None,
     ) -> None:
         self._adapter_name = adapter_name
         self._options = options
         self._vad = vad
         self._decoder = decoder
         self._speaker = speaker or NullSpeakerHook()
+        self._speaker_metrics_observer = speaker_metrics_observer
         self._segment = bytearray()
         self._segment_start_ms: int | None = None
         self._segment_token: str | None = None
@@ -301,6 +312,12 @@ class BufferedRecognitionSession(SpeechSession):
             except Exception:
                 assignment = None
                 degraded_reason = degraded_reason or "SPEAKER_ASSIGNMENT_FAILED"
+                self._observe_speaker_result("failed", None)
+            else:
+                if assignment is None:
+                    self._observe_speaker_result("unassigned", None)
+                else:
+                    self._observe_speaker_result("assigned", assignment.track_result)
             result = Recognition(
                 kind="final",
                 segment_token=self._segment_token,
@@ -320,6 +337,15 @@ class BufferedRecognitionSession(SpeechSession):
         if result is None:
             return ()
         return (result,)
+
+    def _observe_speaker_result(self, result: str, track_result: str | None) -> None:
+        if self._speaker_metrics_observer is None:
+            return
+        try:
+            self._speaker_metrics_observer(result, track_result)
+        except Exception:
+            # Telemetry must never change transcription availability.
+            return
 
     def _clear_segment(self) -> None:
         self._segment.clear()

@@ -130,6 +130,22 @@ SIQ_MEETING_STREAM_LEASE_TTL_SECONDS=20
 SIQ_MEETING_STREAM_HANDSHAKE_TIMEOUT_SECONDS=10
 SIQ_MEETING_PLAYBACK_TICKET_TTL_SECONDS=900
 SIQ_MEETING_SPEAKER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding
+# The speech embedding endpoint is independently gated and remains off until
+# an approved speaker evaluation and rollout explicitly enable it.
+SIQ_MEETING_SPEECH_EMBEDDING_ENDPOINT_ENABLED=0
+# Whole-meeting reclustering uses request-scoped embeddings only. These
+# temporary vectors must not be written to PostgreSQL or Milvus.
+SIQ_MEETING_SPEAKER_RECLUSTER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding
+# Exact base final-ASR diarizer identity; required only for validated auto-merge.
+SIQ_MEETING_SPEAKER_RECLUSTER_FINAL_DIARIZER_REF=
+SIQ_MEETING_SPEAKER_RECLUSTER_ENCODER_REF=iic/speech_eres2netv2_sv_zh-cn_16k-common
+# Deliberately unvalidated. Keep the approved report outside the repository;
+# validation_artifact_sha256 is the SHA-256 of that immutable report.
+SIQ_MEETING_SPEAKER_RECLUSTER_POLICY_JSON='{"schema_version":"siq.meeting.speaker_recluster_policy.v1","version":"speaker-recluster.unvalidated.v1","auto_apply_validated":false,"validation_artifact_sha256":null,"review_min_score":0.72,"merge_min_score":0.82,"singleton_merge_min_score":0.92,"min_top2_margin":0.04,"min_segment_ms":1500,"max_segment_ms":8000,"max_samples_per_track":4,"max_total_samples":256,"max_tracks":64,"max_noise_level":0.65,"min_asr_confidence":0.45,"min_rms":0.003,"max_clipping_ratio":0.01}'
+# Set to the approved report only when enabling cross-key automatic merge.
+SIQ_MEETING_SPEAKER_RECLUSTER_VALIDATION_REPORT=
+# Independent operator authorization for embedding-based cross-key merge only.
+SIQ_MEETING_SPEAKER_RECLUSTER_AUTO_APPLY_ENABLED=0
 SIQ_MEETING_SPEECH_INTERNAL_SERVICE_TOKEN=replace-with-shared-internal-speech-token
 SIQ_MEETINGS_HERMES_TARGETS_FILE=${SIQ_RUNTIME_ROOT}/meetings/hermes-targets.json
 SIQ_MEETINGS_HERMES_API_KEY=replace-with-meeting-gateway-token

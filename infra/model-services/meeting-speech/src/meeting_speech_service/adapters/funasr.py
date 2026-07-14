@@ -4,7 +4,7 @@ import asyncio
 import sys
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -16,6 +16,7 @@ from meeting_speech_service.adapters.base import (
     SpeechEngine,
     SpeechSession,
     WordTiming,
+    build_diarizer_ref,
 )
 from meeting_speech_service.adapters.http_finalizer import FunASRHttpFinalizer
 from meeting_speech_service.adapters.pipeline import (
@@ -51,10 +52,20 @@ class FunASREngine(SpeechEngine):
         speaker_adapter: str,
         speaker_model: str,
         speaker_cluster_threshold: float,
+        speaker_cluster_update_threshold: float,
+        speaker_cluster_min_margin: float,
+        speaker_candidate_threshold: float,
+        speaker_candidate_confirmations: int,
+        speaker_candidate_max_gap_ms: int,
         speaker_max_tracks: int,
         speaker_min_segment_ms: int,
+        speaker_new_track_min_segment_ms: int,
+        speaker_max_prototypes: int,
+        speaker_min_rms: float,
+        speaker_max_clipping_ratio: float,
         speaker_inference_timeout_seconds: float,
         embedding_endpoint_enabled: bool,
+        speaker_metrics_observer: Callable[[str, str | None], None] | None = None,
     ) -> None:
         self._source_root = source_root
         self._device = device
@@ -75,10 +86,43 @@ class FunASREngine(SpeechEngine):
         self._speaker_adapter = speaker_adapter
         self._speaker_model_ref = speaker_model
         self._speaker_cluster_threshold = speaker_cluster_threshold
+        self._speaker_cluster_update_threshold = speaker_cluster_update_threshold
+        self._speaker_cluster_min_margin = speaker_cluster_min_margin
+        self._speaker_candidate_threshold = speaker_candidate_threshold
+        self._speaker_candidate_confirmations = speaker_candidate_confirmations
+        self._speaker_candidate_max_gap_ms = speaker_candidate_max_gap_ms
         self._speaker_max_tracks = speaker_max_tracks
         self._speaker_min_segment_ms = speaker_min_segment_ms
+        self._speaker_new_track_min_segment_ms = speaker_new_track_min_segment_ms
+        self._speaker_max_prototypes = speaker_max_prototypes
+        self._speaker_min_rms = speaker_min_rms
+        self._speaker_max_clipping_ratio = speaker_max_clipping_ratio
         self._speaker_inference_timeout_seconds = speaker_inference_timeout_seconds
         self._embedding_endpoint_enabled = embedding_endpoint_enabled
+        self._speaker_metrics_observer = speaker_metrics_observer
+        self._configured_diarizer_ref = build_diarizer_ref(
+            adapter="funasr",
+            model_ref=speaker_model,
+            configuration={
+                "cluster_threshold": speaker_cluster_threshold,
+                "cluster_update_threshold": speaker_cluster_update_threshold,
+                "cluster_min_margin": speaker_cluster_min_margin,
+                "candidate_threshold": speaker_candidate_threshold,
+                "candidate_confirmations": speaker_candidate_confirmations,
+                "candidate_max_gap_ms": speaker_candidate_max_gap_ms,
+                "max_tracks": speaker_max_tracks,
+                "min_segment_ms": speaker_min_segment_ms,
+                "new_track_min_segment_ms": speaker_new_track_min_segment_ms,
+                "max_prototypes": speaker_max_prototypes,
+                "min_rms": speaker_min_rms,
+                "max_clipping_ratio": speaker_max_clipping_ratio,
+            },
+        )
+        self._disabled_diarizer_ref = build_diarizer_ref(
+            adapter="none",
+            model_ref="disabled",
+            configuration={"speaker_adapter": speaker_adapter},
+        )
         self._state = "initializing"
         self._reason_code: str | None = None
         self._online_model: Any = None
@@ -93,6 +137,16 @@ class FunASREngine(SpeechEngine):
         self._vad_lock = Lock()
         self._speaker_lock = Lock()
         self._closing = False
+
+    @property
+    def diarizer_ref(self) -> str:
+        if (
+            self._speaker_adapter == "funasr"
+            and self._speaker_model is not None
+            and not self._speaker_timed_out
+        ):
+            return self._configured_diarizer_ref
+        return self._disabled_diarizer_ref
 
     async def initialize(self) -> None:
         self._state = "initializing"
@@ -138,7 +192,12 @@ class FunASREngine(SpeechEngine):
             },
         )
 
-    def create_session(self, options: SessionOptions) -> SpeechSession:
+    def create_session(
+        self,
+        options: SessionOptions,
+        *,
+        speaker_track_namespace: str | None = None,
+    ) -> SpeechSession:
         if self._state not in {"ready", "degraded"}:
             raise AdapterUnavailable(self._reason_code or "FUNASR_NOT_READY")
         speaker = NullSpeakerHook()
@@ -146,8 +205,18 @@ class FunASREngine(SpeechEngine):
             speaker = AnonymousSpeakerCluster(
                 encoder=self._encode_speaker_sync,
                 threshold=self._speaker_cluster_threshold,
+                update_threshold=self._speaker_cluster_update_threshold,
+                min_margin=self._speaker_cluster_min_margin,
+                candidate_threshold=self._speaker_candidate_threshold,
+                candidate_confirmations=self._speaker_candidate_confirmations,
+                candidate_max_gap_ms=self._speaker_candidate_max_gap_ms,
                 max_tracks=self._speaker_max_tracks,
                 min_segment_ms=self._speaker_min_segment_ms,
+                new_track_min_segment_ms=self._speaker_new_track_min_segment_ms,
+                max_prototypes=self._speaker_max_prototypes,
+                min_rms=self._speaker_min_rms,
+                max_clipping_ratio=self._speaker_max_clipping_ratio,
+                track_namespace=speaker_track_namespace,
             )
         return BufferedRecognitionSession(
             adapter_name="funasr",
@@ -155,6 +224,11 @@ class FunASREngine(SpeechEngine):
             vad=_FunASRVad(self),
             decoder=_FunASRDecoder(self, options),
             speaker=speaker,
+            speaker_metrics_observer=(
+                self._speaker_metrics_observer
+                if isinstance(speaker, AnonymousSpeakerCluster)
+                else None
+            ),
         )
 
     @property

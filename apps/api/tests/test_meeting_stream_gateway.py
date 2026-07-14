@@ -16,11 +16,13 @@ from services.auth_service import User, UserRole
 from services.meeting_contracts import (
     MEETING_TABLES,
     MeetingAudioChunk,
+    MeetingSpeakerTrack,
     MeetingStreamLease,
     MeetingTranscriptSegment,
     utcnow,
 )
 from services.meeting_database import get_meeting_async_session as get_async_session
+from services.meeting_stream_protocol import MeetingStreamProtocolError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -38,6 +40,16 @@ def _user() -> User:
         is_active=True,
         approval_status="approved",
     )
+
+
+def test_speaker_track_keys_are_epoch_scoped_and_bounded() -> None:
+    assert meeting_stream._epoch_scoped_speaker_track_key(3, "speaker-1") == "epoch-3:speaker-1"
+    assert meeting_stream._epoch_scoped_speaker_track_key(3, "epoch-3:speaker-1") == "epoch-3:speaker-1"
+    assert meeting_stream._epoch_scoped_speaker_track_key(3, None) is None
+    with pytest.raises(MeetingStreamProtocolError, match="speaker track epoch"):
+        meeting_stream._epoch_scoped_speaker_track_key(3, "epoch-2:speaker-1")
+    with pytest.raises(MeetingStreamProtocolError, match="configured bound"):
+        meeting_stream._epoch_scoped_speaker_track_key(3, "x" * 128)
 
 
 class _FakeSpeech:
@@ -292,10 +304,12 @@ def test_stream_gateway_persists_before_ack_and_durabilizes_final(tmp_path, monk
                 )
             ).one()
             segment = (await session.exec(select(MeetingTranscriptSegment))).one()
+            speaker = (await session.exec(select(MeetingSpeakerTrack))).one()
             assert segment_count == 1
             assert chunk_count == 1
             assert active_lease_count == 0
             assert segment.human_locked is False
+            assert speaker.track_key == "epoch-1:speaker-1"
             assert json.loads(segment.word_timestamps_json)[0]["text"] == "欢迎"
 
     anyio.run(assert_database)

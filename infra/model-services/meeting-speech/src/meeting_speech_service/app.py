@@ -428,14 +428,44 @@ async def _serve_speaker_embedding(request: Request, runtime: SpeechRuntime) -> 
         return JSONResponse({"detail": "Speaker embedding is unavailable", "code": "SERVICE_DISABLED"}, status_code=503)
     if not _token_authorized(request.headers.get("x-siq-service-token", ""), settings):
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-    consent_reference = request.headers.get("x-siq-voiceprint-consent", "")
-    try:
-        UUID(consent_reference)
-    except (ValueError, TypeError):
-        return JSONResponse({"detail": "A valid voiceprint consent reference is required"}, status_code=400)
-    purpose = request.headers.get("x-siq-voiceprint-purpose", "")
-    if purpose not in {"enrollment", "match"}:
-        return JSONResponse({"detail": "Voiceprint purpose must be enrollment or match"}, status_code=400)
+    speaker_purpose = request.headers.get("x-siq-speaker-purpose", "").strip()
+    scope: dict[str, str] | None = None
+    if speaker_purpose:
+        if speaker_purpose != "diarization":
+            return JSONResponse(
+                {"detail": "Speaker purpose must be diarization", "code": "EMBEDDING_PURPOSE_INVALID"},
+                status_code=400,
+            )
+        if request.headers.get("x-siq-voiceprint-consent") or request.headers.get("x-siq-voiceprint-purpose"):
+            return JSONResponse(
+                {
+                    "detail": "Diarization and voiceprint request scopes cannot be mixed",
+                    "code": "EMBEDDING_SCOPE_CONFLICT",
+                },
+                status_code=400,
+            )
+        try:
+            meeting_id = UUID(request.headers.get("x-siq-meeting-id", ""))
+            run_id = UUID(request.headers.get("x-siq-diarization-run-id", ""))
+        except (ValueError, TypeError):
+            return JSONResponse(
+                {
+                    "detail": "Valid meeting and diarization run references are required",
+                    "code": "DIARIZATION_SCOPE_INVALID",
+                },
+                status_code=400,
+            )
+        purpose = "diarization"
+        scope = {"meeting_id": str(meeting_id), "run_id": str(run_id)}
+    else:
+        consent_reference = request.headers.get("x-siq-voiceprint-consent", "")
+        try:
+            UUID(consent_reference)
+        except (ValueError, TypeError):
+            return JSONResponse({"detail": "A valid voiceprint consent reference is required"}, status_code=400)
+        purpose = request.headers.get("x-siq-voiceprint-purpose", "")
+        if purpose not in {"enrollment", "match"}:
+            return JSONResponse({"detail": "Voiceprint purpose must be enrollment or match"}, status_code=400)
 
     max_pcm_bytes = round(settings.embedding_max_seconds * settings.sample_rate * 2)
     try:
@@ -466,17 +496,18 @@ async def _serve_speaker_embedding(request: Request, runtime: SpeechRuntime) -> 
         )
     finally:
         await runtime.release_embedding()
-    return JSONResponse(
-        {
-            "schema_version": "siq.meeting.speaker_embedding.v1",
-            "encoder_ref": embedding.encoder_ref,
-            "dimension": len(embedding.values),
-            "embedding": embedding.values,
-            "duration_ms": round(duration_seconds * 1_000),
-            "purpose": purpose,
-            "persisted": False,
-        }
-    )
+    response: dict[str, object] = {
+        "schema_version": "siq.meeting.speaker_embedding.v1",
+        "encoder_ref": embedding.encoder_ref,
+        "dimension": len(embedding.values),
+        "embedding": embedding.values,
+        "duration_ms": round(duration_seconds * 1_000),
+        "purpose": purpose,
+        "persisted": False,
+    }
+    if scope is not None:
+        response["scope"] = scope
+    return JSONResponse(response)
 
 
 async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JSONResponse:
@@ -526,7 +557,7 @@ async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JS
                 "FINALIZATION_PCM_INVALID",
                 "finalization audio must contain aligned PCM16 samples",
             )
-        results = await runtime.finalize_window(
+        diarizer_ref, results = await runtime.finalize_window(
             run_id=run_id,
             window_index=window_index,
             pcm=pcm,
@@ -572,6 +603,7 @@ async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JS
         {
             "schema_version": "siq.meeting.final_asr_window.v1",
             "finalization_id": str(run_id),
+            "diarizer_ref": diarizer_ref,
             "window_index": window_index,
             "window_start_ms": start_ms,
             "final_window": final_window,

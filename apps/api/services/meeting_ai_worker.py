@@ -13,13 +13,14 @@ import logging
 import os
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncContextManager, Callable, Iterable
 from uuid import uuid4
 
 from sqlalchemy import and_, case, func, or_, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -28,6 +29,8 @@ from services.meeting_contracts import (
     ArtifactType,
     AudioSource,
     MeetingArtifact,
+    MeetingAudioChunk,
+    MeetingEvent,
     MeetingJob,
     MeetingJobKind,
     MeetingJobState,
@@ -68,6 +71,12 @@ from services.meeting_hermes_runner import (
     MeetingHermesRunResult,
     MeetingHermesTarget,
     MeetingHermesTargetUnavailable,
+)
+from services.meeting_metrics import record_meeting_counter
+from services.meeting_speaker_recluster import (
+    MeetingSpeakerReclusterError,
+    MeetingSpeakerReclusterService,
+    SpeakerReclusterPlan,
 )
 
 SessionFactory = Callable[[], AsyncContextManager[AsyncSession]]
@@ -290,6 +299,7 @@ class MeetingAIWorker:
         worker_id: str,
         config: MeetingAIWorkerConfig | None = None,
         finalization_service: MeetingFinalizationService | None = None,
+        speaker_recluster_service: MeetingSpeakerReclusterService | None = None,
         job_kinds: Iterable[str] | None = None,
         audio_sources: Iterable[str] | None = None,
     ) -> None:
@@ -300,6 +310,7 @@ class MeetingAIWorker:
         self.worker_id = worker_id.strip()[:100]
         self.config = config or MeetingAIWorkerConfig.from_env()
         self.finalization_service = finalization_service or MeetingFinalizationService(session_factory)  # type: ignore[arg-type]
+        self.speaker_recluster_service = speaker_recluster_service or MeetingSpeakerReclusterService.from_env()
         default_kinds = {
             MeetingJobKind.CORRECTION.value,
             MeetingJobKind.ROLLING_MINUTES.value,
@@ -324,12 +335,35 @@ class MeetingAIWorker:
         now = utcnow()
         lease_until = now + timedelta(seconds=self.config.lease_seconds)
         eligible = _eligible_jobs(now)
-        candidate_query = select(MeetingJob.id).where(eligible).where(MeetingJob.job_kind.in_(self.job_kinds))
+        pending_voiceprint = aliased(MeetingJob)
+        candidate_query = (
+            select(MeetingJob.id)
+            .join(MeetingSession, MeetingSession.id == MeetingJob.meeting_id)
+            .where(eligible)
+            .where(MeetingJob.job_kind.in_(self.job_kinds))
+            .where(
+                or_(
+                    MeetingJob.job_kind != MeetingJobKind.FINAL_MINUTES.value,
+                    MeetingSession.voiceprint_enabled.is_(False),
+                    ~select(pending_voiceprint.id)
+                    .where(
+                        pending_voiceprint.meeting_id == MeetingJob.meeting_id,
+                        pending_voiceprint.job_kind == MeetingJobKind.VOICEPRINT_MATCH.value,
+                        pending_voiceprint.state.in_(
+                            [
+                                MeetingJobState.QUEUED.value,
+                                MeetingJobState.LEASED.value,
+                                MeetingJobState.RUNNING.value,
+                                MeetingJobState.RETRY_WAIT.value,
+                            ]
+                        ),
+                    )
+                    .exists(),
+                )
+            )
+        )
         if self.audio_sources:
-            candidate_query = candidate_query.join(
-                MeetingSession,
-                MeetingSession.id == MeetingJob.meeting_id,
-            ).where(MeetingSession.audio_source.in_(self.audio_sources))
+            candidate_query = candidate_query.where(MeetingSession.audio_source.in_(self.audio_sources))
         candidate = (
             candidate_query.order_by(_priority_expression(), MeetingJob.created_at, MeetingJob.id)
             .limit(1)
@@ -1418,7 +1452,6 @@ class MeetingAIWorker:
                             MeetingTranscriptSegment.ordinal <= job.input_watermark,
                         )
                         .order_by(MeetingTranscriptSegment.ordinal)
-                        .with_for_update()
                     )
                 ).all()
             )
@@ -1596,6 +1629,7 @@ class MeetingAIWorker:
                         "schema_version": FINAL_ALIGNMENT_SCHEMA,
                         "job_id": job.id,
                         "mode": analysis.mode,
+                        "diarizer_ref": analysis.diarizer_ref,
                         "manifest": {
                             "chunk_count": analysis.chunk_count,
                             "total_audio_bytes": analysis.total_audio_bytes,
@@ -1690,6 +1724,13 @@ class MeetingAIWorker:
                 payload.get("alignments"), list
             ):
                 raise MeetingAIOutputInvalid("speaker recluster alignment is invalid")
+            raw_observed_diarizer_ref = payload.get("diarizer_ref")
+            observed_diarizer_ref = (
+                raw_observed_diarizer_ref
+                if isinstance(raw_observed_diarizer_ref, str)
+                and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,191}", raw_observed_diarizer_ref)
+                else None
+            )
 
             segments = list(
                 (
@@ -1700,7 +1741,6 @@ class MeetingAIWorker:
                             MeetingTranscriptSegment.ordinal <= job.input_watermark,
                         )
                         .order_by(MeetingTranscriptSegment.ordinal)
-                        .with_for_update()
                     )
                 ).all()
             )
@@ -1709,13 +1749,73 @@ class MeetingAIWorker:
                     await session.exec(
                         select(MeetingSpeakerTrack)
                         .where(MeetingSpeakerTrack.meeting_id == job.meeting_id)
-                        .with_for_update()
                     )
                 ).all()
             )
+            chunks = list(
+                (
+                    await session.exec(
+                        select(MeetingAudioChunk)
+                        .where(
+                            MeetingAudioChunk.meeting_id == job.meeting_id,
+                            MeetingAudioChunk.state != "deleted",
+                        )
+                        .order_by(
+                            MeetingAudioChunk.start_ms,
+                            MeetingAudioChunk.stream_epoch,
+                            MeetingAudioChunk.sequence,
+                        )
+                    )
+                ).all()
+            )
+            mapping_events = list(
+                (
+                    await session.exec(
+                        select(MeetingEvent.payload_json)
+                        .where(
+                            MeetingEvent.meeting_id == job.meeting_id,
+                            MeetingEvent.event_type.in_(
+                                ["speaker.track.merged", "speaker.track.split"]
+                            ),
+                        )
+                        .order_by(MeetingEvent.cursor)
+                    )
+                ).all()
+            )
+            manual_mapping_track_ids: set[str] = set()
+            manual_mapping_segment_ids: set[str] = set()
+            for raw_payload in mapping_events:
+                mapping_payload = decode_json(raw_payload, {})
+                if mapping_payload.get("automatic") is not False:
+                    continue
+                for field_name in ("source_track_id", "target_track_id"):
+                    value = mapping_payload.get(field_name)
+                    if isinstance(value, str) and value:
+                        manual_mapping_track_ids.add(value)
+                for field_name in ("source_track_ids", "target_track_ids"):
+                    values = mapping_payload.get(field_name)
+                    if isinstance(values, list):
+                        manual_mapping_track_ids.update(
+                            value for value in values if isinstance(value, str) and value
+                        )
+                values = mapping_payload.get("segment_ids")
+                if isinstance(values, list):
+                    manual_mapping_segment_ids.update(
+                        value for value in values if isinstance(value, str) and value
+                    )
             segment_by_id = {segment.id: segment for segment in segments}
             original_track_by_segment = {segment.id: segment.speaker_track_id for segment in segments}
             track_by_id = {track.id: track for track in tracks}
+            original_track_state = {
+                track.id: (
+                    track.version,
+                    track.label_source,
+                    track.display_name,
+                    track.voice_profile_id,
+                )
+                for track in tracks
+            }
+            original_human_locks = {segment.id: segment.human_locked for segment in segments}
             final_keys: dict[str, str] = {}
             conflicting_segments: set[str] = set()
             for value in payload["alignments"]:
@@ -1740,11 +1840,11 @@ class MeetingAIWorker:
             protected_sources = {
                 SpeakerLabelSource.MANUAL.value,
                 SpeakerLabelSource.VOICEPRINT_CONFIRMED.value,
+                SpeakerLabelSource.VOICEPRINT_AUTO.value,
             }
             clusters: dict[str, list[MeetingTranscriptSegment]] = defaultdict(list)
             for segment_id, final_key in final_keys.items():
                 clusters[final_key].append(segment_by_id[segment_id])
-            applied: list[tuple[str | None, str, str]] = []
             protected_segment_ids: list[str] = []
             review_clusters: list[dict[str, Any]] = []
             claimed_target_keys: dict[str, str] = {}
@@ -1753,7 +1853,11 @@ class MeetingAIWorker:
                 protected_ids = {
                     track_id
                     for track_id in current_ids
-                    if track_id in track_by_id and track_by_id[track_id].label_source in protected_sources
+                    if track_id in manual_mapping_track_ids
+                    or (
+                        track_id in track_by_id
+                        and track_by_id[track_id].label_source in protected_sources
+                    )
                 }
                 if len(protected_ids) > 1:
                     review_clusters.append(
@@ -1765,6 +1869,16 @@ class MeetingAIWorker:
                     )
                     continue
                 if protected_ids:
+                    if set(current_ids) - protected_ids:
+                        review_clusters.append(
+                            {
+                                "final_track_key": final_key,
+                                "protected_track_ids": sorted(protected_ids),
+                                "segment_ids": [member.id for member in members],
+                                "reason_code": "PROTECTED_TRACK_MERGE_REQUIRES_REVIEW",
+                            }
+                        )
+                        continue
                     target_id = next(iter(protected_ids))
                     if target_id in claimed_target_keys:
                         review_clusters.append(
@@ -1785,9 +1899,8 @@ class MeetingAIWorker:
                         track_key=f"recluster-{uuid4().hex}",
                         anonymous_label=f"发言人 {len(track_by_id) + 1}",
                     )
-                    session.add(target)
-                    await session.flush()
                     track_by_id[target.id] = target
+                    tracks.append(target)
                     target_id = target.id
                 claimed_target_keys[target_id] = final_key
                 for member in members:
@@ -1795,13 +1908,179 @@ class MeetingAIWorker:
                     if source_id == target_id:
                         continue
                     source = track_by_id.get(source_id or "")
-                    if source is not None and source.label_source in protected_sources:
+                    if (
+                        member.id in manual_mapping_segment_ids
+                        or source_id in manual_mapping_track_ids
+                        or (source is not None and source.label_source in protected_sources)
+                    ):
                         protected_segment_ids.append(member.id)
                         continue
                     member.speaker_track_id = target_id
                     member.updated_at = utcnow()
+
+            # Final-ASR keys are the provisional whole-meeting partition.  The
+            # embedding pass must run after that partition exists (imports have
+            # no live speaker tracks), and it is the last automatic mapping
+            # layer so a fragmented final key cannot undo a confident merge.
+            # Detach the provisional objects and end the read transaction before
+            # touching audio or the embedding service.  The second phase below
+            # re-locks and validates every user-controlled mapping field.
+            session.expunge_all()
+            await session.rollback()
+            try:
+                global_plan = await self.speaker_recluster_service.plan(
+                    meeting=meeting,
+                    run_id=current.id,
+                    tracks=list(track_by_id.values()),
+                    segments=segments,
+                    chunks=chunks,
+                    protected_track_ids=manual_mapping_track_ids,
+                )
+            except MeetingSpeakerReclusterError as exc:
+                global_plan = SpeakerReclusterPlan(
+                    policy_version=self.speaker_recluster_service.policy.version,
+                    final_diarizer_ref=self.speaker_recluster_service.policy.final_diarizer_ref,
+                    validation_artifact_sha256=self.speaker_recluster_service.policy.validation_artifact_sha256,
+                    automatic_enabled=self.speaker_recluster_service.policy.auto_apply_validated,
+                    degraded_reason=exc.code,
+                )
+
+            if global_plan.track_targets:
+                configured_policy = self.speaker_recluster_service.policy
+                policy_gate_valid = (
+                    global_plan.automatic_enabled
+                    and configured_policy.auto_apply_validated
+                    and global_plan.policy_version == configured_policy.version
+                    and global_plan.final_diarizer_ref == configured_policy.final_diarizer_ref
+                    and global_plan.validation_artifact_sha256 == configured_policy.validation_artifact_sha256
+                    and ".validated." in global_plan.policy_version
+                    and isinstance(global_plan.validation_artifact_sha256, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", global_plan.validation_artifact_sha256) is not None
+                )
+                diarizer_binding_valid = (
+                    observed_diarizer_ref is not None
+                    and observed_diarizer_ref == configured_policy.final_diarizer_ref
+                )
+                if not policy_gate_valid or not diarizer_binding_valid:
+                    global_plan = replace(
+                        global_plan,
+                        track_targets={},
+                        automatic_enabled=False,
+                        degraded_reason=(
+                            "SPEAKER_RECLUSTER_FINAL_DIARIZER_MISMATCH"
+                            if policy_gate_valid and not diarizer_binding_valid
+                            else "SPEAKER_RECLUSTER_POLICY_GATE_INVALID"
+                        ),
+                    )
+
+            # Embedding may take seconds, so the initial reads intentionally do
+            # not lock rows.  Re-lock and compare only the user-controlled
+            # mapping state before applying the plan.  Pending provisional
+            # objects remain unflushed while these database rows are checked.
+            with session.no_autoflush:
+                # All speaker mutations lock the meeting before tracks and
+                # segments. Keep the worker's commit phase in that same order.
+                locked_meeting = (
+                    await session.exec(
+                        select(MeetingSession)
+                        .where(MeetingSession.id == job.meeting_id)
+                        .with_for_update()
+                    )
+                ).first()
+                if locked_meeting is None:
+                    raise MeetingAIInputChanged("meeting session changed during global reclustering")
+                locked_job = (
+                    await session.exec(
+                        select(MeetingJob)
+                        .where(
+                            MeetingJob.id == job.id,
+                            MeetingJob.state == MeetingJobState.RUNNING.value,
+                            MeetingJob.lease_owner == self.worker_id,
+                            MeetingJob.lease_until > utcnow(),
+                        )
+                        .with_for_update()
+                    )
+                ).first()
+                if locked_job is None:
+                    raise MeetingAILeaseLost("speaker recluster lease was lost during embedding")
+                locked_segments = list(
+                    (
+                        await session.exec(
+                            select(
+                                MeetingTranscriptSegment.id,
+                                MeetingTranscriptSegment.speaker_track_id,
+                                MeetingTranscriptSegment.human_locked,
+                            )
+                            .where(
+                                MeetingTranscriptSegment.meeting_id == job.meeting_id,
+                                MeetingTranscriptSegment.ordinal <= job.input_watermark,
+                            )
+                            .with_for_update()
+                        )
+                    ).all()
+                )
+                locked_tracks = list(
+                    (
+                        await session.exec(
+                            select(
+                                MeetingSpeakerTrack.id,
+                                MeetingSpeakerTrack.version,
+                                MeetingSpeakerTrack.label_source,
+                                MeetingSpeakerTrack.display_name,
+                                MeetingSpeakerTrack.voice_profile_id,
+                            )
+                            .where(MeetingSpeakerTrack.id.in_(set(original_track_state)))
+                            .with_for_update()
+                        )
+                    ).all()
+                )
+            locked_segment_state = {
+                segment_id: (speaker_track_id, human_locked)
+                for segment_id, speaker_track_id, human_locked in locked_segments
+            }
+            expected_segment_state = {
+                segment_id: (track_id, original_human_locks[segment_id])
+                for segment_id, track_id in original_track_by_segment.items()
+            }
+            locked_track_state = {
+                track_id: (version, label_source, display_name, voice_profile_id)
+                for track_id, version, label_source, display_name, voice_profile_id in locked_tracks
+            }
+            if locked_segment_state != expected_segment_state or locked_track_state != original_track_state:
+                raise MeetingAIInputChanged("speaker mapping changed during global reclustering")
+            meeting = locked_meeting
+            current = locked_job
+
+            for member in segments:
+                source_id = member.speaker_track_id
+                target_id = global_plan.track_targets.get(source_id or "")
+                if not source_id or not target_id or source_id == target_id:
+                    continue
+                source = track_by_id.get(source_id)
+                target = track_by_id.get(target_id)
+                if source is None or target is None:
+                    raise MeetingAIOutputInvalid("global speaker recluster target is invalid")
+                if (
+                    member.human_locked
+                    or member.id in manual_mapping_segment_ids
+                    or source_id in manual_mapping_track_ids
+                    or source.label_source in protected_sources
+                ):
+                    protected_segment_ids.append(member.id)
+                    continue
+                member.speaker_track_id = target_id
+                member.updated_at = utcnow()
+                session.add(member)
+
+            applied = [
+                (original_track_by_segment[member.id], member.speaker_track_id, member.id)
+                for member in segments
+                if member.speaker_track_id is not None
+                and original_track_by_segment[member.id] != member.speaker_track_id
+            ]
+            for member in segments:
+                if original_track_by_segment[member.id] != member.speaker_track_id:
                     session.add(member)
-                    applied.append((source_id, target_id, member.id))
 
             affected_track_ids = {
                 track_id
@@ -1816,30 +2095,34 @@ class MeetingAIWorker:
                     track.updated_at = utcnow()
                     session.add(track)
 
-            target_sources: dict[str, set[str]] = defaultdict(set)
-            target_segments: dict[str, list[str]] = defaultdict(list)
             source_targets: dict[str, set[str]] = defaultdict(set)
             source_segments: dict[tuple[str, str], list[str]] = defaultdict(list)
-            for source_id, target_id, segment_id in applied:
-                if source_id is None:
-                    continue
-                target_sources[target_id].add(source_id)
-                target_segments[target_id].append(segment_id)
-            for segment_id in final_keys:
-                segment = segment_by_id[segment_id]
-                source_id = original_track_by_segment.get(segment_id)
+            for segment in segments:
+                source_id = original_track_by_segment.get(segment.id)
                 target_id = segment.speaker_track_id
                 if source_id is not None and target_id is not None:
                     source_targets[source_id].add(target_id)
-                    source_segments[(source_id, target_id)].append(segment_id)
+                    source_segments[(source_id, target_id)].append(segment.id)
+
+            merge_sources_by_target: dict[str, set[str]] = defaultdict(set)
+            for source_id, target_ids in source_targets.items():
+                if len(target_ids) != 1:
+                    continue
+                target_id = next(iter(target_ids))
+                if source_id != target_id:
+                    merge_sources_by_target[target_id].add(source_id)
 
             merges = [
                 {
                     "source_track_ids": sorted(source_ids),
                     "target_track_id": target_id,
-                    "segment_ids": target_segments[target_id],
+                    "segment_ids": [
+                        segment_id
+                        for source_id in sorted(source_ids)
+                        for segment_id in source_segments[(source_id, target_id)]
+                    ],
                 }
-                for target_id, source_ids in target_sources.items()
+                for target_id, source_ids in merge_sources_by_target.items()
                 if source_ids
             ]
             splits = [
@@ -1907,6 +2190,28 @@ class MeetingAIWorker:
                         "review_clusters": review_clusters,
                         "merges": merges,
                         "splits": splits,
+                        "global_embedding_recluster": {
+                            "policy_version": global_plan.policy_version,
+                            "final_diarizer_ref": global_plan.final_diarizer_ref,
+                            "observed_final_diarizer_ref": observed_diarizer_ref,
+                            "validation_artifact_sha256": global_plan.validation_artifact_sha256,
+                            "automatic_enabled": global_plan.automatic_enabled,
+                            "encoder_ref": global_plan.encoder_ref,
+                            "embedded_track_count": global_plan.embedded_track_count,
+                            "selected_sample_count": global_plan.selected_sample_count,
+                            "skipped_sample_count": global_plan.skipped_sample_count,
+                            "degraded_reason": global_plan.degraded_reason,
+                            "proposals": [
+                                {
+                                    "source_track_ids": list(proposal.source_track_ids),
+                                    "target_track_id": proposal.target_track_id,
+                                    "score": proposal.score,
+                                    "auto_apply": proposal.auto_apply,
+                                    "reason_code": proposal.reason_code,
+                                }
+                                for proposal in global_plan.proposals
+                            ],
+                        },
                     }
                 ),
                 input_from_ordinal=1,
@@ -1925,11 +2230,70 @@ class MeetingAIWorker:
                     "applied_segment_count": len(applied),
                     "protected_segment_count": len(protected_segment_ids),
                     "review_cluster_count": len(review_clusters),
+                    "global_embedded_track_count": global_plan.embedded_track_count,
+                    "global_proposal_count": len(global_plan.proposals),
+                    "global_degraded_reason": global_plan.degraded_reason,
                 },
+            )
+            decision_counts = Counter(
+                {
+                    "auto_merge": len(merges),
+                    "auto_split": len(splits),
+                    "review_proposal": sum(
+                        1
+                        for proposal in global_plan.proposals
+                        if not proposal.auto_apply and proposal.reason_code != "PROTECTED_TRACK_CONFLICT"
+                    ),
+                    "protected_skip": (
+                        sum(
+                            1
+                            for proposal in global_plan.proposals
+                            if proposal.reason_code == "PROTECTED_TRACK_CONFLICT"
+                        )
+                        + len(review_clusters)
+                        + len(set(protected_segment_ids))
+                    ),
+                }
+            )
+            if not any(decision_counts.values()):
+                decision_counts["unchanged"] = 1
+            if global_plan.degraded_reason:
+                await event_store.append(
+                    job.meeting_id,
+                    "speaker.recluster.degraded",
+                    {
+                        "job_id": job.id,
+                        "reason_code": global_plan.degraded_reason,
+                    },
+                )
+            for result, count in sorted(decision_counts.items()):
+                if count <= 0:
+                    continue
+                await event_store.append(
+                    job.meeting_id,
+                    f"speaker.recluster.{result}",
+                    {
+                        "job_id": job.id,
+                        "count": count,
+                    },
+                )
+            await self._requeue_voiceprint_matches_after_recluster(
+                session,
+                meeting,
+                segments,
+                list(track_by_id.values()),
+                recluster_artifact,
             )
             await self._queue_final_minutes_after_recluster(session, current, meeting)
             self._mark_job_succeeded(current)
+            session.add(current)
             await session.commit()
+            record_meeting_counter(
+                "speaker_recluster_run",
+                "degraded" if global_plan.degraded_reason else "succeeded",
+            )
+            for result, count in decision_counts.items():
+                record_meeting_counter("speaker_recluster_decision", result, amount=count)
 
     async def _process_speaker_recluster(self, job: MeetingJob) -> None:
         stop = asyncio.Event()
@@ -1941,6 +2305,88 @@ class MeetingAIWorker:
             lease_valid = await heartbeat
             if not lease_valid and not await self._job_succeeded(job.id):
                 raise MeetingAILeaseLost("speaker recluster lease expired")
+
+    async def _requeue_voiceprint_matches_after_recluster(
+        self,
+        session: AsyncSession,
+        meeting: MeetingSession,
+        segments: list[MeetingTranscriptSegment],
+        tracks: list[MeetingSpeakerTrack],
+        recluster_artifact: MeetingArtifact,
+    ) -> int:
+        if not meeting.voiceprint_enabled:
+            return 0
+        now = utcnow()
+        pending = list(
+            (
+                await session.exec(
+                    select(MeetingJob).where(
+                        MeetingJob.meeting_id == meeting.id,
+                        MeetingJob.job_kind == MeetingJobKind.VOICEPRINT_MATCH.value,
+                        MeetingJob.state.in_(
+                            [
+                                MeetingJobState.QUEUED.value,
+                                MeetingJobState.LEASED.value,
+                                MeetingJobState.RUNNING.value,
+                                MeetingJobState.RETRY_WAIT.value,
+                            ]
+                        ),
+                    ).with_for_update()
+                )
+            ).all()
+        )
+        for value in pending:
+            value.state = MeetingJobState.CANCELLED.value
+            value.public_error_code = "SPEAKER_RECLUSTER_SUPERSEDED"
+            value.internal_diagnostic = None
+            value.lease_owner = None
+            value.lease_until = None
+            value.updated_at = now
+            session.add(value)
+
+        active_track_ids = {segment.speaker_track_id for segment in segments if segment.speaker_track_id}
+        event_store = MeetingEventStore(session)
+        created = 0
+        for track in sorted(tracks, key=lambda value: (value.created_at, value.id)):
+            if (
+                track.id not in active_track_ids
+                or track.label_source != SpeakerLabelSource.ANONYMOUS.value
+                or track.display_name is not None
+                or track.voice_profile_id is not None
+            ):
+                continue
+            key = f"{meeting.id}:voiceprint-match:{track.id}:recluster:{recluster_artifact.id}:v2"
+            if await self._job_exists(session, key):
+                continue
+            derived = MeetingJob(
+                meeting_id=meeting.id,
+                job_kind=MeetingJobKind.VOICEPRINT_MATCH.value,
+                idempotency_key=key,
+                input_watermark=meeting.last_segment_ordinal,
+                settings_version=meeting.settings_version,
+                input_json=encode_json(
+                    {
+                        "schema_version": "meeting.voiceprint_match.input.v1",
+                        "task": "voiceprint_match",
+                        "speaker_track_id": track.id,
+                        "source_recluster_artifact_id": recluster_artifact.id,
+                    }
+                ),
+            )
+            session.add(derived)
+            await session.flush()
+            await event_store.append(
+                meeting.id,
+                "voiceprint.match.queued",
+                {
+                    "job_id": derived.id,
+                    "speaker_track_id": track.id,
+                    "reason": "speaker_recluster_completed",
+                    "source_recluster_artifact_id": recluster_artifact.id,
+                },
+            )
+            created += 1
+        return created
 
     async def _job_succeeded(self, job_id: str) -> bool:
         async with self.session_factory() as session:
@@ -2141,6 +2587,11 @@ class MeetingAIWorker:
             except IntegrityError:
                 await session.rollback()
                 raise
+            if job.job_kind == MeetingJobKind.SPEAKER_RECLUSTER.value:
+                record_meeting_counter(
+                    "speaker_recluster_run",
+                    "retry_wait" if will_retry else "failed",
+                )
 
 
 __all__ = [

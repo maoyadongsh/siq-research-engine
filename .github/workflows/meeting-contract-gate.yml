@@ -34,14 +34,126 @@ jobs:
       - name: Install API dependencies
         run: uv sync --project apps/api --frozen --extra dev
 
+      - name: Install meeting speech dependencies
+        working-directory: infra/model-services/meeting-speech
+        run: uv sync --frozen --extra dev
+
+      - name: Test meeting speech service
+        working-directory: infra/model-services/meeting-speech
+        run: uv run --frozen python -m pytest -q
+
       - name: Test meeting quality-gate tools
         run: >-
           uv run --project apps/api python -m pytest -q
           scripts/meeting/tests
 
-      - name: Prove empty release evidence fails closed
+      - name: Prove empty and small release evidence fails closed
         run: |
           mkdir -p artifacts/meeting/schema-smoke-nonpassing
+          uv run --project apps/api python - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+
+          root = pathlib.Path("artifacts/meeting/schema-smoke-nonpassing")
+          schema = "siq.meeting.diarization-annotation.v1"
+          empty = {"schema_version": schema, "recordings": []}
+          small = {
+              "schema_version": schema,
+              "recordings": [
+                  {
+                      "recording_id": "smoke-recording",
+                      "segments": [
+                          {"start_ms": 0, "end_ms": 1000, "speaker_id": "speaker-a"},
+                          {"start_ms": 1000, "end_ms": 2000, "speaker_id": "speaker-b"},
+                      ],
+                  }
+              ],
+          }
+          policy = {
+              "schema_version": "siq.meeting.speaker_recluster_policy.v1",
+              "version": "speaker-recluster.validated.ci-smoke.v1",
+              "final_diarizer_ref": "ci-smoke-final-diarizer-v1",
+              "encoder_ref": "ci-smoke-encoder-v1",
+              "thresholds": {
+                  "review_min_score": 0.72,
+                  "merge_min_score": 0.82,
+                  "singleton_merge_min_score": 0.92,
+                  "min_top2_margin": 0.04,
+                  "min_segment_ms": 1500,
+                  "max_segment_ms": 8000,
+                  "max_samples_per_track": 4,
+                  "max_total_samples": 256,
+                  "max_tracks": 64,
+                  "max_noise_level": 0.65,
+                  "min_asr_confidence": 0.45,
+                  "min_rms": 0.003,
+                  "max_clipping_ratio": 0.01,
+              },
+          }
+
+          def manifest(reference_raw, hypothesis_raw, dataset):
+              return {
+                  "schema_version": "siq.meeting.diarization-release-evidence.v1",
+                  "authorization": {
+                      "approved": True,
+                      "all_recordings_authorized": True,
+                      "unapproved_production_or_historical_recordings": 0,
+                      "reference": "ci-smoke-approval",
+                  },
+                  "candidate": {"commit_sha": "0" * 40, "environment_profile": "ci-smoke"},
+                  "split": {
+                      "kind": "independent_holdout",
+                      "independent_from_training": True,
+                      "independent_from_threshold_tuning": True,
+                      "speaker_overlap_count": 0,
+                      "recording_overlap_count": 0,
+                  },
+                  "inputs": {
+                      "reference_sha256": hashlib.sha256(reference_raw).hexdigest(),
+                      "hypothesis_sha256": hashlib.sha256(hypothesis_raw).hexdigest(),
+                  },
+                  "dataset": dataset,
+                  "policy": policy,
+              }
+
+          empty_raw = json.dumps(empty).encode()
+          small_reference_raw = json.dumps(small).encode()
+          (root / "diarization-empty-reference.json").write_bytes(empty_raw)
+          (root / "diarization-small-reference.json").write_bytes(small_reference_raw)
+          small["recordings"][0]["segments"][0]["speaker_id"] = "track-a"
+          small["recordings"][0]["segments"][1]["speaker_id"] = "track-b"
+          small_hypothesis_raw = json.dumps(small).encode()
+          (root / "diarization-small-hypothesis.json").write_bytes(small_hypothesis_raw)
+          (root / "diarization-empty-manifest.json").write_text(
+              json.dumps(
+                  manifest(
+                      empty_raw,
+                      empty_raw,
+                      {
+                          "recording_count": 0,
+                          "unique_reference_speaker_count": 0,
+                          "reference_speaker_time_ms": 0,
+                          "speaker_counts_covered": [],
+                      },
+                  )
+              )
+          )
+          (root / "diarization-small-manifest.json").write_text(
+              json.dumps(
+                  manifest(
+                      small_reference_raw,
+                      small_hypothesis_raw,
+                      {
+                          "recording_count": 1,
+                          "unique_reference_speaker_count": 2,
+                          "reference_speaker_time_ms": 2000,
+                          "speaker_counts_covered": [2],
+                      },
+                  )
+              )
+          )
+          PY
           set +e
           uv run --project apps/api python \
             scripts/meeting/evaluate_asr_release.py \
@@ -61,21 +173,50 @@ jobs:
             --output artifacts/meeting/schema-smoke-nonpassing/performance.json \
             --require-passing
           performance_status=$?
+          uv run --project apps/api python \
+            scripts/meeting/evaluate_diarization_release.py \
+            --evidence-manifest artifacts/meeting/schema-smoke-nonpassing/diarization-empty-manifest.json \
+            --reference artifacts/meeting/schema-smoke-nonpassing/diarization-empty-reference.json \
+            --hypothesis artifacts/meeting/schema-smoke-nonpassing/diarization-empty-reference.json \
+            --output artifacts/meeting/schema-smoke-nonpassing/diarization-empty.json \
+            --require-passing
+          diarization_empty_status=$?
+          uv run --project apps/api python \
+            scripts/meeting/evaluate_diarization_release.py \
+            --evidence-manifest artifacts/meeting/schema-smoke-nonpassing/diarization-small-manifest.json \
+            --reference artifacts/meeting/schema-smoke-nonpassing/diarization-small-reference.json \
+            --hypothesis artifacts/meeting/schema-smoke-nonpassing/diarization-small-hypothesis.json \
+            --output artifacts/meeting/schema-smoke-nonpassing/diarization-small.json \
+            --require-passing
+          diarization_small_status=$?
           set -e
           uv run --project apps/api python - \
-            "$asr_status" "$voiceprint_status" "$performance_status" <<'PY'
+            "$asr_status" "$voiceprint_status" "$performance_status" \
+            "$diarization_empty_status" "$diarization_small_status" <<'PY'
           import json
           import pathlib
           import sys
 
           statuses = [int(value) for value in sys.argv[1:]]
-          if statuses != [1, 1, 1]:
+          if statuses != [1, 1, 1, 2, 1]:
               raise SystemExit(f"empty evidence did not fail closed: {statuses}")
           root = pathlib.Path("artifacts/meeting/schema-smoke-nonpassing")
           for name in ("asr", "voiceprint", "performance"):
               report = json.loads((root / f"{name}.json").read_text())
               if report.get("passed") is not False:
                   raise SystemExit(f"{name} empty evidence unexpectedly passed")
+          if (root / "diarization-empty.json").exists():
+              raise SystemExit("empty diarization reference unexpectedly emitted a report")
+          report = json.loads((root / "diarization-small.json").read_text())
+          if report.get("passed") is not False:
+              raise SystemExit("small diarization evidence unexpectedly passed")
+          for gate in (
+              "sample_recordings_at_least_14",
+              "sample_unique_reference_speakers_at_least_14",
+              "sample_reference_speaker_time_at_least_1h",
+          ):
+              if report.get("gates", {}).get(gate) is not False:
+                  raise SystemExit(f"small diarization evidence did not fail {gate}")
           PY
 
       - name: Reproduce immutable baseline

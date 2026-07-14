@@ -7,6 +7,7 @@ from meeting_speech_service.adapters.pipeline import (
     BufferedRecognitionSession,
     EnergyVad,
     FinalDecode,
+    MockSpeakerHook,
     OnlineDecode,
 )
 
@@ -103,5 +104,54 @@ def test_offline_session_skips_online_decode_but_keeps_final_decode() -> None:
         assert [result.kind for result in results] == ["final"]
         assert results[0].text == "final"
         await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_speaker_metrics_distinguish_created_reused_unassigned_and_failed() -> None:
+    class _NoAssignment:
+        def assign(self, pcm: bytes, *, start_ms: int, end_ms: int):
+            return None
+
+    class _FailedAssignment:
+        def assign(self, pcm: bytes, *, start_ms: int, end_ms: int):
+            raise RuntimeError("speaker model failed")
+
+    async def finalize(
+        speaker,
+        observations: list[tuple[str, str | None]],
+        *,
+        capture_time_ms: int = 0,
+    ) -> BufferedRecognitionSession:
+        session = BufferedRecognitionSession(
+            adapter_name="speaker-metrics-test",
+            options=_options(),
+            vad=EnergyVad(sample_rate=16_000, threshold=0.01, min_speech_ms=20, endpoint_silence_ms=200),
+            decoder=_CountingDecoder(),
+            speaker=speaker,
+            speaker_metrics_observer=lambda result, track_result: observations.append((result, track_result)),
+        )
+        pcm = (12_000).to_bytes(2, "little", signed=True) * 1_600
+        await session.ingest(pcm, capture_time_ms=capture_time_ms, end_of_stream=True)
+        return session
+
+    async def scenario() -> None:
+        observations: list[tuple[str, str | None]] = []
+        session = await finalize(MockSpeakerHook(), observations)
+        pcm = (12_000).to_bytes(2, "little", signed=True) * 1_600
+        await session.ingest(pcm, capture_time_ms=100, end_of_stream=True)
+        await session.close()
+
+        no_assignment = await finalize(_NoAssignment(), observations)
+        await no_assignment.close()
+        failed = await finalize(_FailedAssignment(), observations)
+        await failed.close()
+
+        assert observations == [
+            ("assigned", "created"),
+            ("assigned", "reused"),
+            ("unassigned", None),
+            ("failed", None),
+        ]
 
     asyncio.run(scenario())

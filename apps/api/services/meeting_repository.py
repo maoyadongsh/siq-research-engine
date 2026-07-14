@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, inspect, or_, text, update
+from sqlalchemy import exists, func, inspect, or_, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -145,6 +145,7 @@ class MeetingIdempotencyConflict(MeetingRepositoryError):
 
 _SPEAKER_RENAME_REPLAY_SCHEMA = "siq.meeting.speaker_rename_replay.v1"
 _SEGMENT_SPEAKER_RENAME_REPLAY_SCHEMA = "siq.meeting.segment_speaker_rename_replay.v1"
+_SPEAKER_MERGE_REPLAY_SCHEMA = "siq.meeting.speaker_merge_replay.v1"
 
 
 def _idempotency_response_snapshot(schema_version: str, response: Any) -> dict[str, Any]:
@@ -1391,6 +1392,12 @@ class MeetingRepository:
                 await self.session.exec(
                     select(MeetingSpeakerTrack)
                     .where(MeetingSpeakerTrack.meeting_id == meeting_id)
+                    .where(
+                        exists().where(
+                            MeetingTranscriptSegment.meeting_id == meeting_id,
+                            MeetingTranscriptSegment.speaker_track_id == MeetingSpeakerTrack.id,
+                        )
+                    )
                     .order_by(MeetingSpeakerTrack.created_at)
                 )
             ).all()
@@ -1690,12 +1697,45 @@ class MeetingRepository:
         target_track_id: str,
         owner_user_id: int,
         request: SpeakerMergeRequest,
+        *,
+        idempotency_key: str | None = None,
     ) -> SpeakerMappingResponse:
         meeting = await self._owned_session(meeting_id, owner_user_id, lock=True)
         self._require_post_meeting_speaker_edit(meeting)
         source_ids = list(request.source_track_ids)
         if target_track_id in source_ids:
             raise MeetingInvalidOperation("target speaker cannot also be a merge source")
+        idempotency_request = {
+            "meeting_id": meeting_id,
+            "target_track_id": target_track_id,
+            "request": request.model_dump(mode="json"),
+        }
+        replay = await self._idempotency_record(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="speakers.merge",
+            request=idempotency_request,
+        )
+        if replay is not None:
+            try:
+                response = SpeakerMappingResponse.model_validate(
+                    _validated_idempotency_response(
+                        replay,
+                        schema_version=_SPEAKER_MERGE_REPLAY_SCHEMA,
+                    )
+                )
+            except ValueError as exc:
+                raise MeetingIdempotencyConflict("stored speaker merge response snapshot is invalid") from exc
+            if (
+                replay.resource_id != meeting_id
+                or response.meeting_id != meeting_id
+                or response.operation != "merge"
+                or response.target_track_ids != [target_track_id]
+                or not response.event_id
+                or response.event_cursor < 1
+            ):
+                raise MeetingIdempotencyConflict("stored speaker merge response snapshot identity is invalid")
+            return response
         track_ids = [target_track_id, *source_ids]
         if set(request.expected_versions) != set(track_ids):
             raise MeetingInvalidOperation("expected_versions must cover the target and every source")
@@ -1762,8 +1802,7 @@ class MeetingRepository:
                 "changed_by": str(owner_user_id),
             },
         )
-        await self._commit()
-        return SpeakerMappingResponse(
+        response = SpeakerMappingResponse(
             operation="merge",
             meeting_id=meeting_id,
             source_track_ids=source_ids,
@@ -1773,6 +1812,20 @@ class MeetingRepository:
             event_cursor=event.cursor,
             tracks=[speaker_response(by_id[track_id]) for track_id in track_ids],
         )
+        self._remember_idempotency(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="speakers.merge",
+            request=idempotency_request,
+            resource_id=meeting_id,
+            response_status=200,
+            response_payload=_idempotency_response_snapshot(
+                _SPEAKER_MERGE_REPLAY_SCHEMA,
+                response,
+            ),
+        )
+        await self._commit()
+        return response
 
     async def split_speaker(
         self,

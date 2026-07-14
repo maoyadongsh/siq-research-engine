@@ -8,9 +8,13 @@ on:
         required: true
         type: string
       evidence_artifact_name:
-        description: Artifact with asr-release.json, voiceprint-release.json, and performance-release.json
+        description: Artifact with ASR, voiceprint, performance, and diarization release reports
         required: false
         default: meeting-release-redacted-evidence
+        type: string
+      expected_environment_profile:
+        description: Approved opaque release environment profile in every report
+        required: true
         type: string
   workflow_dispatch:
     inputs:
@@ -22,6 +26,10 @@ on:
         description: Redacted evidence artifact name
         required: true
         default: meeting-release-redacted-evidence
+        type: string
+      expected_environment_profile:
+        description: Approved opaque release environment profile
+        required: true
         type: string
 
 permissions:
@@ -41,6 +49,19 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Verify evidence workflow provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence_run_id }}
+        run: |
+          read -r head_sha status conclusion < <(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${EVIDENCE_RUN_ID}" \
+              --jq '[.head_sha, .status, (.conclusion // "")] | @tsv'
+          )
+          test "$head_sha" = "$GITHUB_SHA"
+          test "$status" = "completed"
+          test "$conclusion" = "success"
+
       - name: Download redacted evidence reports
         uses: actions/download-artifact@v4
         with:
@@ -55,7 +76,9 @@ jobs:
             --asr artifacts/meeting/release-input/asr-release.json \
             --voiceprint artifacts/meeting/release-input/voiceprint-release.json \
             --performance artifacts/meeting/release-input/performance-release.json \
+            --diarization artifacts/meeting/release-input/diarization-release.json \
             --candidate-commit "$GITHUB_SHA" \
+            --expected-environment "${{ inputs.expected_environment_profile }}" \
             --output artifacts/meeting/release-evidence-receipt.json
 
       - name: Upload release evidence receipt

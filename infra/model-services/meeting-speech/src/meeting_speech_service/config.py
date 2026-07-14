@@ -46,8 +46,17 @@ class Settings(BaseSettings):
     speaker_adapter: Literal["none", "mock", "funasr"] = "none"
     speaker_model: str = "iic/speech_eres2netv2_sv_zh-cn_16k-common"
     speaker_cluster_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
+    speaker_cluster_update_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    speaker_cluster_min_margin: float = Field(default=0.04, ge=0.0, le=1.0)
+    speaker_candidate_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    speaker_candidate_confirmations: int = Field(default=2, ge=1, le=8)
+    speaker_candidate_max_gap_ms: int = Field(default=30_000, ge=0, le=300_000)
     speaker_max_tracks: int = Field(default=16, ge=1, le=64)
     speaker_min_segment_ms: int = Field(default=1_000, ge=300, le=10_000)
+    speaker_new_track_min_segment_ms: int = Field(default=1_500, ge=300, le=15_000)
+    speaker_max_prototypes: int = Field(default=8, ge=1, le=64)
+    speaker_min_rms: float = Field(default=0.005, ge=0.0, le=1.0)
+    speaker_max_clipping_ratio: float = Field(default=0.2, ge=0.0, le=1.0)
     speaker_inference_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     embedding_endpoint_enabled: bool = False
     embedding_min_seconds: float = Field(default=1.0, ge=0.3, le=10.0)
@@ -104,6 +113,18 @@ class Settings(BaseSettings):
     def max_segment_bytes(self) -> int:
         return self.max_segment_seconds * self.sample_rate * self.channels * 2
 
+    @property
+    def resolved_speaker_cluster_update_threshold(self) -> float:
+        if self.speaker_cluster_update_threshold is not None:
+            return self.speaker_cluster_update_threshold
+        return min(1.0, self.speaker_cluster_threshold + 0.1)
+
+    @property
+    def resolved_speaker_candidate_threshold(self) -> float:
+        if self.speaker_candidate_threshold is not None:
+            return self.speaker_candidate_threshold
+        return min(1.0, self.speaker_cluster_threshold + 0.06)
+
     @model_validator(mode="after")
     def validate_boundaries(self) -> "Settings":
         if self.sample_rate != 16_000 or self.channels != 1:
@@ -131,6 +152,18 @@ class Settings(BaseSettings):
             raise ValueError("speaker_adapter=mock requires allow_degraded_mock=true")
         if self.adapter == "mock" and self.speaker_adapter == "funasr":
             raise ValueError("mock ASR cannot load the FunASR speaker adapter")
+        if (
+            self.speaker_cluster_update_threshold is not None
+            and self.speaker_cluster_update_threshold < self.speaker_cluster_threshold
+        ):
+            raise ValueError("speaker_cluster_update_threshold cannot be lower than speaker_cluster_threshold")
+        if (
+            self.speaker_candidate_threshold is not None
+            and self.speaker_candidate_threshold < self.speaker_cluster_threshold
+        ):
+            raise ValueError("speaker_candidate_threshold cannot be lower than speaker_cluster_threshold")
+        if self.speaker_new_track_min_segment_ms < self.speaker_min_segment_ms:
+            raise ValueError("speaker_new_track_min_segment_ms cannot be lower than speaker_min_segment_ms")
         if self.embedding_min_seconds > self.embedding_max_seconds:
             raise ValueError("embedding_min_seconds cannot exceed embedding_max_seconds")
         if self.finalization_session_ttl_seconds <= self.inference_timeout_seconds:

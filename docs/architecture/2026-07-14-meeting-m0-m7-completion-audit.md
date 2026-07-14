@@ -12,13 +12,13 @@ Do not use `implemented` as an acceptance status.
 
 | Field | Value |
 | --- | --- |
-| Candidate commit | `679d456fe3c8e8ce8e3e1d003453cd8f221e7357` (reviewed contract source) |
+| Candidate commit | current HEAD `c876e87a160ed8f86d633773824eaf4e582ba674`; reviewed contract source `679d456fe3c8e8ce8e3e1d003453cd8f221e7357` |
 | Baseline commit | `6727ce3441f2415c7e6dbc65f78c9e1983941168` |
 | Audit owner | `not_run` |
 | Security reviewer | `not_run` |
 | Privacy reviewer | `not_run` |
 | Overall status | `blocked` |
-| Blocking reason | Additive contract is closed with an exact reviewed delta; real ASR, voiceprint, performance, security, privacy, and rollout evidence is absent |
+| Blocking reason | The reviewed source passes the exact delta, but current HEAD has one later IC golden-manifest digest drift awaiting separate IC approval; real ASR, voiceprint, performance, security, privacy, and rollout evidence is also absent |
 
 The release status can become `pass` only when every required row below is
 `pass` and its artifact checksum is recorded.
@@ -71,10 +71,10 @@ rejected. It reports changed paths and hashes, never contract values.
 | Exact non-meeting delta reviewed | `pass` | `scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json` | SHA-256 `8c23cbe08d1ecb34f33ba77a0e0836675a4552d4ff19334f323619e5d6e3443a`; 105 exact entries, no patterns |
 | Candidate legacy OpenAPI contract | `pass` | same exact delta plus CI candidate report | 46 reviewed primary-market/PDF/US SEC differences; meeting paths excluded; any additional or changed digest fails |
 | Candidate legacy DB tables/columns/indexes | `pass` | same exact delta plus CI candidate report | 2 reviewed additions: durable background jobs and IC task leases; `meeting_*` excluded |
-| Existing Hermes profile contract | `pass` | same exact delta plus CI candidate report | 52 reviewed `siq_ic_*` profile/contract/knowledge/task differences; generated `dist` files excluded |
+| Existing Hermes profile contract | `blocked` | same exact delta plus current candidate report | Reviewed source passes. Current HEAD changes `golden_case_manifest.json` after the approval (`mismatched=1`, `missing=0`, `unexpected=0`); IC governance must review it independently. |
 | Default service/port/health declarations | `pass` | same exact delta plus CI candidate report | 5 reviewed parser-readiness and IC systemd differences; meeting declarations excluded |
 | Chat voice performance baseline and comparison | `not_run` | `artifacts/meeting/m0/chat-voice-performance.json` | Required threshold: degradation <= 5% |
-| Existing full regression | `blocked` | Local candidate verification; CI artifact still required | IC/release closeout `262 passed`; meeting API `243 passed`; Web candidate source `402 passed`, lint and build; meeting contract `58 passed`; iOS contract `13 passed`; touched-Python gate has 0 new fingerprints |
+| Existing full regression | `blocked` | Local candidate verification; CI artifact still required | IC/release closeout `262 passed`; meeting API `235 passed`; isolated Web candidate source `403 passed`, lint and build; meeting release tools `81 passed`; iOS contract `13 passed`; touched-Python gate has 0 new fingerprints |
 
 ## MT-001 Real ASR Selection
 
@@ -152,6 +152,27 @@ the release gate. A configured threshold is not an evaluation result.
 | Security and privacy sign-off | `not_run` | |
 
 ## MT-071 Performance and Recovery
+
+### Local diagnostic sample (not release evidence)
+
+The following is a redacted local rerun used to diagnose the import path. It is
+not an authorized dataset, does not satisfy the P95 sample-count requirement,
+and must not be used to mark the release rows below as passed:
+
+| Observation | Result | Interpretation |
+| --- | ---: | --- |
+| Import creation to `postprocess queued` | `2.999s` | Includes upload, chunk merge, probe, normalization, and persistence; it is not a pure transcode timing. |
+| Final ASR | `331.494s`, RTF `0.325` | Better than the earlier sample, but above the policy limit `0.25`; stateful finalization cannot be safely client-parallelized. |
+| Correction batches | `2` (`50+23` segments) | The larger batch and independent worker lane are effective; minutes can run alongside correction. |
+| Final minutes queue-to-complete | `282.410s` | Above the `180s` job limit. |
+| Import creation to first minutes ready | `616.93s` | Above the `180s` final-minutes target. |
+
+The prior redacted sample (about 21m53s) took about 4.45s to reach
+`postprocess queued`, 808.571s for final ASR, and 1,883.592s for minutes. The
+comparison shows a real queue improvement, but final ASR remains the dominant
+latency bottleneck. A separate protocol with independent speech runs, boundary
+deduplication, and multiple model instances is required before parallel ASR can
+be claimed.
 
 | Required test | Status | Artifact / measured value |
 | --- | --- | --- |
@@ -246,17 +267,17 @@ hardware, security-review, or privacy-review row above.
 
 | Command / scope | Result | Release interpretation |
 | --- | --- | --- |
-| Meeting API targeted suite | `207 passed` | Development regression passed; all `test_meeting*` also passed in the complete API run |
+| Meeting API targeted suite | `235 passed` | Latest focused development regression (`test_meeting_*.py` plus `test_meetings_router.py`); no release-candidate artifact |
 | Complete API suite | `2304 passed, 7 skipped, 0 failed`; exit `0`; 591.12s | Frozen-source development run from 2026-07-14 19:42:00 to 19:52:27 +0800; source mtimes were unchanged |
 | Earlier concurrent API/check-all attempts | invalid snapshot | Both loaded an intermediate untracked IC fixture while that file was being patched; exact replay failed `schema.r4` for seven then-missing required fields, so those runs are not used as the final API verdict |
 | `scripts/check_all.sh` composite result | `fail` | Frozen API and manually continued stages passed except touched Python quality; no single clean-candidate artifact exists |
 | PDF / Document / Finder / Rules / Contracts | `496 passed, 10 skipped` / `63` / `116` / `89` / `23` | Development checks passed |
 | Security / changed-large-file / PostgreSQL contract | exit `0` | Development checks passed |
 | Touched Python quality | `fail`: 49 occurrences / 28 fingerprints | All reported fingerprints are outside the meeting domain; meeting diagnostics are 0, but the repository gate remains failed |
-| Web unit / lint / TypeScript / production build | `394/394`; all checks passed | Development checks passed; no clean-candidate artifact |
-| Web meeting E2E | disabled `1/1`; enabled `10/10`; default `52 passed, 1 skipped`; chat voice mock `1/1` | Browser/mock coverage only, not real microphone or iPhone evidence |
-| Meeting speech / release-tool tests | `29` / `48` passed | Protocol and fail-closed evaluator coverage only |
-| iOS static contracts | Node `9/9`; Swift tree-sitter `9/9` | Linux static checks only; Xcode, XCTest and iPhone were not run |
+| Web unit / lint / TypeScript / production build | `403/403`; all checks passed | Isolated candidate checks passed; no remote CI artifact |
+| Web meeting E2E | disabled `1/1`; enabled `12/12`; default `52 passed, 1 skipped`; chat voice mock `1/1` | Browser/mock coverage only, not real microphone or iPhone evidence |
+| Meeting speech / release-tool tests | `38` / `81` passed | Protocol and fail-closed evaluator coverage only |
+| iOS static contracts | Node `13/13`; 12 Swift files parsed with 0 syntax errors | Linux static checks only; Xcode, XCTest and iPhone were not run |
 
 ## Reproducible Release Evidence Commands
 
@@ -282,23 +303,33 @@ uv run --project apps/api python scripts/meeting/evaluate_performance_release.py
   --markdown artifacts/meeting/m7/performance-release.md \
   --require-passing
 
+uv run --project apps/api python scripts/meeting/evaluate_diarization_release.py \
+  --evidence-manifest "$DIARIZATION_EVIDENCE_MANIFEST" \
+  --reference "$DIARIZATION_REFERENCE" \
+  --hypothesis "$DIARIZATION_HYPOTHESIS" \
+  --output artifacts/meeting/m7/diarization-release.json \
+  --require-passing
+
 uv run --project apps/api python scripts/meeting/verify_release_evidence_bundle.py \
   --asr artifacts/meeting/m0/asr-release.json \
   --voiceprint artifacts/meeting/m0/voiceprint-release.json \
   --performance artifacts/meeting/m7/performance-release.json \
+  --diarization artifacts/meeting/m7/diarization-release.json \
   --candidate-commit "$CANDIDATE_COMMIT" \
+  --expected-environment "$RELEASE_ENVIRONMENT_PROFILE" \
   --output artifacts/meeting/release-evidence-receipt.json
 ```
 
 The checked-in templates are deliberately `not_run`/non-passing. CI executes
-all three templates and requires exit code `1` plus `passed=false`; this is only
+the three aggregate templates plus empty/small diarization contract fixtures and
+requires fail-closed exits; this is only
 a fail-closed schema test and must never be cited as real ASR, voiceprint,
 performance, recovery, or soak evidence. A malformed or sensitive-field input
 is rejected with exit code `2` and no report.
 
-For the release CI boundary, upload only the three redacted JSON reports as
-`asr-release.json`, `voiceprint-release.json`, and
-`performance-release.json` in an artifact named
+For the release CI boundary, upload only the four redacted JSON reports as
+`asr-release.json`, `voiceprint-release.json`, `performance-release.json`, and
+`diarization-release.json` in an artifact named
 `meeting-release-redacted-evidence`. Invoke
 `.github/workflows/meeting-release-evidence-gate.yml` with the producing run
 ID. The workflow rejects a non-passing report, an unexpected schema/policy,
