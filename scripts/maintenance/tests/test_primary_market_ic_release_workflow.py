@@ -67,6 +67,8 @@ def test_runbook_requires_named_two_person_review_and_never_auto_promotes():
         "quality_accepted_written: false",
         "candidate_promotion_performed: false",
         "Promotion is a separate pull request",
+        "The release Deal does not require a sixth Deal",
+        "may occupy one of those five candidate slots",
     ):
         assert marker in runbook
     for case_id in (

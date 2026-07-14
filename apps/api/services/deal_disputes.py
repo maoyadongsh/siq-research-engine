@@ -21,7 +21,7 @@ DEAL_DISPUTE_RULING_GENERATION_MODE = "deterministic_r1_5_dispute_scan_v1"
 DISPUTES_JSON_PATH = "phases/r1_5_disputes.json"
 DISPUTES_MARKDOWN_PATH = "discussion/02_R1.5_\u88c1\u51b3\u8bb0\u5f55.md"
 NEGATIVE_RECOMMENDATIONS = {"reject", "no_go", "pass_on", "caution", "insufficient_evidence"}
-POSITIVE_RECOMMENDATIONS = {"support", "pass", "conditional_pass", "go"}
+POSITIVE_RECOMMENDATIONS = {"support", "pass", "conditional_pass", "conditional_support", "go"}
 SCORE_SPREAD_THRESHOLD = 20
 
 

@@ -565,8 +565,15 @@ def _needs_more_evidence_disputes(ctx: EvaluationContext) -> list[dict[str, Any]
 
 
 def _r1_5_terminal_lineage_errors(ctx: EvaluationContext) -> list[str]:
-    tasks = _valid_tasks(ctx, "R1.5")
     unresolved = _needs_more_evidence_disputes(ctx)
+    return _r1_5_ruling_lineage_errors(ctx, unresolved)
+
+
+def _r1_5_ruling_lineage_errors(
+    ctx: EvaluationContext,
+    disputes: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    tasks = _valid_tasks(ctx, "R1.5")
     errors: list[str] = []
     if len(tasks) != 1:
         errors.append("r1_5_task_cardinality_invalid")
@@ -578,7 +585,7 @@ def _r1_5_terminal_lineage_errors(ctx: EvaluationContext) -> list[str]:
         "hermes_run_id": task.get("hermes_run_id"),
         "evidence_snapshot_hash": ctx.snapshot_hash,
     }
-    for dispute in unresolved:
+    for dispute in disputes:
         dispute_id = _text(dispute.get("dispute_id")) or "<missing>"
         ruling = _as_dict(dispute.get("chairman_ruling"))
         if ruling.get("schema_version") != "siq_deal_r1_5_dispute_ruling_v1":
@@ -860,26 +867,110 @@ def _path_r4_insufficient(ctx: EvaluationContext) -> list[dict[str, Any]]:
     ]
 
 
-def _unresolved_disputes(ctx: EvaluationContext) -> list[dict[str, Any]]:
+def _recommendation_bucket(value: Any) -> str:
+    recommendation = _text(value).lower()
+    if recommendation in {"support", "pass", "conditional_pass", "conditional_support", "go"}:
+        return "positive"
+    if recommendation in {"reject", "no_go", "pass_on", "caution", "insufficient_evidence"}:
+        return "negative"
+    if recommendation in {"review", "hold", "needs_review", "revise"}:
+        return "review"
+    return ""
+
+
+def _position_score(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(_text(value))
+    except ValueError:
+        return None
+
+
+def _resolved_contested_disputes(ctx: EvaluationContext) -> list[dict[str, Any]]:
     disputes = _as_list(_as_dict(ctx.json("phases/r1_5_disputes.json")).get("disputes"))
-    return [
-        item
-        for item in disputes
-        if isinstance(item, dict)
-        and _text(item.get("severity")).lower() in {"high", "critical"}
-        and (
-            item.get("resolved") is False
-            or _text(item.get("status")).lower() in {"open", "unresolved", "needs_more_evidence", "blocked"}
-            or _text(item.get("ruling") or _as_dict(item.get("chairman_ruling")).get("decision")).lower()
-            in {"needs_more_evidence", "unresolved", "insufficient_evidence"}
+    contested: list[dict[str, Any]] = []
+    for dispute in disputes:
+        if not isinstance(dispute, dict):
+            continue
+        if _text(dispute.get("severity")).lower() not in {"high", "critical"}:
+            continue
+        ruling = _as_dict(dispute.get("chairman_ruling"))
+        ruling_value = _text(ruling.get("ruling") or ruling.get("decision")).lower()
+        if (
+            dispute.get("resolved") is not True
+            or ruling.get("resolved") is not True
+            or ruling_value in {"needs_more_evidence", "unresolved", "insufficient_evidence"}
+            or not _text(ruling.get("rationale"))
+        ):
+            continue
+        positions = [item for item in _as_list(dispute.get("positions")) if isinstance(item, dict)]
+        agents = {_text(item.get("agent_id")) for item in positions if _text(item.get("agent_id"))}
+        if len(positions) < 2 or len(agents) < 2:
+            continue
+        detection_rules = _ids(dispute.get("detection_rules"))
+        recommendation_buckets = {
+            bucket
+            for item in positions
+            if (bucket := _recommendation_bucket(item.get("recommendation")))
+        }
+        scores = [score for item in positions if (score := _position_score(item.get("score"))) is not None]
+        recommendation_tradeoff = (
+            "recommendation_bucket_divergence" in detection_rules and len(recommendation_buckets) > 1
         )
+        score_tradeoff = (
+            "score_spread_threshold" in detection_rules
+            and len(scores) >= 2
+            and max(scores) - min(scores) >= 20
+        )
+        if recommendation_tradeoff or score_tradeoff:
+            contested.append(dispute)
+    return contested
+
+
+def _path_r1_5_resolved_contested(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    disputes_payload = _as_dict(ctx.json("phases/r1_5_disputes.json"))
+    disputes = [item for item in _as_list(disputes_payload.get("disputes")) if isinstance(item, dict)]
+    contested = _resolved_contested_disputes(ctx)
+    contested_ids = [_text(item.get("dispute_id")) for item in contested]
+    unresolved_ids = [_text(item.get("dispute_id")) or "<missing>" for item in disputes if item.get("resolved") is not True]
+    invalid_resolved_rulings = []
+    for item in disputes:
+        ruling = _as_dict(item.get("chairman_ruling"))
+        ruling_value = _text(ruling.get("ruling") or ruling.get("decision")).lower()
+        if (
+            ruling.get("resolved") is not True
+            or ruling_value in {"needs_more_evidence", "unresolved", "insufficient_evidence"}
+            or not _text(ruling.get("rationale"))
+        ):
+            invalid_resolved_rulings.append(_text(item.get("dispute_id")) or "<missing>")
+    known_evidence = _evidence_ids(ctx)
+    unbound_rulings = [
+        _text(item.get("dispute_id")) or "<missing>"
+        for item in contested
+        if not _ids(_as_dict(item.get("chairman_ruling")).get("evidence_ids"))
+        or not _ids(_as_dict(item.get("chairman_ruling")).get("evidence_ids")) <= known_evidence
     ]
-
-
-def _path_r1_5_unresolved(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    workflow = _as_dict(ctx.json("phases/workflow_state.json"))
+    smoke = _as_dict(ctx.json("release/real_smoke.json"))
+    smoke_phases = _as_dict(smoke.get("phase_runs"))
+    r3 = _as_dict(ctx.json("phases/r3_reports.json"))
     return [
         *_path_r1_5(ctx),
-        _assertion("R1.5.material_unresolved", len(_unresolved_disputes(ctx)) > 0),
+        _assertion("R1.5.material_resolved_contested", bool(contested_ids)),
+        _assertion("R1.5.all_disputes_resolved", unresolved_ids, []),
+        _assertion("R1.5.all_resolved_rulings_formal", invalid_resolved_rulings, []),
+        _assertion("R1.5.all_ruling_lineage", _r1_5_ruling_lineage_errors(ctx, disputes), []),
+        _assertion("R1.5.contested_ruling_evidence", unbound_rulings, []),
+        _assertion("R1.5.workflow_completed", _workflow_phase(workflow, "R1.5").get("status"), "completed"),
+        _assertion("R1.5.smoke_advanced", _as_dict(smoke_phases.get("R1.5")).get("workflow_advanced"), True),
+        _assertion("R1.5.R2_completed", _workflow_phase(workflow, "R2").get("status"), "completed"),
+        _assertion("R1.5.R2_smoke_advanced", _as_dict(smoke_phases.get("R2")).get("workflow_advanced"), True),
+        _assertion("R1.5.R3_completed", _workflow_phase(workflow, "R3").get("status"), "completed"),
+        _assertion("R1.5.R3_smoke_advanced", _as_dict(smoke_phases.get("R3")).get("workflow_advanced"), True),
+        _assertion("R1.5.R3_full", r3.get("mode"), "full"),
     ]
 
 
@@ -1147,7 +1238,7 @@ PATH_EVALUATORS: dict[str, PathEvaluator] = {
     "R0-block-or-degraded": _path_r0_blocked,
     "claim-restriction": _path_claim_restriction,
     "R4-insufficient-evidence": _path_r4_insufficient,
-    "R1.5-unresolved": _path_r1_5_unresolved,
+    "R1.5-resolved-contested": _path_r1_5_resolved_contested,
     "R2-delta": _path_r2_delta,
     "R3-red": _path_r3_red,
     "R3-blue": _path_r3_blue,
@@ -1436,7 +1527,7 @@ def build_bindings(
         except ValueError:
             errors.append(f"case_bundle_outside_suite:{bundle}")
             continue
-        if bundle == release_bundle or not bundle.is_dir():
+        if not bundle.is_dir():
             errors.append(f"case_bundle_invalid:{bundle_relative}")
             continue
         check = validate_candidate_result(bundle, manifest_path=manifest_path)

@@ -201,7 +201,7 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "expected_semantics": {
             "r0": "ready",
             "r1": "opposing_recommendations_on_capacity_and_valuation",
-            "r1_5": "facts_are_closed_but_the_decision_tradeoff_is_preserved",
+            "r1_5": "high_materiality_dispute_is_formally_resolved_while_opposing_positions_remain_preserved",
             "r2": "material_opposition_or_red_flag_remains_explicit",
             "r3": "full_four_turn_red_blue_debate_and_chairman_verdict",
             "r4": "decision_binds_the_debate_verdict",

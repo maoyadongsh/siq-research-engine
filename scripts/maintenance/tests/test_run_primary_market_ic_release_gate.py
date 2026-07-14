@@ -303,7 +303,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _write_v3_provenance(bundle: Path, module) -> None:
+def _write_v3_provenance(
+    bundle: Path,
+    module,
+    *,
+    release_candidate_case_id: str | None = None,
+) -> None:
     evidence_id = "EVID-DEAL-GATE-001-000001"
     r0_path = bundle / "phases/r0_readiness.json"
     r1_path = bundle / "phases/r1_reports.json"
@@ -927,11 +932,12 @@ def _write_v3_provenance(bundle: Path, module) -> None:
     }
     bindings = []
     for index, case_id in enumerate(sorted(required_by_case), start=1):
-        deal_id = f"DEAL-GOLDEN-{index:03d}"
-        case_bundle = bundle.parent / deal_id
-        run_id = f"GOLDEN-RUN-{index:03d}"
+        is_release_candidate = case_id == release_candidate_case_id
+        deal_id = DEAL_ID if is_release_candidate else f"DEAL-GOLDEN-{index:03d}"
+        case_bundle = bundle if is_release_candidate else bundle.parent / deal_id
+        run_id = "SMOKE-20260713-001" if is_release_candidate else f"GOLDEN-RUN-{index:03d}"
         result_id = f"GOLDEN-RESULT-{index:03d}"
-        snapshot_hash = _digest(f"snapshot:{case_id}")
+        snapshot_hash = SNAPSHOT if is_release_candidate else _digest(f"snapshot:{case_id}")
         source_path = case_bundle / "evaluation/source.json"
         _write_json(
             source_path,
@@ -1062,7 +1068,12 @@ def _write_v3_provenance(bundle: Path, module) -> None:
     )
 
 
-def _make_complete_bundle(tmp_path: Path, module) -> Path:
+def _make_complete_bundle(
+    tmp_path: Path,
+    module,
+    *,
+    release_candidate_case_id: str | None = None,
+) -> Path:
     bundle = tmp_path / "DEAL-GATE-001"
     evidence_id = "EVID-DEAL-GATE-001-000001"
     profile_collections = _profiles(module)
@@ -1424,7 +1435,11 @@ def _make_complete_bundle(tmp_path: Path, module) -> Path:
             "agent_retrievals": rows,
         },
     )
-    _write_v3_provenance(bundle, module)
+    _write_v3_provenance(
+        bundle,
+        module,
+        release_candidate_case_id=release_candidate_case_id,
+    )
     return bundle
 
 
@@ -1625,6 +1640,24 @@ def test_complete_bundle_is_release_eligible_but_gate_never_promotes_candidate(t
     assert metrics["startup_retrieval"]["profile_count"] == 7
     assert metrics["real_smoke"]["routing"]["distinct_private_collections"] == 7
     assert module.DEFAULT_MANIFEST.read_bytes() == manifest_before
+
+
+def test_gate_accepts_release_bundle_as_exactly_one_golden_candidate(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(
+        tmp_path,
+        module,
+        release_candidate_case_id="GOLDEN-PMIC-CONDITIONAL-SUPPORT",
+    )
+
+    report = module.build_report(bundle=bundle)
+
+    assert report["passed"] is True
+    metric = report["bundle"]["metrics"]["golden_case_bindings"]
+    assert metric["passed"] is True
+    assert metric["distinct_run_count"] == 5
+    assert metric["distinct_deal_count"] == 5
+    assert sum(item["bundle_path"] == bundle.name for item in metric["cases"]) == 1
 
 
 def test_gate_rejects_missing_required_field_under_exported_draft_2020_12_schema(tmp_path):
@@ -2573,6 +2606,32 @@ def test_gate_rejects_reused_or_tampered_golden_case_bindings(tmp_path):
     assert report["passed"] is False
     assert "run_id_not_independent" in errors
     assert "path_artifact_digest_mismatch" in errors
+
+
+def test_gate_rejects_repeated_golden_candidate_bundle_path(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(
+        tmp_path,
+        module,
+        release_candidate_case_id="GOLDEN-PMIC-CONDITIONAL-SUPPORT",
+    )
+    bindings_path = bundle / "release/golden_case_bindings.json"
+    bindings = json.loads(bindings_path.read_text(encoding="utf-8"))
+    self_binding = next(item for item in bindings["bindings"] if item["bundle_path"] == bundle.name)
+    other_binding = next(item for item in bindings["bindings"] if item is not self_binding)
+    other_binding["bundle_path"] = self_binding["bundle_path"]
+    _write_json(bindings_path, bindings)
+    approval_path = bundle / "release/human_methodology_approval.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["golden_case_bindings_sha256"] = _sha256(bindings_path)
+    _write_json(approval_path, approval)
+
+    report = module.build_report(bundle=bundle)
+
+    errors = "\n".join(report["bundle"]["metrics"]["golden_case_bindings"]["errors"])
+    assert report["passed"] is False
+    assert "bundle_path_not_independent" in errors
+    assert "case_bundle_not_independent" in errors
 
 
 def test_gate_rejects_post_approval_replacement_of_same_named_golden_suite(tmp_path):

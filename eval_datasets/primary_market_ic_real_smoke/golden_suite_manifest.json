@@ -93,8 +93,8 @@
       "input_status": "ready",
       "result_status": "not_run",
       "input_identity": {
-        "input_bundle_sha256": "839527a13d30c62cafebb9d65cb65dec43a131c52ed1e0940f782070eccb09ad",
-        "fixture_contract_sha256": "bfc5afb26daf5e5cb11767155d090363cbf1c04d0dd1951b6cc98ee530a9bef6",
+        "input_bundle_sha256": "a96bc2ebd69e96878577553e5973f9a40a9708488f9ed214ef551853bc563704",
+        "fixture_contract_sha256": "23fc2cf2b4fcdc83f0db6c173c05b09481d09e3e979ece9c0e5540a116a7e46a",
         "evidence_snapshot_hash": "f42546d49b455085c94042074e70c4281b6ab95db74d6b40e768622ef48e9f38",
         "file_count": 14
       }

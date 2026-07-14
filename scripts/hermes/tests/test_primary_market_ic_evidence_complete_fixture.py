@@ -359,14 +359,14 @@ def test_contract_valid_r1_probe_creates_only_an_evidence_closable_tension(tmp_p
     report_specs = {
         "siq_ic_strategist": (
             "R1A",
-            "support",
+            "conditional_support",
             82,
             ["EVID-PMIC-POS-BUS-002", "EVID-PMIC-POS-BUS-003", "EVID-PMIC-POS-BUS-008"],
             "Bottom-up market demand and firm orders support investment and staged expansion.",
         ),
         "siq_ic_sector_expert": (
             "R1A",
-            "support",
+            "conditional_support",
             84,
             ["EVID-PMIC-POS-BUS-005", "EVID-PMIC-POS-BUS-006", "EVID-PMIC-POS-BUS-009"],
             "Share, verified performance and unit delivery economics support the sector thesis.",

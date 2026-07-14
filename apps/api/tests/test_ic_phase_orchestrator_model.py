@@ -710,6 +710,69 @@ def test_expert_model_authoring_schema_omits_server_managed_fields():
         assert field not in schema["properties"]
     assert "claims" in schema["required"]
     assert "recommendation" in schema["properties"]
+    for field in ic_report_contracts.ROLE_REQUIRED_FIELDS[AGENT_ID]:
+        assert field in schema["required"]
+        assert field in schema["properties"]
+    assert all(
+        ic_phase_orchestrator._schema_forbids_property(schema, field)
+        for field in ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS
+    )
+
+
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        agent_id
+        for agent_id in ic_report_contracts.ROLE_REQUIRED_FIELDS
+        if agent_id != "siq_ic_master_coordinator"
+    ],
+)
+def test_expert_model_authoring_schema_specializes_every_role(agent_id):
+    phase = "R1B" if agent_id in {
+        "siq_ic_risk_controller",
+        "siq_ic_chairman",
+    } else "R1A"
+    payload = _full_expert_report(agent_id, phase)
+    for field in ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS:
+        payload.pop(field, None)
+    _, schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": f"ICTASK-PROMPT-{agent_id}",
+            "agent_id": agent_id,
+            "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        }
+    )
+
+    role_fields = set(ic_report_contracts.ROLE_REQUIRED_FIELDS[agent_id])
+    assert role_fields <= set(schema["required"])
+    assert role_fields <= set(schema["properties"])
+    assert "agent_id" not in schema["properties"]
+    assert not any(
+        ic_phase_orchestrator._is_agent_role_conditional(item)
+        for item in schema.get("allOf", [])
+    )
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS,
+)
+def test_expert_authoring_schema_rejects_server_managed_fields(field):
+    payload = _full_expert_report(AGENT_ID, "R1A")
+    for server_field in ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS:
+        payload.pop(server_field, None)
+    payload[field] = "model-authored-value"
+    _, schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": "ICTASK-PROMPT-R1-SERVER-FIELD",
+            "agent_id": AGENT_ID,
+            "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        }
+    )
+
+    assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
 def test_r2_prompt_omits_nested_server_managed_report_fields():
@@ -732,6 +795,58 @@ def test_r2_prompt_omits_nested_server_managed_report_fields():
     assert "MUST be omitted from the model response" in prompt
     assert "background_knowledge_refs" not in report_schema["properties"]
     assert "created_at" not in report_schema["required"]
+    for field in ic_report_contracts.ROLE_REQUIRED_FIELDS[AGENT_ID]:
+        assert field in report_schema["required"]
+        assert field in report_schema["properties"]
+    assert all(
+        ic_phase_orchestrator._schema_forbids_property(report_schema, field)
+        for field in ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS
+    )
+
+
+@pytest.mark.parametrize("agent_id", R2_AGENTS)
+def test_r2_model_authoring_schema_specializes_nested_report_role(agent_id):
+    payload = _r2_model_output(agent_id)
+    payload.pop("schema_version")
+    _, schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": f"ICTASK-PROMPT-R2-{agent_id}",
+            "agent_id": agent_id,
+            "output_schema": ic_report_contracts.IC_R2_REVISION_SCHEMA,
+        }
+    )
+    report_schema = schema["properties"]["report"]
+
+    role_fields = set(ic_report_contracts.ROLE_REQUIRED_FIELDS[agent_id])
+    assert role_fields <= set(report_schema["required"])
+    assert role_fields <= set(report_schema["properties"])
+    assert not any(
+        ic_phase_orchestrator._is_agent_role_conditional(item)
+        for item in report_schema.get("allOf", [])
+    )
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema).validate(payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS,
+)
+def test_r2_authoring_schema_rejects_nested_server_managed_fields(field):
+    payload = _r2_model_output(AGENT_ID)
+    payload.pop("schema_version")
+    for server_field in ic_phase_orchestrator._EXPERT_REPORT_SERVER_MANAGED_FIELDS:
+        payload["report"].pop(server_field, None)
+    payload["report"][field] = "model-authored-value"
+    _, schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": "ICTASK-PROMPT-R2-SERVER-FIELD",
+            "agent_id": AGENT_ID,
+            "output_schema": ic_report_contracts.IC_R2_REVISION_SCHEMA,
+        }
+    )
+
+    assert list(Draft202012Validator(schema).iter_errors(payload))
 
 
 def test_r4_prompt_projects_server_fields_and_exposes_full_authoring_contract():
@@ -785,6 +900,7 @@ def test_r4_model_fixture_matches_advertised_authoring_schema():
     }
     _, schema = ic_phase_orchestrator._prompt_model_output_contract(task)
 
+    Draft202012Validator.check_schema(schema)
     Draft202012Validator(schema).validate(_r4_model_output())
 
 
@@ -885,6 +1001,61 @@ def test_contract_repair_non_escalation_accepts_projection_and_safe_missing_down
         repaired,
         authoring_schema=authoring_schema,
     )
+
+
+@pytest.mark.parametrize(
+    ("output_schema", "nested_report"),
+    [
+        (ic_report_contracts.IC_EXPERT_REPORT_SCHEMA, False),
+        (ic_report_contracts.IC_R2_REVISION_SCHEMA, True),
+    ],
+)
+def test_contract_repair_non_escalation_allows_forbidden_server_field_removal(
+    output_schema,
+    nested_report,
+):
+    original = _r2_model_output(AGENT_ID) if nested_report else _model_output()
+    if nested_report:
+        original.pop("schema_version")
+    original_report = original["report"] if nested_report else original
+    original_report["agent_id"] = "model-authored-agent"
+    repaired = deepcopy(original)
+    repaired_report = repaired["report"] if nested_report else repaired
+    repaired_report.pop("agent_id")
+    _, authoring_schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": "ICTASK-REPAIR-SERVER-FIELD",
+            "agent_id": AGENT_ID,
+            "output_schema": output_schema,
+        }
+    )
+
+    ic_phase_orchestrator._verify_contract_repair_non_escalation(
+        original,
+        repaired,
+        authoring_schema=authoring_schema,
+    )
+
+
+def test_contract_repair_non_escalation_rejects_added_required_role_fields():
+    original = _model_output()
+    original.pop("exit_window")
+    repaired = deepcopy(original)
+    repaired["exit_window"] = {"result": "2027-2028"}
+    _, authoring_schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": "ICTASK-REPAIR-REQUIRED-FIELD",
+            "agent_id": AGENT_ID,
+            "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"\$\.exit_window:field_added"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(
+            original,
+            repaired,
+            authoring_schema=authoring_schema,
+        )
 
 
 def test_contract_repair_non_escalation_allows_only_empty_scorecard_claim_link_fill():
@@ -1307,6 +1478,113 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     assert completion["handoff_digest"] == task["handoff_digest"]
     assert completion["output_artifact_hashes"] == task["output_artifact_hashes"]
     assert completion["contract_validation"]["passed"] is True
+
+
+def test_r1_missing_required_field_skips_repair_and_resumes_with_fresh_generation(
+    monkeypatch,
+    tmp_path,
+):
+    package_dir = _package(tmp_path)
+    calls: list[dict[str, str | None]] = []
+    invalid_output = _model_output()
+    invalid_output.pop("exit_window")
+
+    async def fake_create_run(
+        prompt,
+        history,
+        *,
+        profile,
+        session_id=None,
+        instructions=None,
+    ):
+        calls.append(
+            {
+                "profile": profile,
+                "session_id": session_id,
+                "instructions": instructions,
+            }
+        )
+        return f"run-required-field-{len(calls)}"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        payload = invalid_output if run_id.endswith("-1") else _model_output()
+        output = json.dumps(payload, ensure_ascii=False)
+        ic_phase_orchestrator.hermes_client._remember_run_terminal(
+            ic_phase_orchestrator.hermes_client.RunTerminalResult(
+                run_id=run_id,
+                status="succeeded",
+                received_text=output,
+                runtime=ic_phase_orchestrator.hermes_client.RunRuntimeMetadata(
+                    requested_model=AGENT_ID,
+                    configured_provider="minimax-cn",
+                    configured_model="MiniMax-M3",
+                    effective_provider="minimax-cn",
+                    effective_model="MiniMax-M3",
+                    fallback_activated=False,
+                ),
+            )
+        )
+        return output
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(
+        ic_report_contracts.ICContractValidationError,
+        match="'exit_window' is a required property",
+    ):
+        asyncio.run(
+            ic_phase_orchestrator.run_r1_model_task(
+                package_dir,
+                agent_id=AGENT_ID,
+                receipt=_receipt(),
+            )
+        )
+
+    task_store = deal_store.read_json(
+        package_dir / ic_phase_orchestrator.TASK_STORE_PATH,
+        {},
+    )
+    failed = next(
+        item for item in task_store["tasks"] if item["agent_id"] == AGENT_ID
+    )
+    assert len(calls) == 1
+    assert calls[0]["instructions"] is None
+    assert failed["status"] == "failed"
+    assert failed["hermes_run_ids"] == ["run-required-field-1"]
+    assert failed["contract_validation"]["error_type"] == "ICContractValidationError"
+    assert "exit_window" in failed["failure_reason"]
+    audit = deal_store.read_json(package_dir / "audit" / "audit_log.json", {})
+    skipped = next(
+        event
+        for event in audit["events"]
+        if event["event_type"] == "ic_phase_hermes_contract_repair_skipped"
+    )
+    assert skipped["disposition"] == "fresh_generation_required"
+    assert skipped["reason"] == "missing_required_properties"
+    assert "exit_window" in skipped["validation_error"]
+    assert not any(
+        event["event_type"] == "ic_phase_hermes_contract_repair_attempted"
+        for event in audit["events"]
+    )
+
+    result = asyncio.run(
+        ic_phase_orchestrator.run_r1_model_task(
+            package_dir,
+            agent_id=AGENT_ID,
+            receipt=_receipt(),
+        )
+    )
+
+    assert len(calls) == 2
+    assert all(item["instructions"] is None for item in calls)
+    assert result["execution"]["repair_attempted"] is False
+    succeeded = result["execution"]["task"]
+    assert succeeded["task_claim"]["attempt"] == 2
+    assert succeeded["attempt_history"][0]["terminal_status"] == "failed"
+    assert succeeded["attempt_history"][0]["contract_validation"]["error_type"] == (
+        "ICContractValidationError"
+    )
 
 
 def test_r1_model_task_rejects_oversized_repair_input_before_second_run(

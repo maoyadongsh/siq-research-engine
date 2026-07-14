@@ -18,7 +18,7 @@ Configure these GitHub Actions repository variables as absolute paths visible to
 
 All four paths must resolve outside `GITHUB_WORKSPACE`. Mount or publish the evidence read-only where possible. The workflow writes only its v3 JSON and Markdown reports under `artifacts/eval-runs/primary-market-ic/ci-release/`.
 
-The bundle's golden binding must point to five distinct Deal/run/result packages for conditional support, material risk, insufficient evidence, full R3, and stale snapshot. The gate verifies their file digests and scenario assertions; copying one run under several case IDs fails. The methodology approval must include `golden_case_bindings_sha256`, the SHA-256 digest of the exact `release/golden_case_bindings.json` bytes reviewed by the approver.
+The release Deal does not require a sixth Deal. `SIQ_PMIC_RELEASE_BUNDLE` may resolve to one of the five distinct candidate Deal packages for conditional support, material risk, insufficient evidence, full R3, and stale snapshot; when it does, that same directory appears exactly once in the golden binding and the other four candidates remain siblings under the same suite root. The gate still requires five unique Deal IDs, fixture bundle paths, real-smoke run IDs, result IDs, and result SHA-256 digests; copying one fixture or run under several case IDs fails. The methodology approval must include `golden_case_bindings_sha256`, the SHA-256 digest of the exact `release/golden_case_bindings.json` bytes reviewed by the approver.
 
 ## Prepare independent golden inputs
 
@@ -30,7 +30,7 @@ uv run --project apps/api python eval_datasets/primary_market_ic_real_smoke/gene
 uv run --project apps/api python eval_datasets/primary_market_ic_real_smoke/generate_golden_suite_fixtures.py --check
 ```
 
-`eval_datasets/primary_market_ic_real_smoke/golden_suite_manifest.json` is an input inventory only. Its per-case `input_identity` binds the deterministic input bundle digest, fixture contract digest, initial Evidence snapshot, and file count; the generator's `--check` validates those bindings as well as every fixture byte. Every case remains `result_status: not_run` and `quality_accepted: false` until an isolated real run is evaluated. Use one dedicated suite run root for the five fixtures. The runner still isolates each case under `wiki/deals/$DEAL_ID`; the shared parent is required so the binding evaluator can prove that all five Deal packages belong to the same reviewed suite:
+`eval_datasets/primary_market_ic_real_smoke/golden_suite_manifest.json` is an input inventory only. Its per-case `input_identity` binds the deterministic input bundle digest, fixture contract digest, initial Evidence snapshot, and file count; the generator's `--check` validates those bindings as well as every fixture byte. Every case remains `result_status: not_run` and `quality_accepted: false` until an isolated real run is evaluated. Use one dedicated suite run root for the five fixtures. One of those five outputs may also be `SIQ_PMIC_RELEASE_BUNDLE`, so no separate release-only Deal is required. The runner still isolates each case under `wiki/deals/$DEAL_ID`; the shared parent is required so the binding evaluator can prove that all five Deal packages belong to the same reviewed suite:
 
 ```bash
 export GOLDEN_SUITE_RUN_ROOT="artifacts/eval-runs/primary-market-ic/golden-suite-$(date +%Y%m%d)"
@@ -119,7 +119,7 @@ python3 scripts/maintenance/run_primary_market_ic_golden_evaluator.py validate \
 
 Both commands return nonzero when an identity, source artifact, required path, assertion, or digest is absent or stale. `validate` recomputes assertions from the current source artifacts; it does not trust booleans already stored in the candidate result.
 
-After all five independent candidates validate, bind them to the release Deal. Repeat `--case-bundle` once for each required scenario:
+After all five independent candidates validate, bind them to the release Deal. The release Deal may itself be one of the five `--case-bundle` values; in that five-project topology, pass it exactly once. The conditional-support bundle is the normal release candidate because the release gate separately requires a current, factchecked, human-confirmed R4 decision. Repeat `--case-bundle` once for each required scenario:
 
 ```bash
 python3 scripts/maintenance/run_primary_market_ic_golden_evaluator.py bind \
@@ -132,7 +132,7 @@ python3 scripts/maintenance/run_primary_market_ic_golden_evaluator.py bind \
   --case-bundle "$SNAPSHOT_STALE_BUNDLE"
 ```
 
-The binding remains a candidate artifact with `quality_accepted: false`. The evaluator never changes the manifest, marks a case accepted, or converts a failed path into a passing assertion. Distinct Deal IDs, real-smoke run IDs, result IDs, bundle paths, and result SHA-256 digests are mandatory.
+The binding remains a candidate artifact with `quality_accepted: false`. The evaluator never changes the manifest, marks a case accepted, or converts a failed path into a passing assertion. Exactly five distinct Deal IDs, fixture bundle paths, real-smoke run IDs, result IDs, and result SHA-256 digests are mandatory. The release Deal may occupy one of those five candidate slots, but a repeated self candidate, sibling candidate, case ID, fixture path, run, result, or digest fails closed.
 
 ## Record independent methodology approval
 
@@ -144,7 +144,12 @@ The methodology approver must be a named person independent from the R4 confirme
 - `GOLDEN-PMIC-FULL-R3`
 - `GOLDEN-PMIC-SNAPSHOT-STALE`
 
-For every candidate, run `run_primary_market_ic_golden_evaluator.py validate` and inspect `release/golden_case_result.json`, every referenced `evaluation/golden/*.json` artifact, the real-smoke run ID, Deal ID, Evidence snapshot, and source artifact digests. Then inspect `release/golden_case_bindings.json`: it must contain five distinct Deal, run, result, bundle-path, and result-digest identities and `status: passed`. Compute the digest only after that review and do not change the binding file afterward:
+For `GOLDEN-PMIC-FULL-R3`, R1.5 must formally resolve every dispute before R2. At least one high- or
+critical-severity dispute must retain two genuinely opposing expert positions after the chairman's
+model ruling, and the same workflow must then complete R2 and a full R3 debate. An unresolved dispute
+is a fail-closed Evidence-loop outcome; it must never be treated as the trigger for R2 or R3.
+
+For every candidate, run `run_primary_market_ic_golden_evaluator.py validate` and inspect `release/golden_case_result.json`, every referenced `evaluation/golden/*.json` artifact, the fixture contract and input identity, the real-smoke run ID, Deal ID, Evidence snapshot, and source artifact digests. Then inspect `release/golden_case_bindings.json`: it must contain five distinct Deal, fixture bundle-path, run, result, and result-digest identities and have `status: passed`; if `SIQ_PMIC_RELEASE_BUNDLE` is one candidate, it must appear exactly once. Compute the digest only after that review and do not change the binding file afterward:
 
 ```bash
 sha256sum "$SIQ_PMIC_RELEASE_BUNDLE/release/golden_case_bindings.json"

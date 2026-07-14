@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from jsonschema import Draft202012Validator
 from services.ic_contract_validation import ICContractValidationError
 
 from services import (
@@ -590,6 +591,7 @@ def test_numeric_trace_distinguishes_verified_derived_monetary_and_missing_claim
 
 def test_factcheck_authoring_contract_excludes_server_fields_and_unbounded_objects():
     schema = quality.factcheck_authoring_schema()
+    Draft202012Validator.check_schema(schema)
     assert schema["x-projection"] == "server_managed_fields_omitted"
     for field in quality.FACTCHECK_SERVER_MANAGED_FIELDS:
         assert field not in schema["properties"]

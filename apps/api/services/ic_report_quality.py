@@ -150,7 +150,9 @@ def factcheck_authoring_schema() -> dict[str, Any]:
         schema["required"] = [
             field for field in required if field not in FACTCHECK_SERVER_MANAGED_FIELDS
         ]
-    schema["$id"] = f"{IC_REPORT_FACTCHECK_SCHEMA}#model-authoring-payload"
+    schema["$id"] = (
+        f"https://siq.local/schemas/ic/model-authoring/{IC_REPORT_FACTCHECK_SCHEMA}"
+    )
     schema["x-persisted-final-contract"] = IC_REPORT_FACTCHECK_SCHEMA
     schema["x-projection"] = "server_managed_fields_omitted"
     return schema

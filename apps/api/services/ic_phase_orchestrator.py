@@ -31,6 +31,7 @@ from services import (
     ic_scoring,
     ic_task_contracts,
 )
+from services.ic_contract_validation import ICContractValidationError
 from services.ic_task_lease import claim_ic_task, finish_ic_task, heartbeat_ic_task
 
 IC_WORKFLOW_RUNS_SCHEMA = "siq_ic_workflow_runs_v1"
@@ -49,6 +50,9 @@ IC_CONTRACT_REPAIR_PROMPT_VERSION = "siq_ic_contract_repair_prompt_v2"
 _REPAIR_INVALID_OUTPUT_MAX_CHARS = 16_000
 _REPAIR_OUTPUT_MAX_CHARS = 12_000
 _REPAIR_MAX_CLAIMS = 6
+_REQUIRED_PROPERTY_VALIDATION_ERROR_RE = re.compile(
+    r"^\$(?:\[[^\]]+\])*: '[^']+' is a required property$"
+)
 _REPAIR_TASK_IDENTITY_FIELDS = (
     "task_id",
     "workflow_run_id",
@@ -1409,6 +1413,102 @@ def _drop_schema_properties(schema: dict[str, Any], fields: tuple[str, ...]) -> 
             properties.pop(field, None)
 
 
+def _forbid_schema_properties(schema: dict[str, Any], fields: tuple[str, ...]) -> None:
+    existing_all_of = schema.get("allOf")
+    if existing_all_of is not None and not isinstance(existing_all_of, list):
+        raise ValueError("Cannot build Hermes prompt: authoring schema allOf is malformed")
+    schema["allOf"] = [
+        *(existing_all_of or []),
+        {
+            "not": {
+                "anyOf": [{"required": [field]} for field in fields],
+            }
+        },
+    ]
+
+
+def _is_agent_role_conditional(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    condition = value.get("if")
+    consequence = value.get("then")
+    if not isinstance(condition, Mapping) or not isinstance(consequence, Mapping):
+        return False
+    condition_properties = condition.get("properties")
+    agent_condition = (
+        condition_properties.get("agent_id")
+        if isinstance(condition_properties, Mapping)
+        else None
+    )
+    return bool(
+        condition.get("required") == ["agent_id"]
+        and isinstance(agent_condition, Mapping)
+        and agent_condition.get("const")
+        and isinstance(consequence.get("required"), list)
+    )
+
+
+def _role_authoring_property_schema(agent_id: str, field: str) -> dict[str, Any]:
+    if field in ic_report_contracts.ROLE_EMPTY_ALLOWED_FIELDS:
+        return {"type": ["array", "object", "string"]}
+    if agent_id == "siq_ic_finance_auditor" and field == "calculation_trace_ids":
+        return {**deepcopy(ic_report_contracts.STRING_LIST), "minItems": 1}
+    if (
+        agent_id == "siq_ic_legal_scanner" and field == "closing_conditions"
+    ) or (
+        agent_id == "siq_ic_risk_controller"
+        and field in {"warning_thresholds", "stop_loss_thresholds"}
+    ):
+        return {
+            "anyOf": [
+                {"type": "object", "minProperties": 1},
+                {"type": "array", "minItems": 1},
+            ]
+        }
+    if agent_id == "siq_ic_chairman":
+        if field == "six_dimension_scorecard":
+            return {"type": "array", "minItems": 6, "maxItems": 6}
+        if field in {"weighted_agent_score", "chairman_dimension_score"}:
+            return {"type": "number"}
+        if field == "decision":
+            return {
+                "type": "string",
+                "enum": ["pass", "review", "reject", "insufficient_evidence"],
+            }
+    return deepcopy(ic_report_contracts.STRUCTURED_REQUIRED)
+
+
+def _specialize_expert_authoring_schema(
+    schema: dict[str, Any],
+    *,
+    agent_id: str,
+) -> None:
+    role_fields = tuple(ic_report_contracts.ROLE_REQUIRED_FIELDS.get(agent_id, ()))
+    if not role_fields:
+        raise ValueError(
+            "Cannot build Hermes prompt: expert report role constraints are missing "
+            f"for agent_id {agent_id!r}"
+        )
+    required = schema.setdefault("required", [])
+    properties = schema.setdefault("properties", {})
+    if not isinstance(required, list) or not isinstance(properties, dict):
+        raise ValueError("Cannot build Hermes prompt: expert authoring schema is malformed")
+    required.extend(field for field in role_fields if field not in required)
+    for field in role_fields:
+        properties.setdefault(
+            field,
+            _role_authoring_property_schema(agent_id, field),
+        )
+
+    all_of = schema.get("allOf")
+    if isinstance(all_of, list):
+        remaining = [item for item in all_of if not _is_agent_role_conditional(item)]
+        if remaining:
+            schema["allOf"] = remaining
+        else:
+            schema.pop("allOf", None)
+
+
 def _prompt_model_output_contract(task: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     source, final_schema = _prompt_output_contract(task)
     schema_version = str(task.get("output_schema") or "").strip()
@@ -1420,8 +1520,14 @@ def _prompt_model_output_contract(task: Mapping[str, Any]) -> tuple[str, dict[st
         return source, final_schema
 
     authoring_schema = deepcopy(final_schema)
+    agent_id = str(task.get("agent_id") or "").strip()
     if schema_version == ic_report_contracts.IC_EXPERT_REPORT_SCHEMA:
         _drop_schema_properties(authoring_schema, _EXPERT_REPORT_SERVER_MANAGED_FIELDS)
+        _specialize_expert_authoring_schema(authoring_schema, agent_id=agent_id)
+        _forbid_schema_properties(
+            authoring_schema,
+            _EXPERT_REPORT_SERVER_MANAGED_FIELDS,
+        )
     elif schema_version == ic_report_contracts.IC_R2_REVISION_SCHEMA:
         _drop_schema_properties(authoring_schema, ("schema_version",))
         properties = authoring_schema.get("properties")
@@ -1429,24 +1535,34 @@ def _prompt_model_output_contract(task: Mapping[str, Any]) -> tuple[str, dict[st
         if not isinstance(report_schema, dict):
             raise ValueError("Cannot build Hermes prompt: R2 report authoring schema is missing")
         _drop_schema_properties(report_schema, _EXPERT_REPORT_SERVER_MANAGED_FIELDS)
+        _specialize_expert_authoring_schema(report_schema, agent_id=agent_id)
+        _forbid_schema_properties(
+            report_schema,
+            _EXPERT_REPORT_SERVER_MANAGED_FIELDS,
+        )
     else:
         _drop_schema_properties(authoring_schema, _R4_DECISION_SERVER_MANAGED_FIELDS)
-        existing_all_of = authoring_schema.get("allOf")
-        authoring_schema["allOf"] = [
-            *(existing_all_of if isinstance(existing_all_of, list) else []),
-            {
-                "not": {
-                    "anyOf": [
-                        {"required": [field]}
-                        for field in _R4_DECISION_SERVER_MANAGED_FIELDS
-                    ]
-                }
-            },
-        ]
-    authoring_schema["$id"] = f"{schema_version}#model-authoring-payload"
+        _forbid_schema_properties(
+            authoring_schema,
+            _R4_DECISION_SERVER_MANAGED_FIELDS,
+        )
+    authoring_schema["$id"] = (
+        f"https://siq.local/schemas/ic/model-authoring/{schema_version}"
+    )
     authoring_schema["x-persisted-final-contract"] = schema_version
     authoring_schema["x-projection"] = "server_managed_fields_omitted"
     return f"{source}+ic_phase_orchestrator.server_authoring_projection", authoring_schema
+
+
+def _validation_requires_fresh_generation(error: BaseException) -> bool:
+    return bool(
+        isinstance(error, ICContractValidationError)
+        and error.errors
+        and all(
+            _REQUIRED_PROPERTY_VALIDATION_ERROR_RE.fullmatch(item)
+            for item in error.errors
+        )
+    )
 
 
 def _prompt_validator_invariants(task: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -2452,6 +2568,25 @@ async def run_hermes_task(
         except ValueError as validation_error:
             original_payload = _extract_json_object(output_text)
             repair_error = validation_error
+            if _validation_requires_fresh_generation(validation_error):
+                deal_store.append_audit_event(
+                    package_dir.name,
+                    {
+                        "event_type": "ic_phase_hermes_contract_repair_skipped",
+                        "workflow_run_id": task.get("workflow_run_id"),
+                        "task_id": task.get("task_id"),
+                        "phase": task.get("phase"),
+                        "agent_id": task.get("agent_id"),
+                        "original_hermes_run_id": run_ids[0],
+                        "validation_error": str(validation_error)[:1000],
+                        "disposition": "fresh_generation_required",
+                        "reason": "missing_required_properties",
+                        "output_artifact_hashes": deepcopy(raw_artifact_hashes),
+                        "created_by": created_by,
+                    },
+                    wiki_root=package_dir.parent.parent,
+                )
+                raise
             _enforce_repair_input_limits(original_payload)
             try:
                 repair_attempts = max(

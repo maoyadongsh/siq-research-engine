@@ -2931,7 +2931,7 @@ def _golden_case_binding_metric(
         bundle_paths.add(bundle_relative)
 
         case_bundle = _contained_path(suite_root, bundle_relative)
-        if case_bundle is None or case_bundle == bundle.resolve() or not case_bundle.is_dir():
+        if case_bundle is None or not case_bundle.is_dir():
             case_errors.append("case_bundle_invalid")
             result_path = None
         else:

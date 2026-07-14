@@ -35,10 +35,10 @@
     },
     {
       "case_id": "GOLDEN-PMIC-FULL-R3",
-      "scenario": "material expert conflict requires full red-blue debate",
+      "scenario": "a formally resolved high-materiality expert conflict preserves opposing positions and requires full red-blue debate",
       "status": "candidate",
       "quality_accepted": false,
-      "required_paths": ["R1.5-unresolved", "R2-delta", "R3-red", "R3-blue", "R3-rebuttal", "R3-verdict"],
+      "required_paths": ["R1.5-resolved-contested", "R2-delta", "R3-red", "R3-blue", "R3-rebuttal", "R3-verdict"],
       "known_gap": "Multi-turn argument quality rubric has not been scored."
     },
     {

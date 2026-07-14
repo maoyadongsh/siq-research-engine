@@ -178,6 +178,137 @@ def _append_real_task(
     return task
 
 
+def _full_r3_contested_manifest(path: Path) -> Path:
+    _write_json(
+        path,
+        {
+            "schema_version": "siq_ic_golden_case_manifest_v1",
+            "acceptance_status": "candidates_only",
+            "quality_accepted": False,
+            "cases": [
+                {
+                    "case_id": "GOLDEN-PMIC-FULL-R3",
+                    "scenario": "resolved material conflict preserves opposing positions",
+                    "status": "candidate",
+                    "quality_accepted": False,
+                    "required_paths": ["R1.5-resolved-contested"],
+                    "known_gap": "Offline evaluator fixture only.",
+                }
+            ],
+        },
+    )
+    return path
+
+
+def _full_r3_contested_bundle(
+    root: Path,
+    *,
+    severity: str = "high",
+    resolved: bool = True,
+) -> tuple[Path, Path]:
+    deal_id = "DEAL-GOLDEN-FULL-R3-001"
+    snapshot_hash = "9" * 64
+    evidence_id = "EVID-GOLDEN-FULL-R3-001"
+    manifest = _full_r3_contested_manifest(root / "golden_manifest.json")
+    bundle = _bundle(
+        root,
+        deal_id=deal_id,
+        run_id="SMOKE-GOLDEN-FULL-R3-001",
+        snapshot_hash=snapshot_hash,
+    )
+    _write_json(
+        bundle / "evidence/evidence_index.json",
+        {
+            "schema_version": "siq_deal_evidence_index_v1",
+            "deal_id": deal_id,
+            "items": [{"evidence_id": evidence_id}],
+        },
+    )
+    task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R1.5",
+        role="siq_ic_chairman",
+    )
+    ruling = "synthesize" if resolved else "needs_more_evidence"
+    _write_json(
+        bundle / "phases/r1_5_disputes.json",
+        {
+            "schema_version": "siq_ic_disputes_v1",
+            "deal_id": deal_id,
+            "disputes": [
+                {
+                    "dispute_id": "DISP-GOLDEN-FULL-R3-001",
+                    "severity": severity,
+                    "resolved": resolved,
+                    "evidence_snapshot_hash": snapshot_hash,
+                    "positions": [
+                        {
+                            "agent_id": "siq_ic_sector_expert",
+                            "recommendation": "conditional_support",
+                            "score": 84,
+                        },
+                        {
+                            "agent_id": "siq_ic_finance_auditor",
+                            "recommendation": "reject",
+                            "score": 48,
+                        },
+                    ],
+                    "detection_rules": [
+                        "recommendation_bucket_divergence",
+                        "score_spread_threshold",
+                    ],
+                    "chairman_ruling": {
+                        "schema_version": "siq_deal_r1_5_dispute_ruling_v1",
+                        "deal_id": deal_id,
+                        "dispute_id": "DISP-GOLDEN-FULL-R3-001",
+                        "agent_id": "siq_ic_chairman",
+                        "decision": ruling,
+                        "ruling": ruling,
+                        "resolved": resolved,
+                        "rationale": "Preserve both capacity outcomes while staging the investment.",
+                        "required_followups": [] if resolved else ["obtain_more_evidence"],
+                        "evidence_ids": [evidence_id],
+                        "generation_mode": "model",
+                        "task_id": task["task_id"],
+                        "workflow_run_id": task["workflow_run_id"],
+                        "hermes_run_id": task["hermes_run_id"],
+                        "evidence_snapshot_hash": snapshot_hash,
+                    },
+                }
+            ],
+        },
+    )
+    _write_json(
+        bundle / "phases/workflow_state.json",
+        {
+            "schema_version": "siq_deal_workflow_state_v1",
+            "deal_id": deal_id,
+            "phases": {
+                "R1.5": {"status": "completed"},
+                "R2": {"status": "completed"},
+                "R3": {"status": "completed"},
+            },
+        },
+    )
+    _write_json(bundle / "phases/r3_reports.json", {"mode": "full"})
+    smoke_path = bundle / "release/real_smoke.json"
+    smoke = json.loads(smoke_path.read_text(encoding="utf-8"))
+    smoke["phase_runs"] = {
+        "R1.5": {"status": "passed", "workflow_advanced": True},
+        "R2": {"status": "passed", "workflow_advanced": True},
+        "R3": {"status": "passed", "workflow_advanced": True},
+    }
+    _write_json(smoke_path, smoke)
+    return manifest, bundle
+
+
+def _path_assertions(report: dict[str, object], path: str) -> dict[str, dict[str, object]]:
+    payload = report["path_payloads"][path]
+    return {item["name"]: item for item in payload["assertions"]}
+
+
 def _write_insufficient_input_identity(bundle: Path, *, deal_id: str) -> None:
     _write_json(
         bundle / "evidence/evidence_index.json",
@@ -212,6 +343,63 @@ def test_default_manifest_paths_are_supported_without_an_invented_policy_contrac
     for case_id in module.INDEPENDENT_CASE_IDS:
         _, errors = module._manifest_case(module.DEFAULT_MANIFEST, case_id)
         assert errors == []
+
+
+def test_full_r3_accepts_resolved_material_dispute_with_preserved_opposing_positions(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_full_r3_resolved_test")
+    manifest, bundle = _full_r3_contested_bundle(tmp_path)
+
+    report = module.evaluate_case(
+        bundle,
+        "GOLDEN-PMIC-FULL-R3",
+        manifest_path=manifest,
+        write=False,
+    )
+
+    assert report["passed"] is True
+    assertions = _path_assertions(report, "R1.5-resolved-contested")
+    assert assertions["R1.5.material_resolved_contested"]["passed"] is True
+    assert assertions["R1.5.all_disputes_resolved"]["passed"] is True
+    assert assertions["R1.5.all_resolved_rulings_formal"]["passed"] is True
+    assert assertions["R1.5.all_ruling_lineage"]["passed"] is True
+    assert assertions["R1.5.R2_completed"]["passed"] is True
+    assert assertions["R1.5.R3_full"]["passed"] is True
+
+
+def test_full_r3_rejects_resolved_dispute_without_high_materiality(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_full_r3_materiality_test")
+    manifest, bundle = _full_r3_contested_bundle(tmp_path, severity="medium")
+
+    report = module.evaluate_case(
+        bundle,
+        "GOLDEN-PMIC-FULL-R3",
+        manifest_path=manifest,
+        write=False,
+    )
+
+    assert report["passed"] is False
+    assertion = _path_assertions(report, "R1.5-resolved-contested")["R1.5.material_resolved_contested"]
+    assert assertion["actual"] is False
+    assert assertion["passed"] is False
+
+
+def test_full_r3_rejects_unresolved_dispute_even_with_forged_downstream_phases(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_full_r3_unresolved_test")
+    manifest, bundle = _full_r3_contested_bundle(tmp_path, resolved=False)
+
+    report = module.evaluate_case(
+        bundle,
+        "GOLDEN-PMIC-FULL-R3",
+        manifest_path=manifest,
+        write=False,
+    )
+
+    assert report["passed"] is False
+    assertions = _path_assertions(report, "R1.5-resolved-contested")
+    assert assertions["R1.5.material_resolved_contested"]["passed"] is False
+    assert assertions["R1.5.all_disputes_resolved"]["actual"] == ["DISP-GOLDEN-FULL-R3-001"]
+    assert assertions["R1.5.all_disputes_resolved"]["passed"] is False
+    assert assertions["R1.5.all_resolved_rulings_formal"]["passed"] is False
 
 
 def test_evaluate_and_recompute_candidate_from_persisted_source_artifacts(tmp_path):
@@ -874,6 +1062,59 @@ def test_bindings_require_five_independent_deal_run_result_and_digest_identities
     assert refused["passed"] is False
     assert "bindings_output_must_be_canonical" in refused["errors"]
     assert not unsafe_output.exists()
+
+
+def test_bindings_allow_release_bundle_as_exactly_one_independent_candidate(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_self_candidate_test")
+    gate = _load_module(RELEASE_GATE_PATH, "pmic_release_gate_self_candidate_compat_test")
+    manifest, _, bundles = _evaluate_independent_suite(tmp_path, module)
+    release_bundle = bundles[0]
+
+    report = module.build_bindings(
+        release_bundle,
+        bundles,
+        suite_id="GOLDEN-SUITE-OFFLINE-SELF-CANDIDATE",
+        manifest_path=manifest,
+    )
+
+    assert report["passed"] is True
+    payload = report["bindings"]
+    assert len(payload["bindings"]) == 5
+    assert sum(item["bundle_path"] == release_bundle.name for item in payload["bindings"]) == 1
+    for field in ("deal_id", "run_id", "result_id", "result_sha256", "bundle_path"):
+        assert len({item[field] for item in payload["bindings"]}) == 5
+
+    manifest_validation = {
+        "coverage": {
+            case_id: {"case_id": case_id, "required_paths": ["source-activation"]}
+            for case_id in CASE_IDS
+        }
+    }
+    metric = gate._golden_case_binding_metric(release_bundle, payload, manifest_validation)
+    assert metric["passed"] is True
+    assert metric["distinct_run_count"] == 5
+    assert metric["distinct_deal_count"] == 5
+
+
+def test_bindings_reject_repeated_candidate_bundle_even_when_release_is_a_candidate(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_duplicate_self_candidate_test")
+    manifest, _, bundles = _evaluate_independent_suite(tmp_path, module)
+    release_bundle = bundles[0]
+
+    report = module.build_bindings(
+        release_bundle,
+        [*bundles, release_bundle],
+        suite_id="GOLDEN-SUITE-OFFLINE-DUPLICATE-SELF-CANDIDATE",
+        manifest_path=manifest,
+    )
+
+    assert report["passed"] is False
+    assert report["bindings"]["status"] == "failed"
+    duplicate_case_id = module.validate_candidate_result(
+        release_bundle,
+        manifest_path=manifest,
+    )["case_id"]
+    assert f"duplicate_case:{duplicate_case_id}" in report["errors"]
 
 
 def test_bindings_fail_closed_for_reused_run_or_missing_candidate(tmp_path):
