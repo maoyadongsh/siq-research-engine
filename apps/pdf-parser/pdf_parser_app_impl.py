@@ -137,6 +137,7 @@ MINERU_API_BASE = os.environ.get("MINERU_API_URL", "http://127.0.0.1:8003")
 VLM_API_BASE = os.environ.get("VLM_API_URL", "http://127.0.0.1:8002")
 UPLOAD_FOLDER = APP_PATHS["uploads"]
 RESULTS_FOLDER = APP_PATHS["results"]
+RESULTS_CANDIDATES = tuple(APP_PATHS.get("results_candidates") or (RESULTS_FOLDER,))
 FINANCIAL_LLM_CACHE_FOLDER = APP_PATHS["financial_llm_cache"]
 OUTPUT_FOLDER = APP_PATHS["output"]
 DB_PATH = APP_PATHS["db"]
@@ -367,7 +368,9 @@ def _list_recent_tasks(limit=100, owner_scope=None):
                 _mark_completed_missing_artifact(full_task)
                 task["status"] = COMPLETED_MISSING_ARTIFACT
                 task["stage"] = COMPLETED_MISSING_ARTIFACT
-    return response_service.normalize_recent_tasks(tasks, has_markdown_artifact=_has_markdown_artifact)
+    # Keep private paths until the response boundary. The payload builder performs
+    # the single normalization pass that removes them from the public response.
+    return tasks
 
 
 def _recent_task_list_limit():
@@ -904,19 +907,19 @@ def _calc_progress_percent(task, elapsed):
 
 
 def _legacy_markdown_path(task):
-    return artifact_service.legacy_markdown_path(task, RESULTS_FOLDER)
+    return artifact_service.legacy_markdown_path(task, _result_root(task))
 
 
 def _canonical_markdown_path(task):
-    return artifact_service.canonical_markdown_path(task, RESULTS_FOLDER)
+    return artifact_service.canonical_markdown_path(task, _result_root(task))
 
 
 def _markdown_artifact_path(task):
-    return artifact_service.markdown_artifact_path(task, RESULTS_FOLDER)
+    return artifact_service.markdown_artifact_path(task, _result_root(task))
 
 
 def _has_markdown_artifact(task):
-    return artifact_service.has_markdown_artifact(task, RESULTS_FOLDER)
+    return artifact_service.has_markdown_artifact(task, _result_root(task))
 
 
 def _mark_completed_missing_artifact(task, detail=None):
@@ -969,7 +972,27 @@ def _write_result_contract_artifacts(task):
 
 
 def _result_dir(task):
+    task_id = str(task.get("task_id") or "")
+    markdown_path = str(task.get("markdown_path") or "")
+    if markdown_path and os.path.isfile(markdown_path):
+        markdown_dir = os.path.dirname(os.path.abspath(markdown_path))
+        if os.path.basename(markdown_dir) == task_id:
+            return markdown_dir
+
+    seen = set()
+    for root in (RESULTS_FOLDER, *RESULTS_CANDIDATES):
+        normalized_root = os.path.abspath(str(root))
+        if normalized_root in seen:
+            continue
+        seen.add(normalized_root)
+        candidate = artifact_service.result_dir(task, normalized_root)
+        if os.path.isdir(candidate):
+            return candidate
     return artifact_service.result_dir(task, RESULTS_FOLDER)
+
+
+def _result_root(task):
+    return os.path.dirname(_result_dir(task))
 
 
 def _write_json(path, payload):
@@ -977,11 +1000,11 @@ def _write_json(path, payload):
 
 
 def _corrections_path(task):
-    return source_service.corrections_path(task, results_folder=RESULTS_FOLDER)
+    return source_service.corrections_path(task, results_folder=_result_root(task))
 
 
 def _load_corrections(task):
-    return source_service.load_corrections(task, results_folder=RESULTS_FOLDER)
+    return source_service.load_corrections(task, results_folder=_result_root(task))
 
 
 def _save_table_correction(task, table_item, payload):
@@ -989,13 +1012,13 @@ def _save_table_correction(task, table_item, payload):
         task,
         table_item,
         payload,
-        results_folder=RESULTS_FOLDER,
+        results_folder=_result_root(task),
         now_iso=_now_iso,
     )
 
 
 def _write_markdown(task, markdown):
-    return artifact_service.write_markdown(task, markdown, results_folder=RESULTS_FOLDER)
+    return artifact_service.write_markdown(task, markdown, results_folder=_result_root(task))
 
 
 def _decode_image_payload(payload):
@@ -1567,7 +1590,7 @@ def _load_json_artifact(task, filename):
     return artifact_service.load_json_artifact(
         task,
         filename,
-        results_folder=RESULTS_FOLDER,
+        results_folder=_result_root(task),
         read_json_cached=_read_json_cached,
         coerce_json_artifact=_coerce_json_artifact,
     )
@@ -1594,11 +1617,11 @@ def _page_content_payload(task, page_number, report=None, focus_table=None):
 
 
 def _pdf_page_image_path(task, page_number):
-    return source_service.pdf_page_image_path(task, page_number, results_folder=RESULTS_FOLDER)
+    return source_service.pdf_page_image_path(task, page_number, results_folder=_result_root(task))
 
 
 def _ensure_pdf_page_image(task, page_number):
-    return source_service.ensure_pdf_page_image(task, page_number, results_folder=RESULTS_FOLDER)
+    return source_service.ensure_pdf_page_image(task, page_number, results_folder=_result_root(task))
 
 
 def _content_table_sources(content_list):
@@ -3626,7 +3649,7 @@ def _ensure_quality_report(task, markdown):
 
 
 def _artifact_status(task):
-    return artifact_service.artifact_status(task, results_folder=RESULTS_FOLDER)
+    return artifact_service.artifact_status(task, results_folder=_result_root(task))
 
 
 ARTIFACT_OPEN_ALLOWLIST = artifact_service.ARTIFACT_OPEN_ALLOWLIST
@@ -4563,7 +4586,7 @@ def delete_task(task_id):
 
     _safe_unlink(task.get("upload_path"))
     _safe_remove(task.get("markdown_path"))
-    _safe_remove(os.path.join(RESULTS_FOLDER, task["task_id"]))
+    _safe_remove(_result_dir(task))
     _safe_unlink(os.path.join(RESULTS_FOLDER, f"{task['task_id']}.md"))
     _delete_task_record(task_id)
     _wake_queue_worker()

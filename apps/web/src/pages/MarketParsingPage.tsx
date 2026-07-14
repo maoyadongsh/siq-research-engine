@@ -717,6 +717,8 @@ export function MarketParsingPage({
       >
         <PdfTaskList
           tasks={tasks.tasks}
+          tasksLoading={tasks.tasksLoading}
+          tasksError={tasks.tasksError}
           taskId={tasks.taskIdRef.current}
           resultLoading={tasks.resultLoading}
           onResume={onTaskResume}

@@ -121,6 +121,8 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const [resultLoading, setResultLoading] = useState(false)
 
   const [tasks, setTasks] = useState<TaskItem[]>([])
+  const [tasksLoading, setTasksLoading] = useState(true)
+  const [tasksError, setTasksError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
 
   const internalSetSelectedFilesRef = useRef<((files: File[]) => void) | null>(null)
@@ -171,6 +173,8 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     resetResult()
     setResultDeferred(false)
     setResultLoading(false)
+    setTasksLoading(false)
+    setTasksError(null)
     setUploading(false)
     stopPolling()
     if (uploadRef.current) {
@@ -373,10 +377,12 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   const loadTasks = useCallback(
     async (opts: { autoResume?: boolean } = {}) => {
       const autoResume = opts.autoResume !== false
-      const request = tasksRequestScope.begin(taskIdRef.current)
+      const request = tasksRequestScope.begin()
+      setTasksLoading(true)
+      setTasksError(null)
       try {
-        const allTasks = (await loadTasksApi()) as unknown as TaskItem[]
-        if (!tasksRequestScope.isCurrent(request, taskIdRef.current)) return
+        const allTasks = (await loadTasksApi({ signal: request.signal })) as unknown as TaskItem[]
+        if (!tasksRequestScope.isCurrent(request)) return
         const filter = taskFilterRef.current
         const list = filter ? allTasks.filter(filter) : allTasks
         setTasks(list)
@@ -392,8 +398,11 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
             await callbacksRef.current.resumeTask?.(latest.task_id, String(latest.filename || ''), String(latest.status))
           }
         }
-      } catch {
-        // ignore task list load errors
+      } catch (error) {
+        if (!tasksRequestScope.isCurrent(request)) return
+        setTasksError(visibleErrorMessage(error, '最近任务加载失败，请稍后重试'))
+      } finally {
+        if (tasksRequestScope.isCurrent(request)) setTasksLoading(false)
       }
     },
     [tasksRequestScope],
@@ -793,6 +802,8 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
   )
 
   const idleLoad = useCallback(() => {
+    setTasksLoading(true)
+    setTasksError(null)
     const cancel = scheduleParseIdleWork(() => {
       void loadTasks({ autoResume: false })
     })
@@ -844,6 +855,8 @@ export function usePdfTasks(options: UsePdfTasksOptions) {
     resultLoading,
     tasks,
     setTasks,
+    tasksLoading,
+    tasksError,
     uploading,
     setUploading,
     startConvert,

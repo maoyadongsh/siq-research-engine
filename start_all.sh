@@ -24,6 +24,7 @@ source_env_if_exists() {
 DEFAULT_ENV_FILE="$SIQ_PROJECT_ROOT/infra/env/local.env"
 LEGACY_ENV_FILE="$SIQ_PROJECT_ROOT/env/backend.env"
 ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
+LOADED_LEGACY_ENV=0
 warn_legacy_env_path() {
     local env_file=$1
     echo "[WARN] Loaded legacy env file: $env_file"
@@ -33,11 +34,13 @@ warn_legacy_env_path() {
 if source_env_if_exists "$ENV_FILE"; then
     case "$ENV_FILE" in
         "$LEGACY_ENV_FILE"|"$SIQ_PROJECT_ROOT"/env/*|env/*)
+            LOADED_LEGACY_ENV=1
             warn_legacy_env_path "$ENV_FILE"
             ;;
     esac
 elif [[ -z "${SIQ_ENV_FILE:-}" ]]; then
     if source_env_if_exists "$LEGACY_ENV_FILE"; then
+        LOADED_LEGACY_ENV=1
         warn_legacy_env_path "$LEGACY_ENV_FILE"
     fi
 fi
@@ -141,6 +144,23 @@ export SIQ_BACKEND_URL="${SIQ_BACKEND_URL:-http://127.0.0.1:$BACKEND_PORT}"
 export SIQ_REPORT_FINDER_URL="${SIQ_REPORT_FINDER_URL:-http://127.0.0.1:$REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_FINDER_URL="${SIQ_MARKET_REPORT_FINDER_URL:-http://127.0.0.1:$MARKET_REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_RULES_URL="${SIQ_MARKET_REPORT_RULES_URL:-http://127.0.0.1:$MARKET_REPORT_RULES_PORT}"
+if [[ "$LOADED_LEGACY_ENV" == "1" ]]; then
+    case "${SIQ_PDF2MD_API_BASE:-}" in
+        http://127.0.0.1:*|http://localhost:*)
+            if [[ "${SIQ_PDF2MD_API_BASE%/}" != "http://127.0.0.1:$PDF2MD_PORT" && "${SIQ_PDF2MD_API_BASE%/}" != "http://localhost:$PDF2MD_PORT" ]]; then
+                echo "[WARN] Legacy PDF parser API points to ${SIQ_PDF2MD_API_BASE}; using the bundled parser on port $PDF2MD_PORT."
+                SIQ_PDF2MD_API_BASE="http://127.0.0.1:$PDF2MD_PORT"
+            fi
+            ;;
+    esac
+    case "${SIQ_PDF2MD_HEALTH_URL:-}" in
+        http://127.0.0.1:*|http://localhost:*)
+            if [[ "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://127.0.0.1:$PDF2MD_PORT/api/health" && "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://localhost:$PDF2MD_PORT/api/health" ]]; then
+                SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/health"
+            fi
+            ;;
+    esac
+fi
 export SIQ_PDF2MD_API_BASE="${SIQ_PDF2MD_API_BASE:-http://127.0.0.1:$PDF2MD_PORT}"
 export SIQ_DOCUMENT_PARSER_API_BASE="${SIQ_DOCUMENT_PARSER_API_BASE:-http://127.0.0.1:$DOCUMENT_PARSER_PORT}"
 export SIQ_REPORT_FINDER_BASE="${SIQ_REPORT_FINDER_BASE:-http://127.0.0.1:$REPORT_FINDER_PORT}"

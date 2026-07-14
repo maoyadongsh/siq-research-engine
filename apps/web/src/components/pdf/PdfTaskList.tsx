@@ -1,10 +1,12 @@
 import { type CSSProperties, useDeferredValue, useMemo } from 'react'
-import { Loader2 } from 'lucide-react'
+import { AlertTriangle, Inbox, Loader2, RefreshCw } from 'lucide-react'
 import type { TaskItem } from '../../lib/pdfTypes'
 import { isTerminal, statusBadgeClass, translateStatus } from '../../lib/pdfFormatting'
 
 export interface PdfTaskListProps {
   tasks: TaskItem[]
+  tasksLoading: boolean
+  tasksError: string | null
   taskId: string | null
   resultLoading: boolean
   onResume: (task: TaskItem) => void
@@ -17,6 +19,8 @@ export interface PdfTaskListProps {
 
 export function PdfTaskList({
   tasks,
+  tasksLoading,
+  tasksError,
   taskId,
   resultLoading,
   onResume,
@@ -29,14 +33,63 @@ export function PdfTaskList({
   const deferredTasks = useDeferredValue(tasks)
   const visibleTasks = useMemo(() => deferredTasks.slice(0, 100), [deferredTasks])
 
-  if (tasks.length === 0) return null
   return (
     <div className="apple-card rounded-[24px] p-4 sm:p-6">
-      <div className="mb-4 flex justify-end">
-        <button onClick={() => onRefresh()} className="self-start text-sm font-semibold text-text-muted hover:text-text">
-          刷新
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="text-xs text-text-muted">{tasks.length ? `${tasks.length} 个任务` : '任务列表'}</span>
+        <button
+          type="button"
+          onClick={() => onRefresh()}
+          disabled={tasksLoading}
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition hover:bg-bg hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="刷新最近任务"
+          title="刷新最近任务"
+        >
+          <RefreshCw className={`h-4 w-4 ${tasksLoading ? 'animate-spin' : ''}`} />
         </button>
       </div>
+
+      {tasksError ? (
+        <div role="alert" className="mb-4 flex items-start gap-2 rounded-md border border-error/20 bg-error-soft px-3 py-2.5 text-sm text-error">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="font-semibold">最近任务加载失败</p>
+            <p className="mt-0.5 break-words text-xs leading-5">{tasksError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => onRefresh()}
+            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition hover:bg-error/10"
+            aria-label="重试加载最近任务"
+            title="重试加载最近任务"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
+      {tasksLoading && tasks.length === 0 ? (
+        <div className="flex min-h-32 flex-col items-center justify-center gap-2 text-center text-sm text-text-muted" aria-live="polite">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <span>正在加载最近任务</span>
+        </div>
+      ) : null}
+
+      {!tasksLoading && !tasksError && tasks.length === 0 ? (
+        <div className="flex min-h-32 flex-col items-center justify-center gap-2 text-center">
+          <Inbox className="h-5 w-5 text-text-muted" />
+          <p className="text-sm font-semibold text-text">暂无最近任务</p>
+          <button
+            type="button"
+            onClick={() => onRefresh()}
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-semibold text-text-muted transition hover:bg-bg hover:text-text"
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新
+          </button>
+        </div>
+      ) : null}
+
       {visibleTasks.map((task) => {
         const canView = ['completed', 'success', 'done', 'finished'].includes(String(task.status))
         const canRefetch = ['completed', 'completed_missing_artifact'].includes(String(task.status))

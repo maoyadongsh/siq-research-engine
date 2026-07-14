@@ -227,6 +227,7 @@ export interface TaskItem {
   local_queue_position?: number
   markdown_ready?: boolean
   market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC'
+  market_scope?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC' | 'unknown'
   submit_config?: {
     market?: 'CN' | 'HK' | 'US' | 'EU' | 'KR' | 'JP' | 'DOC'
     [key: string]: unknown

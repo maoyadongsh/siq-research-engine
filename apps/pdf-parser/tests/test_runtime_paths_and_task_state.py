@@ -186,6 +186,63 @@ class TaskArtifactStateTest(unittest.TestCase):
         finally:
             app.RESULTS_FOLDER = old_results_folder
 
+    def test_recent_payload_keeps_legacy_result_ready_after_artifact_root_split(self):
+        old_db_path = app.DB_PATH
+        old_results_folder = app.RESULTS_FOLDER
+        old_results_candidates = app.RESULTS_CANDIDATES
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                active_results = Path(tmpdir) / "artifacts" / "pdf-parser" / "results"
+                legacy_results = Path(tmpdir) / "data" / "pdf-parser" / "results"
+                task_id = "legacy-ready-task"
+                result_dir = legacy_results / task_id
+                result_dir.mkdir(parents=True)
+                markdown_path = result_dir / "result.md"
+                markdown_path.write_text("# historical result\n", encoding="utf-8")
+
+                app.DB_PATH = os.path.join(tmpdir, "tasks.db")
+                app.RESULTS_FOLDER = str(active_results)
+                app.RESULTS_CANDIDATES = (str(active_results), str(legacy_results))
+                app._init_db()
+                app._save_task(
+                    {
+                        "task_id": task_id,
+                        "mineru_task_id": None,
+                        "filename": "historical_HK_report.pdf",
+                        "file_size": 1,
+                        "pdf_page_count": 1,
+                        "status": COMPLETED,
+                        "stage": COMPLETED,
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "uploaded_at": "2026-05-01T00:00:00Z",
+                        "submitted_at": None,
+                        "started_at": None,
+                        "completed_at": "2026-05-01T00:01:00Z",
+                        "cancelled": False,
+                        "error": None,
+                        "markdown_path": str(markdown_path),
+                        "upload_path": None,
+                        "last_progress_log_time": None,
+                        "last_status_payload": None,
+                        "last_polled_at": None,
+                        "consecutive_status_failures": 0,
+                        "submit_config": {"market": "HK"},
+                        "logs": [],
+                    },
+                    allow_insert=True,
+                )
+
+                payload = app._recent_tasks_payload()
+
+                self.assertEqual(app._result_dir({"task_id": task_id, "markdown_path": str(markdown_path)}), str(result_dir))
+                self.assertEqual(payload["tasks"][0]["status"], COMPLETED)
+                self.assertTrue(payload["tasks"][0]["markdown_ready"])
+                self.assertNotIn("markdown_path", payload["tasks"][0])
+        finally:
+            app.DB_PATH = old_db_path
+            app.RESULTS_FOLDER = old_results_folder
+            app.RESULTS_CANDIDATES = old_results_candidates
+
     def test_output_cleanup_removes_only_expired_children(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             old_dir = os.path.join(tmpdir, "old-output")

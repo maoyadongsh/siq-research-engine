@@ -122,6 +122,16 @@ def test_start_all_fails_fast_when_any_service_process_exits():
     )
 
 
+def test_start_all_repairs_stale_local_pdf_endpoint_from_legacy_env():
+    repo_root = Path(__file__).resolve().parents[3]
+    script = (repo_root / "start_all.sh").read_text(encoding="utf-8")
+
+    assert "LOADED_LEGACY_ENV=1" in script
+    assert 'case "${SIQ_PDF2MD_API_BASE:-}" in' in script
+    assert 'SIQ_PDF2MD_API_BASE="http://127.0.0.1:$PDF2MD_PORT"' in script
+    assert 'SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/health"' in script
+
+
 def test_start_all_fails_before_starting_when_production_reload_enabled():
     repo_root = Path(__file__).resolve().parents[3]
     result = subprocess.run(

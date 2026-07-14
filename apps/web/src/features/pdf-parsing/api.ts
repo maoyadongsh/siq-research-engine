@@ -131,8 +131,8 @@ export async function checkHealth(): Promise<{ mineru: boolean; vlm: boolean; su
   }
 }
 
-export async function loadTasks(): Promise<Record<string, unknown>[]> {
-  const d = await apiJson<{ tasks?: Record<string, unknown>[] }>('/api/pdf/tasks')
+export async function loadTasks(init: ApiRequestInit = {}): Promise<Record<string, unknown>[]> {
+  const d = await apiJson<{ tasks?: Record<string, unknown>[] }>('/api/pdf/tasks', init)
   return d.tasks || []
 }
 
