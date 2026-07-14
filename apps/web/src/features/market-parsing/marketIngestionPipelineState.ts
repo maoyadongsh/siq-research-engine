@@ -14,6 +14,7 @@ export interface MarketIngestionPostgresSummary {
   status: 'ready' | 'warning' | 'unknown' | 'pending'
   rawStatus: string
   ready: boolean
+  stale: boolean
   partial: boolean
   parseRuns: number
   facts: number
@@ -145,9 +146,13 @@ export function deriveMarketDocumentFullPostgresSummary(status?: object | null):
       ? record.missingCounts.map((value) => normalized(value)).filter(Boolean)
       : []
   const displayMissingCounts = backendMissingCounts.length ? backendMissingCounts : missingCounts
-  const ready = missingCounts.length === 0
-  const partial = !ready && (parseRuns > 0 || facts > 0 || tables > 0 || chunks > 0 || evidence > 0)
-  const displayStatus: MarketIngestionPostgresSummary['status'] = ready
+  const stale = rawStatus === 'stale' || normalized(recordValue(record, 'artifact_status', 'artifactStatus')).toLowerCase() === 'stale'
+  const countsReady = missingCounts.length === 0
+  const ready = countsReady && !stale
+  const partial = !countsReady && (parseRuns > 0 || facts > 0 || tables > 0 || chunks > 0 || evidence > 0)
+  const displayStatus: MarketIngestionPostgresSummary['status'] = stale
+    ? 'warning'
+    : ready
     ? 'ready'
     : rawStatus === 'unknown'
       ? 'unknown'
@@ -157,7 +162,9 @@ export function deriveMarketDocumentFullPostgresSummary(status?: object | null):
   const context = postgresContextLine({ schema, parseRunId })
   const counts = postgresSummaryLine({ parseRuns, facts, tables, chunks, evidence })
   const message = normalized(record.message)
-  const description = ready
+  const description = stale
+    ? [message || '解析产物已更新，请重新执行 PostgreSQL 入库', context, counts].filter(Boolean).join('；')
+    : ready
     ? [context, counts].filter(Boolean).join('；')
     : displayStatus === 'unknown'
       ? (message || 'document_full status 查询失败，PostgreSQL 状态不可确认')
@@ -169,6 +176,7 @@ export function deriveMarketDocumentFullPostgresSummary(status?: object | null):
     status: displayStatus,
     rawStatus,
     ready,
+    stale,
     partial,
     parseRuns,
     facts,

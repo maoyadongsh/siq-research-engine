@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchWithAuth } from './fetchWithAuth'
 import { buildReadingHtmlDocument } from './pdfSanitize'
+import { buildUsSecReadingHtmlDocument } from './usSecHtmlSanitize'
 
 export function useAuthenticatedBlobUrl(url: string) {
   const [blobUrl, setBlobUrl] = useState('')
@@ -41,7 +42,7 @@ export function useAuthenticatedBlobUrl(url: string) {
   return blobUrl
 }
 
-export function useAuthenticatedReadingHtmlUrl(url: string) {
+function useAuthenticatedHtmlUrl(url: string, buildDocument: (html: string | null) => string) {
   const [blobUrl, setBlobUrl] = useState('')
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export function useAuthenticatedReadingHtmlUrl(url: string) {
       })
       .then((html) => {
         if (cancelled) return
-        const documentHtml = buildReadingHtmlDocument(html)
+        const documentHtml = buildDocument(html)
         objectUrl = URL.createObjectURL(new Blob([documentHtml], { type: 'text/html;charset=utf-8' }))
         setBlobUrl(objectUrl)
       })
@@ -76,9 +77,17 @@ export function useAuthenticatedReadingHtmlUrl(url: string) {
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [url])
+  }, [buildDocument, url])
 
   return blobUrl
+}
+
+export function useAuthenticatedReadingHtmlUrl(url: string) {
+  return useAuthenticatedHtmlUrl(url, buildReadingHtmlDocument)
+}
+
+export function useAuthenticatedUsSecHtmlUrl(url: string) {
+  return useAuthenticatedHtmlUrl(url, buildUsSecReadingHtmlDocument)
 }
 
 export async function downloadAuthenticatedFile(url: string, filename?: string, init?: RequestInit) {

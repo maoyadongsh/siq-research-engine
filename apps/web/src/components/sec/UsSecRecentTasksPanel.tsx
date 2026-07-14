@@ -16,13 +16,9 @@ export interface UsSecRecentTasksPanelProps {
 
 function statusClass(status: string): string {
   if (status === 'postgres_ready' || status === 'package_ready') return 'secondary-status-success'
-  if (status === 'warning' || status === 'failed') return 'secondary-status-warning'
+  if (status === 'stale' || status === 'warning' || status === 'failed') return 'secondary-status-warning'
   if (status === 'building') return 'secondary-status-info'
   return ''
-}
-
-function shouldShowStatus(status: string): boolean {
-  return status !== 'postgres_ready'
 }
 
 export function UsSecRecentTasksPanel({
@@ -66,7 +62,6 @@ export function UsSecRecentTasksPanel({
               const active = task.id === selectedTaskId
               const busyView = busyAction === `view:${task.id}`
               const busyRebuild = busyAction === `rebuild:${task.id}`
-              const showStatus = shouldShowStatus(task.status)
               return (
                 <div key={task.id} className={`pdf-task-item content-auto ${active ? 'ring-1 ring-primary/30' : ''}`}>
                   <button
@@ -77,7 +72,7 @@ export function UsSecRecentTasksPanel({
                   >
                     <span className="task-name">{task.companyName} · {task.ticker} · {task.form} · {task.periodEnd}</span>
                     <div className="task-meta">
-                      {showStatus ? <span className={`secondary-status ${statusClass(task.status)}`}>{task.statusText}</span> : null}
+                      <span className={`secondary-status ${statusClass(task.status)}`}>{task.statusText}</span>
                       <span className="text-text-muted text-xs">{task.sectionCount} sections</span>
                       <span className="text-text-muted text-xs">{task.factCount} facts</span>
                       <span className="text-text-muted text-xs">{formatDateTime(task.filingDate)}</span>

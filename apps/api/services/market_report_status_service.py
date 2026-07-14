@@ -217,6 +217,88 @@ def _list_from_mapping(value: Any, key: str) -> list[Any]:
     return items if isinstance(items, list) else []
 
 
+def _dimension_fact_evidence(entry: Any) -> dict[str, Any]:
+    if not isinstance(entry, dict):
+        return {}
+    keys = (
+        "evidence_id",
+        "source_type",
+        "section_id",
+        "xbrl_tag",
+        "context_ref",
+        "html_anchor",
+        "local_path",
+        "source_url",
+        "target",
+        "quote_text",
+    )
+    return {key: entry[key] for key in keys if entry.get(key) is not None}
+
+
+def _dimension_fact_sample(fact: Any, evidence: Any) -> dict[str, Any]:
+    if not isinstance(fact, dict):
+        return {}
+    value = fact.get("value_numeric")
+    if value is None:
+        value = fact.get("value_text")
+    period = {
+        "start": fact.get("period_start"),
+        "end": fact.get("period_end"),
+        "instant": fact.get("instant"),
+        "fiscal_year": fact.get("fiscal_year"),
+        "duration_days": fact.get("duration_days"),
+    }
+    return {
+        "fact_id": fact.get("fact_id"),
+        "concept": fact.get("concept"),
+        "label": fact.get("label"),
+        "value": value,
+        "unit": fact.get("unit") or fact.get("unit_ref"),
+        "period": {key: item for key, item in period.items() if item is not None},
+        "context": fact.get("context_ref"),
+        "dimensions": fact.get("dimensions"),
+        "anchor": fact.get("html_anchor"),
+        "evidence": _dimension_fact_evidence(evidence),
+    }
+
+
+def _dimension_fact_samples(
+    facts: list[Any],
+    source_map: list[Any],
+    *,
+    limit: int = 80,
+) -> tuple[int, list[dict[str, Any]]]:
+    dimension_facts = [
+        fact
+        for fact in facts
+        if isinstance(fact, dict) and isinstance(fact.get("dimensions"), dict) and fact.get("dimensions")
+    ]
+    sample_facts = dimension_facts[: max(0, limit)]
+    fact_ids = {str(fact.get("fact_id")) for fact in sample_facts if fact.get("fact_id")}
+    anchors = {str(fact.get("html_anchor")) for fact in sample_facts if fact.get("html_anchor")}
+    evidence_by_fact_id: dict[str, dict[str, Any]] = {}
+    evidence_by_anchor: dict[str, dict[str, Any]] = {}
+    for entry in source_map:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("raw") if isinstance(entry.get("raw"), dict) else {}
+        fact_id = str(entry.get("fact_id") or raw.get("fact_id") or "")
+        anchor = str(entry.get("html_anchor") or "")
+        if fact_id in fact_ids and fact_id not in evidence_by_fact_id:
+            evidence_by_fact_id[fact_id] = entry
+        if anchor in anchors and anchor not in evidence_by_anchor:
+            evidence_by_anchor[anchor] = entry
+    samples = [
+        _dimension_fact_sample(
+            fact,
+            evidence_by_fact_id.get(str(fact.get("fact_id") or ""))
+            or evidence_by_anchor.get(str(fact.get("html_anchor") or "")),
+        )
+        for fact in sample_facts
+    ]
+    return len(dimension_facts), samples
+
+
 def _positive_count(value: Any) -> int:
     try:
         return max(0, int(value or 0))
@@ -318,6 +400,9 @@ def us_sec_package_detail_response(
     tables = _list_from_mapping(read_json_file(package_dir / "tables" / "table_index.json", {}), "tables")
     metrics = _list_from_mapping(read_json_file(package_dir / "metrics" / "normalized_metrics.json", {}), "metrics")
     source_map = _list_from_mapping(read_json_file(package_dir / "qa" / "source_map.json", {}), "entries")
+    facts = _list_from_mapping(read_json_file(package_dir / "xbrl" / "facts_raw.json", {}), "facts")
+    dimension_fact_count, dimension_facts = _dimension_fact_samples(facts, source_map)
+    # Compatibility view for existing clients. Consolidated metric selection intentionally excludes most dimensions.
     dimension_metrics = [item for item in metrics if isinstance(item, dict) and item.get("dimensions")]
     checks = financial_checks.get("checks") if isinstance(financial_checks, dict) else []
     if not isinstance(checks, list):
@@ -361,11 +446,13 @@ def us_sec_package_detail_response(
             "tables": len(tables),
             "metrics": len(metrics),
             "evidence": len(source_map),
+            "dimension_facts": dimension_fact_count,
             "dimension_metrics": len(dimension_metrics),
         },
         "sections": sections,
         "tables": tables[:200],
         "metrics": metrics[:300],
+        "dimension_facts": dimension_facts,
         "dimension_metrics": dimension_metrics[:80],
         "preview": {
             "raw_html": "raw/filing.htm" if (package_dir / "raw" / "filing.htm").is_file() else "",

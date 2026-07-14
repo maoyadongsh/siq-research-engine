@@ -59,6 +59,27 @@ export interface UsSecCaseSetStatus {
   }
 }
 
+export interface UsSecDimensionFactPeriod {
+  start?: string
+  end?: string
+  instant?: string
+  fiscal_year?: number
+  duration_days?: number
+}
+
+export interface UsSecDimensionFact {
+  fact_id?: string
+  concept?: string
+  label?: string
+  value?: string | number | boolean | null
+  unit?: string
+  period?: UsSecDimensionFactPeriod
+  context?: string
+  dimensions?: Record<string, string>
+  anchor?: string
+  evidence?: UsSecSourceMapEntry
+}
+
 export interface UsSecPackageDetail {
   package_path?: string
   document_full_path?: string
@@ -80,11 +101,14 @@ export interface UsSecPackageDetail {
     tables?: number
     metrics?: number
     evidence?: number
+    dimension_facts?: number
     dimension_metrics?: number
   }
   sections?: Array<Record<string, unknown>>
   tables?: Array<Record<string, unknown>>
   metrics?: Array<Record<string, unknown>>
+  dimension_facts?: UsSecDimensionFact[]
+  /** @deprecated Compatibility view from normalized metrics. Use dimension_facts. */
   dimension_metrics?: Array<Record<string, unknown>>
   preview?: {
     raw_html?: string
@@ -240,7 +264,7 @@ export interface MarketDocumentFullImportResponse extends MarketPackageActionRes
 }
 
 export interface MarketDocumentFullPostgresStatus {
-  status?: 'postgres_ready' | 'ready' | 'warning' | 'missing' | 'unknown' | string
+  status?: 'postgres_ready' | 'ready' | 'stale' | 'warning' | 'missing' | 'unknown' | string
   selectors?: Record<string, unknown>
   database?: string
   schema?: string
@@ -251,6 +275,9 @@ export interface MarketDocumentFullPostgresStatus {
   tables?: number
   chunks?: number
   evidence?: number
+  artifact_status?: 'current' | 'stale' | 'unknown' | string
+  current_document_full_sha256?: string | null
+  postgres_document_full_sha256?: string | null
   message?: string
 }
 
@@ -357,8 +384,8 @@ export async function fetchUsSecPackage(ticker: string): Promise<UsSecPackageDet
 }
 
 export async function fetchUsSecPackageByPath(packagePath: string): Promise<UsSecPackageDetail> {
-  const params = new URLSearchParams({ market: 'US', package_path: packagePath })
-  return apiJson<UsSecPackageDetail>(`/api/market-reports/package?${params.toString()}`)
+  const params = new URLSearchParams({ package_path: packagePath })
+  return apiJson<UsSecPackageDetail>(`/api/us-sec/package?${params.toString()}`)
 }
 
 export async function uploadUsSecFiles(form: FormData): Promise<UsSecUploadResponse> {

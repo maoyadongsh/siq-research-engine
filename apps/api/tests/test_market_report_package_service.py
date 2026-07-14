@@ -223,6 +223,27 @@ def test_us_sec_package_detail_by_ticker_payload_resolves_latest_package(tmp_pat
     assert missing.value.detail == "No package for ticker tsla"
 
 
+def test_us_sec_package_detail_by_path_payload_uses_safe_path_and_us_reader(tmp_path):
+    package_dir = tmp_path / "wiki" / "us_sec" / "AAPL" / "2025" / "10-K"
+    package_dir.mkdir(parents=True)
+    calls = []
+
+    result = service.us_sec_package_detail_by_path_payload(
+        str(package_dir),
+        safe_package_path=lambda value: calls.append(("safe", value)) or Path(value or ""),
+        read_package_detail=lambda package: calls.append(("read", package)) or {
+            "package_path": str(package),
+            "sections": [{"file": "financials.md"}],
+        },
+    )
+
+    assert result == {
+        "package_path": str(package_dir),
+        "sections": [{"file": "financials.md"}],
+    }
+    assert calls == [("safe", str(package_dir)), ("read", package_dir)]
+
+
 def test_run_us_sec_semantic_prestep_builds_rule_and_llm_commands(tmp_path):
     rule_script = tmp_path / "run_market_rule_semantics.py"
     llm_script = tmp_path / "run_market_llm_semantics.py"

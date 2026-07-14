@@ -155,7 +155,7 @@ def test_market_package_list_payload_keeps_multi_market_contract_and_clamps_limi
 
 def test_us_sec_package_detail_response_summarizes_metrics_evidence_and_preview(tmp_path):
     package_dir = tmp_path / "wiki" / "companies" / "AAPL-Apple-Inc" / "reports" / "2025-10-K"
-    for relative in ("metrics", "qa", "tables", "sections", "raw"):
+    for relative in ("metrics", "qa", "tables", "sections", "raw", "xbrl"):
         (package_dir / relative).mkdir(parents=True, exist_ok=True)
     (package_dir / "manifest.json").write_text(
         json.dumps(
@@ -208,8 +208,43 @@ def test_us_sec_package_detail_response_summarizes_metrics_evidence_and_preview(
         ),
         encoding="utf-8",
     )
+    (package_dir / "xbrl" / "facts_raw.json").write_text(
+        json.dumps(
+            {
+                "facts": [
+                    {
+                        "fact_id": "fact-segment",
+                        "concept": "us-gaap:Revenue",
+                        "label": "Revenue",
+                        "value_numeric": "60",
+                        "unit": "USD",
+                        "period_start": "2024-09-29",
+                        "period_end": "2025-09-27",
+                        "context_ref": "c-segment",
+                        "dimensions": {"srt:ProductOrServiceAxis": "aapl:IPhoneMember"},
+                        "html_anchor": "f-segment",
+                    },
+                    {"fact_id": "fact-consolidated", "dimensions": {}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     (package_dir / "qa" / "source_map.json").write_text(
-        json.dumps({"entries": [{"evidence_id": "e1"}, {"evidence_id": "e2"}]}),
+        json.dumps(
+            {
+                "entries": [
+                    {"evidence_id": "e1"},
+                    {
+                        "evidence_id": "e2",
+                        "source_type": "sec_xbrl_fact",
+                        "html_anchor": "f-segment",
+                        "target": "https://www.sec.gov/filing.htm#f-segment",
+                        "raw": {"fact_id": "fact-segment"},
+                    },
+                ]
+            }
+        ),
         encoding="utf-8",
     )
     (package_dir / "raw" / "filing.htm").write_text("<html>10-K</html>", encoding="utf-8")
@@ -238,8 +273,28 @@ def test_us_sec_package_detail_response_summarizes_metrics_evidence_and_preview(
         "tables": 2,
         "metrics": 2,
         "evidence": 2,
+        "dimension_facts": 1,
         "dimension_metrics": 1,
     }
+    assert payload["dimension_facts"] == [
+        {
+            "fact_id": "fact-segment",
+            "concept": "us-gaap:Revenue",
+            "label": "Revenue",
+            "value": "60",
+            "unit": "USD",
+            "period": {"start": "2024-09-29", "end": "2025-09-27"},
+            "context": "c-segment",
+            "dimensions": {"srt:ProductOrServiceAxis": "aapl:IPhoneMember"},
+            "anchor": "f-segment",
+            "evidence": {
+                "evidence_id": "e2",
+                "source_type": "sec_xbrl_fact",
+                "html_anchor": "f-segment",
+                "target": "https://www.sec.gov/filing.htm#f-segment",
+            },
+        }
+    ]
     assert payload["dimension_metrics"] == [
         {"metric_id": "m2", "canonical_name": "revenue_by_region", "dimensions": {"region": "US"}}
     ]
@@ -248,6 +303,23 @@ def test_us_sec_package_detail_response_summarizes_metrics_evidence_and_preview(
         "default_markdown": "sections/report_complete.md",
     }
     assert payload["semantic_status"]["status"] == "missing"
+
+
+def test_dimension_fact_samples_reports_full_count_and_caps_payload():
+    facts = [
+        {
+            "fact_id": f"fact-{index}",
+            "value_numeric": str(index),
+            "dimensions": {"axis": f"member-{index}"},
+        }
+        for index in range(82)
+    ]
+
+    count, samples = service._dimension_fact_samples(facts, [], limit=80)
+
+    assert count == 82
+    assert len(samples) == 80
+    assert samples[-1]["fact_id"] == "fact-79"
 
 
 def test_us_sec_semantic_status_for_package_requires_real_rule_log(tmp_path):
@@ -316,8 +388,10 @@ def test_us_sec_package_detail_response_tolerates_malformed_optional_files(tmp_p
         "tables": 0,
         "metrics": 0,
         "evidence": 0,
+        "dimension_facts": 0,
         "dimension_metrics": 0,
     }
+    assert payload["dimension_facts"] == []
     assert payload["preview"] == {"raw_html": "", "default_markdown": ""}
 
 

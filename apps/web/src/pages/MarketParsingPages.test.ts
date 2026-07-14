@@ -204,8 +204,10 @@ test('US SEC detail and refresh actions prefer package scoped selectors over bar
   const workbenchSource = readFileSync(resolve(pageDir, '../features/market-parsing/usSecWorkbench.ts'), 'utf-8')
 
   assert.match(apiSource, /fetchUsSecPackageByPath\(packagePath: string\)/)
-  assert.match(apiSource, /market: 'US', package_path: packagePath/)
+  assert.match(apiSource, /\/api\/us-sec\/package\?\$\{params\.toString\(\)\}/)
+  assert.doesNotMatch(apiSource, /market: 'US', package_path: packagePath/)
   assert.match(source, /fetchUsSecPackageByPath\(packagePath\)/)
+  assert.match(source, /firstSectionFile \? usSecSectionFilePath\(firstSectionFile\) : detail\.preview\?\.default_markdown/)
   assert.match(source, /packageLoadRequestRef\.current !== requestId/)
   assert.match(source, /selectedTaskIdRef\.current !== packagePath/)
   assert.match(source, /loadPackage\(\{ packagePath: task\.packagePath, ticker: task\.ticker \}\)/)

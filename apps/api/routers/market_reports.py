@@ -1561,6 +1561,15 @@ async def us_sec_package_detail(ticker: str) -> dict[str, Any]:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
+@router.get("/us-sec/package")
+async def us_sec_package_detail_by_path(package_path: str) -> dict[str, Any]:
+    return market_report_package_service.us_sec_package_detail_by_path_payload(
+        package_path,
+        safe_package_path=_safe_package_path,
+        read_package_detail=_read_package_detail,
+    )
+
+
 @router.get("/us-sec/package-file")
 async def us_sec_package_file(package_path: str, file: str, inline: bool = True) -> Response:
     package_dir = _safe_package_path(package_path)

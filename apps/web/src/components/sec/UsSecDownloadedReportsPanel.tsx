@@ -22,6 +22,7 @@ const statusText: Record<UsSecDownloadedRow['parseStatus'], string> = {
   building: '解析中',
   package_ready: '解析产物已生成',
   postgres_ready: 'PostgreSQL 已入库',
+  stale: 'PostgreSQL 待更新',
   warning: '质量警告',
   failed: '质量失败',
 }
@@ -31,16 +32,13 @@ const statusClass: Record<UsSecDownloadedRow['parseStatus'], string> = {
   building: 'secondary-status-info',
   package_ready: 'secondary-status-success',
   postgres_ready: 'secondary-status-success',
+  stale: 'secondary-status-warning',
   warning: 'secondary-status-warning',
   failed: 'secondary-status-warning',
 }
 
 function isStructuredUsDisclosure(row: UsSecDownloadedRow): boolean {
   return row.fileType !== 'PDF'
-}
-
-function shouldShowStatus(status: UsSecDownloadedRow['parseStatus']): boolean {
-  return status !== 'postgres_ready'
 }
 
 export function UsSecDownloadedReportsPanel({
@@ -106,7 +104,6 @@ export function UsSecDownloadedReportsPanel({
                 const busy = busyPath === row.relativePath || row.parseStatus === 'building'
                 const selected = selectedPath === row.relativePath
                 const canParse = isStructuredUsDisclosure(row)
-                const showStatus = shouldShowStatus(row.parseStatus)
                 return (
                   <div key={row.id} className={`pdf-download-item ${selected ? 'ring-1 ring-primary/30' : ''}`}>
                     <div className="pdf-download-main">
@@ -124,7 +121,7 @@ export function UsSecDownloadedReportsPanel({
                       </div>
                     </div>
                     <div className="pdf-download-actions">
-                      {showStatus ? <span className={`secondary-status ${statusClass[row.parseStatus]}`}>{statusText[row.parseStatus]}</span> : null}
+                      <span className={`secondary-status ${statusClass[row.parseStatus]}`}>{statusText[row.parseStatus]}</span>
                       <button
                         className="pdf-small-action"
                         onClick={() => void onSelect(row)}

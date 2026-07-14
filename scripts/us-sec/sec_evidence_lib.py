@@ -35,6 +35,7 @@ from market_report_rules_service.evidence_package import (
     SCHEMA_VERSION as MARKET_EVIDENCE_SCHEMA_VERSION,
     build_quality_report,
     compute_artifact_hashes,
+    evidence_resolvability_summary,
     stable_parse_run_id,
 )
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact, ParsedTable
@@ -86,6 +87,14 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def stable_id(*parts: Any) -> str:
     joined = "\x1f".join("" if part is None else str(part) for part in parts)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
@@ -118,6 +127,15 @@ def parse_date(value: Any) -> date | None:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
         return None
+
+
+def xbrl_scale_multiplier(scale: Any) -> str:
+    """Return the numeric multiplier represented by an iXBRL scale exponent."""
+    try:
+        exponent = int(str(scale)) if scale not in (None, "") else 0
+    except (TypeError, ValueError):
+        exponent = 0
+    return str(Decimal(10) ** exponent)
 
 
 def compact_accession(value: str | None, source_url: str | None = None) -> str:
@@ -283,9 +301,18 @@ def extract_ixbrl_facts(soup: BeautifulSoup, contexts: dict[str, Any], units: di
                     "name": concept,
                     "contextRef": context_ref,
                     "unitRef": unit_ref,
+                    "value_text": value_text,
+                    "value_numeric": str(numeric) if numeric is not None else None,
+                    "unit_ref": unit_ref,
+                    "unit": unit.get("unit"),
+                    "period_start": context.get("period_start"),
+                    "period_end": context.get("period_end"),
+                    "instant": context.get("instant"),
                     "format": tag.get("format"),
                     "sign": tag.get("sign"),
                     "scale": scale,
+                    "xbrl_scale_exponent": str(scale) if scale not in (None, "") else "0",
+                    "scale_multiplier": xbrl_scale_multiplier(scale),
                     "decimals": tag.get("decimals"),
                     "html_snippet": str(tag)[:2000],
                     "dimensions": context.get("dimensions") or {},
@@ -675,6 +702,12 @@ def write_full_document_layer(
     }
 
     quality = _merge_full_document_quality(quality, artifacts.quality, artifacts.warnings)
+    quality = _merge_source_map_quality(
+        quality,
+        source_map,
+        manifest=manifest,
+        package_dir=package_dir,
+    )
     manifest["parser_result_dir"] = repo_relative(parser_result_dir)
     manifest["parser_result_task_id"] = parser_result_dir.name
     manifest.setdefault("artifacts", {}).update(WIKI_INGESTION_ARTIFACT_PATHS)
@@ -796,6 +829,36 @@ def _merge_full_document_quality(
     return quality
 
 
+def _merge_source_map_quality(
+    quality: dict[str, Any],
+    source_map: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    package_dir: Path,
+) -> dict[str, Any]:
+    """Synchronize source-map quality fields after full-document entries are merged."""
+    quality = dict(quality)
+    resolvability = evidence_resolvability_summary(
+        source_map=source_map,
+        manifest=manifest,
+        package_dir=package_dir,
+    )
+    source_map_quality = {
+        "source_map_entry_count": resolvability["source_map_entry_count"],
+        "resolvable_source_map_entry_count": resolvability["resolvable_source_map_entry_count"],
+        "unresolvable_source_map_entry_count": resolvability["unresolvable_source_map_entry_count"],
+        "evidence_resolvability_ratio": resolvability["evidence_resolvability_ratio"],
+    }
+    quality.update(source_map_quality)
+    quality["unresolvable_evidence_count"] = resolvability["unresolvable_source_map_entry_count"]
+
+    summary = quality.get("summary") if isinstance(quality.get("summary"), dict) else {}
+    summary = dict(summary)
+    summary["source_map"] = dict(source_map_quality)
+    quality["summary"] = summary
+    return quality
+
+
 def _dedupe_strings(items: list[Any]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -896,6 +959,7 @@ def write_evidence_package(
     parser_results_root: Path | None = None,
 ) -> Path:
     meta = infer_metadata(source_path, metadata_path)
+    source_sha256 = sha256_file(source_path)
     soup = soup_from_html(source_path)
     contexts = extract_contexts(soup)
     units = extract_units(soup)
@@ -927,6 +991,7 @@ def write_evidence_package(
         "published_at": meta["filing_date"],
         "accepted_at": meta.get("accepted_at"),
         "source_url": meta["source_url"],
+        "content_sha256": source_sha256,
         "local_source_path": "raw/filing.htm",
         "accounting_standard": _accounting_standard(facts_raw),
         "industry_profile": _industry_profile(meta["ticker"], meta["company_name"]),

@@ -1,0 +1,21 @@
+<!doctype html>
+<html xmlns:ix="http://www.xbrl.org/2013/inlineXBRL" xmlns:xbrli="http://www.xbrl.org/2003/instance">
+  <head><title>ACME 10-K</title></head>
+  <body>
+    <div style="display:none">
+      <ix:header>
+        <ix:hidden>
+          <ix:nonNumeric id="hidden-doc-type" name="dei:DocumentType" contextRef="duration">SECRET_HIDDEN_HEADER</ix:nonNumeric>
+          <ix:nonFraction id="hidden-assets" name="us-gaap:Assets" contextRef="instant" unitRef="usd">123456</ix:nonFraction>
+        </ix:hidden>
+        <ix:resources>
+          <xbrli:context id="instant"><xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">0000000001</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:instant>2025-12-31</xbrli:instant></xbrli:period></xbrli:context>
+          <xbrli:unit id="usd"><xbrli:measure>iso4217:USD</xbrli:measure></xbrli:unit>
+        </ix:resources>
+      </ix:header>
+    </div>
+    <h1 id="item-1">Item 1. Business</h1>
+    <p id="visible-copy">Visible narrative <ix:nonNumeric id="visible-name" name="dei:EntityRegistrantName" contextRef="duration">ACME CORP</ix:nonNumeric>.</p>
+    <p id="mixed-copy">Visible before <span aria-hidden="true"><ix:nonFraction id="hidden-inline" name="us-gaap:Assets" contextRef="instant" unitRef="usd">SECRET_INLINE</ix:nonFraction></span> visible after.</p>
+  </body>
+</html>

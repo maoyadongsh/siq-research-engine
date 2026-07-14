@@ -1,6 +1,10 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 import { e2eUser } from '../support/mockApi'
-import type { UsSecCaseSetStatus, UsSecPackageDetail } from '../../src/features/market-parsing/api'
+import type {
+  MarketDocumentFullPostgresStatus,
+  UsSecCaseSetStatus,
+  UsSecPackageDetail,
+} from '../../src/features/market-parsing/api'
 
 const structuredReport = {
   id: 'us-nvda-10k-html',
@@ -94,13 +98,14 @@ const packageDetail = {
   },
   preview: {
     raw_html: 'raw/filing.htm',
-    default_markdown: 'sections/business.md',
+    default_markdown: 'report_complete.md',
   },
   counts: {
     sections: 42,
     tables: 18,
     metrics: 64,
     evidence: 240,
+    dimension_facts: 219,
     dimension_metrics: 9,
   },
   sections: [
@@ -127,6 +132,20 @@ const packageDetail = {
       unit: 'USD',
       period_key: 'FY2025',
       concept: 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+    },
+  ],
+  dimension_facts: [
+    {
+      fact_id: 'fact-product-revenue',
+      concept: 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax',
+      label: 'Revenue by Product',
+      value: '60000000000',
+      unit: 'USD',
+      period: { start: '2024-01-29', end: '2025-01-26', fiscal_year: 2025 },
+      context: 'c-product-revenue',
+      dimensions: { 'srt:ProductOrServiceAxis': 'nvda:ComputeAndNetworkingMember' },
+      anchor: 'f-product-revenue',
+      evidence: { evidence_id: 'e-product-revenue', target: '#f-product-revenue' },
     },
   ],
   dimension_metrics: [],
@@ -159,12 +178,19 @@ interface MockUsSecWorkbenchOptions {
   documentFullPath?: string
   caseSet?: UsSecCaseSetStatus
   packageDetails?: Record<string, { detail: UsSecPackageDetail; delayMs?: number }>
+  packageDetailResponses?: Record<string, Array<{ status?: number; body: unknown }>>
+  postgresStatus?: MarketDocumentFullPostgresStatus
 }
 
 async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOptions = {}) {
   const buildRequests: unknown[] = []
   const documentFullImportRequests: unknown[] = []
   const packageFileRequests: Array<{ file: string | null; authorization: string }> = []
+  const packageDetailRequests: string[] = []
+  const genericPackageRequests: string[] = []
+  const packageDetailResponses = new Map(
+    Object.entries(options.packageDetailResponses || {}).map(([packagePath, responses]) => [packagePath, [...responses]]),
+  )
   const caseSetBase = options.caseSet || usCaseSet
   const caseSet = options.documentFullPath
     ? {
@@ -226,11 +252,23 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
       return
     }
 
-    if (pathname === '/api/market-reports/package') {
+    if (pathname === '/api/us-sec/package') {
       const requestedPackagePath = url.searchParams.get('package_path') || ''
+      packageDetailRequests.push(requestedPackagePath)
+      const queuedResponse = packageDetailResponses.get(requestedPackagePath)?.shift()
+      if (queuedResponse) {
+        await route.fulfill(json(queuedResponse.body, queuedResponse.status))
+        return
+      }
       const configured = options.packageDetails?.[requestedPackagePath]
       if (configured?.delayMs) await new Promise((resolve) => setTimeout(resolve, configured.delayMs))
       await route.fulfill(json(configured?.detail || detail))
+      return
+    }
+
+    if (pathname === '/api/market-reports/package') {
+      genericPackageRequests.push(url.searchParams.get('package_path') || '')
+      await route.fulfill(json({ detail: 'US rich package detail must use /api/us-sec/package' }, 500))
       return
     }
 
@@ -273,9 +311,11 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
         await route.fulfill({
           status: 200,
           contentType: 'text/html',
-          body: '<!doctype html><html><body onload="localStorage.setItem(\'sec-event-executed\', \'1\')">' +
+          body: '<!doctype html><html><body style="margin:0;padding:12px" onload="localStorage.setItem(\'sec-event-executed\', \'1\')">' +
             '<script>localStorage.setItem(\'sec-script-executed\', \'1\')</script>' +
-            `<section id="business"><h1>SEC raw HTML preview</h1>${businessParagraphs}</section>` +
+            '<div style="display:none"><ix:header><ix:hidden><ix:nonNumeric>HIDDEN-XBRL-CONTEXT</ix:nonNumeric></ix:hidden>' +
+            '<ix:resources><xbrli:context>HIDDEN-XBRL-RESOURCE</xbrli:context></ix:resources></ix:header></div>' +
+            `<section id="business" style="padding:24px"><h1><ix:nonNumeric>SEC raw HTML preview</ix:nonNumeric></h1>${businessParagraphs}</section>` +
             `<section id="mda"><h1>Management Discussion raw HTML</h1>${mdaParagraphs}</section>` +
             '</body></html>',
         })
@@ -345,6 +385,11 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
       return
     }
 
+    if (pathname === '/api/market-reports/document-full/status' && options.postgresStatus) {
+      await route.fulfill(json({ markets: { US: { postgres: options.postgresStatus } } }))
+      return
+    }
+
     if (pathname === '/api/us-sec/case-set/ingest') {
       await route.fulfill(json({ ok: true, stdout: 'dry run ok' }))
       return
@@ -353,7 +398,13 @@ async function mockUsSecWorkbenchApis(page: Page, options: MockUsSecWorkbenchOpt
     await route.fulfill(json({ items: [], data: [], results: [], artifacts: [] }))
   })
 
-  return { buildRequests, documentFullImportRequests, packageFileRequests }
+  return {
+    buildRequests,
+    documentFullImportRequests,
+    packageFileRequests,
+    packageDetailRequests,
+    genericPackageRequests,
+  }
 }
 
 async function openRecentNvdaTask(page: Page) {
@@ -365,7 +416,12 @@ async function openRecentNvdaTask(page: Page) {
 
 test.describe('美股 SEC 解析工作台', () => {
   test('先展示已下载财报并从下载文件生成解析产物包', async ({ page }) => {
-    const { buildRequests, packageFileRequests } = await mockUsSecWorkbenchApis(page)
+    const {
+      buildRequests,
+      packageFileRequests,
+      packageDetailRequests,
+      genericPackageRequests,
+    } = await mockUsSecWorkbenchApis(page)
 
     await page.goto('/parse-us')
 
@@ -424,12 +480,22 @@ test.describe('美股 SEC 解析工作台', () => {
     await expect(page.getByText('核心解析产物清单')).toBeVisible()
     await expect(page.getByText('13/13', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Markdown 结果', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Business', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: '解析质量报告', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'XBRL 维度事实', exact: true })).toBeVisible()
+    await expect(page.getByText('全量 219 条 · 显示 1 条样例', { exact: true })).toBeVisible()
+    await expect(page.getByText('Revenue by Product', { exact: true })).toBeVisible()
+    await expect(page.getByText('us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax', { exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'HTML/iXBRL 可视化溯源', exact: true })).toBeVisible()
     await expect.poll(() => packageFileRequests.find((request) => request.file === 'raw/filing.htm')?.authorization).toBe('Bearer playwright-token')
     const sourceFrameLocator = page.locator('iframe[title="SEC 原始 HTML"]')
     await expect(sourceFrameLocator).toHaveAttribute('sandbox', 'allow-same-origin allow-popups')
-    await expect(page.frameLocator('iframe[title="SEC 原始 HTML"]').getByText('SEC raw HTML preview')).toBeVisible()
+    const sourceFrame = page.frameLocator('iframe[title="SEC 原始 HTML"]')
+    await expect(sourceFrame.getByText('SEC raw HTML preview')).toBeVisible()
+    await expect(sourceFrame.getByText('HIDDEN-XBRL-CONTEXT')).toHaveCount(0)
+    await expect(sourceFrame.getByText('HIDDEN-XBRL-RESOURCE')).toHaveCount(0)
+    await expect.poll(() => sourceFrame.locator('#business').evaluate((element) => getComputedStyle(element).paddingLeft)).toBe('24px')
+    await expect(sourceFrame.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute('content', /default-src 'none'/)
     await expect.poll(() => page.evaluate(() => localStorage.getItem('sec-script-executed'))).toBeNull()
     await expect.poll(() => page.evaluate(() => localStorage.getItem('sec-event-executed'))).toBeNull()
     await expect(page.getByTestId('us-sec-source-active-section')).toContainText('business')
@@ -456,6 +522,11 @@ test.describe('美股 SEC 解析工作台', () => {
     await page.waitForTimeout(500)
     await expect(sectionSelect).toHaveValue('sections/business.md')
     await expect(page.getByRole('heading', { name: '财务勾稽校验', exact: true })).toBeVisible()
+
+    expect(packageDetailRequests).toContain(packageDetail.package_path)
+    expect(genericPackageRequests).toEqual([])
+    expect(packageFileRequests.some((request) => request.file === 'sections/business.md')).toBe(true)
+    expect(packageFileRequests.some((request) => request.file === 'report_complete.md')).toBe(false)
 
     expect(buildRequests).toEqual([
       {
@@ -494,6 +565,64 @@ test.describe('美股 SEC 解析工作台', () => {
     ])
   })
 
+  test('刷新后已下载财报和最近任务仍显示 PostgreSQL 已入库', async ({ page }) => {
+    const documentFullPath = 'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json'
+    await mockUsSecWorkbenchApis(page, {
+      documentFullPath,
+      postgresStatus: { status: 'postgres_ready', facts: 1280, chunks: 42, evidence: 240 },
+    })
+
+    await page.goto('/parse-us')
+    const downloadedRow = page.locator('.pdf-download-item').filter({ hasText: structuredReport.filename })
+    const recentTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })
+    await expect(downloadedRow.getByText('PostgreSQL 已入库', { exact: true })).toBeVisible()
+    await expect(recentTask.getByText('PostgreSQL 已入库', { exact: true })).toBeVisible()
+
+    await page.reload()
+    await expect(downloadedRow.getByText('PostgreSQL 已入库', { exact: true })).toBeVisible()
+    await expect(recentTask.getByText('PostgreSQL 已入库', { exact: true })).toBeVisible()
+  })
+
+  test('详情请求失败时显示就地重试且不把失败伪装成空产物', async ({ page }) => {
+    const refreshedDetail = {
+      ...packageDetail,
+      counts: { ...packageDetail.counts, sections: 43 },
+    }
+    const { packageDetailRequests } = await mockUsSecWorkbenchApis(page, {
+      packageDetailResponses: {
+        [packageDetail.package_path]: [
+          { status: 404, body: { detail: 'Not Found' } },
+          { body: packageDetail },
+          { body: refreshedDetail },
+        ],
+      },
+    })
+
+    await page.goto('/parse-us')
+    const recentTask = page.locator('.pdf-task-item').filter({ hasText: 'NVIDIA Corporation · NVDA · 10-K · 2025-01-26' })
+    await recentTask.getByRole('button', { name: '查看结果' }).click()
+
+    await expect(page.getByRole('heading', { name: '解析产物详情加载失败', exact: true })).toBeVisible()
+    await expect(page.getByText('Not Found', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toHaveCount(0)
+    await expect(page.getByText('0/13', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('SEC 解析产物 · missing', { exact: true })).toHaveCount(0)
+
+    await page.getByRole('button', { name: '重试', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '数据管线', exact: true })).toBeVisible()
+    await expect(page.getByText('13/13', { exact: true })).toBeVisible()
+    await expect(page.locator('.pdf-quality-grid').getByText('42', { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+    await expect(page.locator('.pdf-quality-grid').getByText('43', { exact: true })).toBeVisible()
+    await expect.poll(() => packageDetailRequests.length).toBe(3)
+    expect(packageDetailRequests).toEqual([
+      packageDetail.package_path,
+      packageDetail.package_path,
+      packageDetail.package_path,
+    ])
+  })
+
   test('同 ticker 多 filing 快速切换时忽略较早 package 的迟到响应', async ({ page }) => {
     const olderPackagePath = 'data/wiki/us/companies/NVDA-NVIDIA-Corporation/reports/2024-10-K-0001045810-24-000029'
     const newerPackagePath = packageDetail.package_path
@@ -502,13 +631,15 @@ test.describe('美股 SEC 解析工作台', () => {
       ...packageDetail,
       package_path: olderPackagePath,
       manifest: { ...packageDetail.manifest, period_end: '2024-01-28' },
-      preview: { ...packageDetail.preview, default_markdown: 'sections/filing-2024.md' },
+      sections: [{ ...packageDetail.sections[0], section_id: 'filing-2024', file: 'filing-2024.md' }],
+      preview: { ...packageDetail.preview, default_markdown: 'report_complete-2024.md' },
     }
     const newerDetail = {
       ...packageDetail,
-      preview: { ...packageDetail.preview, default_markdown: 'sections/filing-2025.md' },
+      sections: [{ ...packageDetail.sections[0], section_id: 'filing-2025', file: 'filing-2025.md' }],
+      preview: { ...packageDetail.preview, default_markdown: 'report_complete-2025.md' },
     }
-    await mockUsSecWorkbenchApis(page, {
+    const { packageDetailRequests, genericPackageRequests } = await mockUsSecWorkbenchApis(page, {
       caseSet: {
         ...usCaseSet,
         items: [
@@ -543,5 +674,7 @@ test.describe('美股 SEC 解析工作台', () => {
     await page.waitForTimeout(350)
     await expect(page.getByRole('heading', { name: 'Selected 2025 filing', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Selected 2024 filing', exact: true })).toHaveCount(0)
+    expect(packageDetailRequests).toEqual(expect.arrayContaining([olderPackagePath, newerPackagePath]))
+    expect(genericPackageRequests).toEqual([])
   })
 })

@@ -12,7 +12,7 @@ import {
   type UsSecIngestionActionKey,
 } from './marketIngestionPipelineState'
 
-export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'warning' | 'failed'
+export type UsSecParseStatus = 'unparsed' | 'building' | 'package_ready' | 'postgres_ready' | 'stale' | 'warning' | 'failed'
 export type UsSecWorkflowStatus = 'ready' | 'pending' | 'unknown' | 'warning'
 
 export interface UsSecDownloadedRow {
@@ -114,6 +114,7 @@ const parseStatusText: Record<UsSecParseStatus, string> = {
   building: '解析中',
   package_ready: '解析产物已生成',
   postgres_ready: 'PostgreSQL 已入库',
+  stale: 'PostgreSQL 待更新',
   warning: '质量警告',
   failed: '质量失败',
 }
@@ -428,6 +429,7 @@ export function deriveUsSecParseStatus({
   const quality = normalized(item.quality_status).toLowerCase()
   if (quality === 'fail' || quality === 'failed') return 'failed'
   if ((quality === 'warning' || quality === 'warn') && !readyForRetrieval) return 'warning'
+  if (documentFullPostgresStale(postgresStatus)) return 'stale'
   if (documentFullPostgresReady(postgresStatus)) return 'postgres_ready'
   return 'package_ready'
 }
@@ -617,6 +619,12 @@ export function documentFullPostgresReady(status?: MarketDocumentFullPostgresSta
   return value === 'postgres_ready' || value === 'ready'
 }
 
+export function documentFullPostgresStale(status?: MarketDocumentFullPostgresStatus | null): boolean {
+  const value = normalized(status?.status).toLowerCase()
+  const artifactStatus = normalized(status?.artifact_status).toLowerCase()
+  return value === 'stale' || artifactStatus === 'stale'
+}
+
 export function deriveUsSecQualitySummary(detail?: UsSecPackageDetail | null): UsSecQualitySummary {
   const counts = detail?.counts || {}
   const quality = (detail?.quality || {}) as Record<string, unknown>
@@ -636,7 +644,7 @@ export function deriveUsSecQualitySummary(detail?: UsSecPackageDetail | null): U
       { label: 'Evidence', value: countText(counts.evidence), description: '证据项' },
       { label: '证据字段覆盖', value: ratioText(evidenceCoverageRatio), description: '结构化字段绑定证据比例' },
       { label: '证据可回链', value: `${ratioText(evidenceResolvabilityRatio)} · 不可回链 ${countText(unresolvableEvidenceCount)}`, description: '证据目标可打开、可定位、可复核比例' },
-      { label: 'Dimensions', value: countText(counts.dimension_metrics), description: '维度事实' },
+      { label: 'Dimensions', value: countText(counts.dimension_facts ?? counts.dimension_metrics), description: '原始 XBRL 维度事实' },
     ],
     bridgeStatus: normalized(detail?.bridge_checks?.overall_status || quality.status || 'unknown'),
     bridgeCounts: {

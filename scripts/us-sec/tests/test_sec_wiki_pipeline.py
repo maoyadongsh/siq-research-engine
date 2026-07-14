@@ -218,13 +218,29 @@ def _ixbrl_fixture(tmp_path: Path) -> Path:
             Item 1. Business """ + ("business text " * 80) + """
             Item 7. Management's Discussion and Analysis """ + ("mda text " * 80) + """
             Item 8. Financial Statements """ + ("financial text " * 80) + """
-            <table id="assets-table"><tr><th>Total assets</th><td><ix:nonFraction id="f1" name="us-gaap:Assets" contextRef="c1" unitRef="usd">1000</ix:nonFraction></td></tr></table>
+            <table id="assets-table"><tr><th>Total assets</th><td><ix:nonFraction id="f1" name="us-gaap:Assets" contextRef="c1" unitRef="usd" decimals="-6" scale="6">1,000</ix:nonFraction></td></tr></table>
           </body>
         </html>
         """,
         encoding="utf-8",
     )
     return html
+
+
+def test_sec_ixbrl_evidence_preserves_display_value_period_and_scale(tmp_path):
+    sec_evidence_lib = importlib.import_module("sec_evidence_lib")
+    soup = sec_evidence_lib.soup_from_html(_ixbrl_fixture(tmp_path))
+    contexts = sec_evidence_lib.extract_contexts(soup)
+    units = sec_evidence_lib.extract_units(soup)
+
+    fact = next(item for item in sec_evidence_lib.extract_ixbrl_facts(soup, contexts, units) if item["concept"] == "us-gaap:Assets")
+
+    assert fact["value_text"] == "1,000"
+    assert fact["value_numeric"] == "1000000000"
+    assert fact["raw"]["period_end"] == "2025-12-31"
+    assert fact["raw"]["unit_ref"] == "usd"
+    assert fact["raw"]["xbrl_scale_exponent"] == "6"
+    assert fact["raw"]["scale_multiplier"] == "1000000"
 
 
 def _fake_metrics(manifest, facts_raw, tables):
@@ -236,6 +252,55 @@ def _fake_metrics(manifest, facts_raw, tables):
         "financial_checks": {"overall_status": "pass", "warnings": []},
         "quality_status": "pass",
         "warnings": [],
+    }
+
+
+def test_source_map_quality_is_recomputed_without_changing_metric_evidence_count(tmp_path):
+    sec_evidence_lib = importlib.import_module("sec_evidence_lib")
+    package_dir = tmp_path / "package"
+    (package_dir / "parser").mkdir(parents=True)
+    (package_dir / "parser" / "report_complete.md").write_text("report", encoding="utf-8")
+    source_map = {
+        "entries": [
+            {"evidence_id": "section", "target": "https://www.sec.gov/filing.htm#business"},
+            {
+                "evidence_id": "block",
+                "source_type": "sec_html_block",
+                "local_path": "parser/report_complete.md",
+                "quote_text": "visible filing text",
+            },
+            {"evidence_id": "broken"},
+        ]
+    }
+    quality = {
+        "resolvable_evidence_count": 87,
+        "unresolvable_evidence_count": 0,
+        "source_map_entry_count": 1,
+        "resolvable_source_map_entry_count": 1,
+        "unresolvable_source_map_entry_count": 0,
+        "evidence_resolvability_ratio": 1.0,
+        "summary": {"normalized_metric_count": 87},
+    }
+
+    merged = sec_evidence_lib._merge_source_map_quality(
+        quality,
+        source_map,
+        manifest={"source_url": "https://www.sec.gov/filing.htm"},
+        package_dir=package_dir,
+    )
+
+    assert merged["source_map_entry_count"] == 3
+    assert merged["resolvable_source_map_entry_count"] == 2
+    assert merged["unresolvable_source_map_entry_count"] == 1
+    assert merged["evidence_resolvability_ratio"] == 0.666667
+    assert merged["resolvable_evidence_count"] == 87
+    assert merged["unresolvable_evidence_count"] == 1
+    assert merged["summary"]["normalized_metric_count"] == 87
+    assert merged["summary"]["source_map"] == {
+        "source_map_entry_count": 3,
+        "resolvable_source_map_entry_count": 2,
+        "unresolvable_source_map_entry_count": 1,
+        "evidence_resolvability_ratio": 0.666667,
     }
 
 
@@ -253,12 +318,14 @@ def test_sec_manifest_uses_market_evidence_contract(monkeypatch, tmp_path):
     assert manifest["schema_version"] == "market_evidence_package_v1"
     assert manifest["country"] == "US"
     assert manifest["source_tier"] == "official"
+    assert manifest["content_sha256"] == sec_evidence_lib.sha256_file(source)
     assert manifest["document_format"] == "ixbrl_html"
     assert manifest["report_id"].startswith("2025-10-K-")
     assert manifest["company_wiki_id"] == "DEMO-Demo-Corp"
     assert "/companies/DEMO-Demo-Corp/reports/" in manifest["wiki_report_path"]
     assert manifest["parse_run_id"]
     assert manifest["artifact_hashes"]
+    assert manifest["artifact_hashes"]["raw/filing.htm"] == manifest["content_sha256"]
     assert manifest["artifacts"]["normalized_metrics"] == "metrics/normalized_metrics.json"
     assert manifest["artifacts"]["report_complete"] == "parser/report_complete.md"
     assert manifest["artifacts"]["wiki_report_complete"] == "sections/report_complete.md"
@@ -309,6 +376,22 @@ def test_sec_manifest_uses_market_evidence_contract(monkeypatch, tmp_path):
     assert any(entry.get("local_path") == "parser/report_complete.md" for entry in source_map["entries"])
     quality = read_json(package / "qa" / "quality_report.json")
     assert quality["full_document_status"] == "ready"
+    block_source_map_count = sum(
+        1 for entry in source_map["entries"] if entry.get("source_type") == "sec_html_block"
+    )
+    assert quality["full_document"]["block_source_map_count"] == len(document_full["blocks"])
+    assert block_source_map_count == len(document_full["blocks"])
+    assert quality["source_map_entry_count"] == len(source_map["entries"])
+    assert quality["resolvable_source_map_entry_count"] + quality["unresolvable_source_map_entry_count"] == len(
+        source_map["entries"]
+    )
+    assert quality["summary"]["source_map"] == {
+        "source_map_entry_count": quality["source_map_entry_count"],
+        "resolvable_source_map_entry_count": quality["resolvable_source_map_entry_count"],
+        "unresolvable_source_map_entry_count": quality["unresolvable_source_map_entry_count"],
+        "evidence_resolvability_ratio": quality["evidence_resolvability_ratio"],
+    }
+    assert quality["resolvable_evidence_count"] == 0
     ingestion_plan = read_json(package / "qa" / "wiki_ingestion_plan.json")
     assert ingestion_plan["schema_version"] == "sec_wiki_ingestion_plan_v1"
     assert ingestion_plan["rules"]["source_of_truth"] == "canonical_parser_result"
@@ -348,7 +431,15 @@ def test_backfill_sec_full_document_updates_legacy_package(tmp_path, monkeypatch
     source_map = read_json(package / "qa" / "source_map.json")
     assert any(entry.get("source_type") == "sec_html_block" for entry in source_map["entries"])
     quality = read_json(package / "qa" / "quality_report.json")
+    document_full = read_json(package / "parser" / "document_full.json")
+    block_source_map_count = sum(
+        1 for entry in source_map["entries"] if entry.get("source_type") == "sec_html_block"
+    )
     assert quality["full_document"]["block_count"] > 0
+    assert quality["full_document"]["block_source_map_count"] == len(document_full["blocks"])
+    assert block_source_map_count == len(document_full["blocks"])
+    assert quality["source_map_entry_count"] == len(source_map["entries"])
+    assert quality["summary"]["source_map"]["source_map_entry_count"] == len(source_map["entries"])
     after_manifest = read_json(package / "manifest.json")
     assert after_manifest["parse_run_id"] != before_manifest.get("parse_run_id")
     assert after_manifest["artifacts"]["report_complete"] == "parser/report_complete.md"

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  AlertTriangle,
   Brain,
   Copy,
   Database,
@@ -14,7 +15,7 @@ import {
 import { Link } from 'react-router-dom'
 import { PageSection } from '@/components/page'
 import { copyText } from '../../lib/clipboard'
-import { downloadAuthenticatedFile, useAuthenticatedReadingHtmlUrl } from '../../lib/authenticatedFiles'
+import { downloadAuthenticatedFile, useAuthenticatedUsSecHtmlUrl } from '../../lib/authenticatedFiles'
 import {
   buildUsSecPackage,
   fetchMarketDocumentFullStatus,
@@ -31,6 +32,7 @@ import {
   type MarketDocumentFullPostgresStatus,
   type MarketDocumentFullImportResponse,
   type UsSecCaseSetStatus,
+  type UsSecDimensionFactPeriod,
   type UsSecIngestResponse,
   type UsSecPackageBuildResponse,
   type UsSecPackageDetail,
@@ -53,10 +55,18 @@ import {
   type UsSecDownloadedRow,
   type UsSecRecentTaskRow,
 } from '../../features/market-parsing/usSecWorkbench'
+import { usSecSectionFilePath } from '../../features/market-parsing/usSecSourceSync'
 
 function numberText(value: unknown): string {
   const n = Number(value || 0)
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
+}
+
+function dimensionPeriodText(period?: UsSecDimensionFactPeriod): string {
+  if (!period) return ''
+  if (period.instant) return period.instant
+  const range = [period.start, period.end].filter(Boolean).join(' ~ ')
+  return range || (period.fiscal_year ? String(period.fiscal_year) : '')
 }
 
 function statusClass(status?: string): string {
@@ -83,6 +93,7 @@ export function UsSecIngestionPanel() {
   const [packageLoading, setPackageLoading] = useState(false)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [packageError, setPackageError] = useState('')
   const [downloadQuery, setDownloadQuery] = useState('')
   const [lastOutput, setLastOutput] = useState('')
   const [downloadedReports, setDownloadedReports] = useState<DownloadedPdf[]>([])
@@ -132,8 +143,10 @@ export function UsSecIngestionPanel() {
         return selected
       })
       await loadDocumentFullPostgresStatuses(next)
+      return next
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
+      return null
     } finally {
       setLoading(false)
     }
@@ -143,13 +156,14 @@ export function UsSecIngestionPanel() {
     if (!ticker && !packagePath) return
     const requestId = ++packageLoadRequestRef.current
     setPackageLoading(true)
+    setPackageError('')
     setError('')
     try {
       const detail = packagePath
         ? await fetchUsSecPackageByPath(packagePath)
         : await fetchUsSecPackage(ticker || '')
       const firstSectionFile = detail.sections?.[0]?.file
-      const nextMarkdownFile = detail.preview?.default_markdown || (firstSectionFile ? `sections/${String(firstSectionFile)}` : '')
+      const nextMarkdownFile = firstSectionFile ? usSecSectionFilePath(firstSectionFile) : detail.preview?.default_markdown || ''
       let nextMarkdownText = ''
       if (detail.package_path && nextMarkdownFile) {
         try {
@@ -165,7 +179,7 @@ export function UsSecIngestionPanel() {
       setMarkdownText(nextMarkdownText)
     } catch (err) {
       if (packageLoadRequestRef.current !== requestId) return
-      setError(err instanceof Error ? err.message : '加载解析产物包失败')
+      setPackageError(err instanceof Error ? err.message : '加载解析产物包失败')
       setPackageDetail(null)
       setMarkdownFile('')
       setMarkdownText('')
@@ -208,15 +222,34 @@ export function UsSecIngestionPanel() {
     () => recentTasks.find((task) => task.id === selectedTaskId) || null,
     [recentTasks, selectedTaskId],
   )
+  const retrySelectedPackage = useCallback(async () => {
+    if (!selectedTask) return
+    await loadPackage({ packagePath: selectedTask.packagePath, ticker: selectedTask.ticker })
+  }, [loadPackage, selectedTask])
+  const refreshSelectedTask = useCallback(async () => {
+    if (!selectedTask) {
+      await load()
+      return
+    }
+    const selectedId = selectedTask.id
+    const next = await load()
+    if (!next) return
+    const refreshedTask = deriveUsSecRecentTasks(next).find((task) => task.id === selectedId)
+    if (!refreshedTask) return
+    selectedTaskIdRef.current = refreshedTask.id
+    setSelectedTaskId(refreshedTask.id)
+    await loadPackage({ packagePath: refreshedTask.packagePath, ticker: refreshedTask.ticker })
+  }, [load, loadPackage, selectedTask])
   const includeFail = true
   const packagePath = packageDetail?.package_path || ''
   const rawHtmlFile = packageDetail?.preview?.raw_html || 'raw/filing.htm'
   const rawHtmlUrl = packagePath ? usSecPackageFileUrl(packagePath, rawHtmlFile) : ''
-  const rawHtmlBlobUrl = useAuthenticatedReadingHtmlUrl(rawHtmlUrl)
+  const rawHtmlBlobUrl = useAuthenticatedUsSecHtmlUrl(rawHtmlUrl)
   const sections = packageDetail?.sections || []
   const tables = packageDetail?.tables || []
   const metrics = packageDetail?.metrics || []
-  const dimensionMetrics = packageDetail?.dimension_metrics || []
+  const dimensionFacts = packageDetail?.dimension_facts || []
+  const dimensionFactCount = packageDetail?.counts?.dimension_facts ?? dimensionFacts.length
   const bridgeChecks = packageDetail?.bridge_checks?.checks || []
   const bridgeSummary = packageDetail?.bridge_checks?.summary || {}
   const displayTicker = String(packageDetail?.manifest?.ticker || selectedTask?.ticker || '')
@@ -307,6 +340,7 @@ export function UsSecIngestionPanel() {
         packageLoadRequestRef.current += 1
         setSelectedTaskId('')
         setPackageDetail(null)
+        setPackageError('')
         setMarkdownFile('')
         setMarkdownText('')
         await load()
@@ -331,6 +365,7 @@ export function UsSecIngestionPanel() {
   const onViewTask = useCallback(async (task: UsSecRecentTaskRow) => {
     setBusy(`view:${task.id}`)
     setError('')
+    setPackageError('')
     selectedTaskIdRef.current = task.id
     packageLoadRequestRef.current += 1
     setPackageDetail(null)
@@ -520,7 +555,7 @@ export function UsSecIngestionPanel() {
       busyAction={busy}
       onViewResult={onViewTask}
       onRebuild={onRebuildTask}
-      onRefresh={load}
+      onRefresh={refreshSelectedTask}
     />
   )
 
@@ -593,15 +628,45 @@ export function UsSecIngestionPanel() {
 
       {selectedTask ? null : recentTasksPanel}
 
-      {selectedTask ? (
+      {selectedTask && packageLoading && !packageDetail ? (
+        <section className="surface-panel" aria-live="polite">
+          <div className="flex min-h-40 items-center justify-center gap-2 px-4 py-10 text-sm text-text-muted">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            正在加载 SEC 解析产物详情
+          </div>
+        </section>
+      ) : null}
+
+      {selectedTask && packageError && !packageDetail ? (
+        <section className="surface-panel">
+          <div role="alert" className="m-4 flex items-start gap-3 rounded-md border border-error/20 bg-error-soft px-4 py-3 text-error sm:m-5">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold">解析产物详情加载失败</h2>
+              <p className="mt-1 break-words text-xs leading-5">{packageError}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void retrySelectedPackage()}
+              disabled={packageLoading}
+              className="pdf-small-action ml-auto inline-flex shrink-0 items-center gap-1"
+            >
+              {packageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              重试
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {selectedTask && packageDetail ? (
         <>
           <PageSection
             title="数据管线"
             description="SEC HTML/iXBRL 解析产物生成结构化结果包，LLM-Wiki、Wiki语义增强和 PostgreSQL 入库继续读取同一套证据产物。"
             actions={(
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => void load()} disabled={loading} className="pdf-small-action inline-flex items-center gap-1">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                <button onClick={() => void refreshSelectedTask()} disabled={loading || packageLoading} className="pdf-small-action inline-flex items-center gap-1">
+                  {loading || packageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   刷新状态
                 </button>
                 <button
@@ -863,7 +928,7 @@ export function UsSecIngestionPanel() {
             </div>
           </PageSection>
 
-          <PageSection title="指标证据样例" description="标准指标与维度事实样例，用于核查 concept、period 与 dimension。">
+          <PageSection title="指标证据样例" description="标准指标与原始 XBRL 维度事实样例，用于核查 concept、period 与 dimension。">
             <div className="grid gap-4 xl:grid-cols-2">
               <div className="apple-card rounded-[24px] p-4 sm:p-6">
                 <h3 className="text-base font-semibold text-text">指标证据样例</h3>
@@ -891,15 +956,26 @@ export function UsSecIngestionPanel() {
                 </div>
               </div>
               <div className="apple-card rounded-[24px] p-4 sm:p-6">
-                <h3 className="text-base font-semibold text-text">主体 / 子公司 / 分部维度</h3>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="text-base font-semibold text-text">XBRL 维度事实</h3>
+                  <span className="text-xs text-text-muted">全量 {numberText(dimensionFactCount)} 条 · 显示 {numberText(dimensionFacts.length)} 条样例</span>
+                </div>
                 <div className="mt-3 max-h-72 overflow-auto rounded-md border border-border">
-                  {(dimensionMetrics.length ? dimensionMetrics : metrics.slice(0, 20)).map((metric, index) => (
-                    <div key={String(metric.metric_id || index)} className="border-b border-border p-3 text-xs last:border-0">
-                      <div className="font-semibold text-text">{String(metric.canonical_name || metric.label || '')}</div>
-                      <div className="mt-1 text-text-muted">{String(metric.concept || '')} · {String(metric.period_key || '')}</div>
-                      <pre className="mt-2 overflow-auto rounded bg-surface-soft p-2 text-[.72rem] leading-5">{JSON.stringify(metric.dimensions || {}, null, 2)}</pre>
+                  {dimensionFacts.map((fact, index) => (
+                    <div key={String(fact.fact_id || index)} className="border-b border-border p-3 text-xs last:border-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="font-semibold text-text">{String(fact.label || fact.concept || '未命名事实')}</div>
+                        <div className="tabular-nums text-text">{String(fact.value ?? '')} {String(fact.unit ?? '')}</div>
+                      </div>
+                      <div className="mt-1 text-text-muted">{String(fact.concept || '')} · {dimensionPeriodText(fact.period)}</div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 text-text-muted">
+                        <span>Context {String(fact.context || '-')}</span>
+                        <span>Anchor {String(fact.anchor || '-')}</span>
+                      </div>
+                      <pre className="mt-2 overflow-auto rounded bg-surface-soft p-2 text-[.72rem] leading-5">{JSON.stringify(fact.dimensions || {}, null, 2)}</pre>
                     </div>
                   ))}
+                  {!dimensionFacts.length ? <div className="p-6 text-center text-xs text-text-muted">暂无 XBRL 维度事实</div> : null}
                 </div>
               </div>
             </div>

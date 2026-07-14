@@ -257,3 +257,24 @@ test('deriveMarketDocumentFullPostgresSummary accepts workflow camelCase selecto
   assert.equal(summary.parseRunId, 'parse-hk-1')
   assert.equal(summary.description, 'schema pdf2md_hk / parse_run_id parse-hk-1；parse_runs 1 / facts 6 / tables 2 / chunks 3 / evidence 1')
 })
+
+test('deriveMarketDocumentFullPostgresSummary treats hash mismatch as stale even when counts are complete', () => {
+  const summary = deriveMarketDocumentFullPostgresSummary({
+    status: 'stale',
+    artifact_status: 'stale',
+    schema: 'sec_us',
+    parse_run_id: 'parse-us-old',
+    parse_runs: 1,
+    facts: 12,
+    tables: 3,
+    chunks: 8,
+    evidence: 4,
+    message: 'PostgreSQL contains an older document_full artifact',
+  })
+
+  assert.equal(summary.ready, false)
+  assert.equal(summary.stale, true)
+  assert.equal(summary.status, 'warning')
+  assert.deepEqual(summary.missingCounts, [])
+  assert.match(summary.description, /older document_full artifact/)
+})

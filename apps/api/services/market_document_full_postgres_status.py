@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 
@@ -65,6 +67,24 @@ def _count(conn: Any, schema: str, table: str, where_sql: str, params: tuple[Any
     table_sql = _safe_sql_ident(table)
     row = conn.execute(f"select count(*) from {schema_sql}.{table_sql} where {where_sql}", params).fetchone()
     return int(row[0] if row else 0)
+
+
+@lru_cache(maxsize=64)
+def _sha256_file_snapshot(path_value: str, size: int, mtime_ns: int) -> str:
+    del size, mtime_ns
+    digest = hashlib.sha256()
+    with Path(path_value).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _document_full_sha256(path: Path | None) -> str | None:
+    if path is None or not path.is_file():
+        return None
+    resolved = path.resolve()
+    stat = resolved.stat()
+    return _sha256_file_snapshot(str(resolved), stat.st_size, stat.st_mtime_ns)
 
 
 def market_document_full_path_keys(
@@ -135,6 +155,7 @@ def market_document_full_db_status(
         with psycopg.connect(_status_database_url(market, market_databases=market_databases)) as conn:
             where_sql = ""
             params: tuple[Any, ...] = ()
+            postgres_document_full_sha256: str | None = None
             if parse_run_id:
                 where_sql = "parse_run_id = %s"
                 params = (parse_run_id,)
@@ -148,7 +169,7 @@ def market_document_full_db_status(
                     placeholders = ", ".join(["%s"] * len(document_full_keys)) or "%s"
                     row = conn.execute(
                         f"""
-                        select parse_run_id, filing_id
+                        select parse_run_id, filing_id, artifact_hashes->>'document_full.json'
                         from {schema_sql}.parse_runs
                         where wiki_package_path in ({placeholders})
                            or raw->>'document_full_path' in ({placeholders})
@@ -160,6 +181,8 @@ def market_document_full_db_status(
                     if row:
                         parse_run_id = str(row[0])
                         filing_id = str(row[1]) if row[1] is not None else filing_id
+                        if len(row) > 2 and row[2] not in (None, ""):
+                            postgres_document_full_sha256 = str(row[2])
                         where_sql = "parse_run_id = %s"
                         params = (parse_run_id,)
                 if not where_sql:
@@ -194,6 +217,13 @@ def market_document_full_db_status(
                 for name, tables in count_tables.items()
             }
             parse_runs = _count(conn, schema, "parse_runs", where_sql, params)
+            current_document_full_sha256 = _document_full_sha256(identity.document_full_path)
+            artifact_matches = (
+                current_document_full_sha256 == postgres_document_full_sha256
+                if current_document_full_sha256 and postgres_document_full_sha256
+                else None
+            )
+            stale = parse_runs > 0 and artifact_matches is False
             ready = (
                 parse_runs > 0
                 and counts["facts"] > 0
@@ -212,7 +242,7 @@ def market_document_full_db_status(
                 if ready_counts[name] <= 0
             ]
             return {
-                "status": "postgres_ready" if ready else ("warning" if warning else "missing"),
+                "status": "stale" if stale else ("postgres_ready" if ready else ("warning" if warning else "missing")),
                 "selectors": selectors,
                 "database": market_databases[market],
                 "schema": schema,
@@ -220,6 +250,10 @@ def market_document_full_db_status(
                 "filing_id": filing_id,
                 "parse_runs": parse_runs,
                 "missing_counts": missing_counts,
+                "artifact_status": "stale" if stale else ("current" if artifact_matches else "unknown"),
+                "current_document_full_sha256": current_document_full_sha256,
+                "postgres_document_full_sha256": postgres_document_full_sha256,
+                "message": "PostgreSQL contains an older document_full artifact" if stale else None,
                 **counts,
             }
     except Exception as exc:

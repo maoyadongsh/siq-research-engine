@@ -1670,6 +1670,142 @@ def test_us_sec_package_file_uses_us_root_and_rejects_escape(monkeypatch, tmp_pa
         raise AssertionError("expected HTTPException")
 
 
+def test_us_sec_package_detail_by_path_returns_real_us_contract_and_keeps_ticker_route(monkeypatch, tmp_path):
+    wiki_root = tmp_path / "wiki" / "us"
+    package_dir = _write_us_company_wiki_package(wiki_root)
+    (package_dir / "raw").mkdir()
+    (package_dir / "raw" / "filing.htm").write_text("<html><body>10-K</body></html>", encoding="utf-8")
+    (package_dir / "sections.json").write_text(
+        json.dumps({"sections": [{"file": "financials.md", "title": "Financial Statements"}]}),
+        encoding="utf-8",
+    )
+    (package_dir / "sections" / "report_complete.md").write_text("# Clean annual report", encoding="utf-8")
+    (package_dir / "metrics" / "normalized_metrics.json").write_text(
+        json.dumps(
+            {
+                "metrics": [
+                    {"metric_id": "revenue", "value": 100},
+                    {"metric_id": "revenue_us", "value": 60, "dimensions": {"region": "US"}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "metrics" / "financial_checks.json").write_text(
+        json.dumps(
+            {
+                "overall_status": "pass",
+                "checks": [
+                    {"rule_id": "bs.assets_equals_liabilities_plus_equity", "status": "pass"},
+                    {"rule_id": "note.unrelated", "status": "warning"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "qa" / "quality_report.json").write_text(
+        json.dumps({"overall_status": "pass"}),
+        encoding="utf-8",
+    )
+    (package_dir / "xbrl" / "facts_raw.json").write_text(
+        json.dumps(
+            {
+                "facts": [
+                    {
+                        "fact_id": "fact-segment",
+                        "concept": "us-gaap:Revenue",
+                        "value_numeric": "60",
+                        "unit": "USD",
+                        "context_ref": "c-segment",
+                        "dimensions": {"srt:ProductOrServiceAxis": "aapl:IPhoneMember"},
+                        "html_anchor": "f-segment",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (package_dir / "qa" / "source_map.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "evidence_id": "e-segment",
+                        "source_type": "sec_xbrl_fact",
+                        "html_anchor": "f-segment",
+                        "target": "https://www.sec.gov/filing.htm#f-segment",
+                        "raw": {"fact_id": "fact-segment"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(
+        market_reports,
+        "_latest_case_item_for_ticker",
+        lambda ticker: {"ticker": ticker, "package_path": str(package_dir)},
+    )
+
+    client = market_reports_client()
+    by_path = client.get("/api/us-sec/package", params={"package_path": str(package_dir)})
+    by_ticker = client.get("/api/us-sec/packages/AAPL")
+
+    assert by_path.status_code == 200
+    payload = by_path.json()
+    assert payload["sections"] == [{"file": "financials.md", "title": "Financial Statements"}]
+    assert payload["bridge_checks"]["checks"] == [
+        {"rule_id": "bs.assets_equals_liabilities_plus_equity", "status": "pass"}
+    ]
+    assert payload["dimension_metrics"] == [
+        {"metric_id": "revenue_us", "value": 60, "dimensions": {"region": "US"}}
+    ]
+    assert payload["counts"]["dimension_facts"] == 1
+    assert payload["dimension_facts"][0]["fact_id"] == "fact-segment"
+    assert payload["dimension_facts"][0]["evidence"]["evidence_id"] == "e-segment"
+    assert payload["preview"] == {
+        "raw_html": "raw/filing.htm",
+        "default_markdown": "sections/report_complete.md",
+    }
+    assert by_ticker.status_code == 200
+    assert by_ticker.json() == payload
+
+
+@pytest.mark.parametrize(
+    ("package_path_kind", "expected_status", "expected_detail"),
+    [
+        ("empty", 400, "package_path is required"),
+        ("outside", 400, "Path is outside the allowed evidence package root"),
+        ("missing", 404, "US SEC package not found"),
+    ],
+)
+def test_us_sec_package_detail_by_path_validates_package_path(
+    monkeypatch,
+    tmp_path,
+    package_path_kind,
+    expected_status,
+    expected_detail,
+):
+    wiki_root = tmp_path / "wiki" / "us"
+    wiki_root.mkdir(parents=True)
+    outside_package = _write_market_package(tmp_path / "outside", "AAPL", "2025", "10-K")
+    package_paths = {
+        "empty": "",
+        "outside": str(outside_package),
+        "missing": str(wiki_root / "companies" / "AAPL" / "reports" / "missing"),
+    }
+    monkeypatch.setattr(market_reports, "US_SEC_WIKI_ROOT", wiki_root)
+
+    response = market_reports_client().get(
+        "/api/us-sec/package",
+        params={"package_path": package_paths[package_path_kind]},
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"] == expected_detail
+
+
 def test_us_sec_package_file_returns_404_for_missing_file(monkeypatch, tmp_path):
     wiki_root = tmp_path / "wiki" / "us_sec"
     package_dir = _write_market_package(wiki_root, "AAPL", "2025", "10-K_demo")
@@ -2956,8 +3092,8 @@ def test_market_document_full_import_status_path_lookup_uses_parse_run_timestamp
             seen_sql.append(text)
             if "information_schema.tables" in text:
                 return FakeCursor((1,))
-            if "select parse_run_id, filing_id from pdf2md_hk.parse_runs" in text:
-                return FakeCursor(("parse-1", "filing-1"))
+            if "artifact_hashes->>'document_full.json'" in text and "from pdf2md_hk.parse_runs" in text:
+                return FakeCursor(("parse-1", "filing-1", None))
             if text.startswith("select count(*)"):
                 table = text.split(" from ", 1)[1].split(" where ", 1)[0]
                 counts = {
@@ -2983,7 +3119,11 @@ def test_market_document_full_import_status_path_lookup_uses_parse_run_timestamp
     postgres = result["markets"]["HK"]["postgres"]
     assert postgres["status"] == "postgres_ready"
     assert postgres["parse_run_id"] == "parse-1"
-    lookup_sql = next(sql for sql in seen_sql if "select parse_run_id, filing_id from pdf2md_hk.parse_runs" in sql)
+    lookup_sql = next(
+        sql
+        for sql in seen_sql
+        if "artifact_hashes->>'document_full.json'" in sql and "from pdf2md_hk.parse_runs" in sql
+    )
     assert "created_at" not in lookup_sql
     assert "completed_at desc nulls last, started_at desc nulls last, parse_run_id desc" in lookup_sql
 

@@ -12,7 +12,6 @@ from typing import Any
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 from bs4.element import NavigableString, Tag
 
-
 SCHEMA_VERSION = "sec_html_document_full_v1"
 CONTENT_SCHEMA_VERSION = "sec_html_content_list_enhanced_v1"
 TABLE_RELATION_SCHEMA_VERSION = "sec_html_table_relations_v1"
@@ -22,6 +21,7 @@ WIKI_REPORT_COMPLETE_PATH = "sections/report_complete.md"
 BLOCK_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "table"}
 INLINE_BLOCK_TAGS = {"div", "span"}
 SKIP_TAGS = {"script", "style", "noscript", "ix:header", "header"}
+HIDDEN_READING_TAGS = SKIP_TAGS | {"ix:hidden"}
 HTML_SNIPPET_LIMIT = 2000
 TEXT_PREVIEW_LIMIT = 1200
 QUOTE_LIMIT = 700
@@ -517,6 +517,7 @@ def _blocks(
     fact_anchors_by_dom_id = {fact.get("dom_node_id"): fact.get("fact_id") for fact in facts if fact.get("dom_node_id")}
     covered: set[int] = set()
     blocks: list[dict[str, Any]] = []
+    candidate_source_order = 0
     search_cursor = 0
 
     for node in root.descendants:
@@ -529,9 +530,12 @@ def _blocks(
             text = clean_text(str(node))
             if not text:
                 continue
+            candidate_source_order += 1
+            if _is_hidden_for_reading(parent):
+                continue
             block, search_cursor = _text_block(
                 filing_id=filing_id,
-                source_order=len(blocks) + 1,
+                source_order=candidate_source_order,
                 block_type="paragraph",
                 text=text,
                 tag=None,
@@ -552,9 +556,18 @@ def _blocks(
         if tag_name == "table":
             table = table_by_dom_id.get(tag_id_by_object.get(id(node), ""))
             text = _table_markdown(table) if table else clean_text(node.get_text(" ", strip=True))
+            candidate_source_order += 1
+            if _is_hidden_for_reading(node):
+                covered.add(id(node))
+                continue
+            visible_fact_ids = [
+                fact_anchors_by_dom_id.get(tag_id_by_object.get(id(fact_tag)))
+                for fact_tag in node.find_all(_is_ixbrl_fact)
+                if not _is_hidden_for_reading(fact_tag)
+            ]
             block, search_cursor = _text_block(
                 filing_id=filing_id,
-                source_order=len(blocks) + 1,
+                source_order=candidate_source_order,
                 block_type="table",
                 text=text,
                 tag=node,
@@ -562,7 +575,7 @@ def _blocks(
                 body_text=body_text,
                 search_cursor=search_cursor,
                 section_ranges=section_ranges,
-                fact_ids=(table.get("fact_ids") if table else []) or [],
+                fact_ids=[item for item in visible_fact_ids if item],
                 table=table,
             )
             blocks.append(block)
@@ -570,16 +583,22 @@ def _blocks(
             continue
         if not _is_reading_block(node):
             continue
-        text = clean_text(node.get_text(" ", strip=True))
-        if not text:
+        source_text = clean_text(node.get_text(" ", strip=True))
+        if not source_text:
+            continue
+        candidate_source_order += 1
+        text = _reading_text(node)
+        if _is_hidden_for_reading(node) or not text:
+            covered.add(id(node))
             continue
         fact_ids = [
             fact_anchors_by_dom_id.get(tag_id_by_object.get(id(fact_tag)))
             for fact_tag in node.find_all(_is_ixbrl_fact)
+            if not _is_hidden_for_reading(fact_tag)
         ]
         block, search_cursor = _text_block(
             filing_id=filing_id,
-            source_order=len(blocks) + 1,
+            source_order=candidate_source_order,
             block_type=_block_type(node),
             text=text,
             tag=node,
@@ -588,6 +607,7 @@ def _blocks(
             search_cursor=search_cursor,
             section_ranges=section_ranges,
             fact_ids=[item for item in fact_ids if item],
+            source_text=source_text,
         )
         blocks.append(block)
         covered.add(id(node))
@@ -612,6 +632,51 @@ def _has_covered_ancestor(tag: Tag, covered: set[int]) -> bool:
         if id(current) in covered:
             return True
         current = current.parent
+    return False
+
+
+def _reading_text(tag: Tag) -> str:
+    parts: list[str] = []
+    for node in tag.descendants:
+        if not isinstance(node, NavigableString):
+            continue
+        parent = node.parent if isinstance(node.parent, Tag) else None
+        if parent is None or _is_hidden_for_reading(parent):
+            continue
+        parts.append(str(node))
+    return clean_text(" ".join(parts))
+
+
+def _is_hidden_for_reading(tag: Tag) -> bool:
+    current: Tag | None = tag
+    while current is not None and isinstance(current, Tag):
+        if _tag_name(current) in HIDDEN_READING_TAGS:
+            return True
+        if current.has_attr("hidden"):
+            return True
+        aria_hidden = current.get("aria-hidden")
+        if aria_hidden is not None and str(aria_hidden).strip().lower() in {"true", "1"}:
+            return True
+        if _style_hides_content(current.get("style")):
+            return True
+        parent = current.parent
+        current = parent if isinstance(parent, Tag) else None
+    return False
+
+
+def _style_hides_content(style: Any) -> bool:
+    if style is None:
+        return False
+    for declaration in str(style).split(";"):
+        property_name, separator, value = declaration.partition(":")
+        if not separator:
+            continue
+        property_name = property_name.strip().lower()
+        value = re.sub(r"\s*!important\s*$", "", value, flags=re.IGNORECASE).strip().lower()
+        if property_name == "display" and value == "none":
+            return True
+        if property_name == "visibility" and value == "hidden":
+            return True
     return False
 
 
@@ -647,14 +712,16 @@ def _text_block(
     section_ranges: list[dict[str, Any]],
     fact_ids: list[str],
     table: dict[str, Any] | None = None,
+    source_text: str | None = None,
 ) -> tuple[dict[str, Any], int]:
-    char_start = body_text.find(text[:120], search_cursor) if text else -1
+    identity_text = source_text if source_text is not None else text
+    char_start = body_text.find(identity_text[:120], search_cursor) if identity_text else -1
     if char_start < 0:
-        char_start = body_text.find(text[:120]) if text else -1
-    char_end = char_start + len(text) if char_start >= 0 else None
+        char_start = body_text.find(identity_text[:120]) if identity_text else -1
+    char_end = char_start + len(identity_text) if char_start >= 0 else None
     next_cursor = char_end if isinstance(char_end, int) else search_cursor
     dom_node_id = tag_id_by_object.get(id(tag)) if tag is not None else None
-    block_id = stable_id(filing_id, "block", source_order, block_type, dom_node_id, text[:300])
+    block_id = stable_id(filing_id, "block", source_order, block_type, dom_node_id, identity_text[:300])
     heading_level = None
     if tag is not None and _tag_name(tag).startswith("h") and _tag_name(tag)[1:].isdigit():
         heading_level = int(_tag_name(tag)[1:])
@@ -688,6 +755,8 @@ def _attach_fact_blocks(
     for fact in facts:
         dom_node_id = fact.get("dom_node_id")
         tag = tag_by_dom_id.get(str(dom_node_id or ""))
+        if tag is not None and _is_hidden_for_reading(tag):
+            continue
         current = tag
         while current is not None and isinstance(current, Tag):
             block = block_by_dom_id.get(str(tag_id_by_object.get(id(current)) or ""))

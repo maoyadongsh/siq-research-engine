@@ -127,6 +127,7 @@ const packageDetail = {
     tables: 5,
     metrics: 20,
     evidence: 180,
+    dimension_facts: 219,
     dimension_metrics: 3,
   },
   quality: {
@@ -147,6 +148,19 @@ const packageDetail = {
   ],
   metrics: [
     { metric_id: 'revenue', canonical_name: 'Revenue', concept: 'us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax' },
+  ],
+  dimension_facts: [
+    {
+      fact_id: 'fact-segment-revenue',
+      concept: 'us-gaap:Revenue',
+      label: 'Segment revenue',
+      value: '60',
+      unit: 'USD',
+      period: { start: '2024-01-01', end: '2024-12-31' },
+      context: 'c-segment',
+      dimensions: { 'srt:ProductOrServiceAxis': 'nvda:ComputeMember' },
+      anchor: 'f-segment',
+    },
   ],
   dimension_metrics: [{ metric_id: 'segment-revenue' }],
 }
@@ -238,6 +252,23 @@ test('deriveUsSecRecentTasks exposes parsed SEC packages as shared PDF-surface t
   assert.equal(rows[0].periodEnd, '2025-01-31')
   assert.equal(rows[0].status, 'postgres_ready')
   assert.equal(rows[0].statusText, 'PostgreSQL 已入库')
+})
+
+test('US SEC list rows expose stale PostgreSQL artifacts instead of reporting them ready', () => {
+  const postgresByPath = {
+    'data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023/document_full.json': {
+      status: 'stale',
+      artifact_status: 'stale',
+      facts: 8,
+    },
+  }
+
+  const downloaded = deriveUsSecDownloadedRows([report()], status, '', postgresByPath)
+  const recent = deriveUsSecRecentTasks(status, postgresByPath)
+
+  assert.equal(downloaded[0].parseStatus, 'stale')
+  assert.equal(recent[0].status, 'stale')
+  assert.equal(recent[0].statusText, 'PostgreSQL 待更新')
 })
 
 test('deriveUsSecRecentTasks derives document_full path from full_document_paths', () => {
@@ -458,6 +489,7 @@ test('deriveUsSecQualitySummary formats SEC quality metrics for the result panel
   assert.equal(quality.tiles[0].value, '8')
   assert.equal(quality.tiles[4].value, '87.5%')
   assert.equal(quality.tiles[5].value, '75% · 不可回链 2')
+  assert.equal(quality.tiles[6].value, '219')
   assert.equal(quality.bridgeStatus, 'pass')
   assert.equal(quality.bridgeCounts.pass, 10)
   assert.equal(quality.missingCoreSections[0], 'risk_factors')

@@ -360,6 +360,15 @@ def us_sec_package_detail_by_ticker_payload(
     return read_package_detail(safe_package_path(str(item.get("package_path") or "")))
 
 
+def us_sec_package_detail_by_path_payload(
+    package_path: str | None,
+    *,
+    safe_package_path: Callable[[str | None], Path],
+    read_package_detail: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    return read_package_detail(safe_package_path(package_path))
+
+
 def run_market_package_build(
     payload: Mapping[str, Any],
     *,
