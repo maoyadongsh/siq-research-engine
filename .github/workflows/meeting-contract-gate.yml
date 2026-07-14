@@ -93,6 +93,13 @@ jobs:
           uv run --project apps/api python \
             scripts/meeting/meeting_contract_baseline.py verify \
             --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
+            --approved-delta scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json \
+            --candidate-ref 679d456fe3c8e8ce8e3e1d003453cd8f221e7357 \
+            --report artifacts/meeting/m0/reviewed-source-contract-verify.json
+          uv run --project apps/api python \
+            scripts/meeting/meeting_contract_baseline.py verify \
+            --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
+            --approved-delta scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json \
             --candidate-ref WORKTREE \
             --report artifacts/meeting/m0/candidate-contract-verify.json
 

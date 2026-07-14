@@ -1,0 +1,770 @@
+{
+  "approval": {
+    "reviewed_by": "user-authorized-codex-closeout",
+    "status": "approved"
+  },
+  "baseline_commit": "6727ce3441f2415c7e6dbc65f78c9e1983941168",
+  "baseline_snapshot_sha256": "bf72d31d4fe4a2b4be384d0ba985ef72c3817e93aaed7520e05f80a38a277781",
+  "candidate_contract_sha256": "e45d7eb8eab724fd90766aad077f2ada78c0469ca9ffee674019563b8f5398b6",
+  "contract_schema_version": "siq.meeting.contract-baseline.v1",
+  "differences": [
+    {
+      "after_sha256": "82a72eb10c4b76ee267a189520d23fe79bf8036d1162e1562d70b9c8e840ec66",
+      "before_sha256": "639058c998860eee891663b24b04fec315496002186e8bf761d72934c8a2b87d",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_chairman~1AGENTS.md"
+    },
+    {
+      "after_sha256": "49702ba522dd3b77e1ccc85e19ca3580c6ea657e2dae6c905b91bed8b8c8129d",
+      "before_sha256": "36e971d21e1b22a603893dc972c18adc91782e582c23efe5e904fcff670ef8f1",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_chairman~1KNOWLEDGE_BASE.md"
+    },
+    {
+      "after_sha256": "1af1b7574e66ac4af0dac43ff081035dd08a3e2e208e9c28e96a284a41a18f4d",
+      "before_sha256": "66d09bdad617868f0c4d38c51829f45405794d3f9288e94154b797136b82636d",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_finance_auditor~1AGENTS.md"
+    },
+    {
+      "after_sha256": "dcb3ca2977f6daab15656b4bbe4bd1f5696d226fd63a47ca8e04a07122305511",
+      "before_sha256": "fd178411a45310cd0a48bec6df6fc962df2766b2989fc455fd96cb9b8c40c3eb",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_finance_auditor~1STARTUP_CHECKLIST.md"
+    },
+    {
+      "after_sha256": "726bcd722d2f00220b1eb696130cda73824b165aa1d6bc8b4c451207e1fe5018",
+      "before_sha256": "ab6de91be5cd5828d017b43bde2f30624eea68748357dcc455dfb89e33308f8d",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_legal_scanner~1AGENTS.md"
+    },
+    {
+      "after_sha256": "8dd6b1deb5726de0390aa2082afb885887e9e070ecbabaefb10bd3eb67254735",
+      "before_sha256": "05925095db91c17019b6fc552b823fc49355a48db33490a0162bead0856221a4",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1AGENTS.md"
+    },
+    {
+      "after_sha256": "467267c527049c03b247ff18a803607fcb139783a3d777f4b5c9bb7f0e5909dc",
+      "before_sha256": "1f85137cbdd1efa63f7ac90ed753cc8f1da599aba3f588527fef61ec3f1be7e3",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1BOOTSTRAP.md"
+    },
+    {
+      "after_sha256": "bcb45b81bb8587bf1328e93909c681a68966f886044d5d86603addc6f165f8b1",
+      "before_sha256": "ecd512810d0de9b30da9b30a03699a518d466ef31540df3e6e27ff22455d2d0a",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1SOUL.md"
+    },
+    {
+      "after_sha256": "4811069d7821fa749f3a45094360d3c2696286887e7aaa8f77431123860f4724",
+      "before_sha256": "574301d8a4ffbca1638fc44d4cefcdfc8dd7e1417c9475524628dc8b11b379be",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1TOOLS.md"
+    },
+    {
+      "after_sha256": "361f4bd8e326f77177c9c5c0271b439a858ccf261ef438838fbb8fea2958e3a7",
+      "before_sha256": "128324463e3f2f0632540859198b525ddf061faac1bdac97d05157ea44029929",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_risk_controller~1AGENTS.md"
+    },
+    {
+      "after_sha256": "d158046900a1c63a54e15fbca2a3b8406cd2660d46631066d3ba8d895fb562fe",
+      "before_sha256": "ff46725531b8c2cb009fb6f87d03363fea2ae6ce1b2146f98dce8cdb4ca887c6",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_risk_controller~1STARTUP_PROTOCOL.md"
+    },
+    {
+      "after_sha256": "e13610d0f58a9f66855f22a2e5ff4ece64bce0510f8f0f83660337d45555b907",
+      "before_sha256": "929da0dbf2fa0331d6659419c66f08048cf885fe4fcbf0d51cd62bbbffde8b50",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_sector_expert~1AGENTS.md"
+    },
+    {
+      "after_sha256": "0b4913a407b0bad64a24b0ecae4fd890c4ba02a31bd8156aaca7a4b6d8e4f618",
+      "before_sha256": "5e3111d5b81a15ba53fa83e5093e4c28e73ca5e774ba15faf710f9a7dbd3d07b",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1README.md"
+    },
+    {
+      "after_sha256": "2e5bc5832f9ff027ff24011573a34431391fd474c2a5d7b27506745581b19344",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_agent_handoff_v2.schema.json"
+    },
+    {
+      "after_sha256": "59c0ace16b5fd0286a613d321669314abb11cf36d3d0b77c3c35056ffa6641b6",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_agent_task_v2.schema.json"
+    },
+    {
+      "after_sha256": "3ce73663055f5e5ae2a1d224726811170a74c97db7db5ca7fc5ed994b151bb66",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_claim_v1.schema.json"
+    },
+    {
+      "after_sha256": "243951859db2abd2746e6da99ea140908fdc598c5119ab438ec642bee8e6fcad",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_expert_report_v2.schema.json"
+    },
+    {
+      "after_sha256": "9515bb45864fdc6f074bf9841dcd17c00c0c9e91bc43234e1a691c214e2ee06c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r0_readiness_v1.schema.json"
+    },
+    {
+      "after_sha256": "b83ed48b221e81c841d4ac3d02d0e1a50069dcca4b3e1f892a0f78ae64ebed66",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r1_5_chairman_rulings_v2.schema.json"
+    },
+    {
+      "after_sha256": "b986c102783f44ec6bcda9e7730f62828778051d07aa3d9cda2ea7cf3e915c25",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r1_5_dispute_v1.schema.json"
+    },
+    {
+      "after_sha256": "921ccf56bfe10e347d72ac9494701c1fc33967869e48ae092a60f2fee9deb303",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r2_revision_v1.schema.json"
+    },
+    {
+      "after_sha256": "5c37ab437a62debd7e0f99c75770faf1216f1fef92bfcff758ff9ac8a3be13d3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r3_debate_turn_v1.schema.json"
+    },
+    {
+      "after_sha256": "b9c25457c4f55c714c4a0bdbe27d908062e7073ff51bdff6cce1ec83fbfc88ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r3_debate_v1.schema.json"
+    },
+    {
+      "after_sha256": "9bb7e230bd5b46f6ee29162728611e2b1681789ca4eddb17073163533770b357",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r3_debate_verdict_v1.schema.json"
+    },
+    {
+      "after_sha256": "f8e2ab896d02327338d3e1f35ea3d34d94e81d7120b5a27919d45919923fdebb",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r3_plan_v1.schema.json"
+    },
+    {
+      "after_sha256": "103ecd156c805ac062c783545ffda3dfd9c2d18fe67a23616f1af3f3091c75d5",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_r4_decision_v2.schema.json"
+    },
+    {
+      "after_sha256": "2fc332f540688ead8d76d5db80266a5dc44ac5ee66bd5eb731d80a81929889e4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_workflow_run_identity_v1.schema.json"
+    },
+    {
+      "after_sha256": "c73643245d9c7a968c3f4fd5678bce79485ee6e2a6a9582109de1129f7af3f92",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_workflow_run_v1.schema.json"
+    },
+    {
+      "after_sha256": "2ed83fe966c0f72538bf1bb849d2560f8cec63110bf0365a6075151ead9d0199",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1golden_case_manifest.json"
+    },
+    {
+      "after_sha256": "00428f0aaa3dd699e8db464f04cd4a2d462aba24e3548e2444ffb595a9290e1e",
+      "before_sha256": "95de30cc2decbb35dffdd6b6804262540d6e7025d7b5756a88324fbe788d2094",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1ic_profile_matrix.json"
+    },
+    {
+      "after_sha256": "ad54c7218ad7af0d18bb550df67f5e0a9d71faf9ebf77a8f731ff6e8a2c0567b",
+      "before_sha256": "172165e684495c44ae854788a2bf530c30ef9c316c9fd62de48dc52c09f990d5",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1ic_workflow_policy.json"
+    },
+    {
+      "after_sha256": "1e69821b8656ac5beeab1c117342b9e44713f279094064819bac39a903c3fcdb",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1manifest.v1.json"
+    },
+    {
+      "after_sha256": "9bc2a50a756f4b23955da5df834e23b5db744144400b01a0f3514ad5e9b7de69",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_chairman.md"
+    },
+    {
+      "after_sha256": "6dc9dc56579d1056d40ddf8d4145f7dca2094ff5b7016e577c5e10e8f09f37f9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_finance_auditor.md"
+    },
+    {
+      "after_sha256": "4fd3e79fd1f713bf49e34d33eb6c89981097a74adb3805801bccc5608f799a72",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_legal_scanner.md"
+    },
+    {
+      "after_sha256": "3ba84cdf0ba1e5126d9e25c5e4e16b6ba40f3288bcbb8010fb0f1a7bb34c76f1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_master_coordinator.md"
+    },
+    {
+      "after_sha256": "995aca23941c15c28631dada3e25d9255f74fc098d6c23c185232be50c7e8ae8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_risk_controller.md"
+    },
+    {
+      "after_sha256": "ddec223d83c3403dc01f96c282525a6fefcba808ac5bbeb8ee8fd40ae51e8f6b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_sector_expert.md"
+    },
+    {
+      "after_sha256": "17fa508852e37f2452637299247659a713a73bcfaae6f7f278235f00accac64d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1knowledge~1siq_ic_strategist.md"
+    },
+    {
+      "after_sha256": "3bf35497d0d448eaf7f367be9cac943c2f82459552b20016506285544a81bc9d",
+      "before_sha256": "89855b6392383937ae071486194ff2a625a056307783bf1dc474e8b879f01a0f",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1openclaw_script_migration_matrix.json"
+    },
+    {
+      "after_sha256": "bc5014738151fc5ca68da4a309d0d71cbcc7e23c041c5851483193fa5da14af1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1DETERMINISTIC_FALLBACK.md"
+    },
+    {
+      "after_sha256": "805ea4cac2458f8f686892241d6e3f8d63b913ead9145f86c53fbec5e340f55b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R0_COORDINATOR_READINESS.md"
+    },
+    {
+      "after_sha256": "d54a7a0fda19692105740797b47869bb1d21305d3ff7853634bae070027859c0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R1_5_CHAIRMAN_RULING.md"
+    },
+    {
+      "after_sha256": "5717bbadbff7738b750f7f7df5d2576d621f713c71f4d75e9ad606e2611e53d0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R1_CROSS_VALIDATION.md"
+    },
+    {
+      "after_sha256": "ebdebdf9fb1f3030f04143f4e596ba122f228093c2a4bb260f3c278fad061d3c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R1_INDEPENDENT_RESEARCH.md"
+    },
+    {
+      "after_sha256": "af8f120858a47ae59e4d4bfc86ceb2c503f8b48054de7fb31b0b58eb68754448",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R2_EXPERT_REVISION.md"
+    },
+    {
+      "after_sha256": "4ea93b5480fbf797841a4920b8aa06925543f54625b36b8327b82a76d7271029",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R3_RED_BLUE_DEBATE.md"
+    },
+    {
+      "after_sha256": "b0fde318f7d2d86987ab5edcd956d133e86c37ded9c6ab055ab3b426c741eefd",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R4_CHAIRMAN_DECISION.md"
+    },
+    {
+      "after_sha256": "65a6c838f48784fc03f902d87daf904b135de7e5f2c13a2998e897e566455661",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1README.md"
+    },
+    {
+      "after_sha256": "39e50f3b53c31e0b810276a4832959a216597403320fd4bb5b6e234ac9d38197",
+      "before_sha256": "7e9e3f721144f5bb42b1625f7e87c92a1debe5d62b063fc2bf1861a65ad05896",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1templates~1RETRIEVAL_MANDATORY_RULE.md"
+    },
+    {
+      "after_sha256": "720ab1a35d65efdce455f9882494184abd46e4aaae56445adcc0e650cd4e0252",
+      "before_sha256": "9597e57927035d9c858edf8abb08fda2a5ad982ffdde9129cae111e9403a795e",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_strategist~1AGENTS.md"
+    },
+    {
+      "after_sha256": "218d475deac3d7d3a7f84fee15c901aaa170c0d1ae63cc5edf149c4646bbab61",
+      "before_sha256": "e8464f9b1dd221da4f6b683107764fdb9c218655e16330501edc19e8a2acdd89",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_strategist~1SOUL.md"
+    },
+    {
+      "after_sha256": "eb6cf3144e0c5f3f1a7d9ec6066c8a5dcb9f926ded483012e1f0e20bd877f52b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/durable_background_jobs"
+    },
+    {
+      "after_sha256": "ca661a20b13465770cf34af01680fd5d2648873afcb567aea6a76e57183ff95a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/ic_task_leases"
+    },
+    {
+      "after_sha256": "c21e0eebffa0b0d86e1c7904b587fe35b69e7f2a5a9304d6ef9aafd0943db84b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/Body_authenticated_pdf_upload_api_pdf_upload_post/properties/document_profile"
+    },
+    {
+      "after_sha256": "b705847c4409722106603f34da1facf317829aebf77fe03ebc9cad5825b2c6b9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/Body_authenticated_pdf_upload_api_pdf_upload_post/properties/source_context"
+    },
+    {
+      "after_sha256": "77f3dc9c9a79e48b5ed9f1ca9e158169f23e85a8490da3b04725ddee652897c0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/Body_upload_prospectus_api_primary_market_projects__deal_id__materials_prospectuses_post"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingPrepareAllRequest/properties/include_vector/default"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingPrepareRequest/properties/include_vector/default"
+    },
+    {
+      "after_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "before_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingWorkflowAdvanceRequest/properties/r3_skip/default"
+    },
+    {
+      "after_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "before_sha256": "09a09f75f92a355f79c72dc7b1df2b568faea7b471315f454278f48b5aa3a160",
+      "change": "removed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingWorkflowAdvanceRequest/properties/r3_skip_reason/default"
+    },
+    {
+      "after_sha256": "aa82dfaadbb7dc8a3aaa87d880e05dfe0893ea33180f8b895ab09e9c6247c2f9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ReparseRequest"
+    },
+    {
+      "after_sha256": "89b9e0ca0a91bc2628d5cde2bfbbc8784fe0b864a8c31e148f94b1e53218ac4b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/SourceDisableRequest"
+    },
+    {
+      "after_sha256": "f63f6470e24f2459f1e6083474710de11e9e02a50336cc71db69d1e9fe8a0703",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/SourceReviewRequest"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/StartupRetrievalRequest/properties/include_vector/default"
+    },
+    {
+      "after_sha256": "9286067e5f51b9d0d889deeedebd001de073658eea93ec4c6b2f2535e048f4d9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/SupersedeRequest"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowAdvanceNextRequest/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "before_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowAdvanceNextRequest/properties/r3_skip/default"
+    },
+    {
+      "after_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "before_sha256": "09a09f75f92a355f79c72dc7b1df2b568faea7b471315f454278f48b5aa3a160",
+      "change": "removed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowAdvanceNextRequest/properties/r3_skip_reason/default"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowFinalizeR4Request/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "0b3a0ce68247733f2aa4c32641a7fdafe24f447a84c3cdc682b3105120d8a9f0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowFinalizeR4Request/properties/mode"
+    },
+    {
+      "after_sha256": "ce9ac0423fb6084da3511d062cbed96da6927878802b6ee7d3945c3c8f0482ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowFinalizeR4Request/properties/timeout"
+    },
+    {
+      "after_sha256": "355187c1636342dcb812d6811b9fa8c3af4dcf6715cf3127963c1b1e86e87bca",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR0CoordinatorRequest"
+    },
+    {
+      "after_sha256": "90e168a4374f182786f8cde28e0e92d54d691e1ed503e23a51e9c86270b8405d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR15ChairmanRequest"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR1AgentRequest/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR1SerialRequest/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR2Request/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "0b3a0ce68247733f2aa4c32641a7fdafe24f447a84c3cdc682b3105120d8a9f0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR2Request/properties/mode"
+    },
+    {
+      "after_sha256": "ce9ac0423fb6084da3511d062cbed96da6927878802b6ee7d3945c3c8f0482ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR2Request/properties/timeout"
+    },
+    {
+      "after_sha256": "60f9aebc61c4ec0ca37a6f72678dba924213525e2f97615401eb9f8a06c27dda",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR3Request/properties/expected_evidence_snapshot_hash"
+    },
+    {
+      "after_sha256": "0b3a0ce68247733f2aa4c32641a7fdafe24f447a84c3cdc682b3105120d8a9f0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR3Request/properties/mode"
+    },
+    {
+      "after_sha256": "ce9ac0423fb6084da3511d062cbed96da6927878802b6ee7d3945c3c8f0482ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowRunR3Request/properties/timeout"
+    },
+    {
+      "after_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "before_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowStateSnapshotRequest/properties/r3_skip/default"
+    },
+    {
+      "after_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "before_sha256": "09a09f75f92a355f79c72dc7b1df2b568faea7b471315f454278f48b5aa3a160",
+      "change": "removed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/WorkflowStateSnapshotRequest/properties/r3_skip_reason/default"
+    },
+    {
+      "after_sha256": "cda181120fa6077ad31542952c4dfc6fb3e9da80b30383addc50f5cebfce6cf9",
+      "before_sha256": "f674fbb3ceaa8d5f32b3af1f209bdf40a5c1ba20ad257860fea10300434a84c1",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1deals~1{deal_id}~1agents~1{profile_id}~1startup-retrieval/parameters"
+    },
+    {
+      "after_sha256": "1acaccb2f3f32fced1463c1d431958d16a67ce6051d5daba0ba2f71f8a26b83b",
+      "before_sha256": "2686c2034bbf76a0121bf22192f903168a3f358566be085e8dc283d683d603c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1deals~1{deal_id}~1workflow~1state/parameters"
+    },
+    {
+      "after_sha256": "fcebeb1de766a930d75b036baa070c3218950899087ab4a369525332ef0f5d04",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials"
+    },
+    {
+      "after_sha256": "1fa3fd76c776b5d8456fb9c5907f576413f8d8e454da4464a1d8b24cb24fb61e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}"
+    },
+    {
+      "after_sha256": "761f6af23741f84585c286babe83b8028f67aca08a1bd80d1e1d6ed46817912e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1artifacts~1{artifact_name}"
+    },
+    {
+      "after_sha256": "e941b8faabbedaeac1cb4c2e4ef2bd6228791b2377e298ed772d7e26c722bccf",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1original"
+    },
+    {
+      "after_sha256": "7c1c3a298642ce8d00b5a9a847c26909193413e8e4ee46c704113baa6d3e071a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1parse-status"
+    },
+    {
+      "after_sha256": "eae8b660e4ef4261c7abc1b5eb79b106900ebfcf42571edca824ecb91f5a2d3d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1source~1page~1{page_number}"
+    },
+    {
+      "after_sha256": "02d93a942c6b8bf85767e89bffd681cd27237ea46737de98f9c542473c734b21",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1us-sec~1package"
+    },
+    {
+      "after_sha256": "31bff46b1a4547ba55f1cc4168a96ab34c364fa4a24453da351778153d92277a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1deals~1{deal_id}~1workflow~1run-r0-coordinator"
+    },
+    {
+      "after_sha256": "c270eb566416f1356feb69ac3ce48bf0a65593c53353f2e2ca145c3cdbe37171",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1deals~1{deal_id}~1workflow~1run-r1-5-chairman"
+    },
+    {
+      "after_sha256": "5af6d73b9a9b25b50b5d00da2c323b6936a3936592a173ce8c9e27d6d8b16428",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1prospectuses"
+    },
+    {
+      "after_sha256": "753f74bdacd34f43abb371d3438ece5480081b707397e284fa8fb32201d60e05",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1analysis-source~1disable"
+    },
+    {
+      "after_sha256": "979fbd68ee006c624b23ad2d6316b853953ed85b01cc53d3afeb0edea32408ae",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1analysis-source~1review"
+    },
+    {
+      "after_sha256": "a125fa9876ec1267d2f5a9c6e0b06a66b26115098871d6d63a47bdd1ab811d80",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1reparse"
+    },
+    {
+      "after_sha256": "7ca53a858afca42c5f8cf29f88b9fe5c911820e2cc4543dc78653c047b06c491",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1supersede"
+    },
+    {
+      "after_sha256": "a14141528ce37e2aa83b1712530a32f7cebdd5a53765a239e992f387a08acce1",
+      "before_sha256": "7b64051cfab03bdc19650ac19a49eeaa7fef83f909f02144551a753cc787b719",
+      "change": "changed",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_DOCUMENT_PARSER_HEALTH_URL"
+    },
+    {
+      "after_sha256": "ee2114e1edf5443ce462ad99eec6df7de48c37378e7488ac4d2e61e971adcc51",
+      "before_sha256": "512d316e48742e06dac56fac2c812ac9667c947ff4236b86c9adaaf039006d75",
+      "change": "changed",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_PDF2MD_HEALTH_URL"
+    },
+    {
+      "after_sha256": "12c30c6aeb22b2912996ebab1590890a259b153e3f8594d2c57ff4b2c1c9112c",
+      "before_sha256": "b8fa9d9eac55b3cb6c270abe1bc5b17e91064ec159f6e13794c4d4dd5d824a2c",
+      "change": "changed",
+      "contract": "runtime_metadata",
+      "path": "/startup/health_checks/PDF \u89e3\u6790\u670d\u52a1"
+    },
+    {
+      "after_sha256": "3a1fc46f580139c559a2a0072070b151c09fe93e54fc6bb6933dc77fb66f0426",
+      "before_sha256": "c8d6420eecb346511f32777f4663d6983fcf0838b33d922c066468daa6d32418",
+      "change": "changed",
+      "contract": "runtime_metadata",
+      "path": "/startup/health_checks/\u901a\u7528\u6587\u6863\u89e3\u6790\u670d\u52a1"
+    },
+    {
+      "after_sha256": "f62648a25933ed40bc64ad6d2cc69a288a1b985762af471519b2972dbe428a07",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/systemd_units/hermes-gateway-siq-ic@.service"
+    }
+  ],
+  "justification": "The exact legacy deltas are intentional high-risk closeout changes reviewed by contract path and before/after digest; generic patterns remain forbidden.",
+  "normalization": {
+    "allowed_profile_addition_prefixes": [
+      "agents/hermes/profiles/siq_meeting/",
+      "agents/hermes/profiles/siq-meeting/"
+    ],
+    "documentation_fields_excluded": [
+      "description",
+      "example",
+      "examples",
+      "externalDocs",
+      "summary"
+    ],
+    "excluded_api_prefixes": [
+      "/api/meetings/v1"
+    ],
+    "excluded_database_prefixes": [
+      "meeting_"
+    ]
+  },
+  "review_scope": "Primary-market IC contracts, parser readiness, runtime coordination, and additive non-meeting API surfaces",
+  "reviewed_candidate_commit": "679d456fe3c8e8ce8e3e1d003453cd8f221e7357",
+  "schema_version": "siq.meeting.contract-approved-delta.v1"
+}

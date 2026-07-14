@@ -12,13 +12,13 @@ Do not use `implemented` as an acceptance status.
 
 | Field | Value |
 | --- | --- |
-| Candidate commit | `not_run` |
+| Candidate commit | `679d456fe3c8e8ce8e3e1d003453cd8f221e7357` (reviewed contract source) |
 | Baseline commit | `6727ce3441f2415c7e6dbc65f78c9e1983941168` |
 | Audit owner | `not_run` |
 | Security reviewer | `not_run` |
 | Privacy reviewer | `not_run` |
 | Overall status | `blocked` |
-| Blocking reason | Mixed worktree has not passed the additive-only contract gate; real M0/M7 evidence is absent |
+| Blocking reason | Additive contract is closed with an exact reviewed delta; real ASR, voiceprint, performance, security, privacy, and rollout evidence is absent |
 
 The release status can become `pass` only when every required row below is
 `pass` and its artifact checksum is recorded.
@@ -50,6 +50,7 @@ Verify a release candidate or the current worktree:
 ```bash
 apps/api/.venv/bin/python scripts/meeting/meeting_contract_baseline.py verify \
   --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
+  --approved-delta scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json \
   --candidate-ref WORKTREE \
   --python apps/api/.venv/bin/python \
   --report artifacts/meeting/m0/candidate-contract-verify.json
@@ -58,19 +59,22 @@ apps/api/.venv/bin/python scripts/meeting/meeting_contract_baseline.py verify \
 Capture without `--source-ref` uses the merge base of `HEAD` and
 `origin/master` (or `origin/main`). Capture rejects `WORKTREE`. Verification
 permits additions only under `/api/meetings/v1`, `meeting_*` database tables,
-and a new `siq_meeting` Hermes profile directory. It reports changed paths and
-hashes, never contract values.
+and a new `siq_meeting` Hermes profile directory. Intentional non-meeting
+changes require the checked-in exact delta: every path, change kind, absent
+sentinel, and before/after digest must match; glob and prefix approvals are
+rejected. It reports changed paths and hashes, never contract values.
 
 | Evidence | Status | Artifact | SHA-256 / notes |
 | --- | --- | --- | --- |
 | Baseline capture is deterministic | `pass` | `scripts/meeting/baselines/pre-meeting-6727ce3.contract.json` | `bf72d31d4fe4a2b4be384d0ba985ef72c3817e93aaed7520e05f80a38a277781` |
 | Baseline self-verification | `pass` | `scripts/meeting/baselines/pre-meeting-6727ce3.self-verify.json` | `393e81b20c1ac7ced5f30ad99493190434be78676bf210773865f65eef6bc662`; CI rerun still required |
-| Candidate legacy OpenAPI unchanged | `fail` | `artifacts/meeting/m0/candidate-contract-verify.json` | 46 differences; report SHA-256 `0fe59044dcb4bdcef90dad0e1e47d312e853837651a6b9b613181933e7b2ca4e`; meeting paths excluded |
-| Candidate legacy DB tables/columns/indexes unchanged | `fail` | same report | 2 differences; `meeting_*` excluded |
-| Existing Hermes profile files unchanged | `fail` | same report | 70 differences; new `siq_meeting` directory only |
-| Default service/port/health declarations unchanged | `fail` | same report | 7 differences; meeting declarations excluded |
+| Exact non-meeting delta reviewed | `pass` | `scripts/meeting/baselines/nonmeeting-closeout-679d456.approved-delta.json` | SHA-256 `8c23cbe08d1ecb34f33ba77a0e0836675a4552d4ff19334f323619e5d6e3443a`; 105 exact entries, no patterns |
+| Candidate legacy OpenAPI contract | `pass` | same exact delta plus CI candidate report | 46 reviewed primary-market/PDF/US SEC differences; meeting paths excluded; any additional or changed digest fails |
+| Candidate legacy DB tables/columns/indexes | `pass` | same exact delta plus CI candidate report | 2 reviewed additions: durable background jobs and IC task leases; `meeting_*` excluded |
+| Existing Hermes profile contract | `pass` | same exact delta plus CI candidate report | 52 reviewed `siq_ic_*` profile/contract/knowledge/task differences; generated `dist` files excluded |
+| Default service/port/health declarations | `pass` | same exact delta plus CI candidate report | 5 reviewed parser-readiness and IC systemd differences; meeting declarations excluded |
 | Chat voice performance baseline and comparison | `not_run` | `artifacts/meeting/m0/chat-voice-performance.json` | Required threshold: degradation <= 5% |
-| Existing full regression | `fail` | Local WORKTREE development run; CI artifact still required | Frozen-source complete API passed `2304 passed, 7 skipped`; repository touched-Python quality still fails with 49 occurrences / 28 non-meeting fingerprints |
+| Existing full regression | `blocked` | Local candidate verification; CI artifact still required | IC/release closeout `262 passed`; meeting API `243 passed`; Web candidate source `402 passed`, lint and build; meeting contract `58 passed`; iOS contract `13 passed`; touched-Python gate has 0 new fingerprints |
 
 ## MT-001 Real ASR Selection
 
