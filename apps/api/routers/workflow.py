@@ -2061,6 +2061,7 @@ def _import_task_to_market_wiki(task_id: str, market: str | None = None) -> dict
         str(result_dir.parent),
         "--output-root",
         str(wiki_root),
+        *(["--require-canonical-identity", "--operational-update"] if market == "HK" else []),
         "--apply",
     ], timeout=900)
     if result["returnCode"] != 0:

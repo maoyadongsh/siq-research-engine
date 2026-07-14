@@ -520,6 +520,22 @@ def test_hk_apply_rejects_nonempty_staging_output(tmp_path):
     assert payload["safety_errors"] == ["staging_output_must_be_new_or_empty"]
 
 
+def test_hk_operational_update_keeps_canonical_identity_gate(tmp_path):
+    base = {
+        "results_dir": tmp_path / "results",
+        "downloads_root": DEFAULT_DOWNLOADS_ROOT,
+        "output_root": DEFAULT_OUTPUT_ROOT,
+        "limit": 0,
+        "apply": True,
+        "operational_update": True,
+    }
+
+    missing_canonical = run(argparse.Namespace(**base, require_canonical_identity=False))
+
+    assert missing_canonical["blocked"] is True
+    assert missing_canonical["safety_errors"] == ["apply_requires_canonical_identity"]
+
+
 def test_audit_existing_staging_is_read_only_and_reports_evidence_contract(tmp_path, monkeypatch):
     output_root = tmp_path / "staging"
     package_dir = output_root / "companies" / "00700-TENCENT" / "reports" / "2025-annual"

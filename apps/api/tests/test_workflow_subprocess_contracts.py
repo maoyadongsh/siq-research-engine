@@ -477,6 +477,8 @@ def test_import_generic_wiki_routes_pdf_market_to_market_script(monkeypatch, tmp
                 str(result_dir.parent),
                 "--output-root",
                 str(wiki_root / "hk"),
+                "--require-canonical-identity",
+                "--operational-update",
                 "--apply",
             ],
             "timeout": 900,

@@ -1414,6 +1414,8 @@ def _apply_safety_errors(args: argparse.Namespace, output_root: Path) -> list[st
     errors: list[str] = []
     if not bool(args.require_canonical_identity):
         errors.append("apply_requires_canonical_identity")
+    if bool(getattr(args, "operational_update", False)):
+        return errors
     production_root = DEFAULT_OUTPUT_ROOT.resolve()
     if output_root == production_root or output_root.is_relative_to(production_root):
         errors.append("apply_requires_independent_staging_output")
@@ -1690,6 +1692,11 @@ def main() -> int:
         help="Fail closed unless every selected report resolves to one HKEX accession and source hash.",
     )
     parser.add_argument("--apply", action="store_true", help="Write files. Omit for dry-run.")
+    parser.add_argument(
+        "--operational-update",
+        action="store_true",
+        help="Allow the API workflow to update its configured Wiki root; canonical identity remains required.",
+    )
     parser.add_argument(
         "--audit-existing",
         action="store_true",
