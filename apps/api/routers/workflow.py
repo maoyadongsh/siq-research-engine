@@ -775,7 +775,13 @@ def _canonicalize_row_identity(builder, row: dict) -> dict:
         **identity,
         "reports": reports,
     }
-    canonical, _ = builder.canonicalize_company_json(payload)
+    canonicalizer = getattr(builder, "canonicalize_company_json", None)
+    if not callable(canonicalizer):
+        identity_module = sys.modules.get("company_identity")
+        canonicalizer = getattr(identity_module, "canonicalize_company_json", None)
+    if not callable(canonicalizer):
+        raise RuntimeError("Wiki company identity canonicalizer is unavailable")
+    canonical, _ = canonicalizer(payload)
     row["identity"] = {
         "company_id": canonical["company_id"],
         "stock_code": canonical["stock_code"],
