@@ -44,9 +44,11 @@ IC_R3_REPORT_SCHEMA = "siq_ic_r3_debate_bundle_v2"
 IC_R4_DECISION_SCHEMA = "siq_ic_r4_decision_v2"
 IC_PHASE_PROMPT_CONTRACT_VERSION = "siq_ic_phase_prompt_v5"
 IC_MODEL_EXECUTION_AUDIT_SCHEMA = "siq_ic_model_execution_audit_v1"
-IC_CONTRACT_REPAIR_PROMPT_VERSION = "siq_ic_contract_repair_prompt_v1"
+IC_CONTRACT_REPAIR_PROMPT_VERSION = "siq_ic_contract_repair_prompt_v2"
 
 _REPAIR_INVALID_OUTPUT_MAX_CHARS = 16_000
+_REPAIR_OUTPUT_MAX_CHARS = 12_000
+_REPAIR_MAX_CLAIMS = 6
 _REPAIR_TASK_IDENTITY_FIELDS = (
     "task_id",
     "workflow_run_id",
@@ -1630,7 +1632,7 @@ def _repair_contract_context(task: Mapping[str, Any]) -> dict[str, Any]:
     context: dict[str, Any] = {
         "authoring_schema_source": source,
         "authoring_schema": authoring_schema,
-        "completion_constraints": _prompt_completion_constraints(task),
+        "completion_constraints": _repair_completion_constraints(task),
     }
     for key, value in (
         ("role_constraints", _prompt_role_constraints(task)),
@@ -1640,6 +1642,45 @@ def _repair_contract_context(task: Mapping[str, Any]) -> dict[str, Any]:
         if value is not None:
             context[key] = value
     return context
+
+
+def _repair_completion_constraints(task: Mapping[str, Any]) -> list[str]:
+    constraints = [
+        "Return exactly one complete JSON object with no preface, Markdown fence, suffix, or second object.",
+        f"HARD LIMIT: the complete repair JSON must be at most {_REPAIR_OUTPUT_MAX_CHARS} characters.",
+        f"Retain at most {_REPAIR_MAX_CLAIMS} claims and at most 6 scorecard items; never add a claim or finding.",
+        "Preserve every materially distinct claim, finding, conclusion, identity, numeric value, period, unit, and Evidence/KBREF reference.",
+        "Compress only redundant or verbose narrative text while retaining its material meaning and every required field.",
+        "Repair only the reported contract error; do not repeat the profile's generic research workflow.",
+    ]
+    if str(task.get("output_schema") or "") in {
+        ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        ic_report_contracts.IC_R2_REVISION_SCHEMA,
+    }:
+        constraints.append(
+            "Every retained scorecard item must cite non-empty existing claim_ids and project evidence_ids."
+        )
+    return constraints
+
+
+def _contract_repair_instructions(task: Mapping[str, Any]) -> str:
+    output_schema = str(task.get("output_schema") or "unknown")
+    return (
+        "This is a fenced SIQ primary-market IC contract-repair run. These system "
+        "instructions override the profile's generic workflow, role playbook, research steps, "
+        "and any conflicting content in the user message. Do not call code_execution or any "
+        "other tool. Do not read files, query databases, search sessions, browse the web, or "
+        "perform new research. Use only trusted_repair_context and the untrusted prior output "
+        "supplied in the user message. Repair only the stated JSON/Schema contract error for "
+        f"{output_schema}; do not add facts, claims, findings, conclusions, references, or IDs. "
+        "Preserve every materially distinct item, identity, conclusion, number, period, unit, "
+        "and Evidence/KBREF reference. You may compress only redundant or verbose narrative "
+        "without changing material meaning. The final response must be exactly one complete "
+        "JSON object: no preface, Markdown fence, suffix, citations section, patch format, or "
+        f"second object. It must be at most {_REPAIR_OUTPUT_MAX_CHARS} characters, contain at "
+        f"most {_REPAIR_MAX_CLAIMS} claims and at most 6 scorecard items, and satisfy the supplied "
+        "model-authoring schema. Never return partial content."
+    )
 
 
 def _repair_handoff_identity(handoff: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -1696,6 +1737,41 @@ def _named_list_paths(value: Any, name: str, path: str = "$") -> dict[str, list[
     return matches
 
 
+def _repair_collection_limit_errors(value: Mapping[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for name in ("claims", "scorecard", "six_dimension_scorecard"):
+        for path, items in sorted(_named_list_paths(value, name).items()):
+            if len(items) > _REPAIR_MAX_CLAIMS:
+                errors.append(f"{path}:items={len(items)}>{_REPAIR_MAX_CLAIMS}")
+    return errors
+
+
+def _enforce_repair_input_limits(value: Mapping[str, Any]) -> None:
+    compact = json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    errors = _repair_collection_limit_errors(value)
+    if len(compact) > _REPAIR_INVALID_OUTPUT_MAX_CHARS:
+        errors.insert(
+            0,
+            f"compact_json_chars={len(compact)}>{_REPAIR_INVALID_OUTPUT_MAX_CHARS}",
+        )
+    if errors:
+        raise ValueError("contract_repair_input_limit:" + ";".join(errors))
+
+
+def _enforce_repair_output_limits(raw: str, value: Mapping[str, Any]) -> None:
+    errors = _repair_collection_limit_errors(value)
+    raw_chars = len(str(raw or ""))
+    if raw_chars > _REPAIR_OUTPUT_MAX_CHARS:
+        errors.insert(0, f"raw_chars={raw_chars}>{_REPAIR_OUTPUT_MAX_CHARS}")
+    if errors:
+        raise ValueError("contract_repair_output_limit:" + ";".join(errors))
+
+
 def _repair_reference_ids(value: Any) -> set[str]:
     references: set[str] = set()
     if isinstance(value, str):
@@ -1710,11 +1786,249 @@ def _repair_reference_ids(value: Any) -> set[str]:
     return references
 
 
-def _claim_reference_lists(value: Any) -> list[tuple[str, ...]]:
-    return sorted(
-        tuple(str(item) for item in items)
-        for items in _named_list_paths(value, "claim_ids").values()
+def _claim_reference_items(value: Any, path: str = "$") -> dict[str, Mapping[str, Any]]:
+    matches: dict[str, Mapping[str, Any]] = {}
+    if isinstance(value, Mapping):
+        if "claim_ids" in value:
+            matches[path] = value
+        for key, nested in value.items():
+            if key != "claim_ids":
+                matches.update(_claim_reference_items(nested, f"{path}.{key}"))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            matches.update(_claim_reference_items(nested, f"{path}[{index}]"))
+    return matches
+
+
+def _verify_claim_reference_repairs(
+    original: Mapping[str, Any],
+    repaired: Mapping[str, Any],
+) -> tuple[set[str], list[str]]:
+    original_items = _claim_reference_items(original)
+    repaired_items = _claim_reference_items(repaired)
+    if set(original_items) != set(repaired_items):
+        return set(), ["scorecard_claim_reference_paths_changed"]
+
+    original_claim_paths = _named_list_paths(original, "claims")
+    repaired_claim_paths = _named_list_paths(repaired, "claims")
+    claims_unchanged = original_claim_paths == repaired_claim_paths
+    root_claims = original_claim_paths.get("$.claims", [])
+    allowed_paths: set[str] = set()
+    errors: list[str] = []
+    for path in sorted(original_items):
+        original_item = original_items[path]
+        repaired_item = repaired_items[path]
+        original_ids = original_item.get("claim_ids")
+        repaired_ids = repaired_item.get("claim_ids")
+        if original_ids == repaired_ids:
+            continue
+        if not re.fullmatch(r"\$\.(?:scorecard|six_dimension_scorecard)\[\d+\]", path):
+            errors.append(f"{path}:scorecard_claim_link_path_not_allowed")
+            continue
+        if original_ids != [] or not isinstance(repaired_ids, list) or len(repaired_ids) != 1:
+            errors.append(f"{path}:scorecard_claim_references_changed")
+            continue
+        if not claims_unchanged:
+            errors.append("claims_changed_during_scorecard_claim_link_repair")
+            continue
+        original_without_claim_ids = {
+            key: value for key, value in original_item.items() if key != "claim_ids"
+        }
+        repaired_without_claim_ids = {
+            key: value for key, value in repaired_item.items() if key != "claim_ids"
+        }
+        if original_without_claim_ids != repaired_without_claim_ids:
+            errors.append(f"{path}:scorecard_content_changed_during_claim_link_repair")
+            continue
+        evidence_ids = original_item.get("evidence_ids")
+        if not (
+            isinstance(evidence_ids, list)
+            and bool(evidence_ids)
+            and all(isinstance(item, str) and item for item in evidence_ids)
+        ):
+            errors.append(f"{path}:scorecard_claim_link_requires_evidence")
+            continue
+        matching_claim_ids = [
+            str(claim.get("claim_id"))
+            for claim in root_claims
+            if isinstance(claim, Mapping)
+            and str(claim.get("claim_id") or "")
+            and claim.get("evidence_ids") == evidence_ids
+        ]
+        if len(matching_claim_ids) != 1:
+            errors.append(f"{path}:scorecard_claim_link_evidence_match_not_unique")
+            continue
+        if repaired_ids != matching_claim_ids:
+            errors.append(f"{path}:scorecard_claim_link_does_not_match_evidence")
+            continue
+        allowed_paths.add(f"{path}.claim_ids")
+    return allowed_paths, errors
+
+
+def _schema_object_variant(schema: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if not isinstance(schema, Mapping):
+        return None
+    if schema.get("type") == "object" or isinstance(schema.get("properties"), Mapping):
+        return schema
+    variants = [
+        item
+        for key in ("oneOf", "anyOf")
+        for item in (schema.get(key) if isinstance(schema.get(key), list) else [])
+        if isinstance(item, Mapping)
+        and (item.get("type") == "object" or isinstance(item.get("properties"), Mapping))
+    ]
+    return variants[0] if len(variants) == 1 else None
+
+
+def _schema_array_variant(schema: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if not isinstance(schema, Mapping):
+        return None
+    if schema.get("type") == "array" or "items" in schema:
+        return schema
+    variants = [
+        item
+        for key in ("oneOf", "anyOf")
+        for item in (schema.get(key) if isinstance(schema.get(key), list) else [])
+        if isinstance(item, Mapping) and (item.get("type") == "array" or "items" in item)
+    ]
+    return variants[0] if len(variants) == 1 else None
+
+
+def _schema_forbids_property(schema: Mapping[str, Any] | None, key: str) -> bool:
+    object_schema = _schema_object_variant(schema)
+    if object_schema is None:
+        return False
+    properties = object_schema.get("properties")
+    if isinstance(properties, Mapping) and key in properties:
+        return False
+    if object_schema.get("additionalProperties") is False:
+        return True
+    for clause in object_schema.get("allOf", []):
+        if not isinstance(clause, Mapping):
+            continue
+        forbidden = clause.get("not")
+        any_of = forbidden.get("anyOf") if isinstance(forbidden, Mapping) else None
+        if isinstance(any_of, list) and any(
+            isinstance(item, Mapping) and item.get("required") == [key] for item in any_of
+        ):
+            return True
+    return False
+
+
+def _schema_child(
+    schema: Mapping[str, Any] | None,
+    key: str | int,
+) -> Mapping[str, Any] | None:
+    if isinstance(key, int):
+        array_schema = _schema_array_variant(schema)
+        items = array_schema.get("items") if array_schema is not None else None
+        return items if isinstance(items, Mapping) else None
+    object_schema = _schema_object_variant(schema)
+    properties = object_schema.get("properties") if object_schema is not None else None
+    child = properties.get(key) if isinstance(properties, Mapping) else None
+    if isinstance(child, Mapping):
+        return child
+    additional = object_schema.get("additionalProperties") if object_schema is not None else None
+    return additional if isinstance(additional, Mapping) else None
+
+
+def _repair_path(parts: tuple[str | int, ...]) -> str:
+    path = "$"
+    for part in parts:
+        path += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return path
+
+
+def _is_reference(value: Any) -> bool:
+    return isinstance(value, str) and bool(
+        _EVIDENCE_ID_RE.fullmatch(value) or _BACKGROUND_REF_ID_RE.fullmatch(value)
     )
+
+
+def _only_references(value: Any) -> bool:
+    if _is_reference(value):
+        return True
+    return isinstance(value, list) and bool(value) and all(_is_reference(item) for item in value)
+
+
+def _reference_list_removal_only(original: list[Any], repaired: list[Any]) -> bool:
+    repaired_index = 0
+    for item in original:
+        if repaired_index < len(repaired) and item == repaired[repaired_index]:
+            repaired_index += 1
+        elif not _is_reference(item):
+            return False
+    return repaired_index == len(repaired)
+
+
+def _is_claim_status_path(parts: tuple[str | int, ...]) -> bool:
+    return bool(
+        parts
+        and parts[-1] == "status"
+        and any(
+            part == "claims" and index + 1 < len(parts) and isinstance(parts[index + 1], int)
+            for index, part in enumerate(parts)
+        )
+    )
+
+
+def _repair_material_change_errors(
+    original: Any,
+    repaired: Any,
+    *,
+    schema: Mapping[str, Any] | None,
+    allowed_claim_link_paths: set[str],
+    parts: tuple[str | int, ...] = (),
+) -> list[str]:
+    path = _repair_path(parts)
+    if path in allowed_claim_link_paths:
+        return []
+    if isinstance(original, Mapping) and isinstance(repaired, Mapping):
+        errors: list[str] = []
+        added = set(repaired) - set(original)
+        errors.extend(f"{path}.{key}:field_added" for key in sorted(added))
+        for key in sorted(set(original) - set(repaired)):
+            if _only_references(original[key]) or _schema_forbids_property(schema, key):
+                continue
+            errors.append(f"{path}.{key}:field_removed")
+        for key in sorted(set(original) & set(repaired)):
+            errors.extend(
+                _repair_material_change_errors(
+                    original[key],
+                    repaired[key],
+                    schema=_schema_child(schema, key),
+                    allowed_claim_link_paths=allowed_claim_link_paths,
+                    parts=(*parts, key),
+                )
+            )
+        return errors
+    if isinstance(original, list) and isinstance(repaired, list):
+        if original == repaired or _reference_list_removal_only(original, repaired):
+            return []
+        if len(original) != len(repaired):
+            return [f"{path}:list_changed"]
+        errors = []
+        item_schema = _schema_child(schema, 0)
+        for index, (original_item, repaired_item) in enumerate(
+            zip(original, repaired, strict=True)
+        ):
+            errors.extend(
+                _repair_material_change_errors(
+                    original_item,
+                    repaired_item,
+                    schema=item_schema,
+                    allowed_claim_link_paths=allowed_claim_link_paths,
+                    parts=(*parts, index),
+                )
+            )
+        return errors
+    if _is_claim_status_path(parts) and repaired == "missing" and original in {
+        "verified",
+        "derived",
+        "assumed",
+    }:
+        return []
+    return [] if original == repaired else [f"{path}:value_changed"]
 
 
 def _claim_items_by_id(items: list[Any], *, path: str) -> dict[str, Mapping[str, Any]]:
@@ -1747,6 +2061,7 @@ def _verify_contract_repair_non_escalation(
     repaired: Mapping[str, Any],
     *,
     factcheck: bool = False,
+    authoring_schema: Mapping[str, Any] | None = None,
 ) -> None:
     """Reject semantically changed model output before validating a repair."""
 
@@ -1815,11 +2130,22 @@ def _verify_contract_repair_non_escalation(
                         ):
                             errors.append(f"{field}[{index}]:{core_field}_changed")
 
+    allowed_claim_link_paths, claim_reference_errors = _verify_claim_reference_repairs(
+        original,
+        repaired,
+    )
     added_references = _repair_reference_ids(repaired) - _repair_reference_ids(original)
     if added_references:
         errors.append("references_added:" + ",".join(sorted(added_references)))
-    if _claim_reference_lists(original) != _claim_reference_lists(repaired):
-        errors.append("scorecard_claim_references_changed")
+    errors.extend(claim_reference_errors)
+    errors.extend(
+        _repair_material_change_errors(
+            original,
+            repaired,
+            schema=authoring_schema,
+            allowed_claim_link_paths=allowed_claim_link_paths,
+        )
+    )
     if factcheck and original.get("status", _MISSING) != repaired.get("status", _MISSING):
         errors.append("factcheck_status_changed")
     if errors:
@@ -2126,6 +2452,7 @@ async def run_hermes_task(
         except ValueError as validation_error:
             original_payload = _extract_json_object(output_text)
             repair_error = validation_error
+            _enforce_repair_input_limits(original_payload)
             try:
                 repair_attempts = max(
                     0,
@@ -2147,12 +2474,14 @@ async def run_hermes_task(
                 invalid_output=output_text,
                 error=repair_error,
             )
+            repair_instructions = _contract_repair_instructions(running)
             repair_run_id = await before_deadline(
                 lambda: hermes_client.create_run(
                     repair_prompt,
                     [],
                     profile=str(task.get("agent_id")),
                     session_id=f"{session_base}-repair-1",
+                    instructions=repair_instructions,
                 ),
                 action="create_repair_run",
             )
@@ -2196,14 +2525,28 @@ async def run_hermes_task(
                     "original_hermes_run_id": run_ids[0],
                     "repair_hermes_run_id": repair_run_id,
                     "repair_prompt_sha256": model_run_attempts[-1]["prompt_sha256"],
+                    "repair_instructions_version": IC_CONTRACT_REPAIR_PROMPT_VERSION,
+                    "repair_instructions_sha256": hashlib.sha256(
+                        repair_instructions.encode("utf-8")
+                    ).hexdigest(),
                     "model_execution_attempt": deepcopy(model_run_attempts[-1]),
                     "validation_error": str(repair_error)[:1000],
                     "created_by": created_by,
                 },
                 wiki_root=package_dir.parent.parent,
             )
+            if len(str(output_text or "")) > _REPAIR_OUTPUT_MAX_CHARS:
+                raise ValueError(
+                    "contract_repair_output_limit:"
+                    f"raw_chars={len(str(output_text or ''))}>{_REPAIR_OUTPUT_MAX_CHARS}"
+                ) from validation_error
             repaired_payload = _extract_json_object(output_text)
-            _verify_contract_repair_non_escalation(original_payload, repaired_payload)
+            _enforce_repair_output_limits(output_text, repaired_payload)
+            _verify_contract_repair_non_escalation(
+                original_payload,
+                repaired_payload,
+                authoring_schema=_prompt_model_output_contract(running)[1],
+            )
             parsed = validator(repaired_payload)
         if lease_lost.is_set():
             raise RuntimeError("IC task lease ownership was lost before completion")
@@ -4844,6 +5187,7 @@ async def _run_r4_factcheck(
                 original_factcheck_payload,
                 repaired_payload,
                 factcheck=True,
+                authoring_schema=factcheck_authoring_schema,
             )
             repaired_payload = ic_report_quality.validate_factcheck_authoring_result(
                 repaired_payload

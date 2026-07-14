@@ -488,8 +488,10 @@ def test_phase_and_repair_prompts_include_authoritative_r0_json_schema():
         assert '"task_assignments"' in prompt
         assert '"material_completeness": {' in prompt
         assert '"type": "object"' in prompt
-        assert "single final top-level closing brace" in prompt
-        assert "never emit a second top-level object" in prompt
+    assert "single final top-level closing brace" in phase_prompt
+    assert "never emit a second top-level object" in phase_prompt
+    assert "Return exactly one complete JSON object" in repair_prompt
+    assert "at most 12000 characters" in repair_prompt
 
 
 @pytest.mark.parametrize(
@@ -590,7 +592,6 @@ def test_expert_prompts_include_current_role_required_fields_and_non_empty_rule(
         assert "must be non-empty" in prompt
         assert "HARD LIMIT" in prompt
         assert "at most 6 claims" in prompt
-        assert "Every scorecard item must cite" in prompt
         assert "authoritative server-managed field override" in prompt
         assert "MUST be omitted from the model response" in prompt
         assert "authoritative custom validator invariants" in prompt
@@ -598,6 +599,8 @@ def test_expert_prompts_include_current_role_required_fields_and_non_empty_rule(
         assert "A derived claim MUST contain project Evidence IDs" in prompt
         assert "Do not create claims merely to discuss irrelevant" in prompt
         assert "Claims may cite task-envelope KBREF values" in prompt
+    assert "Every scorecard item must cite" in phase_prompt
+    assert "Every retained scorecard item must cite" in repair_prompt
 
 
 def test_repair_prompt_projects_only_minimal_trusted_context_and_bounds_invalid_output():
@@ -652,6 +655,7 @@ def test_repair_prompt_projects_only_minimal_trusted_context_and_bounds_invalid_
             "decision_relevant_claim_requires_evidence:CLM-STRAT-EXIT-005"
         ),
     )
+    instructions = ic_phase_orchestrator._contract_repair_instructions(task)
 
     assert len(prompt) < 38_000
     assert "TASK-SENSITIVE-REDUNDANCY" not in prompt
@@ -671,6 +675,15 @@ def test_repair_prompt_projects_only_minimal_trusted_context_and_bounds_invalid_
     assert "INVALID-OUTPUT-TAIL-SENTINEL" not in prompt
     assert "禁止调用任何工具" in prompt
     assert "最终输出仍会经过完整正式 validator" in prompt
+    assert "fenced SIQ primary-market IC contract-repair run" in instructions
+    assert "override the profile's generic workflow" in instructions
+    assert "Do not call code_execution or any other tool" in instructions
+    assert "exactly one complete JSON object" in instructions
+    assert "at most 12000 characters" in instructions
+    assert "at most 6 claims" in instructions
+    assert "Preserve every materially distinct item" in instructions
+    assert "Never return partial content" in instructions
+    assert "at most 12000 characters" in prompt
 
 
 def test_expert_model_authoring_schema_omits_server_managed_fields():
@@ -860,7 +873,149 @@ def test_contract_repair_non_escalation_accepts_projection_and_safe_missing_down
     repaired["claims"][0]["status"] = "missing"
     repaired["claims"][0].pop("model_only_note")
 
+    _, authoring_schema = ic_phase_orchestrator._prompt_model_output_contract(
+        {
+            "task_id": "ICTASK-REPAIR-PROJECTION",
+            "agent_id": AGENT_ID,
+            "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        }
+    )
+    ic_phase_orchestrator._verify_contract_repair_non_escalation(
+        original,
+        repaired,
+        authoring_schema=authoring_schema,
+    )
+
+
+def test_contract_repair_non_escalation_allows_only_empty_scorecard_claim_link_fill():
+    original = _model_output()
+    original["scorecard"][0]["claim_ids"] = []
+    repaired = deepcopy(original)
+    repaired["scorecard"][0]["claim_ids"] = [original["claims"][0]["claim_id"]]
+
     ic_phase_orchestrator._verify_contract_repair_non_escalation(original, repaired)
+
+
+def test_contract_repair_non_escalation_rejects_unsafe_scorecard_claim_link_fills():
+    original = _model_output()
+    original["scorecard"][0]["claim_ids"] = []
+
+    changed = deepcopy(original)
+    changed["scorecard"][0]["claim_ids"] = ["CLM-STRATEGY-NEW"]
+    with pytest.raises(ValueError, match="scorecard_claim_link_does_not_match_evidence"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    second_claim = deepcopy(original["claims"][0])
+    second_claim["claim_id"] = "CLM-STRATEGY-002"
+    second_claim["evidence_ids"] = ["EVID-DEAL-IC-MODEL-001-000002"]
+    original_with_two_claims = deepcopy(original)
+    original_with_two_claims["claims"].append(second_claim)
+    original_with_two_claims["scorecard"][0]["claim_ids"] = []
+    changed = deepcopy(original_with_two_claims)
+    changed["scorecard"][0]["claim_ids"] = [second_claim["claim_id"]]
+    with pytest.raises(ValueError, match="scorecard_claim_link_does_not_match_evidence"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(
+            original_with_two_claims,
+            changed,
+        )
+
+    ambiguous = deepcopy(original_with_two_claims)
+    ambiguous["claims"][1]["evidence_ids"] = [EVIDENCE_ID]
+    changed = deepcopy(ambiguous)
+    changed["scorecard"][0]["claim_ids"] = [ambiguous["claims"][0]["claim_id"]]
+    with pytest.raises(ValueError, match="scorecard_claim_link_evidence_match_not_unique"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(ambiguous, changed)
+
+    non_scorecard = deepcopy(original)
+    non_scorecard["red_flags"] = [{"message": "Material flag", "claim_ids": []}]
+    changed = deepcopy(non_scorecard)
+    changed["red_flags"][0]["claim_ids"] = [original["claims"][0]["claim_id"]]
+    with pytest.raises(ValueError, match="scorecard_claim_link_path_not_allowed"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(non_scorecard, changed)
+
+    changed = deepcopy(original)
+    changed["scorecard"][0]["claim_ids"] = [original["claims"][0]["claim_id"]]
+    changed["scorecard"][0]["evidence_ids"].append(
+        "EVID-DEAL-IC-MODEL-001-999999"
+    )
+    with pytest.raises(ValueError) as exc:
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+    assert "scorecard_content_changed_during_claim_link_repair" in str(exc.value)
+    assert "references_added:EVID-DEAL-IC-MODEL-001-999999" in str(exc.value)
+
+    changed = deepcopy(original)
+    changed["scorecard"][0]["claim_ids"] = [original["claims"][0]["claim_id"]]
+    changed["claims"][0]["confidence"] = "low"
+    with pytest.raises(ValueError, match="claims_changed_during_scorecard_claim_link_repair"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+
+def test_contract_repair_non_escalation_rejects_material_numeric_and_score_rewrites():
+    original = _model_output()
+    original["claims"][0].update({"value": 1, "raw_value": "1"})
+    changed = deepcopy(original)
+    changed["score"] = 99
+    changed["confidence"] = "high"
+    changed["claims"][0].update(
+        {
+            "confidence": "high",
+            "period": "2027",
+            "value": 999,
+            "raw_value": "999",
+            "unit": "USD",
+            "currency": "USD",
+        }
+    )
+    changed["scorecard"][0].update(
+        {"score": 100, "weight": 100, "rationale": "Unsupported upgrade."}
+    )
+
+    with pytest.raises(ValueError) as exc:
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    message = str(exc.value)
+    for path in (
+        "$.score:value_changed",
+        "$.confidence:value_changed",
+        "$.claims[0].confidence:value_changed",
+        "$.claims[0].period:value_changed",
+        "$.claims[0].value:value_changed",
+        "$.claims[0].raw_value:value_changed",
+        "$.claims[0].unit:value_changed",
+        "$.claims[0].currency:value_changed",
+        "$.scorecard[0].score:value_changed",
+        "$.scorecard[0].weight:value_changed",
+        "$.scorecard[0].rationale:value_changed",
+    ):
+        assert path in message
+
+
+def test_contract_repair_size_and_collection_limits_fail_closed():
+    oversized = _model_output()
+    oversized["unexpected_blob"] = "x" * 16_000
+    with pytest.raises(ValueError, match="contract_repair_input_limit:compact_json_chars="):
+        ic_phase_orchestrator._enforce_repair_input_limits(oversized)
+
+    too_many_claims = _model_output()
+    too_many_claims["claims"] = [deepcopy(too_many_claims["claims"][0]) for _ in range(7)]
+    with pytest.raises(ValueError, match=r"\$\.claims:items=7>6"):
+        ic_phase_orchestrator._enforce_repair_input_limits(too_many_claims)
+
+    too_many_scorecards = _model_output()
+    too_many_scorecards["scorecard"] = [
+        deepcopy(too_many_scorecards["scorecard"][0]) for _ in range(7)
+    ]
+    with pytest.raises(ValueError, match=r"\$\.scorecard:items=7>6"):
+        ic_phase_orchestrator._enforce_repair_input_limits(too_many_scorecards)
+
+    valid = _model_output()
+    with pytest.raises(ValueError, match="contract_repair_output_limit:raw_chars=12001>12000"):
+        ic_phase_orchestrator._enforce_repair_output_limits("x" * 12_001, valid)
+    with pytest.raises(ValueError, match=r"\$\.claims:items=7>6"):
+        ic_phase_orchestrator._enforce_repair_output_limits(
+            json.dumps(too_many_claims, ensure_ascii=False),
+            too_many_claims,
+        )
 
 
 def test_contract_repair_non_escalation_rejects_semantic_and_reference_changes():
@@ -1044,30 +1199,54 @@ def test_r0_coordinator_uses_private_kb_and_writes_readiness_plan(monkeypatch, t
 def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     package_dir = _package(tmp_path)
     run_ids = iter(["run-invalid", "run-repair"])
-    prompts: list[str] = []
+    calls: list[dict[str, str | None]] = []
     invalid_output = deepcopy(_model_output())
-    invalid_output["claims"][0].update(
-        {
-            "claim_id": "CLM-STRAT-EXIT-005",
-            "status": "assumed",
-            "evidence_ids": [],
-            "assumption": "Exit timing is assumed.",
-            "verification_method": "Obtain current exit-market Evidence.",
-        }
-    )
-    invalid_output["scorecard"][0]["claim_ids"] = ["CLM-STRAT-EXIT-005"]
+    invalid_output["scorecard"][0]["claim_ids"] = []
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
-        prompts.append(prompt)
+    async def fake_create_run(
+        prompt,
+        history,
+        *,
+        profile,
+        session_id=None,
+        instructions=None,
+    ):
+        calls.append(
+            {
+                "prompt": prompt,
+                "profile": profile,
+                "session_id": session_id,
+                "instructions": instructions,
+            }
+        )
         return next(run_ids)
 
     repaired_output = deepcopy(invalid_output)
-    repaired_output["claims"][0]["status"] = "missing"
+    repaired_output["scorecard"][0]["claim_ids"] = [
+        repaired_output["claims"][0]["claim_id"]
+    ]
 
     async def fake_collect(run_id, *, profile, timeout=None):
-        if run_id == "run-invalid":
-            return json.dumps(invalid_output, ensure_ascii=False)
-        return json.dumps(repaired_output, ensure_ascii=False)
+        output = json.dumps(
+            invalid_output if run_id == "run-invalid" else repaired_output,
+            ensure_ascii=False,
+        )
+        ic_phase_orchestrator.hermes_client._remember_run_terminal(
+            ic_phase_orchestrator.hermes_client.RunTerminalResult(
+                run_id=run_id,
+                status="succeeded",
+                received_text=output,
+                runtime=ic_phase_orchestrator.hermes_client.RunRuntimeMetadata(
+                    requested_model=AGENT_ID,
+                    configured_provider="minimax-cn",
+                    configured_model="MiniMax-M3",
+                    effective_provider="minimax-cn",
+                    effective_model="MiniMax-M3",
+                    fallback_activated=False,
+                ),
+            )
+        )
+        return output
 
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
@@ -1080,17 +1259,28 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     )
 
     assert result["execution"]["repair_attempted"] is True
-    assert result["report"]["claims"][0]["status"] == "missing"
+    assert result["report"]["scorecard"][0]["claim_ids"] == ["CLM-STRATEGY-001"]
     assert result["report"]["hermes_run_ids"] == ["run-invalid", "run-repair"]
-    assert len(prompts) == 2
-    assert (
-        "decision_relevant_claim_requires_evidence:CLM-STRAT-EXIT-005"
-        in prompts[1]
-    )
-    assert EVIDENCE_ID in prompts[1]
-    assert KBREF_ID in prompts[1]
-    assert "validated handoff:\n" not in prompts[1]
+    assert len(calls) == 2
+    assert calls[0]["instructions"] is None
+    repair_instructions = str(calls[1]["instructions"] or "")
+    assert "fenced SIQ primary-market IC contract-repair run" in repair_instructions
+    assert "override the profile's generic workflow" in repair_instructions
+    assert "Do not call code_execution or any other tool" in repair_instructions
+    assert "exactly one complete JSON object" in repair_instructions
+    assert "at most 12000 characters" in repair_instructions
+    assert "$['scorecard'][0]['claim_ids']" in str(calls[1]["prompt"])
+    assert EVIDENCE_ID in str(calls[1]["prompt"])
+    assert KBREF_ID in str(calls[1]["prompt"])
+    assert "validated handoff:\n" not in str(calls[1]["prompt"])
     task = result["execution"]["task"]
+    model_audit = task["model_execution_audit"]
+    assert model_audit["runtime_metadata_status"] == "verified"
+    assert [item["purpose"] for item in model_audit["attempts"]] == [
+        "generation",
+        "contract_repair",
+    ]
+    assert all(item["terminal_status"] == "succeeded" for item in model_audit["attempts"])
     assert set(task["output_artifact_hashes"]) == set(task["output_artifact_paths"])
     for relative_path, expected_hash in task["output_artifact_hashes"].items():
         assert hashlib.sha256((package_dir / relative_path).read_bytes()).hexdigest() == expected_hash
@@ -1102,12 +1292,104 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
         "validated_by": "ic_phase_orchestrator",
     }
     audit = deal_store.read_json(package_dir / "audit" / "audit_log.json", {})
-    assert any(event["event_type"] == "ic_phase_hermes_contract_repair_attempted" for event in audit["events"])
+    repair_event = next(
+        event
+        for event in audit["events"]
+        if event["event_type"] == "ic_phase_hermes_contract_repair_attempted"
+    )
+    assert repair_event["repair_instructions_version"] == "siq_ic_contract_repair_prompt_v2"
+    assert repair_event["repair_instructions_sha256"] == hashlib.sha256(
+        repair_instructions.encode()
+    ).hexdigest()
+    assert repair_event["model_execution_attempt"] == model_audit["attempts"][1]
     completion = next(event for event in audit["events"] if event["event_type"] == "ic_phase_hermes_task_completed")
     assert completion["prompt_contract_version"] == "siq_ic_phase_prompt_v5"
     assert completion["handoff_digest"] == task["handoff_digest"]
     assert completion["output_artifact_hashes"] == task["output_artifact_hashes"]
     assert completion["contract_validation"]["passed"] is True
+
+
+def test_r1_model_task_rejects_oversized_repair_input_before_second_run(
+    monkeypatch,
+    tmp_path,
+):
+    package_dir = _package(tmp_path)
+    create_calls = 0
+    invalid_output = _model_output()
+    invalid_output["unexpected_blob"] = "x" * 16_000
+    invalid_output["claims"][0]["evidence_ids"] = []
+
+    async def fake_create_run(
+        prompt,
+        history,
+        *,
+        profile,
+        session_id=None,
+        instructions=None,
+    ):
+        nonlocal create_calls
+        create_calls += 1
+        return f"run-oversized-repair-input-{create_calls}"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        return json.dumps(invalid_output, ensure_ascii=False)
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(ValueError, match="contract_repair_input_limit:compact_json_chars="):
+        asyncio.run(
+            ic_phase_orchestrator.run_r1_model_task(
+                package_dir,
+                agent_id=AGENT_ID,
+                receipt=_receipt(),
+            )
+        )
+    assert create_calls == 1
+
+
+def test_r1_model_task_rejects_oversized_repair_output_before_acceptance(
+    monkeypatch,
+    tmp_path,
+):
+    package_dir = _package(tmp_path)
+    create_calls = 0
+    invalid_output = _model_output()
+    invalid_output["scorecard"][0]["claim_ids"] = []
+    repaired_output = deepcopy(invalid_output)
+    repaired_output["scorecard"][0]["claim_ids"] = [
+        repaired_output["claims"][0]["claim_id"]
+    ]
+    repaired_output["unexpected_blob"] = "x" * 12_000
+
+    async def fake_create_run(
+        prompt,
+        history,
+        *,
+        profile,
+        session_id=None,
+        instructions=None,
+    ):
+        nonlocal create_calls
+        create_calls += 1
+        return f"run-oversized-repair-output-{create_calls}"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        payload = invalid_output if create_calls == 1 else repaired_output
+        return json.dumps(payload, ensure_ascii=False)
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(ValueError, match="contract_repair_output_limit:raw_chars="):
+        asyncio.run(
+            ic_phase_orchestrator.run_r1_model_task(
+                package_dir,
+                agent_id=AGENT_ID,
+                receipt=_receipt(),
+            )
+        )
+    assert create_calls == 2
 
 
 def test_r1_model_task_does_not_repair_unparseable_output(monkeypatch, tmp_path):
@@ -1151,7 +1433,14 @@ def test_r1_model_task_revalidates_and_rejects_invalid_repair_output(monkeypatch
     )
     invalid_output["scorecard"][0]["claim_ids"] = ["CLM-STRAT-EXIT-005"]
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
+    async def fake_create_run(
+        prompt,
+        history,
+        *,
+        profile,
+        session_id=None,
+        instructions=None,
+    ):
         return next(run_ids)
 
     async def fake_collect(run_id, *, profile, timeout=None):

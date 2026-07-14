@@ -42,6 +42,58 @@ uv run --project apps/api python scripts/hermes/run_primary_market_ic_real_smoke
   --timeout 2400 --real
 ```
 
+## Record a trusted R4 human confirmation
+
+Human confirmation is an authenticated API action, not a fixture-generation or release-gate action. The caller must be a named SIQ user with the `report.create` permission and write access to the Deal. The router derives `confirmed_by.id` and `confirmed_by.username` from the authenticated user; never add `confirmed_by`, an actor ID, or an approval timestamp to the request body.
+
+First inspect the current decision and record the exact `report_id`, `revision`, `workflow_run_id`, and `evidence_snapshot_hash`. The report quality must allow human confirmation, and the quality and factcheck identities must match that same report revision and snapshot:
+
+```bash
+export SIQ_API_BASE="https://siq.example.internal"
+export SIQ_USER_ACCESS_TOKEN="<token issued by the normal SIQ login flow>"
+export DEAL_ID="DEAL-PMIC-POSITIVE-COND-2026"
+
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer $SIQ_USER_ACCESS_TOKEN" \
+  "$SIQ_API_BASE/api/deals/$DEAL_ID/decision" \
+  | jq '{
+      report_id: .decision.report_id,
+      revision: .decision.revision,
+      workflow_run_id: .decision.workflow_run_id,
+      evidence_snapshot_hash: .decision.evidence_snapshot_hash,
+      quality: (.quality | {report_id, report_revision, evidence_snapshot_hash, status, allowed_for_human_confirmation}),
+      factcheck: (.factcheck | {report_id, report_revision, evidence_snapshot_hash, status})
+    }'
+```
+
+Use the same endpoint for preview and write. Always run the preview first and review its `confirmation_gate`, server-derived actor, report identity, snapshot, and `decision_sha256`, `quality_sha256`, and `factcheck_sha256`. A preview must return `dry_run: true` and `would_write: false`:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  -X POST \
+  -H "Authorization: Bearer $SIQ_USER_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"status":"confirmed","dry_run":true}' \
+  "$SIQ_API_BASE/api/deals/$DEAL_ID/decision/human-confirmation" \
+  | jq -e '.dry_run == true and .would_write == false and .confirmation_gate.allowed == true'
+```
+
+Only after the named user has reviewed that exact preview may the user perform the write:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  -X POST \
+  -H "Authorization: Bearer $SIQ_USER_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"status":"confirmed","dry_run":false}' \
+  "$SIQ_API_BASE/api/deals/$DEAL_ID/decision/human-confirmation" \
+  | jq -e '.dry_run == false and .decision_contract.human_confirmation.status == "confirmed"'
+```
+
+Re-read the decision and audit endpoints. Reading the audit endpoint additionally requires `audit.view` and Deal view access; an independent named audit user may perform that verification when the confirmer does not hold `audit.view`. The stored confirmation must contain `siq_ic_human_confirmation_attestation_v1`, the expected report revision and snapshot, all three 64-character digests, and exactly one matching `r4_human_confirmation_updated` audit event. Treat the stored write response as authoritative; if its identity differs from the reviewed preview, do not use it in a golden result or methodology approval.
+
+`rejected`, `needs_revision`, and `overridden` require an `override_reason`. They are valid review outcomes, but they do not make a release candidate eligible: the v3 release gate requires a trusted `confirmed` R4 confirmation. The conditional-support candidate and the initial stale-snapshot candidate each require their own authenticated confirmation; one confirmation cannot be copied to another Deal or revision.
+
 The stale-snapshot case is two-stage. Complete and human-confirm its initial R0-R4 run first, then activate the committed update source through the normal Evidence refresh path:
 
 ```bash
@@ -82,6 +134,65 @@ python3 scripts/maintenance/run_primary_market_ic_golden_evaluator.py bind \
 
 The binding remains a candidate artifact with `quality_accepted: false`. The evaluator never changes the manifest, marks a case accepted, or converts a failed path into a passing assertion. Distinct Deal IDs, real-smoke run IDs, result IDs, bundle paths, and result SHA-256 digests are mandatory.
 
+## Record independent methodology approval
+
+The methodology approver must be a named person independent from the R4 confirmer. The approver reviews the source artifacts, not only stored `passed` booleans. At minimum, review and revalidate these five candidate bundles:
+
+- `GOLDEN-PMIC-CONDITIONAL-SUPPORT`
+- `GOLDEN-PMIC-MATERIAL-RISK`
+- `GOLDEN-PMIC-INSUFFICIENT-EVIDENCE`
+- `GOLDEN-PMIC-FULL-R3`
+- `GOLDEN-PMIC-SNAPSHOT-STALE`
+
+For every candidate, run `run_primary_market_ic_golden_evaluator.py validate` and inspect `release/golden_case_result.json`, every referenced `evaluation/golden/*.json` artifact, the real-smoke run ID, Deal ID, Evidence snapshot, and source artifact digests. Then inspect `release/golden_case_bindings.json`: it must contain five distinct Deal, run, result, bundle-path, and result-digest identities and `status: passed`. Compute the digest only after that review and do not change the binding file afterward:
+
+```bash
+sha256sum "$SIQ_PMIC_RELEASE_BUNDLE/release/golden_case_bindings.json"
+```
+
+The approver must also review the release Deal's current `phases/r4_decision.json`, `decision/report_quality.json`, `decision/factcheck.json`, completed workflow run, and unique human-confirmation audit event. The approval is stored outside the mutable checkout and supplied through `SIQ_PMIC_HUMAN_APPROVAL`. The following is a field template for the governed review record; it is not a generator and placeholders must be replaced by the approver or the organization's approval system from the reviewed artifacts:
+
+```json
+{
+  "schema_version": "siq_ic_human_methodology_approval_v3",
+  "deal_id": "<release Deal ID>",
+  "status": "approved",
+  "approved_by": {
+    "id": "<methodology owner directory ID>",
+    "name": "<methodology owner full name>"
+  },
+  "approved_at": "<timezone-aware ISO-8601 timestamp>",
+  "methodology_version": "<reviewed PMIC methodology version>",
+  "scope": "primary_market_ic_behavior_release",
+  "golden_case_suite_id": "<suite_id from golden_case_bindings.json>",
+  "golden_case_bindings_sha256": "<SHA-256 of the exact reviewed binding file bytes>",
+  "report_binding": {
+    "report_id": "<current R4 report_id>",
+    "revision": 1,
+    "evidence_snapshot_hash": "<current R4 Evidence snapshot hash>"
+  },
+  "human_confirmation_binding": {
+    "status": "confirmed",
+    "confirmed_by": {
+      "id": "<exact server-derived confirmer ID>",
+      "username": "<exact server-derived confirmer username>"
+    },
+    "confirmed_at": "<exact stored confirmation timestamp>",
+    "audit_event_created_at": "<exact matching audit event timestamp>",
+    "attestation_schema_version": "siq_ic_human_confirmation_attestation_v1",
+    "report_id": "<exact attested report_id>",
+    "report_revision": 1,
+    "workflow_run_id": "<exact attested workflow_run_id>",
+    "evidence_snapshot_hash": "<exact attested snapshot hash>",
+    "decision_sha256": "<exact server-generated attestation digest>",
+    "quality_sha256": "<exact server-generated attestation digest>",
+    "factcheck_sha256": "<exact server-generated attestation digest>"
+  }
+}
+```
+
+The template's revision value `1` is illustrative. Replace both revision fields with the exact current integer revision. Copy the confirmation attestation fields exactly; do not recompute them with a different JSON serializer. Time ordering is mandatory: `confirmed_at` must be no later than the matching audit event, and `approved_at` must be later than both the confirmation and its audit event. Any later change to a candidate result, binding file, R4 decision, quality report, factcheck report, confirmation, or audit invalidates the approval and requires a new review.
+
 ## Run the gate
 
 Use the `Primary-market IC release gate` workflow manually with `run-release=true`, or let the nightly schedule execute it. A missing variable, missing golden binding, invalid report, nonzero gate result, `passed != true`, or `release_eligible != true` fails the job. The JSON/Markdown report is uploaded even when the v3 evaluation produces blockers.
@@ -100,6 +211,12 @@ python3 scripts/maintenance/run_primary_market_ic_release_gate.py \
   --output-markdown artifacts/eval-runs/primary-market-ic/ci-release/release-gate.md
 ```
 
-The release report schema must be `siq_primary_market_ic_behavior_release_gate_v3`. Versioned domain artifacts may still legitimately use their current v1/v2 schema IDs; that does not mean the workflow is invoking an older release gate. Formal model tasks must use prompt contract v5, and v3 validates that binding.
+The release report schema must be `siq_primary_market_ic_behavior_release_gate_v3`. Versioned domain artifacts may still legitimately use their current v1/v2 schema IDs; that does not mean the workflow is invoking an older release gate. Formal model tasks must use prompt contract v5, and v3 validates that binding. A valid release result has `passed: true` and `release_eligible: true`, while retaining `quality_accepted_written: false` and `candidate_promotion_performed: false`.
 
-A passing gate establishes release eligibility only. It does not mutate the golden manifest, promote a candidate, or write `quality_accepted`; promotion remains a separate reviewed governance action.
+## Promote only through a reviewed change
+
+A passing gate establishes release eligibility only. It does not mutate the golden manifest, promote a candidate, or write `quality_accepted`. Archive the immutable v3 JSON/Markdown gate result and the reviewed input digests before promotion.
+
+Promotion is a separate pull request reviewed by the designated PMIC governance owner. That pull request may update `agents/hermes/profiles/siq_ic_shared/golden_case_manifest.json` and the corresponding entries in `openclaw_script_migration_matrix.json`; it must cite the PASS gate artifact, golden binding digest, methodology approval identity, and reviewed methodology version. Update only behaviors covered by the accepted evidence, preserve known gaps for uncovered behavior, and record the named reviewer and review time according to repository governance.
+
+Do not add an automatic promotion command to the evaluator, release gate, CI workflow, or fixture generator. Do not commit an approval synthesized by a test or service account. The candidate gate intentionally evaluates pre-promotion state, so obtain and archive its PASS result before the reviewed manifest/matrix change; future candidate suites must use a new suite identity rather than rewriting the evidence behind an accepted one.

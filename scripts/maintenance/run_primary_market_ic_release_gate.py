@@ -3110,9 +3110,15 @@ def _golden_case_binding_metric(
 def _named_actor(value: Any) -> str:
     if not isinstance(value, dict):
         return ""
-    actor_id = str(value.get("id") or value.get("user_id") or "").strip()
+    actor_id = _actor_id(value)
     display_name = str(value.get("username") or value.get("name") or "").strip()
     return display_name if actor_id and display_name else ""
+
+
+def _actor_id(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return str(value.get("id") or value.get("user_id") or "").strip()
 
 
 def _trusted_actor(value: Any) -> dict[str, Any] | None:
@@ -3136,16 +3142,18 @@ def _human_confirmation_metric(
     confirmation = r4_payload.get("human_confirmation") if isinstance(r4_payload, dict) else None
     if not isinstance(confirmation, dict):
         return {"passed": False, "status": "missing", "errors": ["r4_human_confirmation_missing"]}
-    status = str(confirmation.get("status") or "").lower()
+    status = str(confirmation.get("status") or "").strip().lower()
     errors: list[str] = []
-    if status not in {"confirmed", "approved"}:
+    if status != "confirmed":
         errors.append(f"r4_human_confirmation_not_confirmed:{status or 'missing'}")
     if confirmation.get("confirmed") is not True:
         errors.append("r4_human_confirmation_boolean_not_true")
-    actor = _trusted_actor(confirmation.get("confirmed_by") or confirmation.get("approved_by"))
+    if "approved_by" in confirmation:
+        errors.append("r4_human_confirmation_approved_by_forbidden")
+    actor = _trusted_actor(confirmation.get("confirmed_by"))
     if actor is None:
         errors.append("r4_human_confirmation_trusted_actor_missing")
-    confirmed_at = str(confirmation.get("confirmed_at") or confirmation.get("approved_at") or "").strip()
+    confirmed_at = str(confirmation.get("confirmed_at") or "").strip()
     if _parse_timestamp(confirmed_at) is None:
         errors.append("r4_human_confirmation_time_invalid")
 
@@ -3254,8 +3262,13 @@ def _methodology_approval_metric(
         errors.append("human_methodology_approval_deal_id_mismatch")
     if str(payload.get("status") or "").lower() != "approved":
         errors.append("human_methodology_approval_not_approved")
-    if not _named_actor(payload.get("approved_by")):
+    approved_by = payload.get("approved_by")
+    approver_id = _actor_id(approved_by)
+    if not _named_actor(approved_by):
         errors.append("human_methodology_approval_actor_missing")
+    confirmation_actor_id = _actor_id(human_confirmation.get("actor"))
+    if approver_id and confirmation_actor_id and approver_id == confirmation_actor_id:
+        errors.append("human_methodology_approval_actor_not_independent")
     approved_at = _parse_timestamp(payload.get("approved_at"))
     if approved_at is None:
         errors.append("human_methodology_approval_time_invalid")
@@ -3300,10 +3313,10 @@ def _methodology_approval_metric(
                 errors.append(f"human_methodology_approval_confirmation_{key}_mismatch")
     confirmation_time = _parse_timestamp(human_confirmation.get("confirmed_at"))
     audit_time = _parse_timestamp(human_confirmation.get("audit_event_created_at"))
-    if approved_at is not None and confirmation_time is not None and approved_at < confirmation_time:
-        errors.append("human_methodology_approval_precedes_confirmation")
-    if approved_at is not None and audit_time is not None and approved_at < audit_time:
-        errors.append("human_methodology_approval_precedes_confirmation_audit")
+    if approved_at is not None and confirmation_time is not None and approved_at <= confirmation_time:
+        errors.append("human_methodology_approval_not_after_confirmation")
+    if approved_at is not None and audit_time is not None and approved_at <= audit_time:
+        errors.append("human_methodology_approval_not_after_confirmation_audit")
     return {
         "passed": not errors,
         "report_id": expected_report_id,

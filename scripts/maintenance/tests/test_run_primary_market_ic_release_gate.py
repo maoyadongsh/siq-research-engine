@@ -2496,6 +2496,63 @@ def test_gate_rejects_unidentified_methodology_approver(tmp_path):
     assert "human_methodology_approval_actor_missing" in approval_errors
 
 
+def test_gate_rejects_methodology_approver_matching_r4_confirmer(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(tmp_path, module)
+    approval_path = bundle / "release/human_methodology_approval.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["approved_by"] = {"id": 7, "name": "R4 Confirmer"}
+    _write_json(approval_path, approval)
+
+    report = module.build_report(bundle=bundle)
+
+    approval_errors = report["bundle"]["metrics"]["human_methodology_approval"]["errors"]
+    assert report["passed"] is False
+    assert report["bundle"]["release_eligible"] is False
+    assert "human_methodology_approval_actor_not_independent" in approval_errors
+
+
+def test_gate_rejects_legacy_approved_confirmation_aliases(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(tmp_path, module)
+    decision_path = bundle / "phases/r4_decision.json"
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    confirmation = decision["human_confirmation"]
+    confirmation["status"] = "approved"
+    confirmation["approved_by"] = confirmation.pop("confirmed_by")
+    _write_json(decision_path, decision)
+
+    report = module.build_report(bundle=bundle)
+
+    confirmation_errors = report["bundle"]["metrics"]["human_confirmation"]["errors"]
+    assert report["passed"] is False
+    assert report["bundle"]["release_eligible"] is False
+    assert "r4_human_confirmation_not_confirmed:approved" in confirmation_errors
+    assert "r4_human_confirmation_approved_by_forbidden" in confirmation_errors
+    assert "r4_human_confirmation_trusted_actor_missing" in confirmation_errors
+
+
+def test_gate_requires_methodology_approval_strictly_after_confirmation_and_audit(tmp_path):
+    module = _load_module()
+    cases = (
+        ("confirmed_at", "human_methodology_approval_not_after_confirmation"),
+        ("audit_event_created_at", "human_methodology_approval_not_after_confirmation_audit"),
+    )
+    for timestamp_key, expected_error in cases:
+        bundle = _make_complete_bundle(tmp_path / timestamp_key, module)
+        approval_path = bundle / "release/human_methodology_approval.json"
+        approval = json.loads(approval_path.read_text(encoding="utf-8"))
+        approval["approved_at"] = approval["human_confirmation_binding"][timestamp_key]
+        _write_json(approval_path, approval)
+
+        report = module.build_report(bundle=bundle)
+
+        approval_errors = report["bundle"]["metrics"]["human_methodology_approval"]["errors"]
+        assert report["passed"] is False
+        assert report["bundle"]["release_eligible"] is False
+        assert expected_error in approval_errors
+
+
 def test_gate_rejects_reused_or_tampered_golden_case_bindings(tmp_path):
     module = _load_module()
     bundle = _make_complete_bundle(tmp_path, module)

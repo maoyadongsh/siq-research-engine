@@ -2,10 +2,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "primary-market-ic-release-gate.yml"
+RUNBOOK_PATH = REPO_ROOT / "docs" / "runbooks" / "primary-market-ic-release-gate.md"
 
 
 def _workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
+def _runbook_text() -> str:
+    return RUNBOOK_PATH.read_text(encoding="utf-8")
 
 
 def test_main_ci_calls_primary_market_ic_contract_gate():
@@ -45,6 +50,35 @@ def test_contract_job_covers_offline_golden_evaluation_and_stale_activation():
     for path in linted_implementations:
         assert contract_job.count(path) == 1
     assert "--real" not in contract_job
+
+
+def test_runbook_requires_named_two_person_review_and_never_auto_promotes():
+    runbook = _runbook_text()
+
+    for marker in (
+        "report.create",
+        "audit.view",
+        "/api/deals/$DEAL_ID/decision/human-confirmation",
+        "{\"status\":\"confirmed\",\"dry_run\":true}",
+        "{\"status\":\"confirmed\",\"dry_run\":false}",
+        "siq_ic_human_confirmation_attestation_v1",
+        "siq_ic_human_methodology_approval_v3",
+        "golden_case_bindings_sha256",
+        "quality_accepted_written: false",
+        "candidate_promotion_performed: false",
+        "Promotion is a separate pull request",
+    ):
+        assert marker in runbook
+    for case_id in (
+        "GOLDEN-PMIC-CONDITIONAL-SUPPORT",
+        "GOLDEN-PMIC-MATERIAL-RISK",
+        "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
+        "GOLDEN-PMIC-FULL-R3",
+        "GOLDEN-PMIC-SNAPSHOT-STALE",
+    ):
+        assert case_id in runbook
+    assert "never add `confirmed_by`" in runbook
+    assert "Do not add an automatic promotion command" in runbook
 
 
 def test_release_workflow_requires_real_evidence_bindings_and_fails_closed():
