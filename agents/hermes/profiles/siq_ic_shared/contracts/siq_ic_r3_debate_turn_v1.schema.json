@@ -1,0 +1,52 @@
+{
+  "$id": "siq_ic_r3_debate_turn_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "argument": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "claim_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "responds_to_argument_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "unanswered_points": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "argument",
+    "claim_ids",
+    "evidence_ids",
+    "responds_to_argument_ids",
+    "unanswered_points"
+  ],
+  "type": "object"
+}

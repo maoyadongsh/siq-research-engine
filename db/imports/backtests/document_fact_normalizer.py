@@ -50,8 +50,10 @@ def enriched_evidence(evidence: Any, tables: dict[int, dict[str, Any]]) -> dict[
     table_index = result.get("table_index")
     table = tables.get(table_index) if isinstance(table_index, int) else None
     if isinstance(table, dict):
-        result.setdefault("page_number", table.get("page_number"))
-        result.setdefault("bbox", table.get("bbox"))
+        if result.get("page_number") in (None, ""):
+            result["page_number"] = table.get("page_number") or table.get("pdf_page_number")
+        if result.get("bbox") in (None, "", [], {}):
+            result["bbox"] = table.get("bbox")
     return result
 
 
@@ -117,6 +119,23 @@ def normalize_financial_data_facts(
         for item in statement.get("items") or []:
             if not isinstance(item, dict):
                 continue
+            raw_scale = item.get("scale") or statement_scale
+            item_unit, item_currency = normalized_fact_unit_currency(
+                unit=item.get("unit") or statement_unit,
+                currency=item.get("fact_currency") or item.get("currency") or statement_currency,
+                scale=raw_scale,
+            )
+            item_scale = normalized_fact_scale(unit=item_unit, scale=raw_scale)
+            reporting_currency = (
+                financial_data.get("reporting_currency")
+                or financial_data.get("presentation_currency")
+                or item_currency
+            )
+            presentation_currency = (
+                financial_data.get("presentation_currency")
+                or financial_data.get("reporting_currency")
+                or item_currency
+            )
             if isinstance(item.get("values"), dict):
                 raw_values = item.get("raw_values") if isinstance(item.get("raw_values"), dict) else {}
                 sources = item.get("sources") if isinstance(item.get("sources"), dict) else {}
@@ -130,16 +149,12 @@ def normalize_financial_data_facts(
                             canonical_name=item.get("canonical_name"),
                             name=item.get("name") or item.get("local_name"),
                             label=item.get("label"),
-                            unit=item.get("unit") or statement_unit,
-                            currency=item.get("currency") or statement_currency,
-                            fact_currency=item.get("fact_currency") or item.get("currency") or statement_currency,
-                            reporting_currency=financial_data.get("reporting_currency")
-                            or financial_data.get("presentation_currency")
-                            or statement_currency,
-                            presentation_currency=financial_data.get("presentation_currency")
-                            or financial_data.get("reporting_currency")
-                            or statement_currency,
-                            scale=item.get("scale") or statement_scale,
+                            unit=item_unit,
+                            currency=item_currency,
+                            fact_currency=item_currency,
+                            reporting_currency=reporting_currency,
+                            presentation_currency=presentation_currency,
+                            scale=item_scale,
                             evidence=enriched_evidence(sources.get(period_key), tables),
                         )
                     )
@@ -157,20 +172,81 @@ def normalize_financial_data_facts(
                     canonical_name=item.get("canonical_name"),
                     name=item.get("local_name") or item.get("name"),
                     label=item.get("label"),
-                    unit=item.get("unit") or statement_unit,
-                    currency=item.get("currency") or statement_currency,
-                    fact_currency=item.get("fact_currency") or item.get("currency") or statement_currency,
-                    reporting_currency=financial_data.get("reporting_currency")
-                    or financial_data.get("presentation_currency")
-                    or statement_currency,
-                    presentation_currency=financial_data.get("presentation_currency")
-                    or financial_data.get("reporting_currency")
-                    or statement_currency,
-                    scale=item.get("scale") or statement_scale,
+                    unit=item_unit,
+                    currency=item_currency,
+                    fact_currency=item_currency,
+                    reporting_currency=reporting_currency,
+                    presentation_currency=presentation_currency,
+                    scale=item_scale,
                     evidence=enriched_evidence(item.get("evidence"), tables),
                 )
             )
     return facts
+
+
+def normalized_fact_unit_currency(
+    *,
+    unit: Any,
+    currency: Any,
+    scale: Any,
+) -> tuple[Any, Any]:
+    """Recover fact dimensions from explicit unit markers before market defaults.
+
+    Some PDF table headers are flattened into a long ``unit`` string. The
+    currency marker and scale remain authoritative even when the surrounding
+    header text is noisy.
+    """
+
+    raw_unit = str(unit or "").strip()
+    raw_currency = str(currency or "").strip() or None
+    upper_unit = raw_unit.upper()
+    detected_currency = None
+    for marker, canonical in (
+        ("RMB", "RMB"),
+        ("CNY", "CNY"),
+        ("HKD", "HKD"),
+        ("USD", "USD"),
+        ("EUR", "EUR"),
+        ("JPY", "JPY"),
+        ("KRW", "KRW"),
+        ("GBP", "GBP"),
+        ("CHF", "CHF"),
+    ):
+        if marker in upper_unit:
+            detected_currency = canonical
+            break
+    if detected_currency is None and "百万円" in raw_unit:
+        detected_currency = "JPY" if raw_currency in {None, "JPY"} else raw_currency
+    if detected_currency is None and "백만원" in raw_unit:
+        detected_currency = "KRW" if raw_currency in {None, "KRW"} else raw_currency
+
+    resolved_currency = detected_currency or raw_currency
+    scale_decimal = as_decimal(scale)
+    million_marker = any(
+        marker in upper_unit
+        for marker in ("MILLION", "MN", "MM")
+    ) or any(marker in raw_unit for marker in ("百万円", "백만원"))
+    if resolved_currency and scale_decimal == Decimal("1000000") and million_marker:
+        return f"{resolved_currency} million", resolved_currency
+    return unit, resolved_currency
+
+
+def normalized_fact_scale(*, unit: Any, scale: Any) -> Any:
+    """Return the monetary multiplier encoded by an explicit display unit.
+
+    Legacy EU parser output records values in a declared ``EUR million`` unit
+    while leaving the numeric scale at the identity default.  The display unit
+    is explicit source metadata, so it is safe to recover the multiplier in the
+    read-only normalization layer without changing the extracted value.
+    """
+
+    raw_unit = " ".join(str(unit or "").strip().upper().split())
+    scale_decimal = as_decimal(scale)
+    if scale_decimal not in (None, Decimal("1")):
+        return scale
+    if "MILLION" in raw_unit:
+        return 1000000
+    return scale
 
 
 def normalize_sec_facts(document_full: dict[str, Any]) -> list[NormalizedFact]:
@@ -204,8 +280,9 @@ def normalize_sec_facts(document_full: dict[str, Any]) -> list[NormalizedFact]:
 
 
 def as_decimal(value: Any) -> Decimal | None:
+    text = str(value).strip().replace(",", "").replace("，", "")
     try:
-        return Decimal(str(value))
+        return Decimal(text)
     except (InvalidOperation, ValueError):
         return None
 
@@ -326,6 +403,8 @@ __all__ = [
     "has_reviewable_evidence",
     "normalize_document_facts",
     "normalize_financial_data_facts",
+    "normalized_fact_scale",
+    "normalized_fact_unit_currency",
     "normalize_sec_facts",
     "stable_json_hash",
     "stable_row_list",

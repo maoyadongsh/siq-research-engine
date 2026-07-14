@@ -3,13 +3,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTRACTS_SRC = REPO_ROOT / "packages" / "market-contracts" / "src"
+if str(CONTRACTS_SRC) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS_SRC))
+
+from siq_market_contracts import validate_evidence_package  # noqa: E402
+
 DEFAULT_WIKI_ROOT = REPO_ROOT / "data" / "wiki"
 PDF_MARKETS = ("HK", "EU", "JP", "KR")
 
@@ -145,7 +151,16 @@ def audit_package(package_dir: Path, market: str) -> dict[str, Any]:
     has_financial_layer = (package_dir / "metrics" / "financial_data.json").exists() and (package_dir / "metrics" / "financial_checks.json").exists()
     has_evidence_layer = (package_dir / "qa" / "quality_report.json").exists() and (package_dir / "qa" / "source_map.json").exists()
     has_table_index = (package_dir / "tables" / "table_index.json").exists() or (package_dir / "parser" / "table_index.json").exists()
-    can_postgres_import = has_financial_layer and has_evidence_layer
+    try:
+        contract_validation = validate_evidence_package(package_dir)
+        contract_ok = contract_validation.ok
+        contract_errors = contract_validation.errors
+        contract_warnings = contract_validation.warnings
+    except (OSError, ValueError) as exc:
+        contract_ok = False
+        contract_errors = [f"validator_error:{type(exc).__name__}"]
+        contract_warnings = []
+    can_postgres_import = has_financial_layer and has_evidence_layer and contract_ok
     can_basic_wiki = has_document_full and has_report_markdown and has_financial_layer and has_evidence_layer and has_table_index
     can_note_relation_extract = has_document_full and has_table_relations
     can_agent_deep_research = can_basic_wiki and can_note_relation_extract and not missing_root and not missing_parser
@@ -181,6 +196,11 @@ def audit_package(package_dir: Path, market: str) -> dict[str, Any]:
             "can_postgres_import": can_postgres_import,
             "can_note_relation_extract": can_note_relation_extract,
             "can_agent_deep_research": can_agent_deep_research,
+        },
+        "package_contract": {
+            "ok": contract_ok,
+            "errors": contract_errors,
+            "warnings": contract_warnings,
         },
     }
 

@@ -26,6 +26,9 @@ const webServerPort = parseTcpPort(parsedBaseURL.port, 'PLAYWRIGHT_BASE_URL port
 
 export default defineConfig({
   testDir: './e2e/tests',
+  // Meeting routes are compiled behind a Vite flag and have dedicated
+  // enabled/disabled suites. Keep the default suite focused on existing apps.
+  testIgnore: '**/meeting-*.spec.ts',
   timeout: 30_000,
   fullyParallel: false,
   reporter: [['list'], ['html', { open: 'never' }]],
@@ -38,7 +41,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `SIQ_FRONTEND_PORT=${webServerPort} npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
+    command: `VITE_SIQ_MEETINGS_ENABLED=0 VITE_SIQ_MEETING_IMPORT_ENABLED=0 SIQ_FRONTEND_PORT=${webServerPort} npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,

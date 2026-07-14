@@ -61,6 +61,48 @@ def test_assistant_display_and_failed_history_replies_hide_polluted_output():
     assert guard._failed_run_reply_for_history("") == guard.RUN_FAILED_MESSAGE
 
 
+def test_external_tool_loop_guard_replies_are_polluted_and_sanitized():
+    replies = (
+        (
+            "I stopped retrying terminal because it hit the tool-call guardrail "
+            "(same_tool_failure_halt) after 5 repeated non-progressing attempts."
+        ),
+        "[Tool loop hard stop: repeated tool calls made no progress]",
+    )
+
+    for reply in replies:
+        assert guard._is_loop_polluted_assistant_message(reply) is True
+
+        sanitized = guard._sanitize_assistant_history_reply(reply)
+        assert sanitized == guard.HISTORY_LOOP_SANITIZED_MESSAGE
+        assert reply not in sanitized
+        assert "same_tool_failure_halt" not in sanitized
+        assert "I stopped retrying terminal" not in sanitized
+        assert "[Tool loop hard stop:" not in sanitized
+
+        assert guard._assistant_reply_for_display(reply) == guard.OUTPUT_LOOP_STOP_MESSAGE
+        assert guard._failed_run_reply_for_history(reply) == guard.OUTPUT_LOOP_STOP_MESSAGE
+
+
+def test_external_tool_loop_stream_filter_holds_split_markers_without_delaying_normal_text():
+    normal = guard.ExternalToolLoopStreamFilter()
+    assert normal.feed("正常回答") == "正常回答"
+    assert normal.feed("，继续。") == "，继续。"
+    assert normal.feed("", final=True) == ""
+    assert normal.blocked is False
+
+    guarded = guard.ExternalToolLoopStreamFilter()
+    assert guarded.feed("I stopped retrying ") == ""
+    assert guarded.feed("terminal because the tool loop stopped.") == ""
+    assert guarded.blocked is True
+
+    late_marker = guard.ExternalToolLoopStreamFilter()
+    assert late_marker.feed("已验证内容。") == "已验证内容。"
+    assert late_marker.feed("same_tool_") == ""
+    assert late_marker.feed("failure_halt") == ""
+    assert late_marker.blocked is True
+
+
 def test_assistant_history_strips_backend_guardrail_diagnostic():
     content = (
         "结论可由原始数据支持。\n\n"

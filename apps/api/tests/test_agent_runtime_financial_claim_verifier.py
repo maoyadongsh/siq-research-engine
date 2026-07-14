@@ -867,6 +867,28 @@ def test_evidence_recompute_accepts_strict_rounded_goodwill_reconciliation():
     assert result.allowed is True
 
 
+def test_unit_normalization_does_not_misbind_repeated_reconciliation_operands():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "商誉账面原值 348.13 亿元，减值准备余额 5.56 亿元，账面净值 342.57 亿元。\n"
+        "## 勾稽校验\n"
+        "348.13 亿元（原值） - 5.56 亿元（减值准备） = 342.57 亿元（账面价值）。\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        require_reconciliation=True,
+        expected_operations=frozenset({"normalize_amount"}),
+        trusted_evidence=_trusted_goodwill_evidence(),
+    )
+
+    assert result.allowed is True
+    assert {run["operation"] for run in result.runs} == {"normalize_amount", "goodwill_reconciliation"}
+
+
 @pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))
 def test_evidence_recompute_accepts_common_financial_minus_glyphs(minus_sign: str):
     result = _validate_goodwill_reconciliation(
@@ -1283,6 +1305,48 @@ def test_evidence_recompute_accepts_directional_growth_and_decline_percentages(
     )
 
     assert result.allowed is True
+
+
+def test_claim_verifier_distinguishes_prior_allowance_balance_from_current_change():
+    previous = _trusted_period_goodwill_fact(
+        "goodwill_impairment_allowance",
+        "商誉减值准备",
+        "2024-12-31",
+        "569005",
+        "midea-allowance-2024",
+        ("商誉减值准备", "减值准备", "减值准备余额"),
+    )
+    current = _trusted_period_goodwill_fact(
+        "goodwill_impairment_allowance",
+        "商誉减值准备",
+        "2025-12-31",
+        "556411",
+        "midea-allowance-2025",
+        ("商誉减值准备", "减值准备", "减值准备余额"),
+    )
+    change = _trusted_period_goodwill_fact(
+        "goodwill_impairment_allowance_absolute_change",
+        "商誉减值准备变动额",
+        "2025-12-31",
+        "12594",
+        "midea-allowance-change-2025",
+        ("商誉减值准备变动", "减值准备", "减值准备减少", "本期减少", "绝对变动"),
+    )
+    change["change_direction"] = "decrease"
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = verify_financial_claims(
+        "减值准备余额较 2024 年末的 5.69 亿元小幅下降 0.13 亿元"
+        f"（减少 12,594 千元）。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(previous, current, change),
+    )
+
+    assert result.allowed is True
+    assert {(claim.metric, claim.period_text) for claim in result.claims} == {
+        ("goodwill_impairment_allowance", "2024"),
+        ("goodwill_impairment_allowance_absolute_change", ""),
+    }
 
 
 @pytest.mark.parametrize(
@@ -1708,6 +1772,98 @@ def test_evidence_recompute_accepts_explicit_natural_language_component_ratios()
     assert result.allowed is True
     assert len(result.runs) == 3
     assert {run["operation"] for run in result.runs} == {"ratio"}
+
+
+def test_evidence_recompute_accepts_goodwill_total_as_gross_denominator_alias():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    evidence = list(_trusted_saic_top2_ratio_evidence())
+    evidence[0] = {
+        **evidence[0],
+        "aliases": ("华域视觉科技(上海)有限公司", "华域视觉"),
+    }
+    evidence[-1] = {
+        **evidence[-1],
+        "aliases": ("商誉原值", "账面原值", "商誉总额"),
+    }
+    reply = (
+        "华域视觉原值占商誉总额 60.93%。\n"
+        "| 华域视觉 | 781,115,081.73 元 |\n"
+        "| 商誉账面原值 | 1,282,085,915.36 元 |\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=tuple(evidence),
+    )
+
+    assert result.allowed is True
+    assert {run["operation"] for run in result.runs} == {"ratio"}
+
+
+def test_evidence_recompute_binds_repeated_goodwill_analysis_by_local_semantics():
+    previous_net = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2024-12-31",
+        "29581014",
+        "midea-net-2024",
+        ("商誉", "商誉净额", "商誉账面价值"),
+    )
+    current_net = _trusted_period_goodwill_fact(
+        "goodwill_net",
+        "商誉净额",
+        "2025-12-31",
+        "34256859",
+        "midea-net-2025",
+        ("商誉", "商誉净额", "商誉账面价值"),
+    )
+    component = _trusted_period_goodwill_fact(
+        "goodwill_component_kuka",
+        "KUKA 集团",
+        "2025-12-31",
+        "23435302",
+        "midea-kuka-2025",
+        ("KUKA 集团", "KUKA"),
+    )
+    gross = _trusted_period_goodwill_fact(
+        "goodwill_gross",
+        "商誉账面原值",
+        "2025-12-31",
+        "34813270",
+        "midea-gross-2025",
+        ("商誉原值", "账面原值", "商誉总额"),
+    )
+    evidence = (previous_net, current_net, component, gross)
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "## 结论\n"
+        "- 商誉账面价值同比增长 15.81%。\n"
+        "- 商誉高度集中于 KUKA 集团，其原值占商誉总额 67.32%。\n\n"
+        "### 商誉净额\n"
+        "- 同比增量 4,675,845 千元，增幅 15.81%。\n"
+        "- KUKA 集团原值占商誉总额比例：67.32%。\n"
+        "| KUKA 集团 | 23,435,302 千元 |\n"
+        "| 商誉账面原值 | 34,813,270 千元 |\n\n"
+        "## 计算器校验\n"
+        "- 商誉同比增幅：15.81%。\n"
+        "- KUKA 集团占比：67.32%。\n"
+        f"{source}"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy", "yoy_growth", "ratio"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert {run["operation"] for run in result.runs} == {"yoy", "ratio"}
 
 
 def test_evidence_recompute_rejects_natural_language_component_ratios_without_denominator():

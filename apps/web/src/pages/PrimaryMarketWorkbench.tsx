@@ -5,6 +5,8 @@ import {
   ArrowRight,
   BriefcaseBusiness,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   FileSearch,
   FolderOpen,
@@ -32,6 +34,8 @@ import {
   type PrimaryMarketProjectRow,
 } from '@/features/primary-market/primaryMarketViewModel'
 
+const PROJECT_PAGE_SIZE = 50
+
 function projectHref(path: string, dealId: string) {
   const params = new URLSearchParams({ dealId })
   return `${path}?${params.toString()}`
@@ -55,13 +59,13 @@ function sortRows(rows: PrimaryMarketProjectRow[]) {
   })
 }
 
-function metricCards(metrics: ReturnType<typeof deriveProjectMetrics>) {
+function metricCards(metrics: ReturnType<typeof deriveProjectMetrics>, pageScoped: boolean) {
   return [
     { label: '项目总数', value: metrics.total, icon: BriefcaseBusiness, tone: 'info' as const },
     { label: '进行中', value: metrics.active, icon: Clock3, tone: 'neutral' as const },
-    { label: '阻断中', value: metrics.blocked, icon: AlertTriangle, tone: metrics.blocked ? 'error' as const : 'success' as const },
-    { label: '待人工确认', value: metrics.decisionPending, icon: CheckCircle2, tone: metrics.decisionPending ? 'warning' as const : 'neutral' as const },
-    { label: '可推进', value: metrics.ready, icon: GitBranch, tone: metrics.ready ? 'success' as const : 'neutral' as const },
+    { label: pageScoped ? '当前页阻断' : '阻断中', value: metrics.blocked, icon: AlertTriangle, tone: metrics.blocked ? 'error' as const : 'success' as const },
+    { label: pageScoped ? '当前页待确认' : '待人工确认', value: metrics.decisionPending, icon: CheckCircle2, tone: metrics.decisionPending ? 'warning' as const : 'neutral' as const },
+    { label: pageScoped ? '当前页可推进' : '可推进', value: metrics.ready, icon: GitBranch, tone: metrics.ready ? 'success' as const : 'neutral' as const },
   ]
 }
 
@@ -116,6 +120,7 @@ export default function PrimaryMarketWorkbench() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
+  const [page, setPage] = useState(1)
 
   const refresh = useCallback(() => {
     setRefreshing(true)
@@ -129,10 +134,10 @@ export default function PrimaryMarketWorkbench() {
       setError('')
       setStatusErrors({})
       try {
-        const payload = await fetchPrimaryMarketProjects({ q: query, page: 1, page_size: 50, include_status: true }, controller.signal)
+        const payload = await fetchPrimaryMarketProjects({ q: query, page, page_size: PROJECT_PAGE_SIZE, include_status: true }, controller.signal)
         const deals = Array.isArray(payload.deals) ? payload.deals : []
-        setData({ deals, stats: payload.stats })
         if (controller.signal.aborted) return
+        setData({ ...payload, deals })
         setStatuses(payload.status_summaries || {})
       } catch (err) {
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : '一级市场项目加载失败')
@@ -144,19 +149,35 @@ export default function PrimaryMarketWorkbench() {
       }
     })()
     return () => controller.abort()
-  }, [query, reloadKey])
+  }, [page, query, reloadKey])
 
   const rows = useMemo(
     () => sortRows(data.deals.map((deal) => deriveProjectRow(deal, statuses[deal.deal_id]))),
     [data.deals, statuses],
   )
-  const metrics = useMemo(() => deriveProjectMetrics(rows), [rows])
+  const pageMetrics = useMemo(() => deriveProjectMetrics(rows), [rows])
+  const metrics = useMemo(
+    () => ({
+      ...pageMetrics,
+      total: data.stats?.total ?? pageMetrics.total,
+      active: data.stats?.active ?? pageMetrics.active,
+    }),
+    [data.stats, pageMetrics],
+  )
+  const totalProjects = data.pagination?.total ?? data.stats?.total ?? rows.length
+  const currentPage = data.pagination?.page ?? page
+  const pageSize = data.pagination?.page_size ?? PROJECT_PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(totalProjects / pageSize))
+  const firstVisibleProject = totalProjects && rows.length ? (currentPage - 1) * pageSize + 1 : 0
+  const lastVisibleProject = firstVisibleProject ? firstVisibleProject + rows.length - 1 : 0
+  const isMultiPage = totalProjects > pageSize
   const blockers = rows.filter((row) => row.category === 'blocked').slice(0, 6)
   const humanQueue = rows.filter((row) => row.category === 'decision_pending').slice(0, 6)
   const phaseCounts = phaseDistribution(rows)
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setPage(1)
     setQuery(queryDraft.trim())
   }
 
@@ -182,7 +203,7 @@ export default function PrimaryMarketWorkbench() {
       ) : (
         <>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {metricCards(metrics).map((metric) => {
+            {metricCards(metrics, isMultiPage).map((metric) => {
               const Icon = metric.icon
               return (
                 <Surface key={metric.label} kind="card">
@@ -206,7 +227,9 @@ export default function PrimaryMarketWorkbench() {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.8fr)]">
             <PageSection
               title="项目池"
-              description={`${rows.length} 个一级市场项目。状态失败会降级展示，不阻塞列表。`}
+              description={totalProjects
+                ? `共 ${totalProjects} 个一级市场项目，当前显示 ${firstVisibleProject}-${lastVisibleProject}。状态失败会降级展示，不阻塞列表。`
+                : '当前没有可展示的一级市场项目。状态失败会降级展示，不阻塞列表。'}
               actions={
                 <form onSubmit={submitSearch} className="flex min-w-0 gap-2">
                   <Input
@@ -232,9 +255,10 @@ export default function PrimaryMarketWorkbench() {
               ) : rows.length === 0 ? (
                 <EmptyState icon={BriefcaseBusiness} title="暂无一级市场项目" description="当前 Deal OS 中没有可展示的 deal package。" />
               ) : (
-                <div className="grid gap-3">
-                  {rows.map((row) => (
-                    <Surface key={row.deal.deal_id} kind="row" padding="md" className="overflow-hidden">
+                <div className="space-y-4">
+                  <div className="grid gap-3">
+                    {rows.map((row) => (
+                      <Surface key={row.deal.deal_id} kind="row" padding="md" className="overflow-hidden">
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                         <div className="min-w-0 flex-1 space-y-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -285,14 +309,44 @@ export default function PrimaryMarketWorkbench() {
                         </div>
                         <ProjectActions deal={row.deal} className="xl:w-[240px]" />
                       </div>
-                    </Surface>
-                  ))}
+                      </Surface>
+                    ))}
+                  </div>
+                  {totalPages > 1 ? (
+                    <div className="flex min-h-10 items-center justify-between gap-3 border-t border-border pt-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={() => setPage((value) => Math.max(1, value - 1))}
+                        disabled={loading || currentPage <= 1}
+                        aria-label="上一页"
+                        title="上一页"
+                      >
+                        <ChevronLeft />
+                      </Button>
+                      <p className="min-w-28 text-center text-sm text-text-muted" aria-live="polite">
+                        第 {currentPage} / {totalPages} 页
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-sm"
+                        onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+                        disabled={loading || !data.pagination?.has_more}
+                        aria-label="下一页"
+                        title="下一页"
+                      >
+                        <ChevronRight />
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </PageSection>
 
             <div className="space-y-5">
-              <PageSection title="待办队列" compact>
+              <PageSection title={isMultiPage ? '当前页待办队列' : '待办队列'} compact>
                 <div className="space-y-3">
                   {blockers.length ? (
                     <div className="space-y-2">
@@ -338,7 +392,7 @@ export default function PrimaryMarketWorkbench() {
                 </div>
               </PageSection>
 
-              <PageSection title="阶段分布" compact>
+              <PageSection title={isMultiPage ? '当前页阶段分布' : '阶段分布'} compact>
                 {phaseCounts.length ? (
                   <div className="space-y-2">
                     {phaseCounts.map(([phase, count]) => (

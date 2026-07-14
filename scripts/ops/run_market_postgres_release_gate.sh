@@ -9,6 +9,30 @@ OUTPUT_DIR="${SIQ_MARKET_POSTGRES_GATE_OUTPUT_DIR:-${REPO_ROOT}/artifacts/eval-r
 PYTHON_BIN="${PYTHON:-python3}"
 DEFAULT_AGENT_MEMORY_RETRIEVAL_CASES="eval_datasets/agent_memory_retrieval_contract/cases.json"
 DEFAULT_AGENT_MEMORY_VECTOR_SEED_PROFILES="siq_assistant,siq_ic_legal_scanner,siq_ic_chairman"
+RELEASE_GATE_REPO_SCRIPTS=(
+  scripts/hermes/check_agent_memory_vector_health.py
+  scripts/hermes/ingest_agent_memory_to_milvus.py
+  scripts/maintenance/audit_market_postgres_fixture_contamination.py
+  scripts/maintenance/check_production_config.py
+  scripts/maintenance/compare_financial_quality_baselines.py
+  scripts/maintenance/run_financial_qa_benchmark.py
+  scripts/maintenance/run_live_financial_qa_benchmark.py
+  scripts/maintenance/run_market_document_full_postgres_gate.py
+  scripts/maintenance/run_market_ingestion_eval.py
+  scripts/maintenance/run_parser_financial_golden_gate.py
+  scripts/maintenance/run_parser_financial_pdf_release_gate.py
+  scripts/maintenance/run_performance_baseline.py
+  scripts/maintenance/run_permission_negative_report.py
+  scripts/maintenance/write_release_artifact_manifest.py
+  scripts/ops/run_restore_matrix.py
+)
+
+for repo_script in "${RELEASE_GATE_REPO_SCRIPTS[@]}"; do
+  if [[ ! -f "$REPO_ROOT/$repo_script" ]]; then
+    echo "Release gate repository dependency is missing: $repo_script" >&2
+    exit 2
+  fi
+done
 
 load_release_gate_config() {
   local config_file="${SIQ_PRODUCTION_CONFIG_FILE:-}"
@@ -31,7 +55,10 @@ load_release_gate_config() {
       SIQ_PRODUCTION_CONFIG_REQUIRED|SIQ_PARSER_FINANCIAL_PDF_GATE_MODE|SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED|\
       SIQ_LIVE_MODEL_BENCHMARK_MODE|SIQ_LIVE_MODEL_BENCHMARK_REQUIRED|SIQ_LIVE_MODEL_URL|SIQ_LIVE_MODEL_AUTH_TOKEN|\
       SIQ_LIVE_MODEL_PROTOCOL|SIQ_LIVE_MODEL_TIMEOUT|SIQ_LIVE_MODEL_NAME|SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED|\
-      SIQ_PERMISSION_NEGATIVE_GATE_SKIP|SIQ_RESTORE_MATRIX_REQUIRED|SIQ_RESTORE_MATRIX_BACKUP_DIR|SIQ_RESTORE_MATRIX_ADMIN_URL)
+      SIQ_PERMISSION_NEGATIVE_GATE_SKIP|SIQ_RESTORE_MATRIX_REQUIRED|SIQ_RESTORE_MATRIX_BACKUP_DIR|SIQ_RESTORE_MATRIX_ADMIN_URL|\
+      SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED|SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP|SIQ_PERFORMANCE_COMPARISON_REQUIRED|\
+      SIQ_PERFORMANCE_BASELINE_REPORT|SIQ_MARKET_INGESTION_CASE_ROOT|SIQ_MARKET_INGESTION_LEGACY_CASE_ROOT|\
+      SIQ_MARKET_INGESTION_WIKI_ROOT|SIQ_MARKET_INGESTION_EVIDENCE_PROFILE)
         ;;
       *) continue ;;
     esac
@@ -45,7 +72,7 @@ load_release_gate_config() {
       exit 2
     fi
     printf -v "$key" '%s' "$value"
-    export "$key"
+    export "${key?}"
   done < "$config_file"
 }
 
@@ -116,6 +143,7 @@ load_release_gate_config
 PARSER_FINANCIAL_PDF_GATE_MODE="${SIQ_PARSER_FINANCIAL_PDF_GATE_MODE:-off}"
 LIVE_MODEL_BENCHMARK_MODE="${SIQ_LIVE_MODEL_BENCHMARK_MODE:-disabled}"
 RESTORE_MATRIX_BACKUP_DIR="${SIQ_RESTORE_MATRIX_BACKUP_DIR:-}"
+PERFORMANCE_BASELINE_REPORT="${SIQ_PERFORMANCE_BASELINE_REPORT:-}"
 
 for bool_name in \
   SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED \
@@ -123,7 +151,10 @@ for bool_name in \
   SIQ_LIVE_MODEL_BENCHMARK_REQUIRED \
   SIQ_PERMISSION_NEGATIVE_GATE_SKIP \
   SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED \
-  SIQ_RESTORE_MATRIX_REQUIRED; do
+  SIQ_RESTORE_MATRIX_REQUIRED \
+  SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED \
+  SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP \
+  SIQ_PERFORMANCE_COMPARISON_REQUIRED; do
   validate_optional_bool "$bool_name"
 done
 
@@ -165,6 +196,31 @@ if is_truthy "${SIQ_LIVE_MODEL_BENCHMARK_REQUIRED:-}" && [[ "$LIVE_MODEL_BENCHMA
   echo "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED requires SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http." >&2
   exit 2
 fi
+if [[ "$MODE" == "offline-postgres" ]]; then
+  if [[ "$LIVE_MODEL_BENCHMARK_MODE" != "live-http" ]]; then
+    echo "The offline-postgres release gate requires SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http." >&2
+    exit 2
+  fi
+  if ! is_truthy "${SIQ_LIVE_MODEL_BENCHMARK_REQUIRED:-}"; then
+    echo "The offline-postgres release gate requires SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1." >&2
+    exit 2
+  fi
+  if [[ -z "${SIQ_LIVE_MODEL_URL:-}" ]]; then
+    echo "The offline-postgres release gate requires SIQ_LIVE_MODEL_URL." >&2
+    exit 2
+  fi
+  if [[ "$SIQ_LIVE_MODEL_URL" != https://* ]]; then
+    echo "The offline-postgres release gate requires SIQ_LIVE_MODEL_URL to use HTTPS." >&2
+    exit 2
+  fi
+  if [[ -z "${SIQ_LIVE_MODEL_AUTH_TOKEN:-}" ]]; then
+    echo "The offline-postgres release gate requires SIQ_LIVE_MODEL_AUTH_TOKEN." >&2
+    exit 2
+  fi
+elif [[ "$LIVE_MODEL_BENCHMARK_MODE" != "disabled" ]] || is_truthy "${SIQ_LIVE_MODEL_BENCHMARK_REQUIRED:-}"; then
+  echo "The contract gate is deterministic and requires SIQ_LIVE_MODEL_BENCHMARK_MODE=disabled with the live gate not required." >&2
+  exit 2
+fi
 
 if is_truthy "${SIQ_PERMISSION_NEGATIVE_GATE_SKIP:-}" && ! is_falsey "${SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED:-1}"; then
   echo "SIQ_PERMISSION_NEGATIVE_GATE_SKIP cannot bypass a required permission negative gate." >&2
@@ -176,6 +232,10 @@ if is_truthy "${SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED:-}" && [[ "$MODE" != "offl
 fi
 if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}" && [[ "$MODE" != "offline-postgres" ]]; then
   echo "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED requires --mode offline-postgres." >&2
+  exit 2
+fi
+if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}" && is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP:-}"; then
+  echo "SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP cannot bypass required production vector probes." >&2
   exit 2
 fi
 if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_SEED:-}" && [[ "$MODE" != "offline-postgres" ]]; then
@@ -190,6 +250,19 @@ fi
 if [[ -n "$RESTORE_MATRIX_BACKUP_DIR" ]] && [[ -z "${SIQ_RESTORE_MATRIX_ADMIN_URL:-}" ]]; then
   echo "SIQ_RESTORE_MATRIX_BACKUP_DIR requires SIQ_RESTORE_MATRIX_ADMIN_URL." >&2
   exit 2
+fi
+if is_truthy "${SIQ_PERFORMANCE_COMPARISON_REQUIRED:-}" && [[ -z "$PERFORMANCE_BASELINE_REPORT" ]]; then
+  echo "SIQ_PERFORMANCE_COMPARISON_REQUIRED requires SIQ_PERFORMANCE_BASELINE_REPORT." >&2
+  exit 2
+fi
+if [[ -n "$PERFORMANCE_BASELINE_REPORT" ]]; then
+  if [[ "$PERFORMANCE_BASELINE_REPORT" != /* ]]; then
+    PERFORMANCE_BASELINE_REPORT="$REPO_ROOT/$PERFORMANCE_BASELINE_REPORT"
+  fi
+  if [[ ! -f "$PERFORMANCE_BASELINE_REPORT" ]]; then
+    echo "Versioned performance baseline report is missing or unreadable." >&2
+    exit 2
+  fi
 fi
 
 if [[ "$OUTPUT_DIR" != /* ]]; then
@@ -217,12 +290,24 @@ if [[ -n "${SIQ_PRODUCTION_CONFIG_FILE:-}" ]]; then
   fi
 fi
 
+if [[ "$MODE" == "offline-postgres" ]]; then
+  fixture_contamination_status=0
+  "$PYTHON_BIN" scripts/maintenance/audit_market_postgres_fixture_contamination.py \
+    --json-output "$OUTPUT_DIR/fixture-contamination-audit.json" \
+    --markdown-output "$OUTPUT_DIR/fixture-contamination-audit.md" \
+    || fixture_contamination_status=$?
+  if [[ "$fixture_contamination_status" -ne 0 ]]; then
+    status="$fixture_contamination_status"
+  fi
+fi
+
 VECTOR_PROBE_ARGS=()
 if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP:-}"; then
   VECTOR_PROBE_ARGS+=(--skip-agent-memory-vector-probes)
 fi
 if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}"; then
   VECTOR_PROBE_ARGS+=(--require-agent-memory-vector-probes)
+  VECTOR_PROBE_ARGS+=(--require-ic-vector-retrieval-probe)
 fi
 if [[ -n "${SIQ_AGENT_MEMORY_EMBEDDING_MODEL:-}" ]]; then
   VECTOR_PROBE_ARGS+=(--agent-memory-embedding-model "$SIQ_AGENT_MEMORY_EMBEDDING_MODEL")
@@ -294,7 +379,7 @@ fi
 if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_SEED:-}" || is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}"; then
   VECTOR_HEALTH_ARGS+=(--require-milvus)
 fi
-if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION:-}"; then
+if is_truthy "${SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED:-}" || is_truthy "${SIQ_AGENT_MEMORY_VECTOR_HEALTH_REQUIRE_COLLECTION:-}"; then
   VECTOR_HEALTH_ARGS+=(--require-collection)
 fi
 
@@ -311,6 +396,34 @@ fi
 "$PYTHON_BIN" scripts/maintenance/run_market_document_full_postgres_gate.py \
   --mode "$MODE" \
   --output-dir "$OUTPUT_DIR" || status=$?
+
+MARKET_INGESTION_ARGS=(
+  --strict
+  --portable
+  --output "$OUTPUT_DIR/market_ingestion_eval_report.json"
+  --markdown "$OUTPUT_DIR/market_ingestion_eval_report.md"
+)
+if [[ "$MODE" == "contract" ]]; then
+  MARKET_INGESTION_ARGS+=(
+    --case-root eval_datasets/market_ingestion_contract/cases
+    --legacy-case-root eval_datasets/market_ingestion_contract/cases
+    --wiki-root eval_datasets/market_ingestion_contract/wiki
+  )
+else
+  if [[ -n "${SIQ_MARKET_INGESTION_CASE_ROOT:-}" ]]; then
+    MARKET_INGESTION_ARGS+=(--case-root "$SIQ_MARKET_INGESTION_CASE_ROOT")
+  fi
+  if [[ -n "${SIQ_MARKET_INGESTION_LEGACY_CASE_ROOT:-}" ]]; then
+    MARKET_INGESTION_ARGS+=(--legacy-case-root "$SIQ_MARKET_INGESTION_LEGACY_CASE_ROOT")
+  fi
+  if [[ -n "${SIQ_MARKET_INGESTION_WIKI_ROOT:-}" ]]; then
+    MARKET_INGESTION_ARGS+=(--wiki-root "$SIQ_MARKET_INGESTION_WIKI_ROOT")
+  else
+    MARKET_INGESTION_ARGS+=(--evidence-profile "${SIQ_MARKET_INGESTION_EVIDENCE_PROFILE:-final-v5-staging}")
+  fi
+fi
+"$PYTHON_BIN" scripts/maintenance/run_market_ingestion_eval.py \
+  "${MARKET_INGESTION_ARGS[@]}" || status=$?
 
 "$PYTHON_BIN" scripts/maintenance/run_financial_qa_benchmark.py \
   --mode trace-offline \
@@ -370,9 +483,10 @@ if [[ "$PARSER_FINANCIAL_PDF_GATE_MODE" != "off" ]]; then
   fi
 fi
 
-if [[ "$LIVE_MODEL_BENCHMARK_MODE" == "live-http" ]]; then
+if [[ "$MODE" == "offline-postgres" ]]; then
   LIVE_MODEL_ARGS=(
     --mode live-http
+    --required
     --protocol "${SIQ_LIVE_MODEL_PROTOCOL:-auto}"
     --timeout "${SIQ_LIVE_MODEL_TIMEOUT:-60}"
     --output "$OUTPUT_DIR/live_financial_qa_benchmark.json"
@@ -422,12 +536,28 @@ if [[ "$MODE" == "offline-postgres" ]]; then
     "${VECTOR_PROBE_ARGS[@]}" \
     --output "$OUTPUT_DIR/performance_baseline_nightly.json" \
     --markdown "$OUTPUT_DIR/performance_baseline_nightly.md" || status=$?
+  CURRENT_PERFORMANCE_REPORT="$OUTPUT_DIR/performance_baseline_nightly.json"
 else
   "$PYTHON_BIN" scripts/maintenance/run_performance_baseline.py \
     --mode contract \
     --repeat 5 \
     --output "$OUTPUT_DIR/performance_baseline_contract.json" \
     --markdown "$OUTPUT_DIR/performance_baseline_contract.md" || status=$?
+  CURRENT_PERFORMANCE_REPORT="$OUTPUT_DIR/performance_baseline_contract.json"
+fi
+
+if [[ -n "$PERFORMANCE_BASELINE_REPORT" ]]; then
+  performance_comparison_status=0
+  "$PYTHON_BIN" scripts/maintenance/compare_financial_quality_baselines.py \
+    --baseline-performance "$PERFORMANCE_BASELINE_REPORT" \
+    --current-performance "$CURRENT_PERFORMANCE_REPORT" \
+    --environment-profile "${SIQ_RELEASE_ENVIRONMENT_PROFILE:-local-production-equivalent}" \
+    --output "$OUTPUT_DIR/performance-comparison.json" \
+    --markdown "$OUTPUT_DIR/performance-comparison.md" \
+    || performance_comparison_status=$?
+  if [[ "$performance_comparison_status" -ne 0 ]]; then
+    status="$performance_comparison_status"
+  fi
 fi
 
 if [[ -n "$RESTORE_MATRIX_BACKUP_DIR" ]]; then
@@ -452,22 +582,27 @@ MANIFEST_REQUIRED_ARGS=(
   --required-artifact financial_qa_benchmark_trace_offline.json
   --required-artifact financial_qa_benchmark_wiki_static.json
   --required-artifact parser_financial_golden.json
+  --required-artifact market_ingestion_eval_report.json
 )
 if [[ "$MODE" == "offline-postgres" ]]; then
   MANIFEST_REQUIRED_ARGS+=(
     --required-artifact agent_memory_vector_preflight.json
+    --required-artifact fixture-contamination-audit.json
     --required-artifact performance_baseline_nightly.json
   )
 else
   MANIFEST_REQUIRED_ARGS+=(--required-artifact performance_baseline_contract.json)
 fi
+if [[ -n "$PERFORMANCE_BASELINE_REPORT" ]]; then
+  MANIFEST_REQUIRED_ARGS+=(--required-artifact performance-comparison.json)
+fi
 if [[ -n "${SIQ_PRODUCTION_CONFIG_FILE:-}" ]]; then
   MANIFEST_REQUIRED_ARGS+=(--required-artifact production_config_preflight.json)
 fi
-if [[ "$PARSER_FINANCIAL_PDF_GATE_MODE" != "off" ]]; then
+if [[ "$PARSER_FINANCIAL_PDF_GATE_MODE" != "off" ]] || is_truthy "${SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED:-}"; then
   MANIFEST_REQUIRED_ARGS+=(--required-artifact parser_financial_pdf_release.json)
 fi
-if [[ "$LIVE_MODEL_BENCHMARK_MODE" == "live-http" ]]; then
+if [[ "$MODE" == "offline-postgres" ]]; then
   MANIFEST_REQUIRED_ARGS+=(--required-artifact live_financial_qa_benchmark.json)
 fi
 if [[ "$MODE" == "offline-postgres" ]] && ! is_truthy "${SIQ_PERMISSION_NEGATIVE_GATE_SKIP:-}"; then

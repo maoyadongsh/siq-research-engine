@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
-import hmac
 import hashlib
+import hmac
 import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 
 from flask import request
 
 ALLOWED_BACKENDS = {"hybrid-http-client", "pipeline", "vlm-http-client"}
 ALLOWED_PARSE_METHODS = {"auto", "txt", "ocr"}
 SUPPORTED_MARKETS = {"CN", "HK", "US", "JP", "KR", "EU", "DOC"}
+SUPPORTED_DOCUMENT_PROFILES = {"cn_a_share_prospectus"}
+DOCUMENT_PROFILE_VERSIONS = {"cn_a_share_prospectus": "cn_a_share_prospectus_v1"}
+SOURCE_CONTEXT_REQUIRED_KEYS = {"domain", "deal_id", "document_id", "source_type"}
+SOURCE_CONTEXT_OPTIONAL_KEYS = {"parse_run_id", "origin"}
+SOURCE_CONTEXT_KEYS = SOURCE_CONTEXT_REQUIRED_KEYS | SOURCE_CONTEXT_OPTIONAL_KEYS
+DEAL_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,96}$")
+DOCUMENT_ID_RE = re.compile(r"^DOC-[A-Z0-9]{12,32}$")
+PARSE_RUN_ID_RE = re.compile(r"^PRUN-[0-9]{8}-[A-Z0-9]{12,32}$")
+SOURCE_ORIGIN_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 MARKET_TOKEN_RE = re.compile(r"(?:^|[_\W])(CN|HK|US|JP|KR|EU|DOC)(?:[_\W]|$)", re.IGNORECASE)
 APP_ACCESS_TOKEN = os.environ.get("PDF2MD_ACCESS_TOKEN", "").strip()
 PARSER_CONFIG_VERSION = os.environ.get("SIQ_PDF_PARSE_CONFIG_VERSION", "pdf_parser_v1").strip() or "pdf_parser_v1"
@@ -124,6 +134,61 @@ def _parse_page_id(value, field_name):
     return str(page_id)
 
 
+def _normalize_document_profile(value):
+    profile = str(value or "").strip().lower()
+    if not profile:
+        return None
+    if profile not in SUPPORTED_DOCUMENT_PROFILES:
+        raise ValueError("不支持的文档 profile")
+    return profile
+
+
+def _parse_source_context(value, *, document_profile=None):
+    if value in (None, ""):
+        return None
+    if isinstance(value, Mapping):
+        payload = dict(value)
+    else:
+        raw = str(value).strip()
+        if len(raw.encode("utf-8")) > 4096:
+            raise ValueError("source_context 超过大小限制")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("source_context 必须是 JSON 对象") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("source_context 必须是 JSON 对象")
+    unknown_keys = sorted(set(payload) - SOURCE_CONTEXT_KEYS)
+    if unknown_keys:
+        raise ValueError(f"source_context 包含不支持的字段: {', '.join(unknown_keys)}")
+    missing_keys = sorted(SOURCE_CONTEXT_REQUIRED_KEYS - set(payload))
+    if missing_keys:
+        raise ValueError(f"source_context 缺少字段: {', '.join(missing_keys)}")
+
+    context = {key: str(value or "").strip() for key, value in payload.items()}
+    if context["domain"] != "primary_market":
+        raise ValueError("source_context.domain 必须是 primary_market")
+    if context["source_type"] != "primary_market_prospectus":
+        raise ValueError("source_context.source_type 必须是 primary_market_prospectus")
+    if not DEAL_ID_RE.fullmatch(context["deal_id"].upper()):
+        raise ValueError("source_context.deal_id 格式无效")
+    if not DOCUMENT_ID_RE.fullmatch(context["document_id"].upper()):
+        raise ValueError("source_context.document_id 格式无效")
+    context["deal_id"] = context["deal_id"].upper()
+    context["document_id"] = context["document_id"].upper()
+    if context.get("parse_run_id"):
+        context["parse_run_id"] = context["parse_run_id"].upper()
+        if not PARSE_RUN_ID_RE.fullmatch(context["parse_run_id"]):
+            raise ValueError("source_context.parse_run_id 格式无效")
+    if context.get("origin") and not SOURCE_ORIGIN_RE.fullmatch(context["origin"].lower()):
+        raise ValueError("source_context.origin 格式无效")
+    if context.get("origin"):
+        context["origin"] = context["origin"].lower()
+    if document_profile != "cn_a_share_prospectus":
+        raise ValueError("source_context 与文档 profile 不匹配")
+    return context
+
+
 def _parse_submit_config(form):
     backend = str(form.get("backend", "hybrid-http-client")).strip()
     parse_method = str(form.get("parse_method", "auto")).strip()
@@ -135,12 +200,20 @@ def _parse_submit_config(form):
     if market not in SUPPORTED_MARKETS:
         raise ValueError("不支持的市场类型")
 
+    document_profile = _normalize_document_profile(form.get("document_profile"))
+    if document_profile == "cn_a_share_prospectus" and market != "CN":
+        raise ValueError("A 股招股书 profile 仅支持 CN 市场")
+    source_context = _parse_source_context(
+        form.get("source_context"),
+        document_profile=document_profile,
+    )
+
     start_page_id = _parse_page_id(form.get("start_page_id", ""), "起始页码")
     end_page_id = _parse_page_id(form.get("end_page_id", ""), "结束页码")
     if start_page_id != "" and end_page_id != "" and int(start_page_id) > int(end_page_id):
         raise ValueError("起始页码不能大于结束页码")
 
-    return {
+    config = {
         "backend": backend,
         "parse_method": parse_method,
         "market": market,
@@ -149,12 +222,23 @@ def _parse_submit_config(form):
         "formula_enable": _parse_bool(form.get("formula_enable"), default=True),
         "table_enable": _parse_bool(form.get("table_enable"), default=True),
     }
+    if document_profile:
+        config.update(
+            {
+                "document_profile": document_profile,
+                "profile_version": DOCUMENT_PROFILE_VERSIONS[document_profile],
+                "parser_version": PARSER_CONFIG_VERSION,
+            }
+        )
+    if source_context:
+        config["source_context"] = source_context
+    return config
 
 
 def _canonical_parse_config(config):
     source = dict(config or {})
     market = _normalize_market(source.get("market")) or "CN"
-    return {
+    canonical = {
         "parser_version": PARSER_CONFIG_VERSION,
         "market": market,
         "backend": str(source.get("backend") or "hybrid-http-client").strip(),
@@ -164,6 +248,10 @@ def _canonical_parse_config(config):
         "formula_enable": bool(source.get("formula_enable", True)),
         "table_enable": bool(source.get("table_enable", True)),
     }
+    document_profile = _normalize_document_profile(source.get("document_profile"))
+    if document_profile:
+        canonical["document_profile"] = document_profile
+    return canonical
 
 
 def _parse_config_hash(config):

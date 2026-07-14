@@ -1,0 +1,62 @@
+{
+  "schema_version": "siq.meeting.voiceprint-release-evidence.v1",
+  "evaluation_id": "replace-with-opaque-evaluation-id",
+  "authorization": {
+    "approved": false,
+    "all_trials_authorized": false,
+    "unapproved_production_or_historical_trials": 0,
+    "reference": "replace-with-approval-reference"
+  },
+  "candidate": {
+    "commit_sha": "0000000000000000000000000000000000000000",
+    "environment_profile": "not-run"
+  },
+  "split": {
+    "kind": "not-yet-independent",
+    "independent_from_training": false,
+    "independent_from_threshold_tuning": false,
+    "speaker_overlap_count": 0,
+    "recording_overlap_count": 0
+  },
+  "threshold_policy": {
+    "version": "voiceprint-thresholds.replace-me.v1",
+    "suggestion_min_score": 0.8,
+    "suggestion_min_margin": 0.12,
+    "auto_min_score": 0.92,
+    "auto_min_margin": 0.2,
+    "min_effective_duration_ms": 6000,
+    "allowed_quality_grades": [
+      "good"
+    ]
+  },
+  "aggregates": {
+    "diarization": {
+      "session_count": 0,
+      "speaker_counts_covered": [
+        2
+      ],
+      "clean_condition_only": false,
+      "reference_speaker_time_ms": 0,
+      "missed_speech_ms": 0,
+      "false_alarm_speech_ms": 0,
+      "speaker_confusion_ms": 0
+    },
+    "matching": {
+      "genuine_trials": 0,
+      "suggestion_top1_predictions": 0,
+      "suggestion_top1_correct": 0,
+      "auto_impostor_trials": 0,
+      "auto_false_accepts": 0,
+      "threshold_policy_applied_to_all_trials": false
+    },
+    "revocation": {
+      "post_revoke_trials": 0,
+      "post_revoke_new_matches": 0
+    },
+    "template_authorization": {
+      "persistent_templates_audited": 0,
+      "unauthorized_templates": 0,
+      "inventory_complete": false
+    }
+  }
+}

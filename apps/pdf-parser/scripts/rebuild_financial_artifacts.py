@@ -22,17 +22,11 @@ def _task_rows(db_path: Path) -> dict[str, dict]:
         return {}
     try:
         with sqlite3.connect(db_path) as conn:
-            rows = conn.execute("select task_id, filename, completed_at, created_at from tasks").fetchall()
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("select * from tasks").fetchall()
     except sqlite3.Error:
         return {}
-    return {
-        str(task_id): {
-            "filename": str(filename or task_id),
-            "completed_at": str(completed_at or ""),
-            "created_at": str(created_at or ""),
-        }
-        for task_id, filename, completed_at, created_at in rows
-    }
+    return {str(row["task_id"]): dict(row) for row in rows}
 
 
 def _iter_markdown_results(results_dir: Path, task_ids: set[str] | None = None):
@@ -83,8 +77,15 @@ def _is_current(result_dir: Path, task: dict | None = None) -> bool:
     )
 
 
-def rebuild_one(task_id: str, md_path: Path, result_dir: Path, filename: str, dry_run: bool = False):
-    task = {"task_id": task_id, "filename": filename}
+def rebuild_one(
+    task_id: str,
+    md_path: Path,
+    result_dir: Path,
+    filename: str,
+    dry_run: bool = False,
+    task_row: dict | None = None,
+):
+    task = {**(task_row or {}), "task_id": task_id, "filename": filename}
     stale = not _is_current(result_dir, task)
     if dry_run:
         return {"task_id": task_id, "status": "stale" if stale else "current", "path": str(md_path)}
@@ -156,6 +157,7 @@ def main(argv=None) -> int:
                 result_dir,
                 filename=filename,
                 dry_run=args.dry_run,
+                task_row=task_rows.get(task_id),
             )
             if info["status"] == "rebuilt":
                 rebuilt += 1

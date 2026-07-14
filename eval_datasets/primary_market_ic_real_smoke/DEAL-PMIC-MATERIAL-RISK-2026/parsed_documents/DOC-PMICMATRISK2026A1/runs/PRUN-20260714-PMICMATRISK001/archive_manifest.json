@@ -1,0 +1,17 @@
+{
+  "schema_version": "siq_primary_market_parse_archive_v1",
+  "deal_id": "DEAL-PMIC-MATERIAL-RISK-2026",
+  "document_id": "DOC-PMICMATRISK2026A1",
+  "parse_run_id": "PRUN-20260714-PMICMATRISK001",
+  "build_mode": "deterministic_synthetic_evaluation_only_v1",
+  "created_at": "2026-07-14T00:00:00Z",
+  "bundle_sha256": "4c6703f325e75e85913ffcb0849ad27fde3697e910522699f18886ed1af938ae",
+  "artifacts": [
+    {
+      "path": "content_list_enhanced.json",
+      "sha256": "4c6703f325e75e85913ffcb0849ad27fde3697e910522699f18886ed1af938ae",
+      "block_count": 40
+    }
+  ],
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

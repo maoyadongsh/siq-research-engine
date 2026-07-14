@@ -1,0 +1,14 @@
+{
+  "schema_version": "siq_financial_qa_benchmark_suite_v1",
+  "case_file_defaults": {
+    "cases.jsonl": {
+      "identity_scope": "real_company",
+      "modes": [
+        "trace-offline",
+        "wiki-static"
+      ]
+    }
+  },
+  "fixture_contract": "../../../../eval_datasets/market_document_full_postgres/cases.json",
+  "wiki_static_artifacts": "wiki_static_artifacts.json"
+}

@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 from bs4 import BeautifulSoup
-
 from sec_html_document import build_full_document_artifacts
 from sec_wiki_ingestion_rules import (
     MANIFEST_ARTIFACT_PATHS as WIKI_INGESTION_ARTIFACT_PATHS,
@@ -30,16 +29,22 @@ RULES_SRC = REPO_ROOT / "services" / "market-report-rules" / "src"
 if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
-from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
-from market_report_rules_service.evidence_package import (
+from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract  # noqa: E402
+from market_report_rules_service.evidence_package import (  # noqa: E402
     SCHEMA_VERSION as MARKET_EVIDENCE_SCHEMA_VERSION,
     build_quality_report,
     compute_artifact_hashes,
     evidence_resolvability_summary,
     stable_parse_run_id,
 )
-from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedFact, ParsedTable
-from market_report_rules_service.pipeline import process_artifact
+from market_report_rules_service.models import (  # noqa: E402
+    AccountingStandard,
+    Market,
+    ParsedArtifact,
+    ParsedFact,
+    ParsedTable,
+)
+from market_report_rules_service.pipeline import process_artifact  # noqa: E402
 
 PARSER_VERSION = os.environ.get("SIQ_US_SEC_PARSER_VERSION", "sec_parser_v1")
 RULES_VERSION = os.environ.get("SIQ_US_SEC_RULES_VERSION", "us_sec_rules_v1")

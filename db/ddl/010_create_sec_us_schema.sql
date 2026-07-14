@@ -346,6 +346,12 @@ alter table sec_us.evidence_citations add column if not exists row_index integer
 alter table sec_us.evidence_citations add column if not exists column_index integer;
 alter table sec_us.evidence_citations add column if not exists bbox jsonb;
 
+-- The raw-XBRL Agent view picks one citation per fact via a lateral lookup.
+-- Keep that lookup bounded to the fact instead of rescanning a whole parse run.
+create index if not exists idx_sec_us_evidence_citations_parse_fact
+    on sec_us.evidence_citations (parse_run_id, fact_id, evidence_id)
+    where fact_id is not null;
+
 alter table sec_us.financial_facts add column if not exists raw_value text;
 alter table sec_us.financial_facts add column if not exists scale numeric;
 alter table sec_us.financial_facts add column if not exists source_type text;
@@ -947,16 +953,24 @@ select
     null::text as fx_rate_source,
     null::numeric as scale,
     null::numeric as confidence,
-    null::text as evidence_id,
-    null::integer as evidence_page_number,
-    null::integer as evidence_table_index,
-    null::integer as evidence_row_index,
-    null::integer as evidence_column_index,
-    null::jsonb as evidence_bbox,
-    null::text as quote_text,
-    f.source_url,
+    ec.evidence_id,
+    ec.page_number as evidence_page_number,
+    ec.table_index as evidence_table_index,
+    ec.row_index as evidence_row_index,
+    ec.column_index as evidence_column_index,
+    ec.bbox as evidence_bbox,
+    ec.quote_text,
+    coalesce(ec.source_url, f.source_url) as source_url,
     x.raw
 from sec_us.xbrl_facts_raw x
 join sec_us.filings f on f.filing_id = x.filing_id
 join sec_us.companies c on c.company_id = f.company_id
-join sec_us.v_latest_parse_runs pr on pr.parse_run_id = x.parse_run_id;
+join sec_us.v_latest_parse_runs pr on pr.parse_run_id = x.parse_run_id
+left join lateral (
+    select candidate.*
+    from sec_us.evidence_citations candidate
+    where candidate.parse_run_id = x.parse_run_id
+      and candidate.fact_id = x.fact_id
+    order by candidate.evidence_id
+    limit 1
+) ec on true;

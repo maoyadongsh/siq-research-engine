@@ -105,17 +105,20 @@ def _stream_multipart_post(
 
     preamble_parts = []
     for name, value in fields.items():
+        escaped_name = str(name).replace('"', '\\"')
         preamble_parts.append(
             (
                 f"--{boundary}\r\n"
-                f'Content-Disposition: form-data; name="{str(name).replace("\"", "\\\"")}"\r\n\r\n'
+                f'Content-Disposition: form-data; name="{escaped_name}"\r\n\r\n'
                 f"{value if value is not None else ''}\r\n"
             ).encode("utf-8")
         )
+    escaped_file_field_name = str(file_field_name).replace('"', '\\"')
+    escaped_filename = str(filename).replace('"', '\\"')
     preamble_parts.append(
         (
             f"--{boundary}\r\n"
-            f'Content-Disposition: form-data; name="{str(file_field_name).replace("\"", "\\\"")}"; filename="{str(filename).replace("\"", "\\\"")}"\r\n'
+            f'Content-Disposition: form-data; name="{escaped_file_field_name}"; filename="{escaped_filename}"\r\n'
             f"Content-Type: {file_content_type}\r\n\r\n"
         ).encode("utf-8")
     )

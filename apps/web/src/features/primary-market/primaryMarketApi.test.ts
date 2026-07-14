@@ -12,11 +12,19 @@ const {
   fetchPrimaryMarketProject,
   fetchPrimaryMarketProjects,
   fetchPrimaryMarketProjectStatus,
+  fetchPrimaryMarketMaterialParseStatus,
+  fetchPrimaryMarketMaterials,
   postPrimaryMarketMeetingChat,
+  primaryMarketMaterialOriginalUrl,
   preparePrimaryMarketMeetingAgent,
   preparePrimaryMarketMeetingCommittee,
   runPrimaryMarketMeetingR1Agent,
   runPrimaryMarketMeetingR1Serial,
+  disablePrimaryMarketAnalysisSource,
+  reparsePrimaryMarketMaterial,
+  reviewPrimaryMarketAnalysisSource,
+  supersedePrimaryMarketMaterial,
+  uploadPrimaryMarketProspectus,
   uploadPrimaryMarketMeetingAttachments,
 } = await import('./primaryMarketApi.ts')
 
@@ -294,6 +302,14 @@ test('primary-market meeting readiness normalizes snake case response', async ()
           receipt_id: 'startup-finance-R1-001',
           shared_hits: 6,
           private_hits: 1,
+          collections: ['siq_deal_shared', 'siq_ic_finance_auditor'],
+          physical_collections: ['ic_collaboration_shared', 'ic_finance_auditor'],
+          shared_collection: 'ic_collaboration_shared',
+          private_collection: 'ic_finance_auditor',
+          retrieval_status: 'degraded',
+          degraded_reasons: ['rerank_unavailable'],
+          evidence_snapshot_hash: 'abc123',
+          capability_restrictions: ['financial_facts:review_required'],
           gaps: [],
         },
         r1_report: {
@@ -322,6 +338,10 @@ test('primary-market meeting readiness normalizes snake case response', async ()
   assert.equal(readiness.profiles[0]?.contract.sourceFiles.length, 2)
   assert.equal(readiness.profiles[0]?.startupReceipt.present, true)
   assert.equal(readiness.profiles[0]?.startupReceipt.receiptId, 'startup-finance-R1-001')
+  assert.equal(readiness.profiles[0]?.startupReceipt.privateCollection, 'ic_finance_auditor')
+  assert.equal(readiness.profiles[0]?.startupReceipt.retrievalStatus, 'degraded')
+  assert.deepEqual(readiness.profiles[0]?.startupReceipt.physicalCollections, ['ic_collaboration_shared', 'ic_finance_auditor'])
+  assert.deepEqual(readiness.profiles[0]?.startupReceipt.capabilityRestrictions, ['financial_facts:review_required'])
   assert.equal(readiness.profiles[0]?.r1Report.present, false)
   assert.equal(readiness.profiles[0]?.quality.readyForFormalTask, false)
   assert.deepEqual(readiness.summary.blockingProfiles, ['siq_ic_finance_auditor'])
@@ -407,12 +427,12 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
   })
 
   const prepared = await preparePrimaryMarketMeetingAgent('DEAL/Alpha 001', 'siq_ic_finance_auditor', {
+    round_name: 'R2',
     limit: 12,
-    include_vector: true,
   })
   const committee = await preparePrimaryMarketMeetingCommittee('DEAL/Alpha 001', {
+    round_name: 'R3',
     profile_ids: ['siq_ic_finance_auditor'],
-    include_vector: true,
   })
   const workflow = await advancePrimaryMarketMeetingWorkflow('DEAL/Alpha 001', {
     dry_run: false,
@@ -447,7 +467,7 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
       url: '/api/primary-market/meeting/DEAL%2FAlpha%20001/agents/siq_ic_finance_auditor/prepare',
       method: 'POST',
       body: {
-        round_name: 'R1',
+        round_name: 'R2',
         limit: 12,
         include_external: false,
         include_vector: true,
@@ -458,7 +478,7 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
       url: '/api/primary-market/meeting/DEAL%2FAlpha%20001/agents/prepare-all',
       method: 'POST',
       body: {
-        round_name: 'R1',
+        round_name: 'R3',
         limit: 10,
         include_external: false,
         include_vector: true,
@@ -473,8 +493,8 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
         dry_run: false,
         allow_hermes: true,
         max_agents: 1,
-        r3_skip: true,
-        r3_skip_reason: 'R2 已覆盖核心分歧，P0 留痕跳过。',
+        r3_skip: false,
+        r3_skip_reason: null,
         r4_overwrite: false,
       },
     },
@@ -546,4 +566,88 @@ test('primary-market meeting transcript rejects missing deal id before fetch', a
     /缺少项目 ID/,
   )
   assert.equal(calls.length, 0)
+})
+
+test('primary-market material facade uses encoded project and material routes', async () => {
+  const calls = installFetchRecorder({ deal_id: 'DEAL/Alpha 001', materials: [] })
+
+  await fetchPrimaryMarketMaterials('DEAL/Alpha 001')
+  await fetchPrimaryMarketMaterialParseStatus('DEAL/Alpha 001', 'DOC/001')
+  await reparsePrimaryMarketMaterial('DEAL/Alpha 001', 'DOC/001', {
+    reason: 'quality_retry',
+    parseMethod: 'auto',
+    formulaEnable: true,
+    tableEnable: false,
+  })
+  await reviewPrimaryMarketAnalysisSource('DEAL/Alpha 001', 'DOC/001', {
+    decision: 'activate',
+    capabilityOverrides: { financial_facts: 'blocked' },
+    note: '文本通过',
+  })
+  await disablePrimaryMarketAnalysisSource('DEAL/Alpha 001', 'DOC/001', '新版已启用')
+  await supersedePrimaryMarketMaterial('DEAL/Alpha 001', 'DOC/001', 'DOC-NEW')
+
+  assert.equal(
+    primaryMarketMaterialOriginalUrl('DEAL/Alpha 001', 'DOC/001'),
+    '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/original',
+  )
+
+  assert.deepEqual(calls, [
+    { url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials', method: 'GET', body: undefined },
+    { url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/parse-status', method: 'GET', body: undefined },
+    {
+      url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/reparse',
+      method: 'POST',
+      body: { reason: 'quality_retry', parse_method: 'auto', formula_enable: true, table_enable: false },
+    },
+    {
+      url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/analysis-source/review',
+      method: 'POST',
+      body: { decision: 'activate', capability_overrides: { financial_facts: 'blocked' }, note: '文本通过' },
+    },
+    {
+      url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/analysis-source/disable',
+      method: 'POST',
+      body: { note: '新版已启用' },
+    },
+    {
+      url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/supersede',
+      method: 'POST',
+      body: { superseding_document_id: 'DOC-NEW' },
+    },
+  ])
+})
+
+test('primary-market prospectus upload sends controlled multipart metadata', async () => {
+  let requestUrl = ''
+  const captured: { body?: FormData } = {}
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requestUrl = typeof input === 'string' ? input : input.toString()
+    captured.body = init?.body as FormData
+    return new Response(JSON.stringify({ document: { document_id: 'DOC-001' }, reused: false }), {
+      status: 202,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  await uploadPrimaryMarketProspectus('DEAL-001', {
+    file: new File(['%PDF-1.7'], 'issuer.pdf', { type: 'application/pdf' }),
+    exchange: 'SSE',
+    board: 'star',
+    filingStage: 'registration_draft',
+    documentDate: '2026-07-01',
+    sourceNote: ' 注册稿 ',
+    supersedesDocumentId: 'DOC-OLD',
+  })
+
+  assert.equal(requestUrl, '/api/primary-market/projects/DEAL-001/materials/prospectuses')
+  const requestBody = captured.body
+  assert.ok(requestBody)
+  assert.equal(requestBody.get('exchange'), 'SSE')
+  assert.equal(requestBody.get('board'), 'star')
+  assert.equal(requestBody.get('filing_stage'), 'registration_draft')
+  assert.equal(requestBody.get('document_date'), '2026-07-01')
+  assert.equal(requestBody.get('source_note'), '注册稿')
+  assert.equal(requestBody.get('supersedes_document_id'), 'DOC-OLD')
+  assert.equal((requestBody.get('file') as File).name, 'issuer.pdf')
 })

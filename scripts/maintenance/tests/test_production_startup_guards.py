@@ -129,7 +129,10 @@ def test_start_all_repairs_stale_local_pdf_endpoint_from_legacy_env():
     assert "LOADED_LEGACY_ENV=1" in script
     assert 'case "${SIQ_PDF2MD_API_BASE:-}" in' in script
     assert 'SIQ_PDF2MD_API_BASE="http://127.0.0.1:$PDF2MD_PORT"' in script
-    assert 'SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/health"' in script
+    assert 'SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/ready"' in script
+    assert 'SIQ_DOCUMENT_PARSER_HEALTH_URL="http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/ready"' in script
+    assert 'wait_for_http "http://localhost:$PDF2MD_PORT/api/ready"' in script
+    assert 'wait_for_http "http://localhost:$DOCUMENT_PARSER_PORT/api/ready"' in script
 
 
 def test_start_all_fails_before_starting_when_production_reload_enabled():

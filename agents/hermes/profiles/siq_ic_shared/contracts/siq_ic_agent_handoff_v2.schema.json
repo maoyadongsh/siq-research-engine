@@ -1,0 +1,177 @@
+{
+  "$id": "siq_ic_agent_handoff_v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "background_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        "private_collections": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "shared_collections": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": [
+            "current",
+            "degraded"
+          ]
+        }
+      },
+      "required": [
+        "digest",
+        "status",
+        "shared_collections",
+        "private_collections"
+      ],
+      "type": "object"
+    },
+    "claim_ids": {
+      "items": {
+        "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "dispute_ids": {
+      "items": {
+        "pattern": "^DISP-[A-Z0-9][A-Z0-9-]{5,95}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "from_agent_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "handoff_id": {
+      "pattern": "^ICHANDOFF-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    },
+    "input_digest": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "phase": {
+      "enum": [
+        "R0",
+        "R1A",
+        "R1B",
+        "R1.5",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "type": "string"
+    },
+    "project_evidence_ids": {
+      "items": {
+        "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "reports": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "siq_ic_agent_handoff_v2"
+    },
+    "sidecar_digest": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "source_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "source_report_ids": {
+      "items": {
+        "maxLength": 180,
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "to_agent_id": {
+      "enum": [
+        "siq_ic_master_coordinator",
+        "siq_ic_chairman",
+        "siq_ic_strategist",
+        "siq_ic_sector_expert",
+        "siq_ic_finance_auditor",
+        "siq_ic_legal_scanner",
+        "siq_ic_risk_controller"
+      ],
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "handoff_id",
+    "workflow_run_id",
+    "deal_id",
+    "phase",
+    "from_agent_id",
+    "to_agent_id",
+    "source_report_ids",
+    "claim_ids",
+    "dispute_ids",
+    "project_evidence_ids",
+    "source_ids",
+    "reports",
+    "payload",
+    "background_knowledge",
+    "sidecar_digest",
+    "evidence_snapshot_hash",
+    "input_digest",
+    "created_at"
+  ],
+  "type": "object"
+}

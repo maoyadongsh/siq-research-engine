@@ -87,8 +87,8 @@ def _section_bullets(text: str, heading: str, *, limit: int = 8) -> list[str]:
     return bullets
 
 
-def _matrix_profile(profile_id: str) -> dict[str, Any]:
-    matrix = ic_policy.read_ic_profile_matrix()
+def _matrix_profile(profile_id: str, matrix: dict[str, Any] | None = None) -> dict[str, Any]:
+    matrix = matrix or ic_policy.read_ic_profile_matrix()
     profiles = matrix.get("profiles") if isinstance(matrix.get("profiles"), list) else []
     for item in profiles:
         if isinstance(item, dict) and item.get("id") == profile_id:
@@ -129,7 +129,8 @@ def get_ic_profile_contract(
 
     identity = _read_text(profile_dir / "IDENTITY.md")
     agents = _read_text(profile_dir / "AGENTS.md")
-    matrix = _matrix_profile(canonical)
+    matrix_contract = ic_policy.read_ic_profile_matrix()
+    matrix = _matrix_profile(canonical, matrix_contract)
     responsibilities = [
         str(item).strip()
         for item in matrix.get("responsibilities", [])
@@ -149,15 +150,40 @@ def get_ic_profile_contract(
     special_duty = _markdown_field(agents, "特殊职责")
     mission = _markdown_field(identity, "核心使命")
     output_features = _bullets_after_markdown_field(identity, "输出特征")
-    boundaries = _section_bullets(agents, "红线") or _section_bullets(agents, "禁止")
+    profile_boundaries = _section_bullets(agents, "红线") or _section_bullets(agents, "禁止")
+    matrix_boundaries = [
+        str(item).strip()
+        for item in matrix.get("boundaries", [])
+        if str(item or "").strip()
+    ] if isinstance(matrix.get("boundaries"), list) else []
+    boundaries = list(dict.fromkeys([*matrix_boundaries, *profile_boundaries]))
     if not boundaries and canonical != "siq_ic_master_coordinator":
         boundaries = ["不越权代替其他投委会 profile 的专业判断或最终投决。"]
     source_files = _source_files(profile_dir, canonical)
     outputs = output_features or ["结构化观点", "证据引用", "verified/assumed 区分", "下一步建议"]
     role_title = role_name.split("/", 1)[0].strip() or role_name
+    phase_capabilities = matrix.get("phase_capabilities") if isinstance(matrix.get("phase_capabilities"), dict) else {}
+    output_schemas = matrix.get("output_schemas") if isinstance(matrix.get("output_schemas"), dict) else {}
+    retrieval = matrix.get("retrieval") if isinstance(matrix.get("retrieval"), dict) else {}
+    logical_collections = [
+        str(item) for item in retrieval.get("logical_collections", []) if str(item or "").strip()
+    ]
+    physical_collections = [
+        str(item) for item in retrieval.get("physical_collections", []) if str(item or "").strip()
+    ]
+    retrieval_required = bool(retrieval.get("required", canonical != "siq_ic_master_coordinator"))
+    shared_logical = str((matrix_contract.get("shared_collection") or {}).get("logical") or "siq_deal_shared")
+    shared_physical = str((matrix_contract.get("shared_collection") or {}).get("physical") or "")
+    private_logical = next((item for item in logical_collections if item != shared_logical), canonical)
+    configured_private_physical = str(retrieval.get("private_collection") or "")
+    private_physical = configured_private_physical or next(
+        (item for item in physical_collections if item != shared_physical),
+        "",
+    )
 
     return {
         "schema_version": IC_PROFILE_CONTRACT_SCHEMA,
+        "contract_version": matrix_contract.get("contract_version") or IC_PROFILE_CONTRACT_SCHEMA,
         "profile_id": canonical,
         "legacy_profile_id": next(
             (legacy for legacy, target in ic_policy.LEGACY_PROFILE_IDS.items() if target == canonical),
@@ -175,17 +201,30 @@ def get_ic_profile_contract(
         "output_features": outputs,
         "outputs": outputs,
         "boundaries": boundaries,
-        "startup_retrieval_required": canonical != "siq_ic_master_coordinator",
+        "phase_capabilities": phase_capabilities,
+        "output_schemas": output_schemas,
+        "retrieval": {
+            "required": retrieval_required,
+            "logical_collections": logical_collections,
+            "physical_collections": physical_collections,
+            "private_collection": private_logical,
+            "shared_collection": shared_logical,
+            "private_physical_collection": private_physical,
+            "shared_physical_collection": shared_physical,
+            "private_collection_rule": matrix_contract.get("private_collection_rule") or {},
+        },
+        "startup_retrieval_required": retrieval_required,
         "r1_sequence_index": (
             ic_policy.R1_AGENT_SEQUENCE.index(canonical)
             if canonical in ic_policy.R1_AGENT_SEQUENCE
             else None
         ),
-        "retrieval_collections": (
-            ["siq_deal_shared", canonical]
-            if canonical != "siq_ic_master_coordinator"
-            else ["siq_deal_shared"]
-        ),
+        "retrieval_collections": logical_collections or ["siq_deal_shared", canonical],
+        "retrieval_physical_collections": physical_collections,
+        "private_knowledge_collection": private_logical,
+        "private_physical_collection": private_physical,
+        "shared_collection": shared_logical,
+        "shared_physical_collection": shared_physical,
         "profile_path": f"agents/hermes/profiles/{canonical}",
         "source_files": source_files,
         "source_file_details": _source_file_details(source_files),

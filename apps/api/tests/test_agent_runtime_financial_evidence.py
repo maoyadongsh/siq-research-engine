@@ -266,6 +266,7 @@ def test_builds_midea_blank_total_goodwill_evidence_with_statement_unit():
     assert by_metric_period[("goodwill_impairment_allowance", "2025-12-31")]["value"] == "556411"
     assert by_metric_period[("goodwill_net", "2025-12-31")]["value"] == "34256859"
     assert by_metric_period[("goodwill_gross", "2025-12-31")]["unit"] == "人民币千元"
+    assert "商誉总额" in by_metric_period[("goodwill_gross", "2025-12-31")]["aliases"]
     assert by_metric_period[("goodwill_gross", "2025-12-31")]["financial_scope"] == "consolidated"
     assert by_metric_period[("goodwill_net", "2025-12-31")]["financial_scope"] == "consolidated"
     assert by_metric_period[("goodwill_gross", "2025-12-31")]["source_lineage"]

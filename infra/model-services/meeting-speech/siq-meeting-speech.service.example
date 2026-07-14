@@ -1,0 +1,20 @@
+[Unit]
+Description=SIQ isolated meeting speech service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd/siq-research-engine/infra/model-services/meeting-speech
+Environment=SIQ_MEETINGS_ENABLED=1
+Environment=SIQ_MEETING_REALTIME_ASR_ENABLED=1
+EnvironmentFile=-/home/maoyd/.config/siq/meeting-speech.env
+ExecStart=/home/maoyd/siq-research-engine/infra/model-services/meeting-speech/start_meeting_speech.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

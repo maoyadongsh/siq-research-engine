@@ -188,10 +188,24 @@ _db_lock = threading.Lock()
 _last_cleanup_ts = 0.0
 _queue_lock = threading.Lock()
 _queue_wakeup = threading.Event()
+_queue_worker_stop = threading.Event()
 _queue_worker_started = False
+_queue_worker_thread = None
+_queue_worker_state_lock = threading.Lock()
+_queue_worker_poll_healthy = False
+_queue_worker_last_poll_success_at = 0.0
 _app_init_lock = threading.Lock()
 _app_initialized = False
 QUEUE_POLL_SECONDS = float(os.environ.get("QUEUE_POLL_SECONDS", "3"))
+QUEUE_WORKER_READY_STALE_SECONDS = max(
+    1.0,
+    float(
+        os.environ.get(
+            "PDF2MD_QUEUE_WORKER_READY_STALE_SECONDS",
+            str(max(30.0, QUEUE_POLL_SECONDS * 5.0)),
+        )
+    ),
+)
 FILE_CACHE_MAX_ITEMS = int(os.environ.get("PDF2MD_FILE_CACHE_MAX_ITEMS", "32"))
 _file_cache = FileCache(max_items=FILE_CACHE_MAX_ITEMS)
 
@@ -579,8 +593,9 @@ def _persist_prepared_upload_tasks(prepared_uploads):
     )
     if not capacity.get("admitted"):
         return [], capacity
-    created_tasks = [
-        {
+    created_tasks = []
+    for task in tasks:
+        created_task = {
             "task_id": task["task_id"],
             "filename": task["filename"],
             "file_sha256": task["file_sha256"],
@@ -589,8 +604,10 @@ def _persist_prepared_upload_tasks(prepared_uploads):
             "market_scope": task["market_scope"],
             "parse_config_hash": task["parse_config_hash"],
         }
-        for task in tasks
-    ]
+        for key in ("parser_version", "document_profile", "source_context"):
+            if task["submit_config"].get(key):
+                created_task[key] = task["submit_config"][key]
+        created_tasks.append(created_task)
     return created_tasks, capacity
 
 
@@ -729,25 +746,63 @@ def _maybe_submit_next_queued_task():
 
 
 def _queue_worker_loop():
-    while True:
+    while not _queue_worker_stop.is_set():
         try:
             _recover_stale_submitting_tasks()
             _cleanup_old_data()
             _refresh_recent_tasks(limit=50)
             _maybe_submit_next_queued_task()
         except Exception:
-            pass
+            _set_queue_worker_poll_health(False)
+        else:
+            _set_queue_worker_poll_health(True)
         _queue_wakeup.wait(max(1.0, QUEUE_POLL_SECONDS))
         _queue_wakeup.clear()
 
 
+def _set_queue_worker_poll_health(healthy):
+    global _queue_worker_last_poll_success_at, _queue_worker_poll_healthy
+    with _queue_worker_state_lock:
+        _queue_worker_poll_healthy = bool(healthy)
+        _queue_worker_last_poll_success_at = time.monotonic() if healthy else 0.0
+
+
+def _queue_worker_alive():
+    return bool(_queue_worker_started and _queue_worker_thread and _queue_worker_thread.is_alive())
+
+
+def _queue_worker_ready():
+    with _queue_worker_state_lock:
+        poll_healthy = _queue_worker_poll_healthy
+        last_success_at = _queue_worker_last_poll_success_at
+    if not poll_healthy or last_success_at <= 0:
+        return False
+    poll_age = max(0.0, time.monotonic() - last_success_at)
+    return bool(_queue_worker_alive() and poll_age <= QUEUE_WORKER_READY_STALE_SECONDS)
+
+
 def _start_queue_worker():
-    global _queue_worker_started
-    if _queue_worker_started:
+    global _queue_worker_started, _queue_worker_thread
+    if _queue_worker_alive():
         return
+    _queue_worker_stop.clear()
+    _set_queue_worker_poll_health(False)
     _queue_worker_started = True
-    thread = threading.Thread(target=_queue_worker_loop, name="pdf2md-local-queue", daemon=True)
-    thread.start()
+    _queue_worker_thread = threading.Thread(target=_queue_worker_loop, name="pdf2md-local-queue", daemon=True)
+    _queue_worker_thread.start()
+
+
+def stop_queue_worker(timeout=2.0):
+    global _queue_worker_started, _queue_worker_thread
+    _queue_worker_stop.set()
+    _queue_wakeup.set()
+    thread = _queue_worker_thread
+    if thread and thread.is_alive():
+        thread.join(timeout=timeout)
+    if not thread or not thread.is_alive():
+        _queue_worker_started = False
+        _queue_worker_thread = None
+        _set_queue_worker_poll_health(False)
 
 
 def initialize_app(start_worker=True):
@@ -3833,7 +3888,7 @@ def _refresh_task_from_upstream(task):
 @app.before_request
 def _prepare_request():
     initialize_app(start_worker=True)
-    if request.path == "/api/health":
+    if request.path in {"/api/health", "/api/ready"}:
         return None
     if not _request_is_authorized(APP_ACCESS_TOKEN):
         return jsonify({"error": "Unauthorized"}), 401
@@ -3854,35 +3909,48 @@ def index():
     return response
 
 
-@app.route("/api/health", methods=["GET"])
-def health():
+def _health_payload():
     readiness = _mineru_submit_readiness()
     capacity = task_repository.capacity_snapshot(DB_PATH)
-    return jsonify(
-        {
-            "flask": True,
-            "quality_schema_version": QUALITY_SCHEMA_VERSION,
-            "content_list_enhanced_schema_version": CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
-            "document_full_schema_version": DOCUMENT_FULL_SCHEMA_VERSION,
-            "financial_data_schema_version": FINANCIAL_DATA_SCHEMA_VERSION,
-            "financial_checks_schema_version": FINANCIAL_CHECKS_SCHEMA_VERSION,
-            "financial_rule_version": FINANCIAL_RULE_VERSION,
-            "mineru": readiness["mineru"],
-            "mineru_detail": readiness["mineru_detail"],
-            "mineru_stats": readiness["mineru_payload"] or {},
-            "vlm": readiness["vlm"],
-            "vlm_detail": readiness["vlm_detail"],
-            "submit_ready": readiness["submit_ready"],
-            "warning": readiness["warning"],
-            "queue_capacity": {
-                **capacity,
-                "global_task_limit": PARSER_QUEUE_GLOBAL_TASK_LIMIT,
-                "owner_task_limit": PARSER_QUEUE_OWNER_TASK_LIMIT,
-                "global_bytes_limit": PARSER_QUEUE_GLOBAL_BYTES_LIMIT,
-                "owner_bytes_limit": PARSER_QUEUE_OWNER_BYTES_LIMIT,
-            },
-        }
-    )
+    worker_ready = _queue_worker_ready()
+    ready = bool(readiness["submit_ready"] and worker_ready)
+    return {
+        "status": "ready" if ready else "unavailable",
+        "ready": ready,
+        "flask": True,
+        "queue_worker_ready": worker_ready,
+        "quality_schema_version": QUALITY_SCHEMA_VERSION,
+        "content_list_enhanced_schema_version": CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
+        "document_full_schema_version": DOCUMENT_FULL_SCHEMA_VERSION,
+        "financial_data_schema_version": FINANCIAL_DATA_SCHEMA_VERSION,
+        "financial_checks_schema_version": FINANCIAL_CHECKS_SCHEMA_VERSION,
+        "financial_rule_version": FINANCIAL_RULE_VERSION,
+        "mineru": readiness["mineru"],
+        "mineru_detail": readiness["mineru_detail"],
+        "mineru_stats": readiness["mineru_payload"] or {},
+        "vlm": readiness["vlm"],
+        "vlm_detail": readiness["vlm_detail"],
+        "submit_ready": readiness["submit_ready"],
+        "warning": readiness["warning"],
+        "queue_capacity": {
+            **capacity,
+            "global_task_limit": PARSER_QUEUE_GLOBAL_TASK_LIMIT,
+            "owner_task_limit": PARSER_QUEUE_OWNER_TASK_LIMIT,
+            "global_bytes_limit": PARSER_QUEUE_GLOBAL_BYTES_LIMIT,
+            "owner_bytes_limit": PARSER_QUEUE_OWNER_BYTES_LIMIT,
+        },
+    }
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify(_health_payload())
+
+
+@app.route("/api/ready", methods=["GET"])
+def ready():
+    payload = _health_payload()
+    return jsonify(payload), 200 if payload["ready"] else 503
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -4211,17 +4279,19 @@ def reparse_task(task_id):
         return _queue_admission_rejection_response(prepared_uploads, admission)
     _wake_queue_worker()
 
-    return jsonify(
-        {
-            "success": True,
-            "task_id": created_tasks[0]["task_id"],
-            "filename": display_filename,
-            "pdf_page_count": pdf_page_count,
-            "market": submit_config.get("market"),
-            "market_scope": owner_scope["market_scope"],
-            "parse_config_hash": parse_config_hash,
-        }
-    )
+    payload = {
+        "success": True,
+        "task_id": created_tasks[0]["task_id"],
+        "filename": display_filename,
+        "pdf_page_count": pdf_page_count,
+        "market": submit_config.get("market"),
+        "market_scope": owner_scope["market_scope"],
+        "parse_config_hash": parse_config_hash,
+    }
+    for key in ("parser_version", "document_profile", "source_context"):
+        if submit_config.get(key):
+            payload[key] = submit_config[key]
+    return jsonify(payload)
 
 
 @app.route("/api/status/<task_id>", methods=["GET"])

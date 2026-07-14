@@ -34,6 +34,19 @@ WIKI_ROOTS = {
     "KR": REPO_ROOT / "data" / "wiki" / "kr",
     "EU": REPO_ROOT / "data" / "wiki" / "eu",
 }
+FINAL_V5_STAGING_WIKI_ROOT = (
+    REPO_ROOT / "artifacts" / "optimization" / "2026-07-13" / "staging" / "final-v5" / "wiki"
+)
+EVIDENCE_PROFILES = {
+    "production-wiki": None,
+    "final-v5-staging": FINAL_V5_STAGING_WIKI_ROOT,
+}
+OFFICIAL_SOURCE_CONTRACT = {
+    "schema_version": "siq_source_manifest_v1",
+    "required_for_expected_official_source": True,
+    "required_fields": ("initial_url", "final_url", "redirect_chain", "content_sha256", "retrieved_at"),
+    "fail_closed": True,
+}
 DEFAULT_QUALITY_THRESHOLDS = {
     "CN": {
         "evidence_coverage_ratio": 0.8,
@@ -205,6 +218,7 @@ def _input_artifact_checksums(
 
 def _evidence_command(args: argparse.Namespace) -> str:
     parts = ["python", "scripts/maintenance/run_market_ingestion_eval.py"]
+    parts.extend(["--evidence-profile", args.evidence_profile])
     if args.case_root != CASE_ROOT:
         parts.extend(["--case-root", "<configured-path>"])
     if args.legacy_case_root != LEGACY_CASE_ROOT:
@@ -278,6 +292,25 @@ def load_cases(case_root: Path = CASE_ROOT, *, legacy_case_root: Path | None = L
 def wiki_roots_from_base(root: Path) -> dict[str, Path]:
     """Build market roots for a portable fixture or alternate Wiki tree."""
     return {market: root / market.lower() for market in WIKI_ROOTS}
+
+
+def resolve_evidence_profile(
+    profile: str,
+    *,
+    wiki_root: Path | None,
+) -> tuple[str, Path | None, dict[str, Path]]:
+    """Resolve an auditable named Wiki input without weakening source gates."""
+
+    if profile not in EVIDENCE_PROFILES:
+        raise SystemExit(f"unsupported evidence profile: {profile}")
+    if wiki_root is not None:
+        if profile != "production-wiki":
+            raise SystemExit("--wiki-root cannot be combined with a non-default --evidence-profile")
+        return "custom-wiki-root", wiki_root, wiki_roots_from_base(wiki_root)
+    profile_root = EVIDENCE_PROFILES[profile]
+    if profile_root is None:
+        return profile, None, dict(WIKI_ROOTS)
+    return profile, profile_root, wiki_roots_from_base(profile_root)
 
 
 def apply_market_wiki_root_overrides(
@@ -1430,6 +1463,8 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"(tracked={worktree_summary.get('tracked_changes', 'unknown')}, "
         f"untracked={worktree_summary.get('untracked_changes', 'unknown')})",
         f"- Environment: `{report.get('environment_profile', 'unknown')}`",
+        f"- Evidence profile: `{report.get('evidence_profile', 'unknown')}`",
+        f"- Official source contract: `{(report.get('official_source_contract') or {}).get('schema_version', 'unknown')}`",
         f"- Result: `{report.get('result', 'unknown')}`",
         f"- Duration: `{report.get('duration_seconds', 0):.3f}s`",
         f"- Command: `{report.get('command', 'unknown')}`",
@@ -1509,6 +1544,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case-root", type=Path, default=CASE_ROOT)
     parser.add_argument("--legacy-case-root", type=Path, default=LEGACY_CASE_ROOT)
     parser.add_argument(
+        "--evidence-profile",
+        choices=tuple(EVIDENCE_PROFILES),
+        default="production-wiki",
+        help="Select a named, auditable Wiki input. final-v5-staging remains strict and may fail on missing data.",
+    )
+    parser.add_argument(
         "--wiki-root",
         type=Path,
         help="Portable Wiki root containing per-market directories such as hk/, us/, jp/, kr/, and eu/.",
@@ -1540,7 +1581,10 @@ def main(argv: list[str] | None = None) -> int:
     wiki_root = None
     if args.wiki_root is not None:
         wiki_root = args.wiki_root if args.wiki_root.is_absolute() else REPO_ROOT / args.wiki_root
-    wiki_roots = wiki_roots_from_base(wiki_root) if wiki_root is not None else WIKI_ROOTS
+    evidence_profile, resolved_profile_root, wiki_roots = resolve_evidence_profile(
+        args.evidence_profile,
+        wiki_root=wiki_root,
+    )
     wiki_roots = apply_market_wiki_root_overrides(wiki_roots, args.market_wiki_root)
     case_files = _resolved_case_files(case_root, legacy_case_root)
     items = [
@@ -1559,13 +1603,19 @@ def main(argv: list[str] | None = None) -> int:
         "worktree_summary": worktree_summary,
         "task_id": "T10",
         "environment_profile": "local-portable-staging" if args.portable else "local-evaluation",
+        "evidence_profile": evidence_profile,
+        "evidence_profile_root": str(resolved_profile_root) if resolved_profile_root is not None else None,
+        "official_source_contract": {
+            **OFFICIAL_SOURCE_CONTRACT,
+            "required_fields": list(OFFICIAL_SOURCE_CONTRACT["required_fields"]),
+        },
         "command": _evidence_command(args),
         "result": "pass" if not failure_reasons else "fail",
         "duration_seconds": round(time.monotonic() - started_at, 6),
         "failures": failure_reasons,
         "artifact_checksums": artifact_checksums,
         "case_root": str(case_root),
-        "wiki_root": str(wiki_root) if wiki_root is not None else None,
+        "wiki_root": str(resolved_profile_root) if resolved_profile_root is not None else None,
         "wiki_roots": {market: str(path) for market, path in sorted(wiki_roots.items())},
         "passed": not failure_reasons,
         "failure_reasons": failure_reasons,

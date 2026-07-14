@@ -89,6 +89,25 @@ def _table_columns(table_body: str) -> set[str]:
     return columns
 
 
+def _view_projection_columns(view_body: str) -> list[str]:
+    match = re.search(
+        r"\bselect\s+(?:distinct\s+on\s*\([^)]*\)\s+)?(?P<projection>.*?)\s+\bfrom\b",
+        view_body,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    assert match, "view projection not found"
+
+    columns: list[str] = []
+    for expression in match.group("projection").split(","):
+        normalized = expression.strip()
+        alias = re.search(r"\bas\s+(?P<alias>[a-zA-Z_]\w*)$", normalized, flags=re.IGNORECASE)
+        if alias:
+            columns.append(alias.group("alias").lower())
+        else:
+            columns.append(normalized.rsplit(".", maxsplit=1)[-1].lower())
+    return columns
+
+
 class FakeConn:
     def __init__(self, database="siq_hk"):
         self.database = database
@@ -195,3 +214,18 @@ def test_checked_in_runtime_ddl_authority_has_required_market_schema_contracts()
         assert f"join {schema}.v_latest_parse_runs" in agent_view, (
             f"{market} agent fact view must stay scoped to latest-successful parse runs"
         )
+
+
+def test_eu_latest_parse_run_view_replacements_preserve_existing_column_order():
+    ddl_path = Path(__file__).resolve().parents[2] / "ddl" / "050_create_eu_ifrs_schema.sql"
+    ddl = ddl_path.read_text(encoding="utf-8")
+    matches = re.findall(
+        r"create\s+or\s+replace\s+view\s+eu_ifrs\.v_latest_parse_runs\s+as\s+(?P<body>.*?);",
+        ddl,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    assert len(matches) == 2
+    initial_columns, extended_columns = map(_view_projection_columns, matches)
+    assert extended_columns[: len(initial_columns)] == initial_columns
+    assert extended_columns[len(initial_columns) :] == ["parser_version", "rules_version", "status"]

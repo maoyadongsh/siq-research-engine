@@ -448,8 +448,8 @@ SIQ_START_VECTOR_INGEST=1 SIQ_MILVUS_COLLECTION=ic_collaboration_shared ./start_
 ```bash
 curl -s http://127.0.0.1:15173
 curl -s http://127.0.0.1:18081/health
-curl -s http://127.0.0.1:15000/api/health
-curl -s http://127.0.0.1:15010/api/health
+curl -s http://127.0.0.1:15000/api/ready
+curl -s http://127.0.0.1:15010/api/ready
 curl -s http://127.0.0.1:18000/health
 curl -s http://127.0.0.1:18020/healthz
 curl -s http://127.0.0.1:18642/health

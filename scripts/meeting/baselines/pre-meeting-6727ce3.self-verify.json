@@ -1,0 +1,9 @@
+{
+  "baseline_commit": "6727ce3441f2415c7e6dbc65f78c9e1983941168",
+  "candidate_commit": "6727ce3441f2415c7e6dbc65f78c9e1983941168",
+  "candidate_kind": "git-ref",
+  "difference_count": 0,
+  "differences": [],
+  "passed": true,
+  "schema_version": "siq.meeting.contract-verification.v1"
+}

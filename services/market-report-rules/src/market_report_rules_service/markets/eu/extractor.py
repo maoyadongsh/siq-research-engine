@@ -4,6 +4,8 @@ import re
 from decimal import Decimal
 from typing import Any
 
+from siq_market_contracts.financial_value_polarity import canonical_value_polarity
+
 from ...models import (
     AccountingStandard,
     EvidenceRef,
@@ -15,12 +17,24 @@ from ...models import (
     ParsedTable,
     StatementType,
 )
-from ...normalization import compact_label, infer_currency, infer_scale, parse_date, parse_decimal, period_key
+from ...normalization import (
+    compact_label,
+    infer_currency,
+    infer_scale,
+    parse_date,
+    parse_decimal,
+    period_key as normalized_period_key,
+)
 from ...registry import get_profile
 from ...statement_detection import detect_table_statement_type
-from ..common import build_result, extract_operating_metrics_from_tables, first_numeric_cell, table_period_key, tables_from_document_full
+from ..common import (
+    build_result,
+    extract_operating_metrics_from_tables,
+    first_numeric_cell,
+    table_period_key,
+    tables_from_document_full,
+)
 from .rules import find_eu_label_rule
-
 
 _EU_LIABILITY_CANONICAL_NAMES = {
     "borrowings",
@@ -30,13 +44,6 @@ _EU_LIABILITY_CANONICAL_NAMES = {
     "non_current_liabilities",
     "total_liabilities",
 }
-
-_EU_DEDUCTION_CANONICAL_NAMES = {
-    "cost_of_sales",
-    "finance_costs",
-    "income_tax_expense",
-}
-
 
 def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
     profile = get_profile(Market.EU)
@@ -169,7 +176,10 @@ def _extract_xbrl_facts(artifact: ParsedArtifact) -> tuple[list[ExtractedFact], 
                 raw_value=str(raw.get("value_text") or fact.value),
                 unit=fact.unit or artifact.unit,
                 currency=infer_currency(fact.unit, artifact.currency, default=artifact.currency),
-                period_key=period_key(fact.period_end or artifact.period_end, fact.fiscal_year or artifact.fiscal_year),
+                period_key=normalized_period_key(
+                    fact.period_end or artifact.period_end,
+                    fact.fiscal_year or artifact.fiscal_year,
+                ),
                 period_start=fact.period_start,
                 period_end=fact.period_end or artifact.period_end,
                 duration_days=fact.duration_days,
@@ -218,7 +228,10 @@ def _select_best_xbrl_facts(facts: list[ParsedFact], artifact: ParsedArtifact) -
         rule = find_eu_label_rule(fact.concept) or find_eu_label_rule(fact.label or "")
         if not rule:
             continue
-        fact_period_key = period_key(fact.period_end or artifact.period_end, fact.fiscal_year or artifact.fiscal_year)
+        fact_period_key = normalized_period_key(
+            fact.period_end or artifact.period_end,
+            fact.fiscal_year or artifact.fiscal_year,
+        )
         score = (
             0 if artifact.period_end and fact.period_end == artifact.period_end else 1,
             0 if artifact.fiscal_year and fact.fiscal_year == artifact.fiscal_year else 1,
@@ -692,7 +705,11 @@ def _derive_missing_facts(facts: list[ExtractedFact], artifact: ParsedArtifact) 
 
 
 def _normalize_eu_fact_value(canonical_name: str, value: Decimal) -> Decimal:
-    if canonical_name in _EU_LIABILITY_CANONICAL_NAMES | _EU_DEDUCTION_CANONICAL_NAMES and value < 0:
+    magnitude_canonical = (
+        canonical_name in _EU_LIABILITY_CANONICAL_NAMES
+        or canonical_value_polarity("EU", canonical_name) == "deduction_magnitude"
+    )
+    if magnitude_canonical and value < 0:
         return -value
     return value
 

@@ -2,7 +2,7 @@ import eu_market_profile as eu
 
 
 def test_detect_market_prefers_explicit_task_market_and_filename():
-    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v6"
+    assert eu.EU_PROFILE_RULE_VERSION == "eu-pdf-profile-v7"
     assert eu.is_eu_market({"submit_config": {"market": "EU"}}, "anything.pdf")
     assert eu.is_eu_market({"market": "eu"}, "anything.pdf")
     assert eu.is_eu_market({}, "London-Stock-Exchange-Group-plc_EU_LSEG_2025-12-31_annual.pdf")
@@ -256,6 +256,40 @@ def test_eu_financial_data_records_report_currency_and_multi_country_units():
     assert data["detected_currencies"] == ["EUR"]
     assert data["summary"]["detected_currencies"] == ["EUR"]
     assert data["summary"]["statement_units"] == ["EUR million"]
+
+
+def test_eu_financial_data_binds_short_fiscal_year_headers_without_using_change_column(tmp_path):
+    markdown = """
+    # Consolidated income statement
+    <table><tr><td></td><td>FY251€m</td><td>FY24€m</td><td>Reported change %</td></tr>
+    <tr><td>Revenue</td><td>37,448</td><td>36,717</td><td>2.0</td></tr>
+    <tr><td>Gross profit</td><td>12,519</td><td>12,258</td><td>2.1</td></tr>
+    <tr><td>Operating profit</td><td>(411)</td><td>3,665</td><td>(111.2)</td></tr>
+    <tr><td>Profit before taxation</td><td>(1,478)</td><td>1,620</td><td></td></tr>
+    <tr><td>Income tax expense</td><td>(2,246)</td><td>(50)</td><td></td></tr>
+    <tr><td>Profit for the year</td><td>(3,746)</td><td>1,505</td><td></td></tr></table>
+    """
+
+    (tmp_path / "table_index.json").write_text(
+        '[{"table_index": 1, "pdf_page_number": 21, "bbox": [10, 20, 30, 40]}]',
+        encoding="utf-8",
+    )
+    data = eu.build_eu_financial_data(
+        markdown,
+        task_id="eu-vod",
+        filename="Vodafone-Group-Plc_EU_VOD_2025-03-31_annual.pdf",
+        result_dir_path=str(tmp_path),
+    )
+
+    income = next(statement for statement in data["statements"] if statement["statement_type"] == "income_statement")
+    revenue = next(item for item in income["items"] if item["canonical_name"] == "operating_revenue")
+    assert revenue["values"] == {"2025": 37448.0, "2024": 36717.0}
+    assert revenue["raw_values"] == {"2025": "37,448", "2024": "36,717"}
+    assert revenue["sources"]["2025"]["quote_text"] == "Revenue | 37,448 | 36,717 | 2.0"
+    assert revenue["sources"]["2025"]["pdf_page_number"] == 21
+    assert revenue["sources"]["2025"]["bbox"] == [10, 20, 30, 40]
+    assert income["currency"] == "EUR"
+    assert income["unit"] == "EUR million"
 
 
 def test_eu_currency_detection_covers_non_uk_european_markets():

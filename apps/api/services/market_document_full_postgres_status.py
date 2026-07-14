@@ -13,7 +13,6 @@ from fastapi import HTTPException
 
 from services import market_document_identity
 
-
 MARKET_DOCUMENT_FULL_SCHEMAS = {
     "US": "sec_us",
     "HK": "pdf2md_hk",

@@ -153,7 +153,7 @@ class PrimaryMarketMeetingPrepareRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
     include_external: bool = False
     external_providers: list[str] | None = None
-    include_vector: bool = False
+    include_vector: bool = True
     include_rerank: bool = False
     vector_collections: list[str] | None = None
 
@@ -166,8 +166,8 @@ class PrimaryMarketMeetingWorkflowAdvanceRequest(BaseModel):
     dry_run: bool = True
     allow_hermes: bool = False
     max_agents: int = Field(default=1, ge=1, le=6)
-    r3_skip: bool = True
-    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r3_skip: bool = False
+    r3_skip_reason: str | None = None
     r4_overwrite: bool = False
 
 
@@ -1400,14 +1400,6 @@ def prepare_meeting_agent(
     request_payload = req or PrimaryMarketMeetingPrepareRequest()
     normalized_deal_id, _package_dir = _validated_deal_dir(deal_id, current_user=current_user, action="write")
     canonical_profile = ic_policy.canonical_ic_profile_id(profile_id)
-    if canonical_profile == "siq_ic_master_coordinator":
-        result = {
-            "deal_id": normalized_deal_id,
-            "agent_id": canonical_profile,
-            "skipped": True,
-            "reason": "startup_retrieval_not_required_for_master_coordinator",
-        }
-        return deal_store.redact_public_payload(result)
     try:
         receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
             normalized_deal_id,
@@ -1468,13 +1460,6 @@ def prepare_all_meeting_agents(
     ]
     results: list[dict[str, Any]] = []
     for profile_id in profile_ids:
-        if profile_id == "siq_ic_master_coordinator":
-            results.append({
-                "agent_id": profile_id,
-                "status": "skipped",
-                "reason": "startup_retrieval_not_required_for_master_coordinator",
-            })
-            continue
         try:
             receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
                 normalized_deal_id,

@@ -178,6 +178,44 @@ async def test_quota_reservation_can_be_released_and_expired_reservations_reconc
 
 
 @pytest.mark.asyncio
+async def test_released_pending_reservation_cannot_hide_next_consumable_reservation(tmp_path, monkeypatch):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'quota-pending-release.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+    monkeypatch.setattr("services.usage_service._quota_limit_for_user", lambda *_args: 2)
+
+    async with AsyncSession(engine) as session:
+        _, _, released_id = await reserve_quota_async(
+            session,
+            user_id=12,
+            user_role="user",
+            event_type="agent_question",
+        )
+        assert released_id is not None
+        assert await release_quota_async(session, released_id) is True
+        assert await release_quota_async(session, released_id) is False
+
+        _, _, consumed_id = await reserve_quota_async(
+            session,
+            user_id=12,
+            user_role="user",
+            event_type="agent_question",
+        )
+        assert consumed_id is not None
+        await record_usage_async(session, user_id=12, event_type="agent_question")
+
+        ledger = await session.get(QuotaLedger, 1)
+        released = await session.get(QuotaReservation, released_id)
+        consumed = await session.get(QuotaReservation, consumed_id)
+        assert ledger is not None
+        assert (ledger.used_count, ledger.reserved_count) == (1, 0)
+        assert released is not None and released.status == "released"
+        assert consumed is not None and consumed.status == "consumed"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_quota_reservation_allows_only_one_concurrent_request_with_balance_one(tmp_path, monkeypatch):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'quota.db'}")
     async with engine.begin() as connection:

@@ -66,13 +66,6 @@ def _by_agent(items: Any) -> dict[str, dict[str, Any]]:
 
 
 def _read_receipt(deal_id: str, profile_id: str, *, wiki_root: Path | str | None = None) -> dict[str, Any]:
-    if profile_id == "siq_ic_master_coordinator":
-        return {
-            "required": False,
-            "present": False,
-            "skipped": True,
-            "receipt_id": None,
-        }
     payload = ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile_id, wiki_root=wiki_root)
     receipt = payload.get("receipt") if isinstance(payload.get("receipt"), dict) else None
     return {
@@ -135,17 +128,13 @@ def build_meeting_readiness(
         report_item = reports_by_agent.get(profile_id, {})
         is_r1_agent = profile_id in ic_policy.R1_AGENT_SEQUENCE
         blocking_reasons = list(workflow_item.get("blocking_reasons") or [])
-        if is_r1_agent and receipt.get("required") and not receipt.get("present") and "startup_receipt_missing" not in blocking_reasons:
+        if receipt.get("required") and not receipt.get("present") and "startup_receipt_missing" not in blocking_reasons:
             blocking_reasons.append("startup_receipt_missing")
         if include_runtime and not runtime.get("enabled"):
             blocking_reasons.append("hermes_runtime_not_running")
         ready_for_formal_task = bool(
             (runtime.get("enabled") or not include_runtime)
-            and (
-                profile_id == "siq_ic_master_coordinator"
-                or (is_r1_agent and not blocking_reasons)
-                or not is_r1_agent
-            )
+            and not blocking_reasons
         )
         report_summary = {
             "present": bool(report_item.get("has_report")),

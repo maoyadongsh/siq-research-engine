@@ -117,7 +117,10 @@ def test_build_meeting_readiness_aggregates_contract_receipt_report_and_quality(
     assert finance["runtime"]["health"] == "configured"
     assert finance["runtime"]["port"] == 18664
     assert finance["contract"]["startup_retrieval_required"] is True
-    assert "financial consistency" in finance["contract"]["responsibilities"]
+    assert any(
+        "historical financials" in responsibility
+        for responsibility in finance["contract"]["responsibilities"]
+    )
     assert finance["startup_receipt"]["present"] is True
     assert finance["startup_receipt"]["receipt_id"] == "startup-siq_ic_finance_auditor-R1-001"
     assert finance["startup_receipt"]["shared_hits"] == 1
@@ -133,16 +136,17 @@ def test_build_meeting_readiness_aggregates_contract_receipt_report_and_quality(
     assert sector["quality"]["ready_for_formal_task"] is False
 
     master = by_profile["siq_ic_master_coordinator"]
-    assert master["startup_receipt"]["required"] is False
-    assert master["startup_receipt"]["skipped"] is True
+    assert master["startup_receipt"]["required"] is True
+    assert master["startup_receipt"]["skipped"] is False
     assert master["r1_report"]["required"] is False
-    assert "startup_receipt_missing" not in master["quality"]["blocking_reasons"]
+    assert "startup_receipt_missing" in master["quality"]["blocking_reasons"]
 
     assert readiness["summary"]["profiles"] == 7
     assert readiness["summary"]["receipt_present"] == 1
-    assert readiness["summary"]["receipt_required"] == 6
+    assert readiness["summary"]["receipt_required"] == 7
     assert readiness["summary"]["r1_reports_present"] == 1
     assert "siq_ic_sector_expert" in readiness["summary"]["blocking_profiles"]
+    assert "siq_ic_master_coordinator" in readiness["summary"]["blocking_profiles"]
 
 
 def test_build_meeting_readiness_without_runtime_skips_hermes_probe(tmp_path):

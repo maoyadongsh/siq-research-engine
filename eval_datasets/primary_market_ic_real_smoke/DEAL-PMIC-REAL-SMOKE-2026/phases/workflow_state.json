@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq_deal_workflow_state_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "legacy_project_id": null,
+  "company_name": "华澜精密科技股份有限公司（合成验收样本）",
+  "industry": "半导体封装测试设备",
+  "stage": "Pre-IPO",
+  "status": "draft",
+  "current_phase": "R0",
+  "policy_version": "2026-07-13",
+  "phases": {
+    "R0": {"status": "pending"},
+    "R1": {"status": "pending"},
+    "R1.5": {"status": "pending"},
+    "R2": {"status": "pending"},
+    "R3": {"status": "pending"},
+    "R4": {"status": "pending"}
+  },
+  "created_at": "2026-07-13T00:00:00Z",
+  "updated_at": "2026-07-13T00:00:00Z"
+}

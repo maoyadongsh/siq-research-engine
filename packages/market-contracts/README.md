@@ -27,6 +27,7 @@ market evidence package
 | 稳定 ID 生成 | 生成 `stable_id`、`stable_parse_run_id` |
 | hash 计算 | 为 package artifact 生成稳定 hash |
 | source map 辅助 | 从 `financial_data` 构造基础 source map |
+| 财务值极性 | 声明市场 canonical 是保留符号还是采用费用正幅值 |
 
 ## 当前最新状态
 
@@ -83,6 +84,15 @@ market evidence package
 | `compute_artifact_hashes` | 计算 artifact hash |
 | `stable_id` / `stable_parse_run_id` | 生成稳定标识 |
 | `source_map_from_financial_data` | 辅助构建 source map |
+| `canonical_value_polarity` | 查询市场 canonical 的符号语义 |
+
+### 财务值极性合同
+
+`siq_financial_value_polarity_v1` 默认要求 canonical value 与原始证据严格同号。HK、EU 的
+`cost_of_sales`、`finance_costs`、`income_tax_expense` 是唯一显式例外：PDF extractor 将报表中
+以括号列示的扣减项规范为正费用额，因此 evidence verifier 允许“canonical 非负值、原文负值”
+这一种单向的符号归一化。未声明市场、US 等其他市场，以及 revenue、profit 等其他 canonical
+继续保留严格符号比较，不能用绝对值掩盖真实符号错误。
 
 ## 启动方式
 

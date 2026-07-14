@@ -149,6 +149,9 @@ def build_r4_decision_payload(
         "chairman_dimension_score": chairman_score,
         "chairman_qualitative_decision": _qualitative_decision(threshold),
         "threshold_result": threshold,
+        "source_ids": plan.get("evidence_identity", {}).get("source_ids") or [],
+        "evidence_snapshot_hash": plan.get("evidence_identity", {}).get("evidence_snapshot_hash"),
+        "active_sources": plan.get("evidence_identity", {}).get("active_sources") or [],
         "conditions": decision_conditions(plan),
         "monitoring_metrics": monitoring_metrics(plan),
         "human_confirmation": {

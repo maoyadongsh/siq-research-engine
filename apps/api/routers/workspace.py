@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
 from services.path_config import REPORT_DOWNLOADS_ROOT, WIKI_ROOT as CONFIG_WIKI_ROOT
+from services.pdf_submission import PDFSubmissionHooks, submit_pdf_parse
 from services.upload_proxy_limits import (
     UPLOAD_PROXY_LIMITER,
     buffer_upload_files,
@@ -997,6 +998,8 @@ async def authenticated_pdf_upload(
     end_page_id: str = Form(""),
     formula_enable: str = Form("true"),
     table_enable: str = Form("true"),
+    document_profile: str = Form(""),
+    source_context: str = Form(""),
     current_user: User = Depends(require_permission("report.create")),
     async_session: AsyncSession = Depends(get_async_session),
 ):
@@ -1007,8 +1010,10 @@ async def authenticated_pdf_upload(
     end_page_id = _form_text(end_page_id, "")
     formula_enable = _form_text(formula_enable, "true")
     table_enable = _form_text(table_enable, "true")
+    document_profile = _form_text(document_profile, "")
+    source_context = _form_text(source_context, "")
     requested_market = _normalize_parse_market(market)
-    form = {
+    config = {
         "backend": backend,
         "parse_method": parse_method,
         "market": requested_market or market,
@@ -1017,193 +1022,105 @@ async def authenticated_pdf_upload(
         "formula_enable": formula_enable,
         "table_enable": table_enable,
     }
-    parse_config_hash = _pdf_parse_config_hash(form)
-    async with UPLOAD_PROXY_LIMITER.slot():
-        buffered_uploads = await buffer_upload_files(
-            files,
-            max_file_bytes=PDF_UPLOAD_MAX_FILE_BYTES,
-            max_batch_bytes=PDF_UPLOAD_MAX_BATCH_BYTES,
-            default_filename="upload.pdf",
-            default_content_type="application/pdf",
-        )
+    parsed_source_context: dict[str, object] | None = None
+    if source_context.strip():
         try:
-            uploads: list[dict[str, object]] = []
-            seen_hashes: set[str] = set()
-            for item in buffered_uploads:
-                filename = item.filename or "upload.pdf"
-                file_sha256 = item.sha256
-                if file_sha256 in seen_hashes:
-                    await release_pending_quota_async(
-                        async_session,
-                        user_id=int(current_user.id),
-                        event_type=PARSE_EVENT,
-                    )
-                    return JSONResponse(
-                        content={
-                            "error": "duplicate_file_content",
-                            "message": f"本次上传中包含重复文档内容，请勿重复解析: {filename}",
-                            "filename": filename,
-                            "existingTask": None,
-                        },
-                        status_code=409,
-                    )
-                seen_hashes.add(file_sha256)
-                uploads.append(
-                    {
-                        "filename": filename,
-                        "content": item.file,
-                        "content_type": item.content_type or "application/pdf",
-                        "file_sha256": file_sha256,
-                        "market": requested_market or _normalize_parse_market(market) or "CN",
-                        "parse_config_hash": parse_config_hash,
-                    }
-                )
+            candidate = json.loads(source_context)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="source_context must be valid JSON") from exc
+        if not isinstance(candidate, dict):
+            raise HTTPException(status_code=400, detail="source_context must be an object")
+        parsed_source_context = candidate
 
-            existing_tasks = await _pdf_tasks_by_filename(current_user=current_user, market_scope=requested_market)
-            existing_dedupe_tasks = {
-                _pdf_dedupe_key(task, requested_market): task
-                for task in existing_tasks.values()
-                if str(task.get("file_sha256") or "").strip() and str(task.get("parse_config_hash") or "").strip()
-            }
-            new_parse_count = sum(
-                1
-                for upload in uploads
-                if _pdf_dedupe_key(upload, requested_market) not in existing_dedupe_tasks
-            )
-            if new_parse_count:
-                await enforce_quota_or_429_async(async_session, current_user, PARSE_EVENT, increment=new_parse_count)
+    user_id = int(current_user.id)
 
-            multipart = [
-                ("files", (str(upload["filename"]), upload["content"], str(upload["content_type"])))
-                for upload in uploads
-            ]
-            async with httpx.AsyncClient(timeout=PDF_UPLOAD_TIMEOUT) as client:
-                response = await client.post(
-                    f"{PDF2MD_API_BASE}/api/upload",
-                    data=form,
-                    files=multipart,
-                    headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
-                )
-        except httpx.RequestError as exc:
-            await release_pending_quota_async(
-                async_session,
-                user_id=int(current_user.id),
-                event_type=PARSE_EVENT,
-            )
-            raise HTTPException(status_code=502, detail=f"PDF 解析服务不可用: {exc}") from exc
-        finally:
-            close_buffered_uploads(buffered_uploads)
+    async def lookup_tasks():
+        return await _pdf_tasks_by_filename(
+            current_user=current_user,
+            market_scope=requested_market,
+        )
 
-    content_type = response.headers.get("content-type", "application/json")
-    try:
-        payload = response.json()
-    except ValueError:
+    async def reserve_quota(count: int):
+        await enforce_quota_or_429_async(
+            async_session,
+            current_user,
+            PARSE_EVENT,
+            increment=count,
+        )
+
+    async def release_quota():
         await release_pending_quota_async(
             async_session,
-            user_id=int(current_user.id),
+            user_id=user_id,
             event_type=PARSE_EVENT,
         )
-        return Response(content=response.content, status_code=response.status_code, media_type=content_type)
 
-    if response.status_code == 409 and isinstance(payload, dict) and payload.get("error") in {"duplicate_filename", "duplicate_file_content"}:
-        existing = payload.get("existingTask") or payload.get("existing_task") or {}
-        task_id = str(existing.get("task_id") or "")
-        filename = str(payload.get("filename") or existing.get("filename") or "已有解析任务")
-        if requested_market and isinstance(existing, dict) and not _normalize_parse_market(existing.get("market")):
-            existing["market"] = requested_market
-            if isinstance(payload.get("existingTask"), dict):
-                payload["existingTask"] = existing
-            if isinstance(payload.get("existing_task"), dict):
-                payload["existing_task"] = existing
-        if task_id:
-            await record_user_artifact_async(
-                async_session,
-                user_id=int(current_user.id),
-                artifact_type="parse",
-                artifact_key=task_id,
-                title=filename,
-                path=_parse_result_artifact_path(task_id, existing.get("market")),
-                source="reused_parse",
-                global_artifact_id=task_id,
-            )
-        await release_pending_quota_async(
+    async def record_usage(tasks: list[dict[str, object]]):
+        await record_usage_async(
             async_session,
-            user_id=int(current_user.id),
+            user_id=user_id,
             event_type=PARSE_EVENT,
+            count=len(tasks),
+            source="pdf_upload",
+            metadata_json=json.dumps({"tasks": tasks}, ensure_ascii=False),
         )
-        return JSONResponse(content=payload, status_code=409)
 
-    if 200 <= response.status_code < 300:
-        created_tasks = payload.get("tasks") if isinstance(payload, dict) else []
-        if isinstance(payload, dict):
-            payload["tasks"] = [
-                _enrich_parse_task_market(
-                    {
-                        **dict(task),
-                        **({"market": requested_market} if requested_market and not _normalize_parse_market(task.get("market")) else {}),
-                    }
-                )
-                for task in (created_tasks or [])
-            ]
-        created_tasks = payload.get("tasks") if isinstance(payload, dict) else created_tasks
-        new_tasks = []
-        reused_tasks = []
-        for task in created_tasks or []:
-            if _pdf_dedupe_key(task, requested_market) in existing_dedupe_tasks:
-                reused_tasks.append(task)
-            else:
-                new_tasks.append(task)
+    async def record_artifact(task: dict[str, object], source: str):
+        task_id = str(task.get("task_id") or "")
+        if not task_id:
+            return
+        await record_user_artifact_async(
+            async_session,
+            user_id=user_id,
+            artifact_type="parse",
+            artifact_key=task_id,
+            title=str(task.get("filename") or task_id or "解析任务"),
+            path=_parse_result_artifact_path(task_id, str(task.get("market") or requested_market)),
+            source=source,
+            global_artifact_id=task_id,
+        )
 
-        user_id = int(current_user.id)
-        if new_tasks:
-            await record_usage_async(
-                async_session,
-                user_id=user_id,
-                event_type=PARSE_EVENT,
-                count=len(new_tasks),
-                source="pdf_upload",
-                metadata_json=json.dumps({"tasks": new_tasks}, ensure_ascii=False),
-            )
-        else:
-            await release_pending_quota_async(
-                async_session,
-                user_id=user_id,
-                event_type=PARSE_EVENT,
-            )
-        for task in new_tasks:
-            task_id = str(task.get("task_id") or "")
-            filename = str(task.get("filename") or task_id or "解析任务")
-            if task_id:
-                await record_user_artifact_async(
-                    async_session,
-                    user_id=user_id,
-                    artifact_type="parse",
-                    artifact_key=task_id,
-                    title=filename,
-                    path=_parse_result_artifact_path(task_id, task.get("market")),
-                    source="new_parse",
-                    global_artifact_id=task_id,
-                )
-        for task in reused_tasks:
-            task_id = str(task.get("task_id") or "")
-            filename = str(task.get("filename") or task_id or "已有解析任务")
-            if task_id and not await _user_has_parse_artifact_async(async_session, user_id, task_id):
-                await record_user_artifact_async(
-                    async_session,
-                    user_id=user_id,
-                    artifact_type="parse",
-                    artifact_key=task_id,
-                    title=filename,
-                    path=_parse_result_artifact_path(task_id, task.get("market")),
-                    source="reused_parse",
-                    global_artifact_id=task_id,
-                )
-        return payload
+    async def has_artifact(task_id: str):
+        return await _user_has_parse_artifact_async(async_session, user_id, task_id)
 
+    result = await submit_pdf_parse(
+        files=files,
+        parser_api_base=PDF2MD_API_BASE,
+        config=config,
+        document_profile=document_profile,
+        source_context=parsed_source_context,
+        headers=_pdf2md_headers(current_user=current_user, market_scope=requested_market),
+        hooks=PDFSubmissionHooks(
+            lookup_tasks=lookup_tasks,
+            reserve_quota=reserve_quota,
+            release_quota=release_quota,
+            record_usage=record_usage,
+            record_artifact=record_artifact,
+            has_artifact=has_artifact,
+        ),
+        parser_version=PDF_PARSE_CONFIG_VERSION,
+        timeout=PDF_UPLOAD_TIMEOUT,
+        max_file_bytes=PDF_UPLOAD_MAX_FILE_BYTES,
+        max_batch_bytes=PDF_UPLOAD_MAX_BATCH_BYTES,
+        limiter=UPLOAD_PROXY_LIMITER,
+        http_client_factory=httpx.AsyncClient,
+        buffer_uploads_fn=buffer_upload_files,
+        close_uploads_fn=close_buffered_uploads,
+    )
+    if result.payload is None:
+        return Response(
+            content=result.content,
+            status_code=result.status_code,
+            media_type=result.content_type,
+        )
+    if 200 <= result.status_code < 300:
+        return result.payload
+    if result.status_code == 409:
+        return JSONResponse(content=result.payload, status_code=409)
     return Response(
-        content=json.dumps(payload, ensure_ascii=False),
-        status_code=response.status_code,
-        media_type=content_type,
+        content=json.dumps(result.payload, ensure_ascii=False),
+        status_code=result.status_code,
+        media_type=result.content_type,
     )
 
 

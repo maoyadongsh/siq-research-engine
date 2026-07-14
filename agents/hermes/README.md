@@ -13,13 +13,13 @@
 | `siq_factchecker` | `18649` | `/verify` | `/api/factchecker/*` | 对分析报告做事实、计算和证据核查 |
 | `siq_tracking` | `18650` | `/tracking` | `/api/tracking/*` | 持续跟踪、预警、更新记录 |
 | `siq_legal` | `18652` | `/legal` | `/api/legal/*` | 法规检索、合规分析、意见书草稿 |
-| `siq_ic_master_coordinator` | `18660` | 待接入 | 待接入 | 投委会流程编排、证据门禁、专家材料收口 |
-| `siq_ic_chairman` | `18661` | 待接入 | 待接入 | 投委会最终裁决、条件化投决与分歧处理 |
+| `siq_ic_master_coordinator` | `18660` | `/deals` | `/api/deals/*` | 投委会流程编排、证据门禁、专家材料收口 |
+| `siq_ic_chairman` | `18661` | `/deals` | `/api/deals/*` | 投委会最终裁决、条件化投决与分歧处理 |
 | `siq_ic_strategist` | `18662` | `/deals` | `/api/deals/*` | 战略适配、时点、宏观与基金 thesis |
-| `siq_ic_sector_expert` | `18663` | 待接入 | 待接入 | 行业格局、产品验证、竞争与市场判断 |
+| `siq_ic_sector_expert` | `18663` | `/deals` | `/api/deals/*` | 行业格局、产品验证、竞争与市场判断 |
 | `siq_ic_finance_auditor` | `18664` | `/deals` | `/api/deals/*` | 财务一致性、预测、估值和压力测试 |
-| `siq_ic_legal_scanner` | `18665` | 待接入 | 待接入 | 法务尽调、条款风险和监管暴露 |
-| `siq_ic_risk_controller` | `18666` | 待接入 | 待接入 | 下行情景、红黄线、交易保护条款 |
+| `siq_ic_legal_scanner` | `18665` | `/deals` | `/api/deals/*` | 法务尽调、条款风险和监管暴露 |
+| `siq_ic_risk_controller` | `18666` | `/deals` | `/api/deals/*` | 下行情景、红黄线、交易保护条款 |
 
 ## 协作原则
 
@@ -83,9 +83,18 @@ curl -s http://127.0.0.1:18651/health
 curl -s http://127.0.0.1:18649/health
 curl -s http://127.0.0.1:18650/health
 curl -s http://127.0.0.1:18652/health
+curl -s http://127.0.0.1:18660/health
+curl -s http://127.0.0.1:18661/health
+curl -s http://127.0.0.1:18662/health
+curl -s http://127.0.0.1:18663/health
+curl -s http://127.0.0.1:18664/health
+curl -s http://127.0.0.1:18665/health
+curl -s http://127.0.0.1:18666/health
 ```
 
-IC profiles 默认不随主链路自动暴露给前端；启用时通常配合 `SIQ_ENABLE_IC_HERMES=1` 与 `/deals` 相关链路使用。
+IC profiles 默认随主链路启动，并配合 `/deals` 相关链路使用。资源受限或仅运行公开市场流程时，可设置 `SIQ_ENABLE_IC_HERMES=0` 显式关闭这 7 个网关。
+
+使用 systemd user 部署时，7 个 IC profiles 由 `hermes-gateway-siq-ic@.service` 模板分别托管；`siq-research-engine.service` 不重复拉起 Hermes，以避免与已有网关端口冲突。
 
 ## 运行态目录
 

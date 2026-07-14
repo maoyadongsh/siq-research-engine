@@ -53,8 +53,8 @@ export SIQ_PDF2MD_API_BASE="${SIQ_PDF2MD_API_BASE:-http://127.0.0.1:15000}"
 export SIQ_DOCUMENT_PARSER_API_BASE="${SIQ_DOCUMENT_PARSER_API_BASE:-http://127.0.0.1:15010}"
 export SIQ_REPORT_FINDER_BASE="${SIQ_REPORT_FINDER_BASE:-http://127.0.0.1:18000}"
 export SIQ_REPORT_FINDER_HEALTH_URL="${SIQ_REPORT_FINDER_HEALTH_URL:-http://127.0.0.1:18000/health}"
-export SIQ_PDF2MD_HEALTH_URL="${SIQ_PDF2MD_HEALTH_URL:-http://127.0.0.1:15000/api/health}"
-export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://127.0.0.1:15010/api/health}"
+export SIQ_PDF2MD_HEALTH_URL="${SIQ_PDF2MD_HEALTH_URL:-http://127.0.0.1:15000/api/ready}"
+export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://127.0.0.1:15010/api/ready}"
 export REDIS_URL="${REDIS_URL:-redis://localhost:16379/0}"
 export SIQ_ALLOW_REGISTRATION="${SIQ_ALLOW_REGISTRATION:-0}"
 export SIQ_DEMO_MODE="${SIQ_DEMO_MODE:-0}"
@@ -104,7 +104,10 @@ database_url_for_log="${SIQ_APP_DATABASE_URL:-${DATABASE_URL:-}}"
 echo "   SIQ_APP_DATABASE_URL: $(database_url_log_status "$database_url_for_log")"
 echo ""
 
-uvicorn_args=(main:app --host "$UVICORN_HOST" --port "$SIQ_BACKEND_PORT")
+# Browser media and WebSocket tickets are carried in query parameters. The
+# edge proxy emits a query-free access log; Uvicorn must not duplicate the raw
+# request target into stdout.
+uvicorn_args=(main:app --host "$UVICORN_HOST" --port "$SIQ_BACKEND_PORT" --no-access-log)
 if [[ "$UVICORN_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
     uvicorn_args+=(--reload)
 fi

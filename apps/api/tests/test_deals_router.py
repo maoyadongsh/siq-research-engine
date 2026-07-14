@@ -9,16 +9,19 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from routers import deals
-from services import deal_disputes
-from services import deal_documents
-from services import deal_evidence
-from services import deal_phase_artifacts
-from services import deal_reports
-from services import deal_store
-from services import ic_agent_runtime
-from services.auth_dependencies import get_current_user
-from services.auth_service import User, UserRole
+from routers import deals  # noqa: E402
+from services.auth_dependencies import get_current_user  # noqa: E402
+from services.auth_service import User, UserRole  # noqa: E402
+
+from services import (  # noqa: E402
+    deal_disputes,
+    deal_documents,
+    deal_evidence,
+    deal_phase_artifacts,
+    deal_reports,
+    deal_store,
+    ic_agent_runtime,
+)
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -49,6 +52,58 @@ def _append_verified_evidence_dimensions(package_dir: Path, *, deal_id: str, doc
     evidence_path.write_text(
         existing + "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
         encoding="utf-8",
+    )
+
+
+def _write_formal_confirmation_gate_pass(package_dir: Path) -> None:
+    decision_path = package_dir / "phases" / "r4_decision.json"
+    decision = json.loads(decision_path.read_text(encoding="utf-8"))
+    decision.update(
+        {
+            "generation_mode": "model",
+            "report_id": "ICRPT-TEST-ROUTER-CONFIRMATION",
+            "revision": 1,
+            "workflow_run_id": "ICRUN-TEST-ROUTER-CONFIRMATION",
+            "evidence_snapshot_hash": "a" * 64,
+        }
+    )
+    _write_json(decision_path, decision)
+    _write_json(
+        package_dir / "decision" / "report_quality.json",
+        {
+            "schema_version": "siq_ic_report_quality_v1",
+            "report_id": decision["report_id"],
+            "report_revision": decision["revision"],
+            "evidence_snapshot_hash": decision["evidence_snapshot_hash"],
+            "allowed_for_human_confirmation": True,
+            "blocking_reasons": [],
+        },
+    )
+    _write_json(
+        package_dir / "decision" / "factcheck.json",
+        {
+            "schema_version": "siq_ic_report_factcheck_v1",
+            "report_id": decision["report_id"],
+            "report_revision": decision["revision"],
+            "evidence_snapshot_hash": decision["evidence_snapshot_hash"],
+            "status": "pass",
+        },
+    )
+    _write_json(
+        package_dir / "phases" / "ic_workflow_runs.json",
+        {
+            "schema_version": "siq_ic_workflow_runs_v1",
+            "active_workflow_run_id": decision["workflow_run_id"],
+            "runs": [
+                {
+                    "schema_version": "siq_ic_workflow_run_v1",
+                    "workflow_run_id": decision["workflow_run_id"],
+                    "deal_id": package_dir.name,
+                    "status": "active",
+                    "evidence_snapshot_hash": decision["evidence_snapshot_hash"],
+                }
+            ],
+        },
     )
 
 
@@ -470,9 +525,21 @@ def test_deals_router_decision_includes_r4_contract(monkeypatch, tmp_path):
                 "markdown": "decision/IC_DECISION_REPORT.md",
                 "html": "decision/IC_DECISION_REPORT.html",
             },
+            "source_root": "/home/private/deals/DEAL-ROUTER-DECISION",
+            "created_by": {"id": 7, "username": "ic-admin", "email": "private@example.com"},
         },
     )
     (package_dir / "decision" / "IC_DECISION_REPORT.md").write_text("# IC Decision\n\nPass.", encoding="utf-8")
+    _write_formal_confirmation_gate_pass(package_dir)
+    quality_path = package_dir / "decision" / "report_quality.json"
+    quality = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality["source_root"] = "/home/private/quality"
+    quality["generated_by"] = {"id": 8, "username": "quality-bot", "email": "bot@example.com"}
+    _write_json(quality_path, quality)
+    factcheck_path = package_dir / "decision" / "factcheck.json"
+    factcheck = json.loads(factcheck_path.read_text(encoding="utf-8"))
+    factcheck["absolute_path"] = "/home/private/factcheck.json"
+    _write_json(factcheck_path, factcheck)
 
     response = client.get("/api/deals/DEAL-ROUTER-DECISION/decision")
 
@@ -487,7 +554,16 @@ def test_deals_router_decision_includes_r4_contract(monkeypatch, tmp_path):
     assert payload["contract"]["human_confirmation"]["status"] == "pending"
     assert payload["contract"]["human_confirmation"]["confirmed"] is False
     assert payload["contract"]["artifacts"]["markdown"]["available"] is True
+    assert payload["quality"]["schema_version"] == "siq_ic_report_quality_v1"
+    assert payload["quality"]["report_revision"] == 1
+    assert payload["factcheck"]["schema_version"] == "siq_ic_report_factcheck_v1"
+    assert payload["factcheck"]["status"] == "pass"
     assert payload["contract"]["artifacts"]["html"]["available"] is False
+    assert "source_root" not in payload["decision"]
+    assert payload["decision"]["created_by"] == {"id": 7, "username": "ic-admin"}
+    assert "source_root" not in payload["quality"]
+    assert payload["quality"]["generated_by"] == {"id": 8, "username": "quality-bot"}
+    assert "absolute_path" not in payload["factcheck"]
 
     dry_run = client.post(
         "/api/deals/DEAL-ROUTER-DECISION/decision/human-confirmation",
@@ -495,7 +571,7 @@ def test_deals_router_decision_includes_r4_contract(monkeypatch, tmp_path):
     )
     assert dry_run.status_code == 200
     dry_run_payload = dry_run.json()
-    assert dry_run_payload["schema_version"] == "siq_deal_r4_human_confirmation_update_v1"
+    assert dry_run_payload["schema_version"] == "siq_deal_r4_human_confirmation_update_v2"
     assert dry_run_payload["dry_run"] is True
     assert dry_run_payload["would_write"] is False
     assert dry_run_payload["human_confirmation"]["confirmed_by"] == {"id": 7, "username": "ic-admin"}
@@ -512,6 +588,17 @@ def test_deals_router_decision_includes_r4_contract(monkeypatch, tmp_path):
     assert confirmed_payload["decision_contract"]["human_confirmation"]["status"] == "confirmed"
     stored_after_confirm = json.loads((package_dir / "phases" / "r4_decision.json").read_text(encoding="utf-8"))
     assert stored_after_confirm["human_confirmation"]["status"] == "confirmed"
+    refreshed = client.get("/api/deals/DEAL-ROUTER-DECISION/decision")
+    assert refreshed.status_code == 200
+    refreshed_human = refreshed.json()["contract"]["human_confirmation"]
+    assert refreshed_human["attestation_schema_version"] == "siq_ic_human_confirmation_attestation_v1"
+    assert refreshed_human["report_id"] == stored_after_confirm["report_id"]
+    assert refreshed_human["report_revision"] == stored_after_confirm["revision"]
+    assert refreshed_human["workflow_run_id"] == stored_after_confirm["workflow_run_id"]
+    assert refreshed_human["evidence_snapshot_hash"] == stored_after_confirm["evidence_snapshot_hash"]
+    assert len(refreshed_human["decision_sha256"]) == 64
+    assert len(refreshed_human["quality_sha256"]) == 64
+    assert len(refreshed_human["factcheck_sha256"]) == 64
     audit = json.loads((package_dir / "phases" / "audit_log.json").read_text(encoding="utf-8"))
     assert audit["events"][-1]["event_type"] == "r4_human_confirmation_updated"
 
@@ -1306,7 +1393,6 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
         json={"round_name": "R1", "limit": 1},
     )
     assert strategist_receipt.status_code == 200
-    strategist_evidence_id = strategist_receipt.json()["receipt"]["evidence_hits"][0]["evidence_id"]
     serial_dry_run = client.post(
         "/api/deals/DEAL-ROUTER-007/workflow/run-r1-serial",
         json={"round_name": "R1", "dry_run": True, "max_agents": 1},
@@ -1316,53 +1402,18 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert serial_dry_run_json["schema_version"] == "siq_ic_workflow_r1_serial_run_dry_run_v1"
     assert serial_dry_run_json["workflow_action"] == "run-r1-serial"
     assert serial_dry_run_json["dry_run"] is True
-    assert serial_dry_run_json["planned_agent_ids"] == ["siq_ic_strategist"]
+    assert serial_dry_run_json["planned_agent_ids"] == []
     assert serial_dry_run_json["hermes_called"] is False
+    assert serial_dry_run_json["blocking_reasons"] == [
+        "startup_receipt_gate_blocked:embedding_endpoint_not_configured"
+    ]
 
-    async def fake_create_run(input, conversation_history, *, profile, session_id=None):
-        assert profile == "siq_ic_strategist"
-        assert conversation_history == []
-        assert "siq_ic_agent_task_v1" in str(input)
-        assert session_id == "deal-DEAL-ROUTER-007-siq_ic_strategist-R1"
-        return "run-router-strategist-001"
-
-    async def fake_collect_run_result(run_id, *, profile, timeout=None):
-        assert run_id == "run-router-strategist-001"
-        assert profile == "siq_ic_strategist"
-        return (
-            "## 检索结果摘要\n\n### 共享底稿证据\n\n### 私有知识库证据\n\n"
-            "### 信息缺口清单\n\n### 检索后观点\n\n继续推进。\n"
-            "```json\n"
-            "{\"score\": 81, \"recommendation\": \"conditional_pass\", "
-            "\"verified\": [\"market evidence\"], \"assumed\": [], "
-            "\"open_questions\": [\"gross margin\"], "
-            "\"evidence_ids\": [\"" + strategist_evidence_id + "\"], "
-            "\"summary\": \"Route-level strategist run completed.\"}\n"
-            "```"
-        )
-
-    monkeypatch.setattr(ic_agent_runtime.hermes_client, "create_run", fake_create_run)
-    monkeypatch.setattr(ic_agent_runtime.hermes_client, "collect_run_result", fake_collect_run_result)
-
-    workflow_run_success = client.post(
+    workflow_run_blocked = client.post(
         "/api/deals/DEAL-ROUTER-007/workflow/run-r1-agent",
         json={"profile_id": "siq_ic_strategist", "round_name": "R1", "dry_run": False},
     )
-    assert workflow_run_success.status_code == 200
-    workflow_run_json = workflow_run_success.json()
-    assert workflow_run_json["schema_version"] == "siq_ic_workflow_r1_agent_run_v1"
-    assert workflow_run_json["dry_run"] is False
-    assert workflow_run_json["hermes_called"] is True
-    assert workflow_run_json["report_written"] is True
-    assert workflow_run_json["workflow_advanced"] is True
-    assert workflow_run_json["markdown_path"] == "discussion/01_R1_strategist_report.md"
-    assert (package_dir / "discussion" / "01_R1_strategist_report.md").is_file()
-    router_reports = json.loads((package_dir / "phases" / "r1_reports.json").read_text(encoding="utf-8"))
-    assert router_reports["siq_ic_strategist"]["score"] == 81
-    router_workflow = json.loads((package_dir / "phases" / "workflow_state.json").read_text(encoding="utf-8"))
-    assert router_workflow["phases"]["R1"]["submitted_agents"] == ["siq_ic_strategist"]
-    router_audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
-    assert router_audit["events"][-1]["event_type"] == "deal_r1_agent_run_completed"
+    assert workflow_run_blocked.status_code == 400
+    assert "embedding_endpoint_not_configured" in workflow_run_blocked.json()["detail"]
 
     workflow_run = client.post(
         "/api/deals/DEAL-ROUTER-007/workflow/run-r1-agent",
@@ -1373,11 +1424,13 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     invalid_task_payload = client.get("/api/deals/DEAL-ROUTER-007/agents/siq_ic_master_coordinator/task-payload")
     assert invalid_task_payload.status_code == 400
 
-    invalid_receipt = client.post(
+    coordinator_receipt = client.post(
         "/api/deals/DEAL-ROUTER-007/agents/siq_ic_master_coordinator/startup-retrieval",
-        json={"round_name": "R1"},
+        json={"round_name": "R0"},
     )
-    assert invalid_receipt.status_code == 400
+    assert coordinator_receipt.status_code == 200
+    assert coordinator_receipt.json()["agent_id"] == "siq_ic_master_coordinator"
+    assert coordinator_receipt.json()["receipt"]["private_collection"] == "siq_ic_master_coordinator"
 
     item = client.get(f"/api/deals/DEAL-ROUTER-007/evidence/{evidence_id}")
     assert item.status_code == 200
@@ -1532,16 +1585,22 @@ def test_deals_router_r2_r3_r4_workflow_endpoints(monkeypatch, tmp_path):
     advance_next_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/advance-next", json={"dry_run": True})
     assert advance_next_dry_run.status_code == 200
     assert advance_next_dry_run.json()["schema_version"] == "siq_ic_workflow_advance_next_dry_run_v1"
-    assert advance_next_dry_run.json()["selected_action"] == "run-r2"
-    assert advance_next_dry_run.json()["allowed"] is True
+    assert advance_next_dry_run.json()["selected_action"] == "run-r0-coordinator"
+    assert advance_next_dry_run.json()["allowed"] is False
 
-    r2_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/run-r2", json={"dry_run": True})
+    r2_dry_run = client.post(
+        "/api/deals/DEAL-ROUTER-R234/workflow/run-r2",
+        json={"dry_run": True, "mode": "deterministic_fallback"},
+    )
     assert r2_dry_run.status_code == 200
     assert r2_dry_run.json()["schema_version"] == "siq_ic_workflow_r2_run_dry_run_v1"
     assert r2_dry_run.json()["allowed"] is True
     assert not (package_dir / "phases" / "r2_reports.json").is_file()
 
-    r2 = client.post("/api/deals/DEAL-ROUTER-R234/workflow/run-r2", json={"dry_run": False})
+    r2 = client.post(
+        "/api/deals/DEAL-ROUTER-R234/workflow/run-r2",
+        json={"dry_run": False, "mode": "deterministic_fallback"},
+    )
     assert r2.status_code == 200
     assert r2.json()["schema_version"] == "siq_ic_workflow_r2_run_v1"
     assert r2.json()["report_written"] is True
@@ -1550,20 +1609,31 @@ def test_deals_router_r2_r3_r4_workflow_endpoints(monkeypatch, tmp_path):
 
     r3 = client.post(
         "/api/deals/DEAL-ROUTER-R234/workflow/run-r3",
-        json={"dry_run": False, "skip": True, "skip_reason": "P0 deterministic skip with audit trail."},
+        json={
+            "dry_run": False,
+            "skip": True,
+            "skip_reason": "P0 deterministic skip with audit trail.",
+            "mode": "deterministic_fallback",
+        },
     )
     assert r3.status_code == 200
     assert r3.json()["schema_version"] == "siq_ic_workflow_r3_run_v1"
     assert r3.json()["mode"] == "skip"
     assert (package_dir / "phases" / "r3_reports.json").is_file()
 
-    r4_dry_run = client.post("/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4", json={"dry_run": True})
+    r4_dry_run = client.post(
+        "/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4",
+        json={"dry_run": True, "mode": "deterministic_fallback"},
+    )
     assert r4_dry_run.status_code == 200
     assert r4_dry_run.json()["schema_version"] == "siq_ic_workflow_r4_finalize_dry_run_v1"
     assert r4_dry_run.json()["decision_preview"]["weighted_agent_score"] == 79.4
     assert r4_dry_run.json()["decision_preview"]["chairman_dimension_score"] == 78
 
-    r4 = client.post("/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4", json={"dry_run": False})
+    r4 = client.post(
+        "/api/deals/DEAL-ROUTER-R234/workflow/finalize-r4",
+        json={"dry_run": False, "mode": "deterministic_fallback"},
+    )
     assert r4.status_code == 200
     r4_payload = r4.json()
     assert r4_payload["schema_version"] == "siq_ic_workflow_r4_finalize_v1"

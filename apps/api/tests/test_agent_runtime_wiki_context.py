@@ -476,6 +476,49 @@ def test_wiki_fulltext_fallback_result_supports_parser_report_layout(tmp_path):
     assert any(row["source_type"] == "wiki_report_fulltext" for row in result["rows"])
 
 
+def test_wiki_fulltext_fallback_searches_parser_document_full_without_markdown(tmp_path):
+    company_dir = tmp_path / "AAPL-Apple-Inc"
+    parser_dir = company_dir / "reports" / "2025-10-K" / "parser"
+    parser_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps({"market": "US", "company_short_name": "Apple Inc"}),
+        encoding="utf-8",
+    )
+    (parser_dir / "document_full.json").write_text(
+        json.dumps(
+            {
+                "content_list": [
+                    {"type": "table", "text": "Total liabilities 285,508", "page_idx": 30}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = wiki_context.wiki_fulltext_fallback_result(
+        "Apple total liabilities",
+        None,
+        fallback_terms=("total liabilities",),
+        generic_terms=(),
+        max_snippets=3,
+        snippet_chars=200,
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {"name": "Apple Inc"},
+        read_json_file=_read_json_file,
+        primary_report_for_company=lambda _company_dir, _message, _context: {
+            "report_id": "2025-10-K",
+            "task_id": "task-us-2025",
+        },
+    )
+
+    assert result is not None
+    assert result["report_md"].name == "report.md"
+    assert result["document_full"] == parser_dir / "document_full.json"
+    assert result["rows"][0]["source_type"] == "wiki_document_full"
+    assert result["rows"][0]["pdf_page"] == 31
+
+
 def test_wiki_fulltext_fallback_matches_multiword_financial_term(tmp_path):
     company_dir = tmp_path / "AAPL-Apple-Inc"
     company_dir.mkdir()

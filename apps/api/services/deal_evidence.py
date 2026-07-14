@@ -7,23 +7,22 @@ deal package. It does not call LLMs, Hermes agents, PostgreSQL, or Milvus.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Any
 
-from services import deal_documents
-from services import deal_store
-from services import ic_policy
+from services import deal_documents, deal_store, ic_policy
 from services.path_config import DOCUMENT_PARSER_RESULTS_ROOT
-
 
 EVIDENCE_ITEM_SCHEMA = "siq_deal_evidence_item_v1"
 EVIDENCE_INDEX_SCHEMA = "siq_deal_evidence_index_v1"
 EVIDENCE_QUALITY_SCHEMA = "siq_deal_evidence_quality_v1"
 EVIDENCE_INGEST_DRY_RUN_SCHEMA = "siq_deal_evidence_ingest_dry_run_v1"
+EVIDENCE_SNAPSHOT_SCHEMA = "siq_deal_evidence_snapshot_v1"
 BUILD_MODE = "offline_document_md_v1"
+PDF_ARCHIVE_BUILD_MODE = "deal_archive_pdf_v1"
 INGEST_DRY_RUN_MODE = "deal_evidence_ingest_dry_run_v1"
 MAX_CHUNK_CHARS = 1600
 MAX_QUOTE_CHARS = 1200
@@ -128,6 +127,180 @@ def _document_md_candidate(document: dict[str, Any]) -> tuple[Path | None, str, 
             return safe_candidate, _result_relative_path(task_id, safe_candidate), None
     expected = candidates[0] if candidates else result_dir / "document.md"
     return None, _result_relative_path(task_id, expected), "missing_document_md"
+
+
+def _analysis_sources(package_dir: Path) -> list[dict[str, Any]]:
+    payload = deal_store.read_json(package_dir / "sources" / "analysis_sources.json", {}) or {}
+    sources = payload.get("sources") if isinstance(payload, dict) else payload
+    return [item for item in sources if isinstance(item, dict)] if isinstance(sources, list) else []
+
+
+def _active_pdf_source_by_document(package_dir: Path) -> dict[str, dict[str, Any]]:
+    active: dict[str, dict[str, Any]] = {}
+    for source in _analysis_sources(package_dir):
+        if source.get("source_type") != "primary_market_prospectus":
+            continue
+        status = str(source.get("status") or "")
+        if status not in {"ready", "ready_with_restrictions"}:
+            continue
+        document_id = str(source.get("document_id") or "")
+        if document_id:
+            active[document_id] = source
+    return active
+
+
+def _safe_pdf_run_dir(
+    package_dir: Path,
+    document: dict[str, Any],
+    source: dict[str, Any] | None,
+) -> tuple[Path | None, str | None, str | None]:
+    document_id = deal_documents.validate_document_id(str(document.get("document_id") or ""))
+    parse_run_id = str((source or {}).get("parse_run_id") or document.get("current_parse_run_id") or "").strip()
+    if not re.fullmatch(r"PRUN-[A-Za-z0-9][A-Za-z0-9-]{7,95}", parse_run_id):
+        return None, None, "missing_or_invalid_parse_run_id"
+    run_dir = package_dir / "parsed_documents" / document_id / "runs" / parse_run_id
+    try:
+        run_dir.resolve().relative_to(package_dir.resolve())
+    except ValueError:
+        return None, parse_run_id, "parse_run_path_escape"
+    if not run_dir.is_dir():
+        return None, parse_run_id, "missing_parse_run_archive"
+    return run_dir, parse_run_id, None
+
+
+def _json_payload(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _pdf_blocks(run_dir: Path) -> list[dict[str, Any]]:
+    for name in ("content_list_enhanced.json", "content_list.json"):
+        payload = _json_payload(run_dir / name)
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict):
+            continue
+        for key in ("blocks", "items", "content_list"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        pages = payload.get("pages")
+        if isinstance(pages, list):
+            blocks: list[dict[str, Any]] = []
+            for page in pages:
+                if not isinstance(page, dict):
+                    continue
+                page_no = page.get("page") or page.get("page_number") or page.get("page_idx")
+                for block in page.get("blocks") or page.get("items") or []:
+                    if isinstance(block, dict):
+                        blocks.append({"_page": page_no, **block})
+            if blocks:
+                return blocks
+    return []
+
+
+def _block_text(block: dict[str, Any]) -> str:
+    for key in ("text", "content", "markdown", "body"):
+        value = block.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _block_page(block: dict[str, Any]) -> int | None:
+    for key in ("page", "page_number", "page_no", "page_idx", "_page"):
+        value = block.get(key)
+        try:
+            if value is not None:
+                number = int(value)
+                return number + 1 if key == "page_idx" and number >= 0 else number
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _prospectus_dimension(text: str) -> str:
+    rules = (
+        ("finance", ("财务", "收入", "利润", "现金流", "资产负债", "会计")),
+        ("legal", ("法律", "诉讼", "知识产权", "资质", "合规", "关联交易")),
+        ("risk", ("风险", "集中度", "不确定性", "重大不利")),
+        ("sector", ("行业", "市场规模", "竞争格局", "市场地位", "产业链")),
+        ("strategy", ("募集资金", "战略", "发展规划", "募投")),
+    )
+    for dimension, keywords in rules:
+        if any(keyword in text for keyword in keywords):
+            return dimension
+    return "business"
+
+
+def _prospectus_role_hints(dimension: str) -> list[str]:
+    return {
+        "finance": ["siq_ic_finance_auditor", "siq_ic_chairman"],
+        "legal": ["siq_ic_legal_scanner", "siq_ic_chairman"],
+        "risk": ["siq_ic_risk_controller", "siq_ic_chairman"],
+        "sector": ["siq_ic_sector_expert", "siq_ic_chairman"],
+        "strategy": ["siq_ic_strategist", "siq_ic_chairman"],
+        "business": ["siq_ic_strategist", "siq_ic_sector_expert", "siq_ic_chairman"],
+    }.get(dimension, [])
+
+
+def _build_items_for_pdf_archive(
+    *,
+    deal_id: str,
+    document: dict[str, Any],
+    source: dict[str, Any],
+    run_dir: Path,
+    parse_run_id: str,
+    start_index: int,
+    built_at: str,
+) -> list[dict[str, Any]]:
+    document_id = str(document.get("document_id") or "")
+    source_id = str(source.get("source_id") or f"PM:{deal_id}:{document_id}:{parse_run_id}")
+    capabilities = source.get("capabilities") if isinstance(source.get("capabilities"), dict) else {}
+    financial_restricted = capabilities.get("financial_facts") != "ready"
+    source_sha256 = str(document.get("sha256") or "")
+    items: list[dict[str, Any]] = []
+    for block_index, block in enumerate(_pdf_blocks(run_dir), start=1):
+        text = _block_text(block)
+        page = _block_page(block)
+        if not text or page is None:
+            continue
+        dimension = _prospectus_dimension(text)
+        block_id = str(block.get("block_id") or block.get("id") or f"block-{block_index}")
+        bbox = block.get("bbox") if isinstance(block.get("bbox"), list) else None
+        locator = f"prospectus.pdf:p{page}:{block_id}"
+        evidence_type = "restricted" if dimension == "finance" and financial_restricted else "verified"
+        sequence = start_index + len(items)
+        items.append({
+            "schema_version": EVIDENCE_ITEM_SCHEMA,
+            "evidence_id": f"EVID-{deal_id}-{sequence:06d}",
+            "source_id": source_id,
+            "source_type": "primary_market_prospectus",
+            "deal_id": deal_id,
+            "document_id": document_id,
+            "parse_run_id": parse_run_id,
+            "dimension": dimension,
+            "claim": _quote_text(text),
+            "quote": _quote_text(text),
+            "page": page,
+            "block_id": block_id,
+            "bbox": bbox,
+            "locator": locator,
+            "citation": f"{document.get('original_filename') or document_id} · p{page} · {block_id}",
+            "artifact_path": f"parsed_documents/{document_id}/runs/{parse_run_id}",
+            "source_path": f"parsed_documents/{document_id}/runs/{parse_run_id}/content_list_enhanced.json",
+            "source_sha256": source_sha256,
+            "evidence_type": evidence_type,
+            "confidence": 0.8 if evidence_type == "verified" else 0.45,
+            "capability_restrictions": ["financial_facts"] if evidence_type == "restricted" else [],
+            "role_hints": _prospectus_role_hints(dimension),
+            "source_url": f"/api/primary-market/projects/{deal_id}/materials/{document_id}/source/page/{page}",
+            "artifact_url": f"/api/primary-market/projects/{deal_id}/materials/{document_id}/artifacts/content_list_enhanced.json",
+            "created_at": built_at,
+        })
+    return items
 
 
 def _dimension_for_document(document: dict[str, Any]) -> str:
@@ -435,6 +608,125 @@ def _available_filters(items: list[dict[str, Any]], quality: dict[str, Any] | No
 def _write_ndjson(path: Path, items: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in items), encoding="utf-8")
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def refresh_evidence_snapshot(
+    deal_id: str,
+    *,
+    built_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_deal_id = deal_store.validate_deal_id(deal_id)
+    sources = _analysis_sources(package_dir)
+    active_sources: list[dict[str, Any]] = []
+    hash_lines: list[str] = []
+    for source in sorted(sources, key=lambda item: str(item.get("source_id") or "")):
+        if str(source.get("status") or "") not in {"ready", "ready_with_restrictions"}:
+            continue
+        source_id = str(source.get("source_id") or "")
+        manifest_path = str(source.get("artifact_manifest_path") or "")
+        manifest_hash = str(source.get("archive_manifest_sha256") or "")
+        if not manifest_hash and manifest_path:
+            candidate = package_dir / manifest_path
+            try:
+                candidate.resolve().relative_to(package_dir.resolve())
+            except ValueError:
+                candidate = package_dir / "__invalid__"
+            manifest_hash = _sha256_path(candidate)
+        active_sources.append({
+            "source_id": source_id,
+            "document_id": source.get("document_id"),
+            "parse_run_id": source.get("parse_run_id"),
+            "status": source.get("status"),
+            "capabilities": source.get("capabilities") or {},
+            "archive_manifest_sha256": manifest_hash,
+        })
+        hash_lines.append(f"{source_id}:{manifest_hash}")
+
+    evidence_index_sha256 = _sha256_path(package_dir / "evidence" / "evidence_index.json")
+    digest_payload = "\n".join([
+        EVIDENCE_ITEM_SCHEMA,
+        *hash_lines,
+        f"evidence_index:{evidence_index_sha256}",
+    ]).encode("utf-8")
+    snapshot_hash = hashlib.sha256(digest_payload).hexdigest()
+    snapshot_path = package_dir / "evidence" / "evidence_snapshot.json"
+    previous = deal_store.read_json(snapshot_path, {}) or {}
+    snapshot = {
+        "schema_version": EVIDENCE_SNAPSHOT_SCHEMA,
+        "deal_id": normalized_deal_id,
+        "snapshot_hash": snapshot_hash,
+        "active_sources": active_sources,
+        "source_ids": [item["source_id"] for item in active_sources],
+        "evidence_index_sha256": evidence_index_sha256,
+        "evidence_contract_version": EVIDENCE_ITEM_SCHEMA,
+        "created_at": deal_store.utc_now_iso(),
+    }
+    deal_store.write_json(snapshot_path, snapshot)
+    if previous.get("snapshot_hash") != snapshot_hash:
+        receipts_path = package_dir / "phases" / "startup_receipts.json"
+        receipts = deal_store.read_json(receipts_path, {}) or {}
+        agents = receipts.get("agents") if isinstance(receipts.get("agents"), dict) else {}
+        receipts_changed = False
+        for receipt in agents.values():
+            if not isinstance(receipt, dict):
+                continue
+            bound_hash = str(receipt.get("evidence_snapshot_hash") or "")
+            if bound_hash and bound_hash != snapshot_hash:
+                receipt["readiness_status"] = "stale"
+                receipt["stale_reason"] = "evidence_snapshot_changed"
+                receipt["current_evidence_snapshot_hash"] = snapshot_hash
+                receipts_changed = True
+        if receipts_changed:
+            receipts["updated_at"] = snapshot["created_at"]
+            deal_store.write_json(receipts_path, receipts)
+        decision = deal_store.read_json(package_dir / "phases" / "r4_decision.json", {}) or {}
+        confirmation = decision.get("human_confirmation") if isinstance(decision.get("human_confirmation"), dict) else {}
+        if previous.get("snapshot_hash") and str(confirmation.get("status") or "") in {
+            "confirmed",
+            "approved",
+            "overridden",
+        }:
+            workflow_path = package_dir / "phases" / "workflow_state.json"
+            workflow = deal_store.read_json(workflow_path, {}) or {}
+            workflow["status"] = "decision_review_required"
+            workflow["decision_review_required"] = True
+            workflow["decision_review_reason"] = "evidence_snapshot_changed"
+            workflow["confirmed_decision_snapshot_hash"] = previous.get("snapshot_hash")
+            workflow["current_evidence_snapshot_hash"] = snapshot_hash
+            workflow["updated_at"] = snapshot["created_at"]
+            deal_store.write_json(workflow_path, workflow)
+            project_meta_path = package_dir / "project_meta.json"
+            project_meta = deal_store.read_json(project_meta_path, {}) or {}
+            project_meta["status"] = "decision_review_required"
+            project_meta["decision_review_required"] = True
+            project_meta["decision_review_reason"] = "evidence_snapshot_changed"
+            project_meta["updated_at"] = snapshot["created_at"]
+            deal_store.write_json(project_meta_path, project_meta)
+        deal_store.append_audit_event(
+            normalized_deal_id,
+            {
+                "event_type": "deal_evidence_snapshot_changed",
+                "previous_snapshot_hash": previous.get("snapshot_hash"),
+                "snapshot_hash": snapshot_hash,
+                "source_ids": snapshot["source_ids"],
+                "built_by": built_by,
+            },
+            wiki_root=wiki_root,
+        )
+    return snapshot
 
 
 def _policy_gate() -> dict[str, Any]:
@@ -786,6 +1078,7 @@ def build_deal_evidence_package(
     built_at = deal_store.utc_now_iso()
     policy_gate = _policy_gate()
     documents, invalid_metadata_files = _read_document_metadata(package_dir)
+    active_pdf_sources = _active_pdf_source_by_document(package_dir)
 
     items: list[dict[str, Any]] = []
     document_results: list[dict[str, Any]] = []
@@ -796,6 +1089,10 @@ def build_deal_evidence_package(
 
     for document in documents:
         document_id = str(document.get("document_id") or "")
+        is_pdf_prospectus = (
+            document.get("document_type") == "prospectus"
+            and str(document.get("parser_kind") or "pdf") == "pdf"
+        )
         result = {
             "document_id": document_id,
             "original_filename": document.get("original_filename"),
@@ -806,6 +1103,48 @@ def build_deal_evidence_package(
             "status": "not_bound",
             "items": 0,
         }
+        if is_pdf_prospectus:
+            source = active_pdf_sources.get(document_id)
+            if not source:
+                result["status"] = "inactive_analysis_source"
+                result["reason"] = "Prospectus analysis source is not active"
+                document_results.append(result)
+                warnings.append(f"{document_id}: inactive_analysis_source")
+                continue
+            run_dir, parse_run_id, missing_reason = _safe_pdf_run_dir(package_dir, document, source)
+            result.update({
+                "parser_kind": "pdf",
+                "parse_run_id": parse_run_id,
+                "source_id": source.get("source_id"),
+                "capabilities": source.get("capabilities") or {},
+            })
+            if missing_reason or run_dir is None or parse_run_id is None:
+                result["status"] = missing_reason or "missing_parse_run_archive"
+                result["reason"] = result["status"]
+                document_results.append(result)
+                errors.append(f"{document_id}: {result['status']}")
+                continue
+            document_items = _build_items_for_pdf_archive(
+                deal_id=normalized_deal_id,
+                document=document,
+                source=source,
+                run_dir=run_dir,
+                parse_run_id=parse_run_id,
+                start_index=len(items) + 1,
+                built_at=built_at,
+            )
+            if not document_items:
+                result["status"] = "empty_pdf_evidence"
+                result["reason"] = "No page-traceable prospectus blocks found"
+                document_results.append(result)
+                errors.append(f"{document_id}: empty_pdf_evidence")
+                continue
+            items.extend(document_items)
+            result["status"] = "indexed"
+            result["items"] = len(document_items)
+            result["source_path"] = f"parsed_documents/{document_id}/runs/{parse_run_id}"
+            document_results.append(result)
+            continue
         if not document.get("parse_task_id"):
             result["reason"] = "No parser task is bound"
             document_results.append(result)
@@ -855,7 +1194,11 @@ def build_deal_evidence_package(
         result["items"] = len(document_items)
         document_results.append(result)
 
-    documents_bound = sum(1 for item in documents if item.get("parse_task_id"))
+    documents_bound = sum(
+        1
+        for item in documents
+        if item.get("parse_task_id") or str(item.get("document_id") or "") in active_pdf_sources
+    )
     documents_indexed = sum(1 for item in document_results if item.get("status") == "indexed")
     verified_items = [item for item in items if item.get("evidence_type") == "verified"]
     dimensions = sorted({str(item.get("dimension")) for item in verified_items if item.get("dimension")})
@@ -961,6 +1304,11 @@ def build_deal_evidence_package(
 
     deal_store.write_json(evidence_dir / "evidence_index.json", index)
     deal_store.write_json(evidence_dir / "evidence_quality_report.json", quality)
+    snapshot = refresh_evidence_snapshot(
+        normalized_deal_id,
+        built_by=built_by,
+        wiki_root=wiki_root,
+    )
     _sync_manifest_evidence(package_dir, index, quality)
     deal_store.append_audit_event(
         normalized_deal_id,
@@ -983,6 +1331,7 @@ def build_deal_evidence_package(
         "index": index,
         "quality": quality,
         "documents": document_results,
+        "evidence_snapshot": snapshot,
     }
 
 

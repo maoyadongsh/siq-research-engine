@@ -1,0 +1,61 @@
+{
+  "schema_version": "siq_ic_golden_case_manifest_v1",
+  "updated_at": "2026-07-13",
+  "acceptance_status": "candidates_only",
+  "quality_accepted": false,
+  "rules": [
+    "All project facts must be rebound to SIQ Evidence before evaluation.",
+    "OpenClaw historical conclusions and scores are not golden truth.",
+    "A case is quality_accepted only after automated evaluation and named human methodology approval."
+  ],
+  "cases": [
+    {
+      "case_id": "GOLDEN-PMIC-CONDITIONAL-SUPPORT",
+      "scenario": "evidence-complete project with conditional support",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["R0", "R1A", "R1B", "R1.5", "R2", "R3-short-or-full", "R4", "factcheck", "human-confirmation"],
+      "known_gap": "No project fixture has completed Evidence rebinding and methodology approval."
+    },
+    {
+      "case_id": "GOLDEN-PMIC-MATERIAL-RISK",
+      "scenario": "material finance or legal risk leading to review or reject",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["R1-finance-or-legal", "R1.5", "R2", "R3-full", "R4-non-pass"],
+      "known_gap": "Expected claims and decision conditions are not yet curated."
+    },
+    {
+      "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
+      "scenario": "insufficient materials produce explicit insufficient_evidence",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["R0-block-or-degraded", "claim-restriction", "R4-insufficient-evidence"],
+      "known_gap": "Negative fixture and expected Evidence gaps are not yet curated."
+    },
+    {
+      "case_id": "GOLDEN-PMIC-FULL-R3",
+      "scenario": "material expert conflict requires full red-blue debate",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["R1.5-unresolved", "R2-delta", "R3-red", "R3-blue", "R3-rebuttal", "R3-verdict"],
+      "known_gap": "Multi-turn argument quality rubric has not been scored."
+    },
+    {
+      "case_id": "GOLDEN-PMIC-SNAPSHOT-STALE",
+      "scenario": "new prospectus source invalidates receipts and unconfirmed reports",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["source-activation", "snapshot-change", "receipt-stale", "workflow-block", "decision-review-required"],
+      "known_gap": "End-to-end source replacement fixture has not completed release-gate execution."
+    },
+    {
+      "case_id": "GOLDEN-PMIC-ROLE-ROUTING",
+      "scenario": "all seven profiles retrieve project Evidence and distinct private background collections",
+      "status": "candidate",
+      "quality_accepted": false,
+      "required_paths": ["shared-retrieval", "private-retrieval", "source-classification", "degraded-and-block-reasons"],
+      "known_gap": "Private background hit precision has not been approved for all profiles."
+    }
+  ]
+}

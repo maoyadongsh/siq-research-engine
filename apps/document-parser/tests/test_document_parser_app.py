@@ -600,6 +600,52 @@ def test_health_describes_pdf_bridge_and_document_artifact_archive(tmp_path):
     assert response.json["conversion_pipeline"]["image"] == "image_to_pdf -> pdf_parser_bridge"
 
 
+def test_readiness_requires_worker_and_pdf_bridge(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+
+    class AliveThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    module.worker_thread = AliveThread()
+    module.WORKER_AUTOSTART = True
+    monkeypatch.setattr(module, "pdf_parser_json_request", lambda *args, **kwargs: {"ready": True, "status": "ready"})
+
+    payload = module._readiness_payload()
+
+    assert payload == {
+        "status": "ready",
+        "ready": True,
+        "worker_ready": True,
+        "pdf_parser_ready": True,
+        "pdf_parser_status": "ready",
+    }
+
+
+def test_ready_endpoint_returns_503_without_auth_challenge_when_dependency_is_down(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+    module.APP_ACCESS_TOKEN = "internal-token"
+    monkeypatch.setattr(module, "ensure_worker_started", lambda: None)
+    monkeypatch.setattr(
+        module,
+        "_readiness_payload",
+        lambda: {
+            "status": "unavailable",
+            "ready": False,
+            "worker_ready": True,
+            "pdf_parser_ready": False,
+            "pdf_parser_status": "unavailable",
+        },
+    )
+
+    response = module.app.test_client().get("/api/ready")
+
+    assert response.status_code == 503
+    assert response.json["ready"] is False
+    assert response.json["pdf_parser_ready"] is False
+
+
 def test_pdf_provider_prefers_upstream_bridge(tmp_path, monkeypatch):
     base = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(base))

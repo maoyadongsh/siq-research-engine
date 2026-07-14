@@ -1,10 +1,21 @@
 import importlib.util
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
+
+
+def _required_live_release_env() -> dict[str, str]:
+    return {
+        "SIQ_LIVE_MODEL_BENCHMARK_MODE": "live-http",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "1",
+        "SIQ_LIVE_MODEL_URL": "https://live.example.test/v1/chat",
+        "SIQ_LIVE_MODEL_AUTH_TOKEN": "fake-live-release-token",
+        "SIQ_LIVE_MODEL_PROTOCOL": "json",
+    }
 
 
 def _load_gate_module():
@@ -571,11 +582,21 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     ci_workflow = (repo_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
     assert "run_market_document_full_postgres_gate.py" in wrapper
-    assert wrapper.count("run_financial_qa_benchmark.py") == 2
+    assert "audit_market_postgres_fixture_contamination.py" in wrapper
+    assert "fixture-contamination-audit.json" in wrapper
+    assert wrapper.count('"$PYTHON_BIN" scripts/maintenance/run_financial_qa_benchmark.py') == 2
     assert "run_performance_baseline.py" in wrapper
+    assert "run_market_ingestion_eval.py" in wrapper
+    assert "--strict" in wrapper
+    assert "market_ingestion_eval_report.json" in wrapper
+    assert "compare_financial_quality_baselines.py" in wrapper
+    assert "performance-comparison.json" in wrapper
+    assert "SIQ_PERFORMANCE_BASELINE_REPORT" in wrapper
+    assert "SIQ_PERFORMANCE_COMPARISON_REQUIRED" in wrapper
     assert "--mode nightly" in wrapper
     assert "--require-nightly-inputs" in wrapper
     assert "--require-agent-memory-vector-probes" in wrapper
+    assert "--require-ic-vector-retrieval-probe" in wrapper
     assert "--skip-agent-memory-vector-probes" in wrapper
     assert "--agent-memory-vector-collection" in wrapper
     assert "--agent-memory-retrieval-cases" in wrapper
@@ -622,8 +643,15 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED" in wrapper
     assert "off|preflight|live-http" in wrapper
     assert "parser_financial_pdf_release.json" in wrapper
+    assert 'if [[ "$PARSER_FINANCIAL_PDF_GATE_MODE" != "off" ]] || is_truthy' in wrapper
+    assert "run_live_financial_qa_benchmark.py" in wrapper
+    assert "--required" in wrapper
+    assert "live_financial_qa_benchmark.json" in wrapper
     assert "Financial QA trace-offline" in workflow
     assert "Financial QA wiki-static" in workflow
+    assert "Financial QA live-http" in workflow
+    assert "required_execution_satisfied" in workflow
+    assert "network_requests_started" in workflow
     assert "Performance Baseline" in workflow
     assert "performance_baseline_nightly.json" in workflow
     assert "p95_ms" in workflow
@@ -631,6 +659,8 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     assert "domain_units" in workflow
     assert "reason=" in workflow
     assert "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED" in workflow
+    assert "SIQ_PERFORMANCE_BASELINE_REPORT" in workflow
+    assert "Require versioned performance baseline" in workflow
     assert "SIQ_AGENT_MEMORY_VECTOR_SEED" in workflow
     assert "Agent memory vector seed passed" in workflow
     assert "Agent memory vector preflight passed" in workflow
@@ -652,14 +682,258 @@ def test_release_gate_wrapper_runs_financial_qa_benchmarks():
     assert "SIQ_FINANCIAL_GOLDEN_PDF_ROOT" in workflow
     assert "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE" in workflow
     assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED" in workflow
-    assert "Validate optional parser financial PDF gate inputs" in workflow
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE: live-http" in workflow
+    assert "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED: '1'" in workflow
+    assert "Require live parser financial PDF inputs" in workflow
     assert "Parser Financial PDF Release" in workflow
     assert "timeout-minutes: 240" in workflow
-    assert "Required parser financial PDF gate needs preflight or live-http mode." in workflow
-    assert "The optional gate will emit a BLOCKED report." in workflow
+    assert "Repository variable SIQ_PDF_PARSER_URL must identify the live PDF parser origin." in workflow
     assert "run_parser_financial_pdf_release_gate.py --mode contract" in ci_workflow
     assert "test_run_parser_financial_pdf_release_gate.py" in ci_workflow
     assert "clean: false" not in workflow
+
+
+def test_release_workflow_requires_live_financial_qa_inputs():
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+
+    for contract in (
+        "SIQ_LIVE_MODEL_BENCHMARK_MODE: live-http",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED: '1'",
+        "SIQ_LIVE_MODEL_URL: ${{ vars.SIQ_LIVE_MODEL_URL }}",
+        "SIQ_LIVE_MODEL_AUTH_TOKEN: ${{ secrets.SIQ_LIVE_MODEL_AUTH_TOKEN }}",
+    ):
+        assert contract in workflow
+    preflight = workflow.split("- name: Require live financial QA inputs", 1)[1].split("- name:", 1)[0]
+    assert "SIQ_LIVE_MODEL_URL" in preflight
+    assert "SIQ_LIVE_MODEL_AUTH_TOKEN" in preflight
+    assert "https://*" in preflight
+    assert preflight.count("exit 1") >= 5
+
+
+def test_release_workflow_requires_live_parser_financial_pdf_inputs():
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+
+    for contract in (
+        "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE: live-http",
+        "SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED: '1'",
+        "SIQ_FINANCIAL_GOLDEN_PDF_ROOT: ${{ vars.SIQ_FINANCIAL_GOLDEN_PDF_ROOT }}",
+        "SIQ_PDF_PARSER_URL: ${{ vars.SIQ_PDF_PARSER_URL }}",
+    ):
+        assert contract in workflow
+    preflight = workflow.split("- name: Require live parser financial PDF inputs", 1)[1].split("- name:", 1)[0]
+    assert "SIQ_FINANCIAL_GOLDEN_PDF_ROOT" in preflight
+    assert "SIQ_PDF_PARSER_URL" in preflight
+    assert "must be outside the checkout" in preflight
+    assert "absolute HTTP(S) URL" in preflight
+    assert preflight.count("exit 1") >= 7
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "expected"),
+    [
+        ("SIQ_LIVE_MODEL_BENCHMARK_MODE", "disabled", "requires SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http"),
+        ("SIQ_LIVE_MODEL_BENCHMARK_REQUIRED", "0", "requires SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1"),
+        ("SIQ_LIVE_MODEL_URL", "", "SIQ_LIVE_MODEL_URL must identify"),
+        ("SIQ_LIVE_MODEL_URL", "http://live.example.test/v1/chat", "must use HTTPS"),
+        ("SIQ_LIVE_MODEL_AUTH_TOKEN", "", "SIQ_LIVE_MODEL_AUTH_TOKEN must be configured"),
+    ],
+)
+def test_release_workflow_live_preflight_rejects_missing_or_unsafe_inputs(name, value, expected):
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+    preflight = workflow.split("- name: Require live financial QA inputs", 1)[1].split("- name:", 1)[0]
+    run_block = preflight.split("        run: |\n", 1)[1]
+    script = "\n".join(line.removeprefix("          ") for line in run_block.splitlines())
+    env = {
+        **os.environ,
+        "SIQ_LIVE_MODEL_BENCHMARK_MODE": "live-http",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "1",
+        "SIQ_LIVE_MODEL_URL": "https://live.example.test/v1/chat",
+        "SIQ_LIVE_MODEL_AUTH_TOKEN": "fake-test-token",
+    }
+    env[name] = value
+
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert expected in completed.stderr
+
+
+def test_release_workflow_live_preflight_accepts_complete_https_inputs():
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+    preflight = workflow.split("- name: Require live financial QA inputs", 1)[1].split("- name:", 1)[0]
+    run_block = preflight.split("        run: |\n", 1)[1]
+    script = "\n".join(line.removeprefix("          ") for line in run_block.splitlines())
+    env = {
+        **os.environ,
+        "SIQ_LIVE_MODEL_BENCHMARK_MODE": "live-http",
+        "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "1",
+        "SIQ_LIVE_MODEL_URL": "https://live.example.test/v1/chat",
+        "SIQ_LIVE_MODEL_AUTH_TOKEN": "fake-test-token",
+    }
+
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_release_workflow_requires_external_restore_matrix_inputs():
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+
+    for contract in (
+        "SIQ_RESTORE_MATRIX_REQUIRED: '1'",
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR: ${{ vars.SIQ_RESTORE_MATRIX_BACKUP_DIR }}",
+        "SIQ_RESTORE_MATRIX_ADMIN_URL: ${{ secrets.SIQ_RESTORE_MATRIX_ADMIN_URL }}",
+        "SIQ_RESTORE_MATRIX_VOICEPRINT_TOMBSTONE_REQUIRED: '1'",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH }}",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY: ${{ secrets.SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY }}",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT }}",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC }}",
+    ):
+        assert contract in workflow
+
+    preflight = workflow.split("- name: Require external restore matrix inputs", 1)[1].split("- name:", 1)[0]
+    for required_name in (
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR",
+        "SIQ_RESTORE_MATRIX_ADMIN_URL",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC",
+    ):
+        assert required_name in preflight
+    assert 'if [[ -z "${!name:-}" ]]' in preflight
+    assert 'if [[ ! -d "$SIQ_RESTORE_MATRIX_BACKUP_DIR"' in preflight
+    assert 'if [[ ! -f "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH"' in preflight
+    assert '"$SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT" =~ ^(0|[1-9][0-9]*)$' in preflight
+    assert '"$SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC" =~ ^[0-9a-fA-F]{64}$' in preflight
+    assert 'case "$backup_dir/" in' in preflight
+    assert 'case "$ledger_path" in' in preflight
+    assert preflight.count("exit 1") >= 4
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    [
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR",
+        "SIQ_RESTORE_MATRIX_ADMIN_URL",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC",
+    ],
+)
+def test_release_workflow_restore_preflight_rejects_missing_inputs(missing_name, tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+    preflight = workflow.split("- name: Require external restore matrix inputs", 1)[1].split("- name:", 1)[0]
+    run_block = preflight.split("        run: |\n", 1)[1]
+    script = "\n".join(line.removeprefix("          ") for line in run_block.splitlines())
+    workspace = tmp_path / "workspace"
+    backup = tmp_path / "backup"
+    ledger = tmp_path / "security" / "voiceprint-tombstones.jsonl"
+    workspace.mkdir()
+    backup.mkdir()
+    ledger.parent.mkdir()
+    ledger.touch()
+    github_env = tmp_path / "github.env"
+    env = {
+        **os.environ,
+        "GITHUB_WORKSPACE": str(workspace),
+        "GITHUB_ENV": str(github_env),
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR": str(backup),
+        "SIQ_RESTORE_MATRIX_ADMIN_URL": "postgresql://restore:secret@db.example.test/postgres",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH": str(ledger),
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY": "test-only-hmac",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT": "0",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC": "0" * 64,
+    }
+    env[missing_name] = ""
+
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert f"{missing_name} must be configured" in completed.stderr
+    assert not github_env.exists()
+
+
+@pytest.mark.parametrize(
+    ("count", "head_hmac", "message"),
+    [
+        ("-1", "0" * 64, "EXPECTED_COUNT must be a non-negative integer"),
+        ("0", "g" * 64, "EXPECTED_HEAD_HMAC must contain 64 hexadecimal"),
+        ("0", "1" * 64, "empty voiceprint tombstone ledger"),
+    ],
+)
+def test_release_workflow_restore_preflight_rejects_invalid_voiceprint_checkpoint(
+    count, head_hmac, message, tmp_path
+):
+    repo_root = Path(__file__).resolve().parents[3]
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(
+        encoding="utf-8"
+    )
+    preflight = workflow.split("- name: Require external restore matrix inputs", 1)[1].split(
+        "- name:", 1
+    )[0]
+    run_block = preflight.split("        run: |\n", 1)[1]
+    script = "\n".join(line.removeprefix("          ") for line in run_block.splitlines())
+    workspace = tmp_path / "workspace"
+    backup = tmp_path / "backup"
+    ledger = tmp_path / "security" / "voiceprint-tombstones.jsonl"
+    workspace.mkdir()
+    backup.mkdir()
+    ledger.parent.mkdir()
+    ledger.touch()
+    github_env = tmp_path / "github.env"
+    env = {
+        **os.environ,
+        "GITHUB_WORKSPACE": str(workspace),
+        "GITHUB_ENV": str(github_env),
+        "SIQ_RESTORE_MATRIX_BACKUP_DIR": str(backup),
+        "SIQ_RESTORE_MATRIX_ADMIN_URL": "postgresql://restore:secret@db.example.test/postgres",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH": str(ledger),
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY": "test-only-hmac",
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT": count,
+        "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC": head_hmac,
+    }
+
+    completed = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    assert message.lower() in completed.stderr.lower()
+    assert not github_env.exists()
 
 
 def test_release_gate_wrapper_blocks_required_pdf_gate_failure(tmp_path):
@@ -807,6 +1081,10 @@ def test_release_gate_wrapper_loads_required_gate_plan_from_config_file(tmp_path
                 "SIQ_RESTORE_MATRIX_REQUIRED=1",
                 f"SIQ_RESTORE_MATRIX_BACKUP_DIR={tmp_path / 'backup'}",
                 "SIQ_RESTORE_MATRIX_ADMIN_URL=postgresql://restore:secret@db.example.test/postgres",
+                "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED=1",
+                "SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP=0",
+                "SIQ_PERFORMANCE_COMPARISON_REQUIRED=1",
+                f"SIQ_PERFORMANCE_BASELINE_REPORT={tmp_path / 'performance-v1.json'}",
             ]
         ),
         encoding="utf-8",
@@ -818,6 +1096,7 @@ def test_release_gate_wrapper_loads_required_gate_plan_from_config_file(tmp_path
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
+    (tmp_path / "performance-v1.json").write_text('{"mode":"nightly","passed":true,"benchmarks":[]}\n', encoding="utf-8")
     env = os.environ.copy()
     for key in (
         "SIQ_PRODUCTION_CONFIG_REQUIRED",
@@ -830,6 +1109,10 @@ def test_release_gate_wrapper_loads_required_gate_plan_from_config_file(tmp_path
         "SIQ_RESTORE_MATRIX_REQUIRED",
         "SIQ_RESTORE_MATRIX_BACKUP_DIR",
         "SIQ_RESTORE_MATRIX_ADMIN_URL",
+        "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED",
+        "SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP",
+        "SIQ_PERFORMANCE_COMPARISON_REQUIRED",
+        "SIQ_PERFORMANCE_BASELINE_REPORT",
     ):
         env.pop(key, None)
     env.update(
@@ -858,8 +1141,13 @@ def test_release_gate_wrapper_loads_required_gate_plan_from_config_file(tmp_path
 
     assert completed.returncode == 0, completed.stderr
     calls = log_path.read_text(encoding="utf-8").splitlines()
-    assert any("run_live_financial_qa_benchmark.py --mode live-http" in call for call in calls)
+    live_call = next(call for call in calls if "run_live_financial_qa_benchmark.py --mode live-http" in call)
+    assert "--required" in live_call
+    assert "live-token-from-file" not in live_call
     assert any("run_restore_matrix.py --backup-dir" in call for call in calls)
+    assert any("compare_financial_quality_baselines.py --baseline-performance" in call for call in calls)
+    manifest_call = next(call for call in calls if "write_release_artifact_manifest.py" in call)
+    assert "--required-artifact live_financial_qa_benchmark.json" in manifest_call
     assert all("live-token-from-file" not in call and "restore:secret" not in call for call in calls)
 
 
@@ -949,6 +1237,130 @@ def test_release_gate_wrapper_does_not_disable_required_live_model_gate(tmp_path
 
     assert completed.returncode == 2
     assert "SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "removed", "expected"),
+    [
+        (
+            {"SIQ_LIVE_MODEL_BENCHMARK_MODE": "disabled"},
+            (),
+            "requires SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http",
+        ),
+        (
+            {"SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "0"},
+            (),
+            "requires SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1",
+        ),
+        ({}, ("SIQ_LIVE_MODEL_URL",), "requires SIQ_LIVE_MODEL_URL"),
+        (
+            {"SIQ_LIVE_MODEL_URL": "http://live.example.test/v1/chat"},
+            (),
+            "requires SIQ_LIVE_MODEL_URL to use HTTPS",
+        ),
+        ({}, ("SIQ_LIVE_MODEL_AUTH_TOKEN",), "requires SIQ_LIVE_MODEL_AUTH_TOKEN"),
+    ],
+)
+def test_offline_release_gate_requires_live_http_execution_inputs(tmp_path, overrides, removed, expected):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(_required_live_release_env())
+    env.update(overrides)
+    for name in removed:
+        env.pop(name, None)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert expected in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_contract_gate_never_invokes_or_requires_live_financial_qa(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    for name in _required_live_release_env():
+        env.pop(name, None)
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_LIVE_MODEL_BENCHMARK_MODE": "disabled",
+            "SIQ_LIVE_MODEL_BENCHMARK_REQUIRED": "0",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    assert all("run_live_financial_qa_benchmark.py" not in call for call in calls)
+    manifest_call = next(call for call in calls if "write_release_artifact_manifest.py" in call)
+    assert "live_financial_qa_benchmark.json" not in manifest_call
+
+
+def test_contract_gate_rejects_live_http_configuration(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(_required_live_release_env())
+    env["SIQ_LIVE_MODEL_BENCHMARK_REQUIRED"] = "0"
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "The contract gate is deterministic" in completed.stderr
     assert not (tmp_path / "output").exists()
 
 
@@ -1087,6 +1499,220 @@ def test_release_gate_wrapper_requires_restore_admin_url_for_backup_dir(tmp_path
     assert not (tmp_path / "output").exists()
 
 
+def test_release_gate_wrapper_blocks_strict_market_ingestion_failure(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        'case "$*" in\n'
+        "  *run_market_ingestion_eval.py*) exit 1 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update({"PYTHON": str(fake_python), "SIQ_FAKE_PYTHON_LOG": str(log_path)})
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    ingestion_call = next(
+        line for line in log_path.read_text(encoding="utf-8").splitlines() if "run_market_ingestion_eval.py" in line
+    )
+    assert "--strict" in ingestion_call
+    assert "--portable" in ingestion_call
+    assert "--case-root eval_datasets/market_ingestion_contract/cases" in ingestion_call
+
+
+def test_release_gate_wrapper_blocks_fixture_contamination_audit_failure(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        'case "$*" in\n'
+        "  *audit_market_postgres_fixture_contamination.py*) exit 1 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(_required_live_release_env())
+    env.update({"PYTHON": str(fake_python), "SIQ_FAKE_PYTHON_LOG": str(log_path)})
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 1
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    audit_call = next(line for line in calls if "audit_market_postgres_fixture_contamination.py" in line)
+    manifest_call = next(line for line in calls if "write_release_artifact_manifest.py" in line)
+    assert "--json-output" in audit_call
+    assert "--markdown-output" in audit_call
+    assert "--required-artifact fixture-contamination-audit.json" in manifest_call
+
+
+def test_release_gate_wrapper_requires_versioned_performance_baseline_before_output(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env["SIQ_PERFORMANCE_COMPARISON_REQUIRED"] = "1"
+    env.pop("SIQ_PERFORMANCE_BASELINE_REPORT", None)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires SIQ_PERFORMANCE_BASELINE_REPORT" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_compares_before_and_current_performance(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    fake_python = tmp_path / "fake-python"
+    log_path = tmp_path / "python-args.log"
+    baseline = tmp_path / "performance-v1.json"
+    baseline.write_text('{"mode":"contract","passed":true,"benchmarks":[]}\n', encoding="utf-8")
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "$*" >> "$SIQ_FAKE_PYTHON_LOG"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    env = os.environ.copy()
+    env.update(
+        {
+            "PYTHON": str(fake_python),
+            "SIQ_FAKE_PYTHON_LOG": str(log_path),
+            "SIQ_PERFORMANCE_COMPARISON_REQUIRED": "1",
+            "SIQ_PERFORMANCE_BASELINE_REPORT": str(baseline),
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "contract",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = log_path.read_text(encoding="utf-8").splitlines()
+    comparison_call = next(line for line in calls if "compare_financial_quality_baselines.py" in line)
+    manifest_call = next(line for line in calls if "write_release_artifact_manifest.py" in line)
+    assert f"--baseline-performance {baseline}" in comparison_call
+    assert "--current-performance" in comparison_call
+    assert "performance_baseline_contract.json" in comparison_call
+    assert "--required-artifact performance-comparison.json" in manifest_call
+
+
+def test_release_gate_wrapper_cannot_skip_required_vector_probes(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    env = os.environ.copy()
+    env.update(_required_live_release_env())
+    env.update(
+        {
+            "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED": "1",
+            "SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP": "1",
+        }
+    )
+
+    completed = subprocess.run(
+        [
+            "bash",
+            "scripts/ops/run_market_postgres_release_gate.sh",
+            "--mode",
+            "offline-postgres",
+            "--output-dir",
+            str(tmp_path / "output"),
+        ],
+        cwd=repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "cannot bypass required production vector probes" in completed.stderr
+    assert not (tmp_path / "output").exists()
+
+
+def test_release_gate_wrapper_dependencies_exist_and_clean_checkout_requires_git_tracking():
+    repo_root = Path(__file__).resolve().parents[3]
+    wrapper = (repo_root / "scripts/ops/run_market_postgres_release_gate.sh").read_text(encoding="utf-8")
+    workflow = (repo_root / ".github/workflows/market-postgres-release-gate.yml").read_text(encoding="utf-8")
+    block = re.search(r"RELEASE_GATE_REPO_SCRIPTS=\(\n(?P<body>.*?)\n\)", wrapper, re.DOTALL)
+    assert block is not None
+    dependencies = {line.strip() for line in block.group("body").splitlines() if line.strip()}
+    referenced = set(re.findall(r"(?:scripts/[A-Za-z0-9_./-]+\.py)", wrapper))
+
+    assert referenced.issubset(dependencies)
+    assert all((repo_root / dependency).is_file() for dependency in dependencies)
+    assert "git ls-files --error-unmatch" in workflow
+    for dependency in (
+        "scripts/maintenance/check_production_config.py",
+        "scripts/maintenance/run_live_financial_qa_benchmark.py",
+        "scripts/maintenance/run_permission_negative_report.py",
+        "scripts/ops/run_restore_matrix.py",
+    ):
+        assert dependency in workflow
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -1096,6 +1722,9 @@ def test_release_gate_wrapper_requires_restore_admin_url_for_backup_dir(tmp_path
         "SIQ_PERMISSION_NEGATIVE_GATE_SKIP",
         "SIQ_PERMISSION_NEGATIVE_GATE_REQUIRED",
         "SIQ_RESTORE_MATRIX_REQUIRED",
+        "SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED",
+        "SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP",
+        "SIQ_PERFORMANCE_COMPARISON_REQUIRED",
     ],
 )
 def test_release_gate_wrapper_rejects_unknown_critical_boolean(name, tmp_path):
@@ -1129,6 +1758,7 @@ def test_release_gate_wrapper_passes_vector_probe_args_without_endpoint_on_cli(t
     )
     fake_python.chmod(0o755)
     env = os.environ.copy()
+    env.update(_required_live_release_env())
     env.update(
         {
             "PYTHON": str(fake_python),
@@ -1165,6 +1795,7 @@ def test_release_gate_wrapper_passes_vector_probe_args_without_endpoint_on_cli(t
     assert "--require-milvus" in health_call
     assert "--collection siq_agent_memory_perf" in health_call
     assert "--require-agent-memory-vector-probes" in perf_call
+    assert "--require-ic-vector-retrieval-probe" in perf_call
     assert "--agent-memory-embedding-model fake-embedding-model" in perf_call
     assert "--agent-memory-embedding-timeout 7" in perf_call
     assert "--agent-memory-embedding-probe-texts 4" in perf_call
@@ -1177,6 +1808,9 @@ def test_release_gate_wrapper_passes_vector_probe_args_without_endpoint_on_cli(t
     assert "secret" not in perf_call
     assert "embedding.internal" not in health_call
     assert "secret" not in health_call
+    ingestion_call = next(line for line in calls if "run_market_ingestion_eval.py" in line)
+    assert "--evidence-profile final-v5-staging" in ingestion_call
+    assert "--strict" in ingestion_call
 
 
 def test_release_gate_wrapper_seeds_vector_collection_without_endpoint_on_cli(tmp_path):
@@ -1192,6 +1826,7 @@ def test_release_gate_wrapper_seeds_vector_collection_without_endpoint_on_cli(tm
     )
     fake_python.chmod(0o755)
     env = os.environ.copy()
+    env.update(_required_live_release_env())
     env.update(
         {
             "PYTHON": str(fake_python),
@@ -1263,6 +1898,7 @@ def test_release_gate_wrapper_skips_post_seed_health_for_seed_dry_run(tmp_path):
     )
     fake_python.chmod(0o755)
     env = os.environ.copy()
+    env.update(_required_live_release_env())
     env.update(
         {
             "PYTHON": str(fake_python),
@@ -1307,6 +1943,7 @@ def test_release_gate_wrapper_uses_agent_memory_contract_defaults(tmp_path):
     )
     fake_python.chmod(0o755)
     env = os.environ.copy()
+    env.update(_required_live_release_env())
     env.update(
         {
             "PYTHON": str(fake_python),

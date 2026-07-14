@@ -6,9 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from services import deal_store
-from services import ic_policy
-
+from services import deal_store, ic_policy, ic_report_contracts
 
 REQUIRED_CORE_FILES = {
     "project_meta": "project_meta.json",
@@ -40,6 +38,9 @@ REPORT_EVIDENCE_KEYS = (
     "assumed",
     "key_points",
     "risk_flags",
+    "claims",
+    "scorecard",
+    "red_flags",
 )
 
 
@@ -313,7 +314,12 @@ def run_deal_preflight(deal_id: str, *, wiki_root: Path | str | None = None) -> 
 
     report_issues = []
     for profile_id, report in reports.items():
-        missing = _missing_required_fields(report, list(report_fields) + list(report_metadata))
+        metadata = (
+            ["claims", "open_questions"]
+            if report.get("schema_version") == ic_report_contracts.IC_EXPERT_REPORT_SCHEMA
+            else list(report_metadata)
+        )
+        missing = _missing_required_fields(report, list(report_fields) + metadata)
         if missing:
             report_issues.append({"agent_id": profile_id, "missing": missing})
     checks.append(_check(
@@ -346,6 +352,36 @@ def run_deal_preflight(deal_id: str, *, wiki_root: Path | str | None = None) -> 
         "Startup receipts have contract issues" if receipt_issues else "Startup receipts satisfy required fields",
         issues=receipt_issues,
         required_fields=list(RECEIPT_REQUIRED_FIELDS),
+    ))
+
+    snapshot = deal_store.read_json(package_dir / "evidence" / "evidence_snapshot.json", {}) or {}
+    current_snapshot_hash = str(snapshot.get("snapshot_hash") or "")
+    current_source_ids = sorted(
+        str(item) for item in snapshot.get("source_ids") or [] if str(item or "").strip()
+    )
+    snapshot_issues: list[dict[str, Any]] = []
+    if current_snapshot_hash:
+        for profile_id, receipt in sorted(receipts.items()):
+            reasons: list[str] = []
+            if receipt.get("evidence_snapshot_hash") != current_snapshot_hash:
+                reasons.append("evidence_snapshot_hash_stale_or_missing")
+            receipt_source_ids = sorted(
+                str(item) for item in receipt.get("source_ids") or [] if str(item or "").strip()
+            )
+            if receipt_source_ids != current_source_ids:
+                reasons.append("source_ids_stale_or_missing")
+            if receipt.get("readiness_status") == "stale":
+                reasons.append("receipt_marked_stale")
+            if reasons:
+                snapshot_issues.append({"agent_id": profile_id, "reasons": sorted(set(reasons))})
+    checks.append(_check(
+        "retrieval.evidence_snapshot",
+        "Evidence snapshot identity",
+        "fail" if snapshot_issues else "pass",
+        "Startup receipts use a stale evidence snapshot" if snapshot_issues else "Startup receipts match the current evidence snapshot",
+        current_snapshot_hash=current_snapshot_hash or None,
+        current_source_ids=current_source_ids,
+        issues=snapshot_issues,
     ))
 
     report_evidence_issues = _report_evidence_issues(reports, receipts, evidence_ids)

@@ -27,6 +27,12 @@ def test_ic_profile_contracts_cover_all_profiles_and_sources_exist():
         assert contract["focus"]
         assert contract["outputs"]
         assert contract["boundaries"]
+        assert contract["contract_version"] == "siq_ic_profile_matrix_v2"
+        assert contract["phase_capabilities"]
+        assert contract["output_schemas"]
+        assert contract["retrieval"]["required"] is True
+        assert contract["retrieval"]["private_collection"]
+        assert len(contract["retrieval_physical_collections"]) == 2
         assert len(contract["source_files"]) >= 4
         for relative_path in contract["source_files"]:
             assert relative_path.startswith(f"agents/hermes/profiles/{contract['profile_id']}/")
@@ -40,19 +46,22 @@ def test_get_ic_profile_contract_uses_matrix_policy_and_profile_boundaries():
     assert finance["label"] == "财务审计委员"
     assert finance["role"] == "finance"
     assert finance["role_title"] == "SIQ 投委会财务专家"
-    assert finance["responsibilities"] == [
-        "financial consistency",
-        "unit economics",
-        "valuation and forecast audit",
-    ]
+    assert any("historical financials" in item for item in finance["responsibilities"])
+    assert any("period, currency, unit" in item for item in finance["responsibilities"])
     assert "财务分析、估值模型、现金流、盈利模式" in finance["focus"]
     assert any("行业技术判断" in boundary for boundary in finance["boundaries"])
     assert finance["startup_retrieval_required"] is True
     assert finance["r1_sequence_index"] == 2
 
     master = ic_profile_contract.get_ic_profile_contract("siq_ic_master_coordinator")
-    assert master["startup_retrieval_required"] is False
+    assert master["startup_retrieval_required"] is True
     assert master["r1_sequence_index"] is None
+    assert finance["phase_capabilities"]["R1A"] == ["independent_finance_report", "numeric_trace"]
+    assert finance["output_schemas"]["R2"].endswith("siq_ic_r2_revision_v1.schema.json")
+    assert finance["private_knowledge_collection"] == "siq_ic_finance_auditor"
+    assert finance["private_physical_collection"] == "ic_finance_auditor"
+    assert finance["shared_collection"] == "siq_deal_shared"
+    assert finance["shared_physical_collection"] == "ic_collaboration_shared"
 
 
 def test_render_meeting_role_guard_contains_role_contract_and_provenance():
@@ -63,7 +72,7 @@ def test_render_meeting_role_guard_contains_role_contract_and_provenance():
     assert "profile_id: siq_ic_finance_auditor" in guard
     assert "角色名称: SIQ 投委会财务专家" in guard
     assert "startup_retrieval_required: true" in guard
-    assert "financial consistency" in guard
+    assert "historical financials" in guard
     assert "不做行业技术判断" in guard
     assert "agents/hermes/profiles/siq_ic_finance_auditor/AGENTS.md" in guard
     assert "若主持人问题要求越权" in guard

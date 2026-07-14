@@ -1,0 +1,95 @@
+{
+  "$id": "siq_ic_r1_5_chairman_rulings_v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "rulings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_claim_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "counter_evidence_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "decision_impact": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "dispute_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "rationale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "rejected_claim_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "required_followups": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "ruling": {
+            "enum": [
+              "accept_a",
+              "accept_b",
+              "synthesize",
+              "needs_more_evidence",
+              "unresolved",
+              "resolved_with_conditions",
+              "resolved_no_followup"
+            ]
+          }
+        },
+        "required": [
+          "dispute_id",
+          "ruling",
+          "rationale",
+          "required_followups",
+          "evidence_ids",
+          "counter_evidence_ids",
+          "accepted_claim_ids",
+          "rejected_claim_ids",
+          "decision_impact"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "rulings"
+  ],
+  "type": "object"
+}

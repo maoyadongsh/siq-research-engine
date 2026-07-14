@@ -25,6 +25,11 @@ FINANCIAL_CALCULATOR_PATH_TEXT = str(FINANCIAL_CALCULATOR_PATH)
 FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT = str(FINANCIAL_RECONCILIATION_VALIDATOR_PATH)
 
 RUNTIME_STATUS_PREFIXES = ("[已停止]", "[失败]", "[已取消]", "[错误]")
+EXTERNAL_TOOL_LOOP_GUARD_MARKERS = (
+    "same_tool_failure_halt",
+    "i stopped retrying terminal",
+    "[tool loop hard stop:",
+)
 YOY_FINANCIAL_TERMS = (
     "同比",
     "环比",
@@ -557,6 +562,39 @@ def build_financial_evidence_fallback_reply(
             f"{parse_only_context}"
         )
     return None
+
+
+def is_external_tool_loop_guard_reply(reply: str) -> bool:
+    """Return whether Hermes exposed an internal tool-loop stop as its answer."""
+    lowered = (reply or "").lower()
+    return any(marker in lowered for marker in EXTERNAL_TOOL_LOOP_GUARD_MARKERS)
+
+
+def recover_financial_tool_loop_reply(
+    message: str,
+    context: Any | None,
+    reply: str,
+    *,
+    deps: FinancialEvidenceContractDependencies,
+) -> str | None:
+    """Replace an internal tool-loop stop with deterministic evidence or a clean status."""
+    if not is_external_tool_loop_guard_reply(reply):
+        return None
+
+    fallback = build_financial_evidence_fallback_reply(message, context, deps=deps)
+    if fallback:
+        return (
+            "## 运行状态\n"
+            "- 本轮财务工具调用参数连续失败，系统已停止重复执行；这不是已检索财务证据被拒绝。\n"
+            "- 系统未采用失败工具输出，以下改用后端已验证的原始事实收束；"
+            "未完成校验的派生分析不予输出。\n\n"
+            f"{fallback}"
+        )
+    return (
+        "## 运行状态\n"
+        "- 本轮工具调用参数连续失败，系统已停止重复执行。\n"
+        "- 当前没有足够的已验证证据用于确定性收束，因此未输出未经校验的财务结论。"
+    )
 
 
 def build_invalid_task_id_evidence_reply(

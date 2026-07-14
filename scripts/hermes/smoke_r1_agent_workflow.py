@@ -23,16 +23,16 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import urlopen
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 API_ROOT = PROJECT_ROOT / "apps" / "api"
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from services import deal_store  # noqa: E402
-from services import ic_agent_runtime  # noqa: E402
-from services import ic_policy  # noqa: E402
-
+from services import (  # noqa: E402
+    deal_store,
+    ic_agent_runtime,
+    ic_policy,
+)
 
 DEAL_ID = "DEAL-HERMES-SMOKE-001"
 EVIDENCE_ID = "EVID-DEAL-HERMES-SMOKE-001-000001"
@@ -231,6 +231,45 @@ def smoke_evidence_rows() -> list[dict[str, Any]]:
     ]
 
 
+def smoke_startup_receipt(profile_id: str) -> dict[str, Any]:
+    """Build an explicitly synthetic v2 receipt for the temporary smoke wiki."""
+
+    agent_id = ic_policy.canonical_ic_profile_id(profile_id)
+    background_ref = {
+        "ref_id": f"KBREF-SMOKE-{agent_id}",
+        "source_class": "background_knowledge",
+        "collection": agent_id,
+        "physical_collection": f"smoke-{agent_id}",
+        "locator": "synthetic-smoke-methodology",
+        "title": "Synthetic R1 smoke methodology",
+        "usage": "methodology",
+        "quote_preview": "Synthetic private-KB evidence for contract smoke only.",
+    }
+    return {
+        "schema_version": "siq_ic_startup_receipt_v2",
+        "receipt_id": f"startup-{agent_id}-R1-smoke",
+        "deal_id": DEAL_ID,
+        "agent_id": agent_id,
+        "round_name": "R1",
+        "query": "Hermes Smoke Robotics",
+        "project_tag": DEAL_ID,
+        "retrieval_mode": "synthetic_contract_smoke",
+        "retrieval_status": "ready",
+        "shared_hits": 1,
+        "private_hits": 1,
+        "milvus_used": True,
+        "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
+        "gaps": [],
+        "degraded_reasons": [],
+        "evidence_hits": [{"evidence_id": EVIDENCE_ID}],
+        "background_knowledge_refs": [background_ref],
+        "methodology_refs": [background_ref],
+        "gate": {"allowed_to_speak": True, "blocking_reasons": []},
+        "created_at": "2026-07-03T10:20:00+08:00",
+        "created_by": {"type": "synthetic_contract_smoke"},
+    }
+
+
 def build_smoke_package(wiki_root: Path, profile_id: str, *, seed_prior_reports: bool = False) -> Path:
     return build_smoke_package_for_profile(
         wiki_root,
@@ -259,31 +298,26 @@ def build_smoke_package_for_profile(
         package_dir / "evidence" / "evidence_items.ndjson",
         smoke_evidence_rows(),
     )
+    receipt_agent_ids = (
+        ic_policy.R1_AGENT_SEQUENCE
+        if all_receipts
+        else [*prior_r1_agents(profile_id), ic_policy.canonical_ic_profile_id(profile_id)]
+    )
+    receipts = {
+        agent_id: smoke_startup_receipt(agent_id)
+        for agent_id in receipt_agent_ids
+    }
     write_json(
         package_dir / "phases" / "startup_receipts.json",
         {
-            "schema_version": "siq_ic_startup_receipts_v1",
+            "schema_version": "siq_ic_startup_receipts_v2",
             "deal_id": DEAL_ID,
-            "agents": {
-                agent_id: {
-                    "receipt_id": f"startup-{agent_id}-R1-smoke",
-                    "agent_id": agent_id,
-                    "round_name": "R1",
-                    "query": "Hermes Smoke Robotics",
-                    "project_tag": DEAL_ID,
-                    "shared_hits": 1,
-                    "private_hits": 0,
-                    "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
-                    "gaps": [],
-                    "evidence_hits": [{"evidence_id": EVIDENCE_ID}],
-                    "created_at": "2026-07-03T10:20:00+08:00",
-                }
-                for agent_id in (
-                    ic_policy.R1_AGENT_SEQUENCE
-                    if all_receipts
-                    else [*prior_r1_agents(profile_id), ic_policy.canonical_ic_profile_id(profile_id)]
-                )
+            "agents": receipts,
+            "by_agent_phase": {
+                agent_id: {"R1": receipt}
+                for agent_id, receipt in receipts.items()
             },
+            "updated_at": "2026-07-03T10:20:00+08:00",
         },
     )
     if seed_prior_reports:

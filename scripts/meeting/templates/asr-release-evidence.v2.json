@@ -1,0 +1,27 @@
+{
+  "schema_version": "siq.meeting.asr-release-evidence.v2",
+  "authorization": {
+    "approved": false,
+    "all_cases_authorized": false,
+    "unapproved_production_or_historical_cases": 0,
+    "reference": "not-run-approval"
+  },
+  "candidate": {
+    "commit_sha": "0000000000000000000000000000000000000000",
+    "environment_profile": "not-run"
+  },
+  "dataset": {
+    "name": "not-run-dataset",
+    "version": "not-run",
+    "independent_from_training": false,
+    "independent_from_lexicon_tuning": false
+  },
+  "coverage": {
+    "authorized_audio_seconds": 0,
+    "session_count": 0,
+    "speaker_counts_covered": [],
+    "conditions_covered": []
+  },
+  "cases": [],
+  "latencies": []
+}

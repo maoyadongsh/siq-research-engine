@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 from typing import Any, Iterable
 
-EU_PROFILE_RULE_VERSION = "eu-pdf-profile-v6"
+EU_PROFILE_RULE_VERSION = "eu-pdf-profile-v7"
 EU_DEFAULT_ACCOUNTING_STANDARD = "IFRS / EU local GAAP"
 
 _CURRENCY_PATTERNS = [
@@ -911,13 +911,16 @@ def _merge_table_context(markdown_context: dict[str, str], index_context: dict[s
 def _iter_markdown_tables(markdown: str, table_index_by_number: dict[int, dict[str, Any]] | None = None):
     for index, match in enumerate(re.finditer(r"<table\b.*?</table>", markdown or "", flags=re.IGNORECASE | re.DOTALL), start=1):
         context = _table_context(markdown or "", match.start(), match.end())
+        table_metadata = table_index_by_number.get(index) if table_index_by_number else None
         if table_index_by_number:
-            context = _merge_table_context(context, _table_index_context(table_index_by_number.get(index)))
+            context = _merge_table_context(context, _table_index_context(table_metadata))
         yield {
             "table_index": index,
             "line": (markdown or "").count("\n", 0, match.start()) + 1,
             "html": match.group(0),
             "context": context,
+            "pdf_page_number": table_metadata.get("pdf_page_number") if isinstance(table_metadata, dict) else None,
+            "bbox": table_metadata.get("bbox") if isinstance(table_metadata, dict) else None,
         }
 
 
@@ -1168,6 +1171,14 @@ def _period_from_header(header: str, statement_type: str, report_year: int | Non
     match = re.search(r"(20\d{2})", str(header or ""))
     if match:
         year = int(match.group(1))
+        return f"{year:04d}-12-31" if statement_type == "balance_sheet" else str(year)
+    short_year_match = re.search(r"\bfy\s*'?(\d{2})", str(header or ""), flags=re.IGNORECASE)
+    if short_year_match:
+        short_year = int(short_year_match.group(1))
+        century = (report_year // 100) * 100 if report_year else 2000
+        year = century + short_year
+        if report_year and year > report_year + 1:
+            year -= 100
         return f"{year:04d}-12-31" if statement_type == "balance_sheet" else str(year)
     if report_year:
         lowered = _normalize_text(header)
@@ -1432,7 +1443,13 @@ def _add_statement_item(statement: dict[str, Any], label: str, row: list[str], d
         key = desc["value_key"]
         values[key] = value
         raw_values[key] = row[col]
-        sources[key] = {"table_index": table["table_index"], "line": table["line"]}
+        sources[key] = {
+            "table_index": table["table_index"],
+            "line": table["line"],
+            "pdf_page_number": table.get("pdf_page_number"),
+            "bbox": table.get("bbox"),
+            "quote_text": " | ".join(_clean_text(cell) for cell in row),
+        }
     if not values:
         return
     item = statement["_item_lookup"].get(canonical)

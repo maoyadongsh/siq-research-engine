@@ -1,0 +1,49 @@
+{
+  "schema_version": "siq_deal_evidence_index_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "build_mode": "synthetic_isolated_real_smoke_v1",
+  "llm_used": false,
+  "agent_used": false,
+  "milvus_written": false,
+  "built_at": "2026-07-13T00:00:00Z",
+  "paths": {
+    "items": "evidence/evidence_items.ndjson",
+    "quality": "evidence/evidence_quality_report.json"
+  },
+  "counts": {
+    "documents_total": 1,
+    "documents_bound": 1,
+    "documents_indexed": 1,
+    "documents_skipped": 0,
+    "items": 16,
+    "verified_items": 16,
+    "invalid_metadata_files": 0,
+    "invalid_ndjson_lines": 0
+  },
+  "documents": [
+    {
+      "document_id": "DOC-PMICSMOKE2026A1",
+      "parse_run_id": "PRUN-20260713-PMICSMOKE001",
+      "status": "indexed",
+      "item_count": 16
+    }
+  ],
+  "items": [
+    {"evidence_id": "EVID-PMIC-SMOKE-BUS-001", "dimension": "business"},
+    {"evidence_id": "EVID-PMIC-SMOKE-BUS-002", "dimension": "business"},
+    {"evidence_id": "EVID-PMIC-SMOKE-BUS-003", "dimension": "business"},
+    {"evidence_id": "EVID-PMIC-SMOKE-BUS-004", "dimension": "business"},
+    {"evidence_id": "EVID-PMIC-SMOKE-FIN-001", "dimension": "finance"},
+    {"evidence_id": "EVID-PMIC-SMOKE-FIN-002", "dimension": "finance"},
+    {"evidence_id": "EVID-PMIC-SMOKE-FIN-003", "dimension": "finance"},
+    {"evidence_id": "EVID-PMIC-SMOKE-FIN-004", "dimension": "finance"},
+    {"evidence_id": "EVID-PMIC-SMOKE-LEG-001", "dimension": "legal"},
+    {"evidence_id": "EVID-PMIC-SMOKE-LEG-002", "dimension": "legal"},
+    {"evidence_id": "EVID-PMIC-SMOKE-LEG-003", "dimension": "legal"},
+    {"evidence_id": "EVID-PMIC-SMOKE-LEG-004", "dimension": "legal"},
+    {"evidence_id": "EVID-PMIC-SMOKE-RSK-001", "dimension": "risk"},
+    {"evidence_id": "EVID-PMIC-SMOKE-RSK-002", "dimension": "risk"},
+    {"evidence_id": "EVID-PMIC-SMOKE-RSK-003", "dimension": "risk"},
+    {"evidence_id": "EVID-PMIC-SMOKE-RSK-004", "dimension": "risk"}
+  ]
+}

@@ -1,0 +1,880 @@
+{
+  "$id": "siq_ic_agent_task_v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "enum": [
+        "siq_ic_master_coordinator",
+        "siq_ic_chairman",
+        "siq_ic_strategist",
+        "siq_ic_sector_expert",
+        "siq_ic_finance_auditor",
+        "siq_ic_legal_scanner",
+        "siq_ic_risk_controller"
+      ],
+      "type": "string"
+    },
+    "attempt_history": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_validation": {
+            "type": "object"
+          },
+          "error": {
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hermes_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hermes_run_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "lease_attempt": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "model_execution_audit": {
+            "type": "object"
+          },
+          "output_artifact_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[a-fA-F0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "output_artifact_hashes": {
+            "additionalProperties": {
+              "pattern": "^[a-fA-F0-9]{64}$",
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "output_artifact_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_artifact_paths": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "terminal_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "terminal_status": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "cancelled",
+              "interrupted",
+              "timed_out",
+              "stale_on_completion"
+            ]
+          }
+        },
+        "required": [
+          "lease_attempt",
+          "terminal_status",
+          "started_at",
+          "terminal_at",
+          "hermes_run_id",
+          "hermes_run_ids",
+          "output_artifact_path",
+          "output_artifact_paths",
+          "output_artifact_hash",
+          "output_artifact_hashes",
+          "contract_validation",
+          "error"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "background_knowledge_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "enum": [
+              "background",
+              "methodology",
+              "comparable_context"
+            ]
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "completed_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "contract_validation": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_schema": {
+          "maxLength": 100,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_type": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        },
+        "output_schema": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "validated_by": {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "passed",
+        "output_schema"
+      ],
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "current_evidence_snapshot_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "failure_reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "generation_mode": {
+      "enum": [
+        "hermes_model",
+        "hermes_model_degraded"
+      ]
+    },
+    "handoff_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "handoff_id": {
+      "anyOf": [
+        {
+          "pattern": "^ICHANDOFF-[A-Z0-9][A-Z0-9-]{7,95}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hard_rules": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "hermes_called": {
+      "type": "boolean"
+    },
+    "hermes_run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hermes_run_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "input_artifacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "type": "string"
+          },
+          "artifact_type": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "report_id": {
+            "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[a-fA-F0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "artifact_type",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "input_digest": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "methodology_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "enum": [
+              "background",
+              "methodology",
+              "comparable_context"
+            ]
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "model_execution_audit": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempts": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "hermes_run_id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "prompt_sha256": {
+                "pattern": "^[a-fA-F0-9]{64}$",
+                "type": "string"
+              },
+              "purpose": {
+                "enum": [
+                  "generation",
+                  "contract_repair"
+                ]
+              },
+              "runtime": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configured": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "model": {
+                            "anyOf": [
+                              {
+                                "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "provider": {
+                            "anyOf": [
+                              {
+                                "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "provider",
+                          "model"
+                        ],
+                        "type": "object"
+                      },
+                      "effective": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "model": {
+                            "anyOf": [
+                              {
+                                "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "provider": {
+                            "anyOf": [
+                              {
+                                "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "provider",
+                          "model"
+                        ],
+                        "type": "object"
+                      },
+                      "fallback": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "activated": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "activated"
+                        ],
+                        "type": "object"
+                      },
+                      "requested_model": {
+                        "anyOf": [
+                          {
+                            "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "schema_version": {
+                        "const": "hermes.run_runtime.v1"
+                      }
+                    },
+                    "required": [
+                      "schema_version",
+                      "requested_model",
+                      "configured",
+                      "effective",
+                      "fallback"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "runtime_metadata_status": {
+                "enum": [
+                  "verified",
+                  "unverified"
+                ]
+              },
+              "terminal_status": {
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "timed_out",
+                  "protocol_eof",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "hermes_run_id",
+              "purpose",
+              "prompt_sha256",
+              "terminal_status",
+              "runtime_metadata_status",
+              "runtime"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "final_hermes_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "final_prompt_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-fA-F0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "final_runtime": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configured": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "model": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "provider": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model"
+                  ],
+                  "type": "object"
+                },
+                "effective": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "model": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "provider": {
+                      "anyOf": [
+                        {
+                          "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "model"
+                  ],
+                  "type": "object"
+                },
+                "fallback": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "activated": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "activated"
+                  ],
+                  "type": "object"
+                },
+                "requested_model": {
+                  "anyOf": [
+                    {
+                      "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "schema_version": {
+                  "const": "hermes.run_runtime.v1"
+                }
+              },
+              "required": [
+                "schema_version",
+                "requested_model",
+                "configured",
+                "effective",
+                "fallback"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "runtime_metadata_status": {
+          "enum": [
+            "verified",
+            "unverified"
+          ]
+        },
+        "schema_version": {
+          "const": "siq_ic_model_execution_audit_v1"
+        }
+      },
+      "required": [
+        "schema_version",
+        "runtime_metadata_status",
+        "attempt_count",
+        "attempts",
+        "final_hermes_run_id",
+        "final_prompt_sha256",
+        "final_runtime"
+      ],
+      "type": "object"
+    },
+    "output_artifact_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "output_artifact_hashes": {
+      "additionalProperties": {
+        "pattern": "^[a-fA-F0-9]{64}$",
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "output_artifact_path": {
+      "type": "string"
+    },
+    "output_artifact_paths": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "output_schema": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "R0",
+        "R1A",
+        "R1B",
+        "R1.5",
+        "R2",
+        "R3",
+        "R4"
+      ],
+      "type": "string"
+    },
+    "profile_contract_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt_contract_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "required_questions": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "research_identity": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "role_objectives": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "round_name": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "siq_ic_agent_task_v2"
+    },
+    "stale_on_completion": {
+      "type": "boolean"
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "startup_retrieval_gate": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_to_speak": {
+          "type": "boolean"
+        },
+        "blocking_reasons": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "private_background_ready": {
+          "type": "boolean"
+        },
+        "private_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_evidence_ready": {
+          "type": "boolean"
+        },
+        "receipt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        },
+        "shared_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt_id",
+        "allowed_to_speak",
+        "project_evidence_ready",
+        "private_background_ready",
+        "shared_collection",
+        "private_collection",
+        "blocking_reasons"
+      ],
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "timed_out",
+        "stale_on_completion"
+      ]
+    },
+    "task_claim": {
+      "type": "object"
+    },
+    "task_id": {
+      "pattern": "^ICTASK-[A-Za-z0-9_.-]{8,160}$",
+      "type": "string"
+    },
+    "timeout_seconds": {
+      "maximum": 14400,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "validated_output": {
+      "type": "object"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "task_id",
+    "workflow_run_id",
+    "deal_id",
+    "phase",
+    "round_name",
+    "agent_id",
+    "research_identity",
+    "evidence_snapshot_hash",
+    "prompt_contract_version",
+    "profile_contract_version",
+    "input_artifacts",
+    "background_knowledge_refs",
+    "methodology_refs",
+    "startup_retrieval_gate",
+    "input_digest",
+    "role_objectives",
+    "required_questions",
+    "hard_rules",
+    "output_schema",
+    "timeout_seconds",
+    "created_at"
+  ],
+  "type": "object"
+}

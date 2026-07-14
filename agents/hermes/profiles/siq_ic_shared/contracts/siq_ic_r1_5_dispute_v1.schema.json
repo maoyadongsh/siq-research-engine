@@ -1,0 +1,128 @@
+{
+  "$id": "siq_ic_r1_5_dispute_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accepted_claim_ids": {
+      "items": {
+        "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "counter_evidence_ids": {
+      "items": {
+        "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "decision_impact": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "dispute_id": {
+      "pattern": "^DISP-[A-Z0-9][A-Z0-9_-]{5,95}$",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "positions": {
+      "items": {
+        "minProperties": 1,
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "question": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "rationale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "rejected_claim_ids": {
+      "items": {
+        "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_followups": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "ruling": {
+      "enum": [
+        "accept_a",
+        "accept_b",
+        "synthesize",
+        "needs_more_evidence",
+        "unresolved"
+      ]
+    },
+    "schema_version": {
+      "const": "siq_ic_r1_5_dispute_v1"
+    },
+    "severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "dispute_id",
+    "workflow_run_id",
+    "deal_id",
+    "evidence_snapshot_hash",
+    "question",
+    "severity",
+    "positions",
+    "evidence_ids",
+    "counter_evidence_ids",
+    "ruling",
+    "rationale",
+    "accepted_claim_ids",
+    "rejected_claim_ids",
+    "required_followups",
+    "decision_impact",
+    "created_at"
+  ],
+  "type": "object"
+}

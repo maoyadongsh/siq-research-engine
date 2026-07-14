@@ -38,6 +38,8 @@ import type {
   DealWorkflowRunR2Response,
   DealWorkflowRunR3Request,
   DealWorkflowRunR3Response,
+  DealWorkflowRunR15ChairmanRequest,
+  DealWorkflowRunR15ChairmanResponse,
   DealWorkflowRunR1AgentDryRunResponse,
   DealWorkflowRunR1SerialResponse,
   DeleteDealDocumentResponse,
@@ -311,6 +313,9 @@ export function runDealWorkflowR2(
       method: 'POST',
       body: {
         dry_run: payload.dry_run ?? true,
+        mode: payload.mode ?? 'model',
+        timeout: payload.timeout ?? null,
+        expected_evidence_snapshot_hash: payload.expected_evidence_snapshot_hash ?? null,
       },
       signal,
     },
@@ -328,8 +333,11 @@ export function runDealWorkflowR3(
       method: 'POST',
       body: {
         dry_run: payload.dry_run ?? true,
+        mode: payload.mode ?? 'model',
         skip: payload.skip ?? false,
         skip_reason: payload.skip_reason ?? null,
+        timeout: payload.timeout ?? null,
+        expected_evidence_snapshot_hash: payload.expected_evidence_snapshot_hash ?? null,
       },
       signal,
     },
@@ -347,7 +355,31 @@ export function finalizeDealWorkflowR4(
       method: 'POST',
       body: {
         dry_run: payload.dry_run ?? true,
+        mode: payload.mode ?? 'model',
         overwrite: payload.overwrite ?? false,
+        timeout: payload.timeout ?? null,
+        expected_evidence_snapshot_hash: payload.expected_evidence_snapshot_hash ?? null,
+      },
+      signal,
+    },
+  )
+}
+
+export function runDealWorkflowR15Chairman(
+  dealId: string,
+  payload: DealWorkflowRunR15ChairmanRequest = {},
+  signal?: AbortSignal,
+) {
+  return apiJson<DealWorkflowRunR15ChairmanResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/workflow/run-r1-5-chairman`,
+    {
+      method: 'POST',
+      body: {
+        dry_run: payload.dry_run ?? true,
+        mode: payload.mode ?? 'model',
+        overwrite: payload.overwrite ?? false,
+        timeout: payload.timeout ?? null,
+        expected_evidence_snapshot_hash: payload.expected_evidence_snapshot_hash ?? null,
       },
       signal,
     },

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, GitBranch, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BrainCircuit, GitBranch, Loader2, RefreshCw, ShieldAlert } from 'lucide-react'
 
 import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } from '@/components/page'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import {
   generateDealWorkflowDisputeRulings,
   generateDealStartupRetrieval,
   identifyDealWorkflowDisputes,
+  runDealWorkflowR15Chairman,
   runDealWorkflowR1Serial,
   runDealWorkflowR2,
   runDealWorkflowR3,
@@ -31,10 +32,12 @@ import type {
   DealDisputesResponse,
   DealPreflight,
   DealWorkflowFinalizeR4Response,
+  DealWorkflowExecutionMode,
   DealWorkflowPhaseRunResponse,
   DealWorkflowGenerateDisputeRulingsResponse,
   DealWorkflowIdentifyDisputesResponse,
   DealWorkflowRunR1SerialResponse,
+  DealWorkflowRunR15ChairmanResponse,
   DealWorkflowRunR2Response,
   DealWorkflowRunR3Response,
   DealWorkflowResponse,
@@ -211,6 +214,45 @@ function PhaseRunResultSummary({ result }: { result: DealWorkflowPhaseRunRespons
   )
 }
 
+function ExecutionModeControl({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: DealWorkflowExecutionMode
+  onChange: (value: DealWorkflowExecutionMode) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="inline-flex flex-wrap gap-1 rounded-md border border-border bg-muted/30 p-1" role="radiogroup" aria-label="阶段执行模式">
+      <Button
+        type="button"
+        size="sm"
+        variant={value === 'model' ? 'secondary' : 'ghost'}
+        role="radio"
+        aria-checked={value === 'model'}
+        onClick={() => onChange('model')}
+        disabled={disabled}
+      >
+        <BrainCircuit />
+        Hermes 模型
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={value === 'deterministic_fallback' ? 'secondary' : 'ghost'}
+        role="radio"
+        aria-checked={value === 'deterministic_fallback'}
+        onClick={() => onChange('deterministic_fallback')}
+        disabled={disabled}
+      >
+        <ShieldAlert />
+        确定性 fallback
+      </Button>
+    </div>
+  )
+}
+
 export default function DealWorkflow() {
   const { dealId = '' } = useParams()
   const [data, setData] = useState<DealWorkflowResponse | null>(null)
@@ -239,13 +281,15 @@ export default function DealWorkflow() {
   const [generateRulingsOverwrite, setGenerateRulingsOverwrite] = useState(false)
   const [confirmGeneratedRulingsWrite, setConfirmGeneratedRulingsWrite] = useState(false)
   const [generateRulingsWriteResult, setGenerateRulingsWriteResult] = useState<DealWorkflowGenerateDisputeRulingsResponse | null>(null)
-  const [phaseRunBusy, setPhaseRunBusy] = useState<'r2' | 'r3' | 'r4' | ''>('')
+  const [phaseRunBusy, setPhaseRunBusy] = useState<'r15' | 'r2' | 'r3' | 'r4' | ''>('')
   const [phaseRunError, setPhaseRunError] = useState('')
+  const [phaseExecutionMode, setPhaseExecutionMode] = useState<DealWorkflowExecutionMode>('model')
+  const [r15RunResult, setR15RunResult] = useState<DealWorkflowRunR15ChairmanResponse | null>(null)
   const [r2RunResult, setR2RunResult] = useState<DealWorkflowRunR2Response | null>(null)
   const [r3RunResult, setR3RunResult] = useState<DealWorkflowRunR3Response | null>(null)
   const [r4FinalizeResult, setR4FinalizeResult] = useState<DealWorkflowFinalizeR4Response | null>(null)
-  const [r3Skip, setR3Skip] = useState(true)
-  const [r3SkipReason, setR3SkipReason] = useState('R2 已覆盖核心分歧，P0 留痕跳过。')
+  const [r3Skip, setR3Skip] = useState(false)
+  const [r3SkipReason, setR3SkipReason] = useState('')
   const [r4Overwrite, setR4Overwrite] = useState(false)
   const [confirmPhaseWrite, setConfirmPhaseWrite] = useState(false)
 
@@ -281,6 +325,7 @@ export default function DealWorkflow() {
     setGenerateRulingsWriteResult(null)
     setConfirmGeneratedRulingsWrite(false)
     setPhaseRunError('')
+    setR15RunResult(null)
     setR2RunResult(null)
     setR3RunResult(null)
     setR4FinalizeResult(null)
@@ -474,7 +519,7 @@ export default function DealWorkflow() {
     setPhaseRunBusy('r2')
     setPhaseRunError('')
     try {
-      setR2RunResult(await runDealWorkflowR2(dealId, { dry_run: true }))
+      setR2RunResult(await runDealWorkflowR2(dealId, { dry_run: true, mode: phaseExecutionMode }))
     } catch (err) {
       setPhaseRunError(err instanceof Error ? err.message : 'R2 dry-run 失败')
     } finally {
@@ -486,7 +531,7 @@ export default function DealWorkflow() {
     setPhaseRunBusy('r2')
     setPhaseRunError('')
     try {
-      const result = await runDealWorkflowR2(dealId, { dry_run: false })
+      const result = await runDealWorkflowR2(dealId, { dry_run: false, mode: phaseExecutionMode })
       await loadWorkflow()
       setR2RunResult(result)
       setConfirmPhaseWrite(false)
@@ -499,6 +544,7 @@ export default function DealWorkflow() {
 
   const r3Payload = (dryRun: boolean) => ({
     dry_run: dryRun,
+    mode: phaseExecutionMode,
     skip: r3Skip,
     skip_reason: r3Skip ? r3SkipReason.trim() : null,
   })
@@ -534,7 +580,7 @@ export default function DealWorkflow() {
     setPhaseRunBusy('r4')
     setPhaseRunError('')
     try {
-      setR4FinalizeResult(await finalizeDealWorkflowR4(dealId, { dry_run: true, overwrite: r4Overwrite }))
+      setR4FinalizeResult(await finalizeDealWorkflowR4(dealId, { dry_run: true, mode: phaseExecutionMode, overwrite: r4Overwrite }))
     } catch (err) {
       setPhaseRunError(err instanceof Error ? err.message : 'R4 dry-run 失败')
     } finally {
@@ -546,12 +592,47 @@ export default function DealWorkflow() {
     setPhaseRunBusy('r4')
     setPhaseRunError('')
     try {
-      const result = await finalizeDealWorkflowR4(dealId, { dry_run: false, overwrite: r4Overwrite })
+      const result = await finalizeDealWorkflowR4(dealId, { dry_run: false, mode: phaseExecutionMode, overwrite: r4Overwrite })
       await loadWorkflow()
       setR4FinalizeResult(result)
       setConfirmPhaseWrite(false)
     } catch (err) {
       setPhaseRunError(err instanceof Error ? err.message : 'R4 写入失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleR15DryRun = async () => {
+    setPhaseRunBusy('r15')
+    setPhaseRunError('')
+    try {
+      setR15RunResult(await runDealWorkflowR15Chairman(dealId, {
+        dry_run: true,
+        mode: phaseExecutionMode,
+        overwrite: generateRulingsOverwrite,
+      }))
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R1.5 主席裁决 dry-run 失败')
+    } finally {
+      setPhaseRunBusy('')
+    }
+  }
+
+  const handleWriteR15 = async () => {
+    setPhaseRunBusy('r15')
+    setPhaseRunError('')
+    try {
+      const result = await runDealWorkflowR15Chairman(dealId, {
+        dry_run: false,
+        mode: phaseExecutionMode,
+        overwrite: generateRulingsOverwrite,
+      })
+      await loadWorkflow()
+      setR15RunResult(result)
+      setConfirmPhaseWrite(false)
+    } catch (err) {
+      setPhaseRunError(err instanceof Error ? err.message : 'R1.5 主席裁决写入失败')
     } finally {
       setPhaseRunBusy('')
     }
@@ -590,6 +671,7 @@ export default function DealWorkflow() {
   })
   const phaseRunBusyAny = Boolean(phaseRunBusy)
   const r3SkipReasonRequired = r3Skip && !r3SkipReason.trim()
+  const canWriteR15 = Boolean(confirmPhaseWrite && r15RunResult?.dry_run && r15RunResult.allowed && !phaseRunBusyAny)
   const canWriteR2 = Boolean(confirmPhaseWrite && r2RunResult?.dry_run && r2RunResult.allowed && !phaseRunBusyAny)
   const canWriteR3 = Boolean(confirmPhaseWrite && r3RunResult?.dry_run && r3RunResult.allowed && !phaseRunBusyAny && !r3SkipReasonRequired)
   const canWriteR4 = Boolean(confirmPhaseWrite && r4FinalizeResult?.dry_run && r4FinalizeResult.allowed && !phaseRunBusyAny)
@@ -1169,21 +1251,67 @@ export default function DealWorkflow() {
           ) : null}
 
           <PageSection
-            title="R2-R4 推进"
-            description="Deterministic 阶段产物先 dry-run，再由人工确认后写入项目包和审计链。"
+            title="R1.5-R4 正式推进"
+            description="默认调用真实 Hermes 智能体；确定性 fallback 仅用于模型不可用时的显式降级，所有模式都必须先 dry-run。"
             actions={
-              <label className="inline-flex min-h-8 items-center gap-2 rounded-md border border-border bg-background px-3 py-1 text-xs font-semibold text-text-muted">
-                <input
-                  type="checkbox"
-                  checked={confirmPhaseWrite}
-                  onChange={(event) => setConfirmPhaseWrite(event.target.checked)}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <ExecutionModeControl
+                  value={phaseExecutionMode}
+                  disabled={phaseRunBusyAny}
+                  onChange={(value) => {
+                    setPhaseExecutionMode(value)
+                    setR15RunResult(null)
+                    setR2RunResult(null)
+                    setR3RunResult(null)
+                    setR4FinalizeResult(null)
+                    setConfirmPhaseWrite(false)
+                  }}
                 />
-                已复核 dry-run，允许写入
-              </label>
+                <label className="inline-flex min-h-8 items-center gap-2 rounded-md border border-border bg-background px-3 py-1 text-xs font-semibold text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={confirmPhaseWrite}
+                    onChange={(event) => setConfirmPhaseWrite(event.target.checked)}
+                  />
+                  已复核 dry-run，允许写入
+                </label>
+              </div>
             }
           >
             <div className="space-y-4">
-              <div className="grid gap-3 xl:grid-cols-3">
+              {phaseExecutionMode === 'deterministic_fallback' ? (
+                <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-sm text-warning">
+                  当前为确定性 fallback：不会调用 Hermes，也不能替代真实 R1.5/R2/R3/R4 智能体结论。产物会标记为 fallback，正式发布仍需重新执行模型路径并通过质量门禁。
+                </div>
+              ) : null}
+              <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-4">
+                <Surface kind="row" padding="sm">
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-text">R1.5 主席裁决</p>
+                        <StatusBadge tone={phaseRunTone(r15RunResult)}>
+                          {r15RunResult?.dry_run ? 'preview' : r15RunResult ? 'written' : 'ready'}
+                        </StatusBadge>
+                      </div>
+                      <p className="mt-1 text-sm text-text-muted">
+                        主席读取结构化分歧、Evidence 和专属背景知识后逐项裁决。
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleR15DryRun()} disabled={phaseRunBusyAny || !canPreviewRulings}>
+                        {phaseRunBusy === 'r15' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        R1.5 dry-run
+                      </Button>
+                      <Button type="button" size="sm" onClick={() => void handleWriteR15()} disabled={!canWriteR15} title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}>
+                        {phaseRunBusy === 'r15' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                        {phaseExecutionMode === 'model' ? '执行主席模型' : '写入 fallback'}
+                      </Button>
+                    </div>
+                    <PhaseRunResultSummary result={r15RunResult} />
+                  </div>
+                </Surface>
+
                 <Surface kind="row" padding="sm">
                   <div className="flex flex-col gap-3">
                     <div>
@@ -1216,7 +1344,7 @@ export default function DealWorkflow() {
                         title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
                       >
                         {phaseRunBusy === 'r2' ? <Loader2 className="animate-spin" /> : <GitBranch />}
-                        写入 R2
+                        {phaseExecutionMode === 'model' ? '执行 R2 模型' : '写入 R2 fallback'}
                       </Button>
                     </div>
                     <PhaseRunResultSummary result={r2RunResult} />
@@ -1233,7 +1361,7 @@ export default function DealWorkflow() {
                         </StatusBadge>
                       </div>
                       <p className="mt-1 text-sm text-text-muted">
-                        P0 默认允许显式 skip，但必须记录原因。
+                        默认执行动态 short/full 红蓝对抗；仅有明确审计依据时才允许显式 skip。
                       </p>
                     </div>
                     <label className="inline-flex items-center gap-2 text-sm text-text-muted">
@@ -1280,7 +1408,7 @@ export default function DealWorkflow() {
                         title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
                       >
                         {phaseRunBusy === 'r3' ? <Loader2 className="animate-spin" /> : <GitBranch />}
-                        写入 R3
+                        {phaseExecutionMode === 'model' ? '执行 R3 模型' : '写入 R3 fallback'}
                       </Button>
                     </div>
                     <PhaseRunResultSummary result={r3RunResult} />
@@ -1330,7 +1458,7 @@ export default function DealWorkflow() {
                         title={confirmPhaseWrite ? undefined : '需要先勾选人工确认。'}
                       >
                         {phaseRunBusy === 'r4' ? <Loader2 className="animate-spin" /> : <GitBranch />}
-                        写入 R4
+                        {phaseExecutionMode === 'model' ? '执行 R4 模型' : '写入 R4 fallback'}
                       </Button>
                     </div>
                     <PhaseRunResultSummary result={r4FinalizeResult} />
@@ -1366,7 +1494,7 @@ export default function DealWorkflow() {
                   title={canPreviewRulings ? undefined : '需要已写入的 r1_5_disputes.json，当前 identify-disputes preview 不会作为裁决输入。'}
                 >
                   {generateRulingsBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
-                  主席裁决 dry-run
+                  旧版规则 fallback dry-run
                 </Button>
                 <label className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-background px-3 text-xs font-semibold text-text-muted">
                   <input
@@ -1469,8 +1597,8 @@ export default function DealWorkflow() {
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-text">主席裁决草案 dry-run</p>
-                            <StatusBadge tone="info">preview · not written</StatusBadge>
+                            <p className="text-sm font-semibold text-text">旧版规则裁决 fallback</p>
+                            <StatusBadge tone="warning">deterministic fallback · not written</StatusBadge>
                           </div>
                           <p className="mt-1 text-xs text-text-muted">
                             generation: {text(generateRulingsPreview.generation_mode)} · generated {generateRulingsPreview.generated_count ?? 0} · skipped {generateRulingsPreview.skipped_count ?? 0}
@@ -1506,7 +1634,7 @@ export default function DealWorkflow() {
                               onChange={(event) => setConfirmGeneratedRulingsWrite(event.target.checked)}
                             />
                             <span>
-                              已复核 dry-run 草案，确认写入 R1.5 主席裁决；该操作只写入 R1.5 产物和审计，不推进 R2。
+                              已确认模型路径当前不可用，允许写入确定性 fallback；该产物不代表主席智能体判断，也不能直接进入正式发布。
                             </span>
                           </label>
                           <Button
@@ -1517,7 +1645,7 @@ export default function DealWorkflow() {
                             title={confirmGeneratedRulingsWrite ? undefined : '需要先勾选人工确认。'}
                           >
                             {generateRulingsBusy ? <Loader2 className="animate-spin" /> : <GitBranch />}
-                            写入裁决草案
+                            写入规则 fallback
                           </Button>
                         </div>
                       ) : null}

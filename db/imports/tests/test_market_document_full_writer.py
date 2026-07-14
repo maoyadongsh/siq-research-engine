@@ -1,7 +1,7 @@
 import importlib.util
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -55,10 +55,11 @@ class FakeCursor:
 
 
 class FakeConn:
-    def __init__(self, columns, database="siq_hk", existing_company_by_cik=None):
+    def __init__(self, columns, database="siq_hk", existing_company_by_cik=None, existing_parse_run_completed_at=None):
         self.columns = columns
         self.database = database
         self.existing_company_by_cik = existing_company_by_cik or {}
+        self.existing_parse_run_completed_at = existing_parse_run_completed_at
         self.executed = []
 
     def cursor(self):
@@ -96,6 +97,10 @@ class FakeConn:
                 if company_id:
                     return FakeCursor([(company_id,)])
             return FakeCursor()
+        if ".parse_runs" in sql and "select completed_at" in sql:
+            if self.existing_parse_run_completed_at is None:
+                return FakeCursor()
+            return FakeCursor([(self.existing_parse_run_completed_at,)])
         return FakeCursor()
 
 
@@ -404,6 +409,66 @@ def test_market_agent_fact_views_are_scoped_to_latest_successful_parse_runs():
         if market == "US":
             assert "join sec_us.v_latest_parse_runs pr on pr.parse_run_id = x.parse_run_id" in ddl
             assert "join sec_us.parse_runs pr on pr.parse_run_id = x.parse_run_id" not in ddl
+            assert "left join lateral" in ddl
+            assert "candidate.parse_run_id = x.parse_run_id" in ddl
+            assert "candidate.fact_id = x.fact_id" in ddl
+            assert "order by candidate.evidence_id" in ddl
+            assert "limit 1" in ddl
+            assert "idx_sec_us_evidence_citations_parse_fact" in ddl
+            assert "on sec_us.evidence_citations (parse_run_id, fact_id, evidence_id)" in ddl
+            assert "where fact_id is not null" in ddl
+
+
+def test_market_parse_runs_backfill_completed_at_without_moving_idempotent_timestamp():
+    writer_module = _load_module("market_document_full_writer_parse_run_completed_at", "market_document_full_writer.py")
+    columns = {
+        "parse_runs": {
+            "parse_run_id",
+            "filing_id",
+            "parser_version",
+            "rules_version",
+            "wiki_package_path",
+            "status",
+            "completed_at",
+        }
+    }
+    parse_run = {
+        "parse_run_id": "parse-us-completed-at",
+        "filing_id": "US:f1",
+        "parser_version": "sec",
+        "rules_version": "document_full_v1",
+        "wiki_package_path": "/tmp/document_full.json",
+        "status": "pass",
+    }
+
+    existing_completed_at = datetime(2026, 7, 12, 3, 4, 5, tzinfo=timezone.utc)
+    for market, database, schema in (
+        ("HK", "siq_hk", "pdf2md_hk"),
+        ("JP", "siq_jp", "edinet_jp"),
+        ("KR", "siq_kr", "dart_kr"),
+        ("EU", "siq_eu", "eu_ifrs"),
+        ("US", "siq_us", "sec_us"),
+    ):
+        fresh_conn = FakeConn(columns, database=database)
+        writer_module.MarketDocumentFullWriter(fresh_conn, market=market)._upsert_parse_run(parse_run)
+        fresh_insert = next(
+            sql_params for sql_params in fresh_conn.executed if f"insert into {schema}.parse_runs" in sql_params[0]
+        )
+        assert "completed_at" in fresh_insert[0]
+        fresh_completed_at = fresh_insert[1][-1]
+        assert isinstance(fresh_completed_at, datetime)
+        assert fresh_completed_at.tzinfo == timezone.utc
+
+        existing_conn = FakeConn(
+            columns,
+            database=database,
+            existing_parse_run_completed_at=existing_completed_at,
+        )
+        writer_module.MarketDocumentFullWriter(existing_conn, market=market)._upsert_parse_run(parse_run)
+        existing_insert = next(
+            sql_params for sql_params in existing_conn.executed if f"insert into {schema}.parse_runs" in sql_params[0]
+        )
+        assert existing_insert[1][-1] == existing_completed_at
 
 
 def test_runtime_market_ddl_uses_checked_in_ddl_not_generated_reset():

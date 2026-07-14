@@ -1,0 +1,23 @@
+# This service is built with its directory as the Docker context. Keep local
+# credentials and runtime material out of the build context and image layers.
+.env
+*.env
+**/.env
+**/*.env
+env/
+**/env/
+**/*token*.backup*
+**/auth.json.backup*
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+artifacts/
+data/
+var/
+logs/
+tmp/

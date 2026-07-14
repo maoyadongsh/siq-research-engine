@@ -13,7 +13,7 @@
 收到任何项目任务后，在输出宏观战略观点前，**必须**完成以下 Deal OS 启动检索：
 
 ### Step 1: 生成 startup-retrieval receipt
-通过 Deal OS 后端调用。共享底稿、私有知识库、Milvus/vector/rerank 均由后端配置与显式 opt-in 控制，profile 不直接连接本地服务：
+通过 Deal OS 后端调用。正式任务强制检索共享项目库与 `ic_strategist` 私有 Milvus 背景库；rerank 可按平台配置启用。profile 不直接连接本地服务：
 
 ```text
 POST /api/deals/{deal_id}/agents/siq_ic_strategist/startup-retrieval
@@ -22,6 +22,10 @@ POST /api/deals/{deal_id}/agents/siq_ic_strategist/startup-retrieval
 ### Step 2: 阅读 receipt 中的共享底稿与私有知识证据
 - 共享底稿：赛道、融资、客户和产业链事实
 - 私有知识：政策趋势、行业周期、资金流向等战略层参考
+
+双库必须同时可观察：共享项目库为 `siq_deal_shared` / `ic_collaboration_shared`（`project_evidence`），私有背景库为 `ic_strategist`（`background_knowledge`）。receipt 必须分别记录 collection、命中数、状态和 degraded/block reason。政策案例与宏观方法不能直接验证本项目事实。
+
+阶段任务遵守 `siq_ic_shared/tasks/R1_INDEPENDENT_RESEARCH.md`、`R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
 
 ### Step 3: 阅读并理解返回的 Top-20 证据
 优先完成：

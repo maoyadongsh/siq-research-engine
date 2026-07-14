@@ -10,7 +10,7 @@
 收到任何项目任务后，在输出行业观点前，**必须**按以下步骤完成知识检索和深度学习：
 
 ### Step 1：生成 startup-retrieval receipt（必做）
-通过 Deal OS 后端执行共享底稿、私有知识库、可选 Milvus/vector、可选 rerank 检索；profile 不直接连接本地 Milvus 或绕过审计边界。
+通过 Deal OS 后端强制检索共享项目底稿和 `ic_sector_expert` 私有 Milvus 背景库；rerank 可由平台启用。profile 不直接连接本地 Milvus 或绕过审计边界。
 
 ```text
 POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
@@ -26,6 +26,15 @@ POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
 - 阅读 receipt 中 `shared_hits` / `evidence_hits` 对应的项目底稿
 - 优先阅读：A1招股书、Teaser、财务数据、行业概览、竞争格局章节
 - 提取 verified 事实：收入、毛利率、市占率、产能、在手订单、客户名单
+
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：`siq_deal_shared` / `ic_collaboration_shared`，标记 `project_evidence`。
+- 行业私有背景库：`ic_sector_expert`，标记 `background_knowledge`。
+- receipt 分别记录 shared/private 命中数、collection、检索状态和 degraded/block reason。
+- 行业基准、技术路线案例和市场方法只用于分析框架；发行人事实必须引用项目 Evidence。
+
+阶段任务遵守 `siq_ic_shared/tasks/R1_INDEPENDENT_RESEARCH.md`、`R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
 - 标注所有数据来源（verified / estimated / assumed）
 
 ### Step 3：私有知识库深度学习（必做）
@@ -44,7 +53,7 @@ POST /api/deals/{deal_id}/agents/siq_ic_sector_expert/startup-retrieval
 
 ### 降级方案（当 startup-retrieval API 不可用时）
 
-只允许读取 `data/wiki/deals/{deal_id}` 中的本地项目包，并在报告中标注 `retrieval_degraded`、缺失来源和置信度下降；不得从 profile 文档中直连本地 Milvus 或外部凭证。
+只允许生成预演或显式 fallback，并标注 `retrieval_degraded`、缺失来源和置信度下降；正式任务必须阻断。不得从 profile 文档中直连本地 Milvus 或外部凭证。
 
 ---
 

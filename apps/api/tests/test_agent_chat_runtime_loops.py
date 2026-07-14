@@ -1280,6 +1280,21 @@ def test_agent_intro_payload_preserves_active_profile_role():
     assert "SIQ 全局财报问答助手" not in legal_prompt
 
 
+def test_financial_runtime_contract_uses_real_cli_subcommands():
+    contract = runtime.FINANCIAL_CALCULATION_RUNTIME_CONTRACT
+
+    assert "--format json yoy --current" in contract
+    assert "--format json ratio --numerator" in contract
+    assert "--format json goodwill --company" in contract
+    assert "--current-unit '人民币千元'" in contract
+    assert "--denominator-unit '人民币千元'" in contract
+    assert "--format json normalize --value" in contract
+    assert "不能依赖默认 `元`" in contract
+    assert "不存在 `--operation`" in contract
+    assert "`growth` 或 `proportion`" in contract
+    assert "不得原样重试" in contract
+
+
 def test_wiki_catalog_reply_reads_current_catalog_for_count_and_list(tmp_path, monkeypatch):
     wiki_root = tmp_path / "wiki"
     meta_dir = wiki_root / "_meta"

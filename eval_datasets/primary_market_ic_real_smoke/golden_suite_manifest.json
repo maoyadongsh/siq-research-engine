@@ -1,0 +1,120 @@
+{
+  "schema_version": "siq_primary_market_ic_golden_input_suite_v1",
+  "suite_id": "PMIC-GOLDEN-INPUTS-2026-07-14",
+  "synthetic_evaluation_only": true,
+  "input_only": true,
+  "quality_accepted": false,
+  "rules": [
+    "Fixtures are independent input packages, not expected model outputs.",
+    "No fixture contains a real-smoke report, factcheck result, human confirmation, or golden evaluation result.",
+    "A scenario passes only when its isolated real run satisfies the repository golden evaluator.",
+    "Trusted human confirmation and methodology approval must be performed outside fixture generation."
+  ],
+  "regression_lanes": [
+    {
+      "lane_id": "PMIC-R3-SAFE-SKIP",
+      "kind": "deterministic_contract_regression",
+      "expected": "skip only when every persisted safety check is true",
+      "release_binding": false
+    },
+    {
+      "lane_id": "PMIC-FACTCHECK-REPAIR",
+      "kind": "model_assisted_regression",
+      "expected": "blocked original report plus a new audited revision that passes revalidation",
+      "release_binding": false
+    },
+    {
+      "lane_id": "PMIC-TAMPER-NEGATIVE",
+      "kind": "fail_expected_adversarial_regression",
+      "expected": "raw-output, handoff, task, or golden-result mutation is rejected by digest recomputation",
+      "release_binding": false
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "GOLDEN-PMIC-CONDITIONAL-SUPPORT",
+      "fixture": "DEAL-PMIC-POSITIVE-COND-2026",
+      "deal_id": "DEAL-PMIC-POSITIVE-COND-2026",
+      "execution": "R0-R4 real Hermes run, report quality and factcheck, then trusted human confirmation",
+      "expected_outcome": "conditional_support",
+      "input_only": true,
+      "quality_accepted": false,
+      "input_status": "ready",
+      "result_status": "not_run",
+      "input_identity": {
+        "input_bundle_sha256": "c982fa889573adeec69ffdfa8f1a51a93e497ac2af6e0b8d7d93ea70767af727",
+        "fixture_contract_sha256": "df946ada61e4ae965372936608c7ae375f9ef673471ff6e9f13bb7ea6e7e31a6",
+        "evidence_snapshot_hash": "6d409622749b6830cbe5a692abf4a5b519f9601449bae7181f8802e2486fffcb",
+        "file_count": 14
+      }
+    },
+    {
+      "case_id": "GOLDEN-PMIC-MATERIAL-RISK",
+      "fixture": "DEAL-PMIC-MATERIAL-RISK-2026",
+      "deal_id": "DEAL-PMIC-MATERIAL-RISK-2026",
+      "execution": "R0-R4 real Hermes run",
+      "expected_outcome": "review_or_reject_after_material_legal_or_financial_risk",
+      "input_only": true,
+      "quality_accepted": false,
+      "input_status": "ready",
+      "result_status": "not_run",
+      "input_identity": {
+        "input_bundle_sha256": "0493b7a9a4e5d31007af812c5f2e5f737e865b5ffecb689cbb54ffb0ab9ab7ba",
+        "fixture_contract_sha256": "afba050788217e63b4e2ca8f1e0478534c065e2478374912396d639d9d92e554",
+        "evidence_snapshot_hash": "b123c7adc1f443c65f577bd58cb2540788fe5340c1fb050829f4351ad43e1155",
+        "file_count": 14
+      }
+    },
+    {
+      "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
+      "fixture": "DEAL-PMIC-INSUFFICIENT-2026",
+      "deal_id": "DEAL-PMIC-INSUFFICIENT-2026",
+      "execution": "R0-R4 real Hermes run; preserve explicit missing/assumed claims",
+      "expected_outcome": "insufficient_evidence",
+      "input_only": true,
+      "quality_accepted": false,
+      "input_status": "ready",
+      "result_status": "not_run",
+      "input_identity": {
+        "input_bundle_sha256": "8e1f27bbbe9d773b54065f902df2321c2ebb54d2be4bd1eecbfb32ee200e75e8",
+        "fixture_contract_sha256": "fb64cb5535ebefd5732898e4083d95048d80292ff1b20d28d5d1f5e253b970ec",
+        "evidence_snapshot_hash": "ec78cef647a267b49b546c33dd7e8ade816adb8757509e2ecbb1081a060d452d",
+        "file_count": 14
+      }
+    },
+    {
+      "case_id": "GOLDEN-PMIC-FULL-R3",
+      "fixture": "DEAL-PMIC-FULL-R3-2026",
+      "deal_id": "DEAL-PMIC-FULL-R3-2026",
+      "execution": "R0-R4 real Hermes run with a preserved high-materiality tradeoff through R2",
+      "expected_outcome": "full_red_blue_debate",
+      "input_only": true,
+      "quality_accepted": false,
+      "input_status": "ready",
+      "result_status": "not_run",
+      "input_identity": {
+        "input_bundle_sha256": "839527a13d30c62cafebb9d65cb65dec43a131c52ed1e0940f782070eccb09ad",
+        "fixture_contract_sha256": "bfc5afb26daf5e5cb11767155d090363cbf1c04d0dd1951b6cc98ee530a9bef6",
+        "evidence_snapshot_hash": "f42546d49b455085c94042074e70c4281b6ab95db74d6b40e768622ef48e9f38",
+        "file_count": 14
+      }
+    },
+    {
+      "case_id": "GOLDEN-PMIC-SNAPSHOT-STALE",
+      "fixture": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+      "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+      "execution": "Complete and human-confirm the initial run, then apply the committed stale-update source and refresh the snapshot",
+      "expected_outcome": "receipts_stale_and_decision_review_required",
+      "input_only": true,
+      "quality_accepted": false,
+      "input_status": "ready",
+      "result_status": "not_run",
+      "input_identity": {
+        "input_bundle_sha256": "fd8c24ea4abcb0093ace4eec2156b8b76fb260d50ab4ea30daa3fe88b57a9a54",
+        "fixture_contract_sha256": "f3c99854e142627cfa87ea7480f34c908f80466402da8326b3162440b4ec7801",
+        "evidence_snapshot_hash": "45e2d312033c1c38a19d099b65b56ef8aa9ba3b12b81fe040baacbb30503b23a",
+        "file_count": 17
+      }
+    }
+  ]
+}

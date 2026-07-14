@@ -26,6 +26,15 @@ POST /api/deals/{deal_id}/agents/siq_ic_chairman/startup-retrieval
 
 - 先看共享底稿中的核心亮点、红线和未解决问题
 - 再看私有知识库与 workspace 中的阶段权重、条款设计和退出经验
+
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：`siq_deal_shared` / `ic_collaboration_shared`，来源类型 `project_evidence`。
+- 主席私有背景库：`ic_chairman`，来源类型 `background_knowledge`。
+- receipt 必须分别保留两个 collection、命中数、检索状态和 degraded/block reason。
+- 私有库中的评分方法、条款经验和历史案例不能证明本项目事实；裁决与 R4 结论必须引用项目 Evidence。
+
+阶段任务遵守 `siq_ic_shared/tasks/R1_CROSS_VALIDATION.md`、`R1_5_CHAIRMAN_RULING.md`、`R3_RED_BLUE_DEBATE.md` 和 `R4_CHAIRMAN_DECISION.md`。
 - 裁决必须说明为什么投、为什么现在投、如何用条款化解风险
 - 不要跳过检索直接沿用历史偏好
 

@@ -37,6 +37,20 @@ def test_root_dockerignore_excludes_local_secret_sources():
     assert "**/*.env" in patterns
 
 
+def test_standalone_build_contexts_exclude_local_secret_sources():
+    repo_root = Path(__file__).resolve().parents[3]
+    for relative in ("services/market-report-finder/.dockerignore", "apps/document-parser/.dockerignore"):
+        patterns = {
+            line.strip()
+            for line in (repo_root / relative).read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        assert ".env" in patterns, relative
+        assert "*.env" in patterns, relative
+        assert "env/" in patterns, relative
+        assert "**/env/" in patterns, relative
+
+
 def test_market_report_services_have_explicit_compose_users():
     repo_root = Path(__file__).resolve().parents[3]
     compose = (repo_root / "infra/docker/docker-compose.yml").read_text(encoding="utf-8")
@@ -114,14 +128,21 @@ def test_web_production_image_uses_runtime_nginx_api_proxy():
     assert (
         "location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|legal|settings|system|"
         "market-report-health|market-reports|us-sec|jobs|downloads|workflow|workspace|documents|deals|"
-        "primary-market|pdf|pdf_page|source)(/|$)"
+        "meetings|primary-market|pdf|pdf_page|source)(/|$)"
     ) in nginx_template
+    meeting_audio_location = "location ~ ^/api/meetings/v1/sessions/[^/]+/audio$"
+    general_api_location = "location ~ ^/api/(auth|eval|v1|chat|wiki|analysis"
+    assert meeting_audio_location in nginx_template
+    assert nginx_template.index(meeting_audio_location) < nginx_template.index(general_api_location)
+    assert "proxy_pass ${SIQ_MEETING_STREAM_GATEWAY_URL};" in nginx_template
     assert "proxy_pass ${SIQ_REPORT_FINDER_URL};" in nginx_template
     assert "proxy_pass ${SIQ_PDFAPI_URL};" not in nginx_template
     assert "proxy_set_header Host $http_host;" in nginx_template
     assert "proxy_set_header Host $host;" not in nginx_template
     assert "map $http_x_forwarded_proto $siq_forwarded_proto" in nginx_template
-    assert nginx_template.count("proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;") == 4
+    assert nginx_template.count("proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;") == 5
+    assert nginx_template.count("proxy_set_header Upgrade $http_upgrade;") == 2
+    assert nginx_template.count("proxy_set_header Connection $connection_upgrade;") == 2
     assert "proxy_set_header X-Forwarded-Proto $scheme;" not in nginx_template
     assert 'proxy_set_header X-PDF2MD-Token "${PDF2MD_ACCESS_TOKEN}";' not in nginx_template
     assert "location = /pdfapi" in nginx_template
@@ -131,11 +152,14 @@ def test_web_production_image_uses_runtime_nginx_api_proxy():
 
     assert ": \"${SIQ_BACKEND_URL:=http://api:18081}\"" in entrypoint
     assert ": \"${SIQ_REPORT_FINDER_URL:=http://report-finder:8000}\"" in entrypoint
+    assert ": \"${SIQ_MEETING_STREAM_GATEWAY_URL:=$SIQ_BACKEND_URL}\"" in entrypoint
+    assert "export SIQ_BACKEND_URL SIQ_REPORT_FINDER_URL SIQ_MEETING_STREAM_GATEWAY_URL" in entrypoint
     assert "SIQ_PDFAPI_URL" not in entrypoint
     assert "PDF2MD_ACCESS_TOKEN" not in entrypoint
-    assert "envsubst '${SIQ_BACKEND_URL} ${SIQ_REPORT_FINDER_URL}'" in entrypoint
+    assert "envsubst '${SIQ_BACKEND_URL} ${SIQ_REPORT_FINDER_URL} ${SIQ_MEETING_STREAM_GATEWAY_URL}'" in entrypoint
 
     assert "wget -q -O /dev/null http://127.0.0.1:15173/api/health" in compose
+    assert "SIQ_MEETING_STREAM_GATEWAY_URL=${SIQ_MEETING_STREAM_GATEWAY_URL:-http://api:18081}" in compose
     assert "node -e \"fetch('http://127.0.0.1:15173/')" not in compose
 
 
@@ -325,3 +349,15 @@ def test_milvus_compose_uses_loopback_ports_and_non_default_minio_credentials():
         '"127.0.0.1:${SIQ_MILVUS_ATTU_PORT:-8001}:8000"',
     ):
         assert loopback_binding in compose
+
+
+def test_agent_memory_examples_use_versioned_milvus_alias():
+    repo_root = Path(__file__).resolve().parents[3]
+    for relative_path in (
+        "infra/env/local.example",
+        "infra/env/docker.example",
+        "infra/env/production.example",
+    ):
+        content = (repo_root / relative_path).read_text(encoding="utf-8")
+        assert "SIQ_AGENT_MEMORY_MILVUS_COLLECTION=siq_agent_memory_active" in content
+        assert "SIQ_AGENT_MEMORY_MILVUS_COLLECTION=siq_agent_memory\n" not in content

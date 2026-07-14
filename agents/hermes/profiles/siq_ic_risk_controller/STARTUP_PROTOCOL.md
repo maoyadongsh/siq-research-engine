@@ -50,12 +50,12 @@
 
 ## 三、检索服务配置（由 Deal OS 后端控制）
 
-Hermes profile 不直接连接本地 Milvus、embedding 或 rerank 服务。共享底稿、私有知识库、向量检索和重排均由 Deal OS startup-retrieval API 根据后端配置、显式 opt-in、权限和审计规则执行。
+Hermes profile 不直接连接本地 Milvus、embedding 或 rerank 服务。共享项目库和 `ic_risk_controller` 私有 Milvus 背景库由 Deal OS startup-retrieval API 强制检索；重排按后端配置、权限和审计规则执行。
 
 逻辑来源：
 - 共享底稿：`siq_deal_shared` / deal evidence package
 - 私有知识：`siq_ic_risk_controller`
-- 可选增强：vector adapter / rerank adapter（响应中必须有状态与 reason）
+- 强制能力：vector adapter 双库检索；可选增强：rerank adapter（响应中必须有状态与 reason）
 
 ---
 
@@ -154,7 +154,7 @@ POST /api/deals/{deal_id}/agents/siq_ic_risk_controller/startup-retrieval
 }
 ```
 
-若 API 不可用，降级读取 `data/wiki/deals/{deal_id}` 项目包，并在报告中标注 `retrieval_degraded`。
+若 API 不可用，只能为预演或显式 fallback 读取 `data/wiki/deals/{deal_id}` 项目包并标注 `retrieval_degraded`；正式任务必须阻断。
 
 ## 七、检查清单（Checklist）
 

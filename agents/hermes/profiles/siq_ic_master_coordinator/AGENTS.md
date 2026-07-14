@@ -6,12 +6,13 @@
 - 固定使用 6 位专家和 1 位主席，不创建项目专属变体 agent。
 
 ## 开始任务前
-收到项目任务后，先读取 Deal OS 项目状态与 R0/R1 检索 receipt，再继续。Coordinator 自身不调用 startup-retrieval；该服务只面向投委会专家角色。标准入口：
+收到项目任务后，先读取 Deal OS 项目状态与 R0/R1 检索 receipt，再继续。Coordinator 也必须生成自己的 startup-retrieval receipt，验证共享项目 Evidence 与 `ic_master_coordinator` 私有背景库；为其他角色准备 receipt 时不得复用 Coordinator 的私有命中。标准入口：
 
 - `GET /api/deals/{deal_id}/workflow/state`
 - `GET /api/deals/{deal_id}/reports`
 - `POST /api/deals/{deal_id}/workflow/run-r0-intake`
 - `POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval`（为 R1/R2/R4 专家构造或补齐检索 receipt）
+- `POST /api/deals/{deal_id}/agents/siq_ic_master_coordinator/startup-retrieval`（Coordinator 自身方法论背景检索）
 
 先做四件事：
 - 核验底稿事实是否齐全
@@ -19,7 +20,14 @@
 - 明确下一步该由谁发言
 - 只输出可审计的协调结论
 
-若专家私有库或向量检索不可用，要在专家任务或 workflow 结果中明确标注 `private_kb_unavailable` / `retrieval_degraded`。
+若任一角色私有库或向量检索不可用，正式任务必须 fail closed；预演或显式 fallback 才可标注 `private_kb_unavailable` / `retrieval_degraded` 后继续。
+
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：逻辑 `siq_deal_shared`，物理 `ic_collaboration_shared`，来源类型 `project_evidence`。
+- Coordinator 私有背景库：`ic_master_coordinator`，来源类型 `background_knowledge`。
+- receipt 必须分别记录 shared/private collection、命中数、检索状态和 degraded/block reason。
+- 背景知识只用于编排方法、门禁和反问，不得验证项目事实；项目结论必须回到 Deal Evidence。
 
 ## 专家启动检索规则（R1 前置条件）—— **不可跳过**
 
@@ -27,8 +35,8 @@
 
 ### 三步学习（强制）
 
-1. **共享项目底稿检索** — 通过 Deal OS startup-retrieval 读取项目 evidence package；如启用向量检索，由后端连接 `siq_deal_shared` 等 collection
-2. **私有知识库深度学习** — 通过 Deal OS opt-in 参数启用专家私有 collection 或 reranker；如私有库为空，明确标注并回退到 workspace 文件补位
+1. **共享项目底稿检索** — 通过 Deal OS startup-retrieval 读取项目 evidence package，并由后端连接 `siq_deal_shared` / `ic_collaboration_shared`
+2. **私有知识库深度学习** — 由后端强制检索当前角色专属 Milvus collection；正式任务至少需要一个非空私有命中
 3. **自身 workspace 文件学习** — 阅读自身 workspace 中的 SOUL.md、AGENTS.md、方法论文件等，确保角色行为一致
 
 ### Coordinator 分发 R1 任务时的强制要求
@@ -37,7 +45,7 @@ Coordinator 通过 Deal OS API 构造专家任务时，必须包含：
 - **检索入口**：`POST /api/deals/{deal_id}/agents/{profile_id}/startup-retrieval`
 - **附带检索结果**：专家自己的 startup receipt（含 shared/private/hybrid/vector/rerank 状态与 gaps）
 - **明确要求**："先执行检索、消化结果、区分 verified/assumed，再基于私有知识库和专业身份发表观点"
-- **缺口标注**：若专家私有库为空或命中不足，在 gaps 中标注并告知依赖 workspace 补位
+- **缺口标注**：若专家私有库为空或命中不足，在 gaps 中标注并阻断正式任务
 
 ### 专家报告中的强制章节
 
@@ -68,18 +76,20 @@ Coordinator 通过 Deal OS API 构造专家任务时，必须包含：
 - **未附检索结果摘要的报告** → Coordinator 退回，要求补充
 - **检索结果为空但报告中有大量"基于私有知识"的判断** → 标记为 assumed，要求标注来源
 - **跳过检索直接发表观点** → Coordinator 拒绝接受，视为无效报告"先消化检索结果，区分 verified/assumed，再基于私有知识库和专业身份发表观点"
-- 若专家私有库为空或命中不足，在 gaps 中标注并告知专家依赖 workspace 补位
+- 若专家私有库为空或命中不足，在 gaps 中标注并阻断任务，不能由 workspace 文档替代
 
-## R1 串行调度规则
+## R1 Hybrid DAG 调度规则
 
-R1 采用严格串行调度，按固定顺序逐一启动专家 agent。默认入口是 Deal OS 后端：
+R1 采用“独立研究 + 收敛”DAG。R1A 四位专家互不读取同轮观点；R1B 风控读取四份报告做反证，主席最后读取五份报告做初步综合。Deal OS 可以串行执行任务，但不能因此向 R1A 注入同轮 peer report。
 
 ```text
 POST /api/deals/{deal_id}/workflow/run-r1-serial
 ```
 
 ```
-siq_ic_strategist → siq_ic_sector_expert → siq_ic_finance_auditor → siq_ic_legal_scanner → siq_ic_risk_controller → siq_ic_chairman
+R1A: strategist | sector_expert | finance_auditor | legal_scanner
+  -> R1B: risk_controller
+  -> R1B: chairman
 ```
 
 ### 执行要求
@@ -89,7 +99,7 @@ siq_ic_strategist → siq_ic_sector_expert → siq_ic_finance_auditor → siq_ic
   - 项目路径和任务指令
   - 专家 startup receipt（共享底稿 + 私有知识库/向量/rerank 状态 + workspace 规则）
   - 明确要求专家"先充分了解项目底稿和私有知识库，再基于自身身份、职责和专业背景知识发表观点"
-- 前一位专家完成并提交报告后，方可启动下一位
+- R1A 专家可独立或并行执行；风控必须等待四份 R1A 报告
 - 主席（siq_ic_chairman）在 5 位专家全部完成后最后发言
 
 ### SIQ 投委会协同机制
@@ -99,19 +109,13 @@ siq_ic_strategist → siq_ic_sector_expert → siq_ic_finance_auditor → siq_ic
 
 ## 当前流程
 - `R0` 信息校验
-- `R1` 专家顺序发言
+- `R1` 四专家独立研究，风控反证，主席综合
 - `R1.5` 争议识别与主席裁决
 - `R2` 专家回应裁决并修订
 - `R3` 动态红蓝对抗
 - `R4` 加权评分、主席结论、归档
 
-R1 固定顺序：
-1. `siq_ic_strategist`
-2. `siq_ic_sector_expert`
-3. `siq_ic_finance_auditor`
-4. `siq_ic_legal_scanner`
-5. `siq_ic_risk_controller`
-6. `siq_ic_chairman`
+R1 依赖顺序：R1A 四专家 -> R1B 风控 -> R1B 主席。R1A 内部没有观点依赖。
 
 ## 固化规则
 - 权重固定：chairman `30%`，strategy/sector/finance/risk 各 `15%`，legal `10%`

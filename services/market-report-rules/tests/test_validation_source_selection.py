@@ -49,6 +49,32 @@ def _balance_fact(
     )
 
 
+def _income_fact(market: Market, canonical_name: str, value: str, *, period: str) -> ExtractedFact:
+    return ExtractedFact(
+        canonical_name=canonical_name,
+        local_name=canonical_name,
+        statement_type=StatementType.INCOME_STATEMENT,
+        value=Decimal(value),
+        raw_value=value,
+        unit="EUR million" if market == Market.EU else "CNY",
+        currency="EUR" if market == Market.EU else "CNY",
+        period_key=period,
+        period_end=period,
+        fiscal_year=int(period[:4]),
+        fiscal_period="FY",
+        scale=Decimal("1"),
+        market=market,
+        accounting_standard=AccountingStandard.IFRS if market == Market.EU else AccountingStandard.CASBE,
+        confidence=Decimal("0.90"),
+        evidence=EvidenceRef(
+            source_type="pdf_statement_table",
+            source_id=f"income-{period}",
+            table_index=30,
+            quote_text=f"{canonical_name} | {value}",
+        ),
+    )
+
+
 def _extraction(market: Market) -> ExtractionResult:
     facts = [
         _balance_fact(market, "total_assets", "1000", confidence="0.80", table_index=1),
@@ -78,6 +104,30 @@ def _extraction(market: Market) -> ExtractionResult:
             )
         ],
     )
+
+
+def test_bridge_skips_statement_type_absent_from_historical_period():
+    extraction = _extraction(Market.HK)
+    historical = _income_fact(Market.HK, "operating_revenue", "900", period="2024-12-31")
+    extraction.statements.append(
+        FinancialStatement(
+            statement_id="income_statement",
+            statement_type=StatementType.INCOME_STATEMENT,
+            statement_name="Income Statement",
+            items=[historical],
+        )
+    )
+
+    validation = validate_extraction(extraction)
+    historical_balance_checks = [
+        check
+        for check in validation.checks
+        if check.period == "2024-12-31" and str(check.rule_id).startswith("bs.")
+    ]
+
+    assert historical_balance_checks
+    assert {check.status for check in historical_balance_checks} == {CheckStatus.SKIPPED}
+    assert {check.reason for check in historical_balance_checks} == {"statement_type_not_present_for_period"}
 
 
 def test_non_cn_bridge_checks_prefer_source_consistent_statement_group():

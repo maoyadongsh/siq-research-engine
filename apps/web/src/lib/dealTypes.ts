@@ -210,6 +210,18 @@ export interface DealStartupReceipt {
   retrieval_mode?: string
   shared_hits?: number
   private_hits?: number
+  project_evidence_hits?: number
+  background_knowledge_hits?: number
+  collections?: string[]
+  physical_collections?: string[]
+  shared_collection?: string | null
+  private_collection?: string | null
+  retrieval_status?: string | null
+  degraded_reasons?: string[]
+  blocking_reasons?: string[]
+  evidence_snapshot_hash?: string | null
+  capability_restrictions?: string[]
+  stale?: boolean
   evidence_hits?: Array<Record<string, unknown>>
   evidence_hit_count?: number
   dimensions?: string[]
@@ -295,19 +307,38 @@ export interface DealWorkflowRunR1SerialResponse {
   [key: string]: unknown
 }
 
+export type DealWorkflowExecutionMode = 'model' | 'deterministic_fallback'
+
+export interface DealWorkflowRunR15ChairmanRequest {
+  dry_run?: boolean
+  mode?: DealWorkflowExecutionMode
+  overwrite?: boolean
+  timeout?: number | null
+  expected_evidence_snapshot_hash?: string | null
+}
+
 export interface DealWorkflowRunR2Request {
   dry_run?: boolean
+  mode?: DealWorkflowExecutionMode
+  timeout?: number | null
+  expected_evidence_snapshot_hash?: string | null
 }
 
 export interface DealWorkflowRunR3Request {
   dry_run?: boolean
+  mode?: DealWorkflowExecutionMode
   skip?: boolean
   skip_reason?: string | null
+  timeout?: number | null
+  expected_evidence_snapshot_hash?: string | null
 }
 
 export interface DealWorkflowFinalizeR4Request {
   dry_run?: boolean
+  mode?: DealWorkflowExecutionMode
   overwrite?: boolean
+  timeout?: number | null
+  expected_evidence_snapshot_hash?: string | null
 }
 
 export interface DealWorkflowPhaseRunResponse {
@@ -338,6 +369,13 @@ export interface DealWorkflowPhaseRunResponse {
 export interface DealWorkflowRunR2Response extends DealWorkflowPhaseRunResponse {
   reports_preview?: Record<string, unknown>
   reports?: Record<string, unknown>
+}
+
+export interface DealWorkflowRunR15ChairmanResponse extends DealWorkflowPhaseRunResponse {
+  phase?: 'R1.5' | string
+  chairman_task?: Record<string, unknown>
+  generation_mode?: string
+  fallback?: boolean
 }
 
 export interface DealWorkflowRunR3Response extends DealWorkflowPhaseRunResponse {
@@ -633,6 +671,14 @@ export interface DealDecisionHumanConfirmation {
   confirmed?: boolean
   confirmed_at?: string | null
   confirmed_by?: Record<string, unknown> | null
+  attestation_schema_version?: 'siq_ic_human_confirmation_attestation_v1' | string | null
+  report_id?: string | null
+  report_revision?: number | null
+  workflow_run_id?: string | null
+  evidence_snapshot_hash?: string | null
+  decision_sha256?: string | null
+  quality_sha256?: string | null
+  factcheck_sha256?: string | null
   override_reason?: string | null
   override_decision?: string | null
   override_score?: number | string | null
@@ -649,7 +695,7 @@ export interface DealDecisionHumanConfirmationPayload {
 }
 
 export interface DealDecisionHumanConfirmationUpdateResponse {
-  schema_version?: 'siq_deal_r4_human_confirmation_update_v1' | string
+  schema_version?: 'siq_deal_r4_human_confirmation_update_v2' | string
   deal_id?: string
   dry_run?: boolean
   would_write?: boolean
@@ -690,11 +736,56 @@ export interface DealDecisionContract {
   [key: string]: unknown
 }
 
+export type DealR4GateStatus = 'pass' | 'warn' | 'fail' | string
+
+export interface DealReportQualityCheck {
+  id?: string | null
+  status?: DealR4GateStatus | null
+  message?: string | null
+  [key: string]: unknown
+}
+
+export interface DealReportQuality {
+  schema_version?: 'siq_ic_report_quality_v1' | string
+  report_id?: string | null
+  report_revision?: number | null
+  deal_id?: string | null
+  evidence_snapshot_hash?: string | null
+  status?: DealR4GateStatus | null
+  allowed_for_human_confirmation?: boolean | null
+  blocking_reasons?: string[]
+  checks?: DealReportQualityCheck[]
+  metrics?: Record<string, number | string | null>
+  findings?: unknown[]
+  warnings?: unknown[]
+  [key: string]: unknown
+}
+
+export interface DealReportFactcheck {
+  schema_version?: 'siq_ic_report_factcheck_v1' | string
+  report_id?: string | null
+  report_revision?: number | null
+  evidence_snapshot_hash?: string | null
+  status?: DealR4GateStatus | null
+  checked_at?: string | null
+  claim_checks?: unknown[]
+  numeric_checks?: unknown[]
+  citation_checks?: unknown[]
+  contradictions?: unknown[]
+  unsupported_claims?: unknown[]
+  required_repairs?: unknown[]
+  findings?: unknown[]
+  warnings?: unknown[]
+  [key: string]: unknown
+}
+
 export interface DealDecisionResponse {
   decision: Record<string, unknown>
   report_markdown?: string
   report_path?: string | null
   contract?: DealDecisionContract | null
+  quality?: DealReportQuality | null
+  factcheck?: DealReportFactcheck | null
 }
 
 export interface DealAuditEvent {
@@ -1082,6 +1173,165 @@ export interface DealDocument {
   parse_bound_at?: string | null
   created_at?: string | null
   created_by?: { id?: number | string | null; username?: string | null } | null
+}
+
+export type PrimaryMarketCapabilityStatus =
+  | 'ready'
+  | 'ready_with_restrictions'
+  | 'review_required'
+  | 'blocked'
+  | 'pending'
+  | 'not_requested'
+  | 'queued'
+  | 'indexing'
+  | 'indexed'
+  | 'failed'
+  | string
+
+export interface PrimaryMarketMaterialCapability {
+  status?: PrimaryMarketCapabilityStatus | null
+  ready?: boolean | null
+  restricted?: boolean | null
+  reason?: string | null
+  warnings?: string[]
+  [key: string]: unknown
+}
+
+export type PrimaryMarketMaterialCapabilityValue =
+  | PrimaryMarketCapabilityStatus
+  | boolean
+  | PrimaryMarketMaterialCapability
+  | null
+
+export interface PrimaryMarketMaterialCapabilities {
+  text_evidence?: PrimaryMarketMaterialCapabilityValue
+  source_trace?: PrimaryMarketMaterialCapabilityValue
+  source_page_trace?: PrimaryMarketMaterialCapabilityValue
+  page_trace?: PrimaryMarketMaterialCapabilityValue
+  financial_facts?: PrimaryMarketMaterialCapabilityValue
+  semantic_index?: PrimaryMarketMaterialCapabilityValue
+  indexing?: PrimaryMarketMaterialCapabilityValue
+  [key: string]: PrimaryMarketMaterialCapabilityValue | undefined
+}
+
+export interface PrimaryMarketMaterialQualityReport {
+  status?: string | null
+  score?: number | null
+  warnings?: string[]
+  failures?: string[]
+  blocking_reasons?: string[]
+  capability_restrictions?: string[]
+  reviewed_at?: string | null
+  reviewed_by?: { id?: number | string | null; username?: string | null } | null
+  review_note?: string | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterialParseRun {
+  parse_run_id: string
+  status?: string | null
+  parse_status?: string | null
+  parser_task_id?: string | null
+  parser_version?: string | null
+  quality_status?: string | null
+  quality_report?: PrimaryMarketMaterialQualityReport | null
+  capabilities?: PrimaryMarketMaterialCapabilities | null
+  current?: boolean | null
+  archived_at?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+  failure_code?: string | null
+  failure_message?: string | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterialVersionLink {
+  document_id?: string | null
+  supersedes_document_id?: string | null
+  superseded_by_document_id?: string | null
+  version?: number | string | null
+  is_current?: boolean | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterial extends DealDocument {
+  schema_version?: string | null
+  document_profile?: string | null
+  document_status?: string | null
+  parse_status?: string | null
+  analysis_source_status?: string | null
+  index_status?: string | null
+  market?: string | null
+  exchange?: string | null
+  board?: string | null
+  filing_stage?: string | null
+  document_date?: string | null
+  current_parse_run_id?: string | null
+  parse_run?: PrimaryMarketMaterialParseRun | null
+  current_parse_run?: PrimaryMarketMaterialParseRun | null
+  parse_runs?: PrimaryMarketMaterialParseRun[]
+  capabilities?: PrimaryMarketMaterialCapabilities | null
+  quality_report?: PrimaryMarketMaterialQualityReport | null
+  is_active_source?: boolean | null
+  source_id?: string | null
+  version?: number | string | null
+  version_chain?: PrimaryMarketMaterialVersionLink[]
+  supersedes_document_id?: string | null
+  superseded_by_document_id?: string | null
+  stale_receipt_count?: number | null
+  stale_report_count?: number | null
+  status_url?: string | null
+  raw_file_url?: string | null
+  original_url?: string | null
+  reused?: boolean | null
+}
+
+export interface PrimaryMarketMaterialsResponse {
+  schema_version?: string | null
+  deal_id?: string | null
+  materials?: PrimaryMarketMaterial[]
+  documents?: PrimaryMarketMaterial[]
+  evidence_snapshot_hash?: string | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterialResponse {
+  schema_version?: string | null
+  document?: PrimaryMarketMaterial
+  material?: PrimaryMarketMaterial
+  parse_run?: PrimaryMarketMaterialParseRun | null
+  current_parse_run?: PrimaryMarketMaterialParseRun | null
+  analysis_source?: PrimaryMarketAnalysisSource | null
+  evidence_snapshot?: Record<string, unknown> | null
+  quality?: PrimaryMarketMaterialQualityReport | null
+  status_url?: string | null
+  reused?: boolean
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketAnalysisSource {
+  source_id?: string | null
+  status?: string | null
+  is_active?: boolean | null
+  capabilities?: PrimaryMarketMaterialCapabilities | null
+  parse_run_id?: string | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterialParseStatusResponse {
+  schema_version?: string | null
+  deal_id?: string | null
+  document_id?: string | null
+  document?: PrimaryMarketMaterial
+  material?: PrimaryMarketMaterial
+  parse_run?: PrimaryMarketMaterialParseRun | null
+  parse_status?: string | null
+  analysis_source_status?: string | null
+  index_status?: string | null
+  capabilities?: PrimaryMarketMaterialCapabilities | null
+  quality_report?: PrimaryMarketMaterialQualityReport | null
+  analysis_source?: PrimaryMarketAnalysisSource | null
+  [key: string]: unknown
 }
 
 export interface DealDocumentsResponse {

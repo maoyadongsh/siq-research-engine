@@ -8,9 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from services import deal_store
-from services import ic_policy
-
+from services import deal_store, ic_policy
 
 REPORTS_INDEX_SCHEMA = "siq_deal_reports_index_v1"
 REPORT_DETAIL_SCHEMA = "siq_deal_report_detail_v1"
@@ -721,6 +719,17 @@ def summarize_r4_decision(
             "confirmed": confirmed,
             "confirmed_by": human_confirmation.get("confirmed_by"),
             "confirmed_at": human_confirmation.get("confirmed_at"),
+            "attestation_schema_version": human_confirmation.get("attestation_schema_version"),
+            "report_id": human_confirmation.get("report_id"),
+            "report_revision": human_confirmation.get("report_revision"),
+            "workflow_run_id": human_confirmation.get("workflow_run_id"),
+            "evidence_snapshot_hash": human_confirmation.get("evidence_snapshot_hash"),
+            "decision_sha256": human_confirmation.get("decision_sha256"),
+            "quality_sha256": human_confirmation.get("quality_sha256"),
+            "factcheck_sha256": human_confirmation.get("factcheck_sha256"),
+            "override_reason": human_confirmation.get("override_reason"),
+            "override_decision": human_confirmation.get("override_decision"),
+            "override_score": human_confirmation.get("override_score"),
         },
         "artifacts": {
             "markdown": markdown,

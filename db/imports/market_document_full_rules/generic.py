@@ -9,6 +9,7 @@ from .base import MarketDocumentFullContext, MarketDocumentFullRows
 from .canonical_maps import resolve_canonical
 from .common import (
     as_date_text,
+    as_datetime_text,
     as_decimal,
     as_int,
     compact_text,
@@ -16,7 +17,6 @@ from .common import (
     normalize_scale,
     stable_id,
 )
-
 
 MARKET_SCHEMA = {
     "HK": "pdf2md_hk",
@@ -286,6 +286,12 @@ def _parse_run(market: str, document_full: dict[str, Any], filing: dict[str, Any
     parser_version = document_full.get("parser_version") or task.get("parser_version") or "document_full"
     rules_version = "document_full_v1"
     parse_run_id = stable_id(market, filing["filing_id"], context.document_full_sha256, parser_version, rules_version, prefix="parse")
+    completed_at = as_datetime_text(
+        document_full.get("generated_at")
+        or quality.get("generated_at")
+        or task.get("completed_at")
+        or task.get("updated_at")
+    )
     return {
         "parse_run_id": parse_run_id,
         "filing_id": filing["filing_id"],
@@ -293,6 +299,7 @@ def _parse_run(market: str, document_full: dict[str, Any], filing: dict[str, Any
         "rules_version": rules_version,
         "wiki_package_path": filing.get("document_full_path") or str(context.document_full_path),
         "status": quality.get("overall_status") or filing.get("quality_status") or "warning",
+        "completed_at": completed_at,
         "warnings": warnings,
         "artifact_hashes": {"document_full.json": context.document_full_sha256},
         "raw": {"task": task, "quality": quality, "document_full_path": str(context.document_full_path)},

@@ -343,7 +343,18 @@ def test_chat_route_blocks_financial_claim_mismatch_through_runtime_guard(monkey
         monkeypatch.setattr(runtime, "_record_financial_llm_provenance_if_needed", lambda **_kwargs: None)
 
         response = await chat.chat(
-            ChatRequest(message="工商银行 2025 年营业收入是多少？"),
+            ChatRequest(
+                message="工商银行 2025 年营业收入是多少？",
+                context={
+                    "research_identity": {
+                        "market": "HK",
+                        "company_id": "HK:01398",
+                        "filing_id": "HK:01398:2025-annual",
+                        "parse_run_id": "parse-hk-01398",
+                    },
+                    "company": {"name": "工商银行", "code": "01398"},
+                },
+            ),
             current_user=user,
             async_session=session,
         )

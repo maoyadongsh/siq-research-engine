@@ -13,6 +13,8 @@ import {
   fetchDealEvidence,
   fetchDealPhaseArtifacts,
   fetchDealPreflight,
+  fetchDealR2AgentReports,
+  fetchDealR3ReviewSummary,
   fetchDealStartupRetrieval,
   fetchDealWorkflow,
   finalizeDealWorkflowR4,
@@ -30,6 +32,9 @@ import type {
   DealDecisionHumanConfirmationUpdateResponse,
   DealDetailResponse,
   DealListResponse,
+  PrimaryMarketMaterialParseStatusResponse,
+  PrimaryMarketMaterialResponse,
+  PrimaryMarketMaterialsResponse,
   DealQuery,
   DealStartupReceipt,
   DealStatusResponse,
@@ -53,6 +58,8 @@ export {
   fetchDealEvidence as fetchPrimaryMarketEvidence,
   fetchDealPhaseArtifacts as fetchPrimaryMarketPhaseArtifacts,
   fetchDealPreflight as fetchPrimaryMarketPreflight,
+  fetchDealR2AgentReports as fetchPrimaryMarketR2AgentReports,
+  fetchDealR3ReviewSummary as fetchPrimaryMarketR3ReviewSummary,
   fetchDealStartupRetrieval as fetchPrimaryMarketStartupRetrieval,
   fetchDealWorkflow as fetchPrimaryMarketWorkflow,
   finalizeDealWorkflowR4 as finalizePrimaryMarketWorkflowR4,
@@ -84,6 +91,159 @@ export function fetchPrimaryMarketProject(dealId: string, signal?: AbortSignal) 
 
 export function fetchPrimaryMarketProjectStatus(dealId: string, signal?: AbortSignal) {
   return apiJson<DealStatusResponse>(`/api/primary-market/projects/${encodeURIComponent(dealId)}/status`, { signal })
+}
+
+function primaryMarketMaterialsPath(dealId: string) {
+  return `/api/primary-market/projects/${encodeURIComponent(dealId)}/materials`
+}
+
+function primaryMarketMaterialPath(dealId: string, documentId: string) {
+  return `${primaryMarketMaterialsPath(dealId)}/${encodeURIComponent(documentId)}`
+}
+
+export interface UploadPrimaryMarketProspectusPayload {
+  file: File
+  exchange: 'SSE' | 'SZSE' | 'BSE' | string
+  board: 'main' | 'star' | 'chinext' | 'beijing' | string
+  filingStage: string
+  documentDate?: string
+  sourceNote?: string
+  supersedesDocumentId?: string
+}
+
+export interface ReparsePrimaryMarketMaterialPayload {
+  reason: 'parser_upgrade' | 'quality_retry' | 'manual' | string
+  parseMethod?: string
+  formulaEnable?: boolean
+  tableEnable?: boolean
+}
+
+export interface ReviewPrimaryMarketAnalysisSourcePayload {
+  decision: 'activate' | 'block'
+  capabilityOverrides?: Record<string, string>
+  note?: string
+}
+
+export function fetchPrimaryMarketMaterials(dealId: string, signal?: AbortSignal) {
+  return apiJson<PrimaryMarketMaterialsResponse>(primaryMarketMaterialsPath(dealId), { signal })
+}
+
+export function fetchPrimaryMarketMaterial(dealId: string, documentId: string, signal?: AbortSignal) {
+  return apiJson<PrimaryMarketMaterialResponse>(primaryMarketMaterialPath(dealId, documentId), { signal })
+}
+
+export function fetchPrimaryMarketMaterialParseStatus(
+  dealId: string,
+  documentId: string,
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialParseStatusResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/parse-status`,
+    { signal },
+  )
+}
+
+export function uploadPrimaryMarketProspectus(
+  dealId: string,
+  payload: UploadPrimaryMarketProspectusPayload,
+  signal?: AbortSignal,
+) {
+  const form = new FormData()
+  form.append('file', payload.file)
+  form.append('exchange', payload.exchange)
+  form.append('board', payload.board)
+  form.append('filing_stage', payload.filingStage)
+  if (payload.documentDate) form.append('document_date', payload.documentDate)
+  if (payload.sourceNote?.trim()) form.append('source_note', payload.sourceNote.trim())
+  if (payload.supersedesDocumentId?.trim()) {
+    form.append('supersedes_document_id', payload.supersedesDocumentId.trim())
+  }
+  return apiJson<PrimaryMarketMaterialResponse>(`${primaryMarketMaterialsPath(dealId)}/prospectuses`, {
+    method: 'POST',
+    body: form,
+    signal,
+  })
+}
+
+export function reparsePrimaryMarketMaterial(
+  dealId: string,
+  documentId: string,
+  payload: ReparsePrimaryMarketMaterialPayload,
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/reparse`,
+    {
+      method: 'POST',
+      body: {
+        reason: payload.reason,
+        parse_method: payload.parseMethod || 'auto',
+        formula_enable: payload.formulaEnable ?? true,
+        table_enable: payload.tableEnable ?? true,
+      },
+      signal,
+    },
+  )
+}
+
+export function reviewPrimaryMarketAnalysisSource(
+  dealId: string,
+  documentId: string,
+  payload: ReviewPrimaryMarketAnalysisSourcePayload,
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/analysis-source/review`,
+    {
+      method: 'POST',
+      body: {
+        decision: payload.decision,
+        capability_overrides: payload.capabilityOverrides || {},
+        note: payload.note?.trim() || '',
+      },
+      signal,
+    },
+  )
+}
+
+export function disablePrimaryMarketAnalysisSource(
+  dealId: string,
+  documentId: string,
+  note = '',
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/analysis-source/disable`,
+    { method: 'POST', body: { note: note.trim() }, signal },
+  )
+}
+
+export function supersedePrimaryMarketMaterial(
+  dealId: string,
+  documentId: string,
+  supersedingDocumentId: string,
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/supersede`,
+    {
+      method: 'POST',
+      body: { superseding_document_id: supersedingDocumentId },
+      signal,
+    },
+  )
+}
+
+export function primaryMarketMaterialArtifactUrl(dealId: string, documentId: string, artifactName: string) {
+  return `${primaryMarketMaterialPath(dealId, documentId)}/artifacts/${encodeURIComponent(artifactName)}`
+}
+
+export function primaryMarketMaterialOriginalUrl(dealId: string, documentId: string) {
+  return `${primaryMarketMaterialPath(dealId, documentId)}/original`
+}
+
+export function primaryMarketMaterialSourcePageUrl(dealId: string, documentId: string, pageNumber: number) {
+  return `${primaryMarketMaterialPath(dealId, documentId)}/source/page/${encodeURIComponent(String(pageNumber))}`
 }
 
 export interface PrimaryMarketMeetingChatRequest {
@@ -186,14 +346,18 @@ export interface PrimaryMarketMeetingAgentRuntimeReadiness {
   port: number | null
   enabled?: boolean | null
   baseUrl?: string | null
+  model?: string | null
 }
 
 export interface PrimaryMarketMeetingAgentContractReadiness {
+  version?: string
   responsibilities: string[]
   sourceFiles: string[]
   outputs: string[]
   boundaries: string[]
   focus?: string
+  phaseCapabilities?: Record<string, string[]>
+  outputSchemas?: Record<string, string>
 }
 
 export interface PrimaryMarketMeetingStartupReceiptReadiness {
@@ -203,6 +367,16 @@ export interface PrimaryMarketMeetingStartupReceiptReadiness {
   privateHits: number
   evidenceHits: number
   gaps: string[]
+  collections?: string[]
+  physicalCollections?: string[]
+  sharedCollection?: string
+  privateCollection?: string
+  retrievalStatus?: string
+  degradedReasons?: string[]
+  blockingReasons?: string[]
+  evidenceSnapshotHash?: string
+  capabilityRestrictions?: string[]
+  stale?: boolean
 }
 
 export interface PrimaryMarketMeetingR1ReportReadiness {
@@ -216,6 +390,8 @@ export interface PrimaryMarketMeetingQualityReadiness {
   readyForFormalTask: boolean
   blockingReasons: string[]
   warnings: string[]
+  status?: string
+  stale?: boolean
 }
 
 export interface PrimaryMarketMeetingReadinessProfile {
@@ -227,6 +403,7 @@ export interface PrimaryMarketMeetingReadinessProfile {
   startupReceipt: PrimaryMarketMeetingStartupReceiptReadiness
   r1Report: PrimaryMarketMeetingR1ReportReadiness
   quality: PrimaryMarketMeetingQualityReadiness
+  phaseTaskStatus?: string
 }
 
 export interface PrimaryMarketMeetingReadinessSummary {
@@ -475,13 +652,17 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
       port: asNullableNumber(runtime.port),
       enabled: typeof runtime.enabled === 'boolean' ? runtime.enabled : null,
       baseUrl: asString(runtime.base_url || runtime.baseUrl) || null,
+      model: asString(runtime.model || runtime.model_name || runtime.modelName) || null,
     },
     contract: {
+      version: asString(contract.contract_version || contract.contractVersion || contract.schema_version || contract.schemaVersion),
       responsibilities: asStringArray(contract.responsibilities),
       sourceFiles,
       outputs: asStringArray(contract.outputs || contract.output_features || contract.outputFeatures),
       boundaries: asStringArray(contract.boundaries),
       focus: asString(contract.focus || contract.core_focus || contract.coreFocus) || undefined,
+      phaseCapabilities: asRecord(contract.phase_capabilities || contract.phaseCapabilities) as Record<string, string[]>,
+      outputSchemas: asRecord(contract.output_schemas || contract.outputSchemas) as Record<string, string>,
     },
     startupReceipt: {
       present: asBoolean(startupReceipt.present, Boolean(receiptId)),
@@ -490,6 +671,16 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
       privateHits: asNumber(startupReceipt.private_hits ?? startupReceipt.privateHits),
       evidenceHits: evidenceHitCount,
       gaps: asStringArray(startupReceipt.gaps),
+      collections: asStringArray(startupReceipt.collections),
+      physicalCollections: asStringArray(startupReceipt.physical_collections || startupReceipt.physicalCollections),
+      sharedCollection: asString(startupReceipt.shared_collection || startupReceipt.sharedCollection),
+      privateCollection: asString(startupReceipt.private_collection || startupReceipt.privateCollection),
+      retrievalStatus: asString(startupReceipt.retrieval_status || startupReceipt.retrievalStatus || startupReceipt.status),
+      degradedReasons: asStringArray(startupReceipt.degraded_reasons || startupReceipt.degradedReasons || startupReceipt.retrieval_warnings),
+      blockingReasons: asStringArray(startupReceipt.blocking_reasons || startupReceipt.blockingReasons),
+      evidenceSnapshotHash: asString(startupReceipt.evidence_snapshot_hash || startupReceipt.evidenceSnapshotHash),
+      capabilityRestrictions: asStringArray(startupReceipt.capability_restrictions || startupReceipt.capabilityRestrictions),
+      stale: asBoolean(startupReceipt.stale || startupReceipt.is_stale || startupReceipt.isStale),
     },
     r1Report: {
       present: asBoolean(r1Report.present, Boolean(reportPath || r1Report.score || r1Report.recommendation)),
@@ -507,7 +698,10 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
       ),
       blockingReasons,
       warnings,
+      status: asString(quality.status),
+      stale: asBoolean(quality.stale || data.stale),
     },
+    phaseTaskStatus: asString(workflow.phase_task_status || workflow.phaseTaskStatus || workflow.task_status || workflow.taskStatus),
   }
 }
 
@@ -863,8 +1057,8 @@ export async function advancePrimaryMarketMeetingWorkflow(
         dry_run: payload.dry_run ?? true,
         allow_hermes: payload.allow_hermes ?? false,
         max_agents: payload.max_agents ?? 1,
-        r3_skip: payload.r3_skip ?? true,
-        r3_skip_reason: payload.r3_skip_reason ?? 'R2 已覆盖核心分歧，P0 留痕跳过。',
+        r3_skip: payload.r3_skip ?? false,
+        r3_skip_reason: payload.r3_skip_reason ?? null,
         r4_overwrite: payload.r4_overwrite ?? false,
       },
     },

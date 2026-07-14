@@ -1,0 +1,43 @@
+{
+  "schema_version": "siq_deal_manifest_v1",
+  "deal_id": "DEAL-PMIC-POSITIVE-COND-2026",
+  "legacy_project_id": null,
+  "company_name": "启衡（纯合成）",
+  "created_at": "2026-07-14T00:00:00Z",
+  "updated_at": "2026-07-14T00:00:00Z",
+  "synthetic_evaluation_only": true,
+  "fixture_label": "evidence_complete_positive_conditional_support",
+  "documents": [
+    {
+      "document_id": "DOC-PMICPOSCOND2026A1",
+      "parse_run_id": "PRUN-20260714-PMICPOSCOND001",
+      "document_type": "prospectus",
+      "document_profile": "cn_a_share_prospectus",
+      "market": "CN",
+      "status": "ready",
+      "source_id": "PM:DEAL-PMIC-POSITIVE-COND-2026:DOC-PMICPOSCOND2026A1:PRUN-20260714-PMICPOSCOND001",
+      "synthetic_evaluation_only": true
+    }
+  ],
+  "evidence": {
+    "index_path": "evidence/evidence_index.json",
+    "items_path": "evidence/evidence_items.ndjson",
+    "quality_path": "evidence/evidence_quality_report.json",
+    "snapshot_path": "evidence/evidence_snapshot.json"
+  },
+  "workflow": {
+    "state_path": "phases/workflow_state.json",
+    "policy_version": "2026-07-13"
+  },
+  "decision": {
+    "markdown_path": "decision/IC_DECISION_REPORT.md",
+    "html_path": "decision/IC_DECISION_REPORT.html"
+  },
+  "hashes": {
+    "evidence_items_sha256": "119a308a5f908d952d3c361a86cabf8687c3d0f25fb3c4a56881ddcadc82eb0d",
+    "evidence_index_sha256": "47e5191ddcb908729bf20f43dc282883e27a7b4dc909a4bb6e4cf0e5f0cd11a1",
+    "source_content_sha256": "ba05bad166a85672802a477c56224fc47d897d3f55e0046cdf1cc1189208a1de",
+    "archive_manifest_sha256": "4ff69df5644b36226422ea80f1d00e33c63e113046bab6bab7d6ef5e0ec303b8"
+  },
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

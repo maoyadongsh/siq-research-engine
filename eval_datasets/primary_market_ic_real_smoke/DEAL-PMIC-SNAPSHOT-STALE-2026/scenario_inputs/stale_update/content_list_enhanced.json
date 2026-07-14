@@ -1,0 +1,17 @@
+{
+  "schema_version": "siq_synthetic_primary_market_source_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "document_id": "DOC-PMICSTALE2026B1",
+  "parse_run_id": "PRUN-20260714-PMICSTALE002",
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY",
+  "blocks": [
+    {
+      "id": "pmic-stale-update-001",
+      "type": "text",
+      "page": 1,
+      "section": "新版申报材料",
+      "text": "新版合成申报材料已启用；此前报告和回执必须重新绑定新的 Evidence snapshot。",
+      "synthetic_evaluation_only": true
+    }
+  ]
+}

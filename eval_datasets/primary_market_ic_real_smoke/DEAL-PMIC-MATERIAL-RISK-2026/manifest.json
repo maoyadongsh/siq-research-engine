@@ -1,0 +1,46 @@
+{
+  "schema_version": "siq_deal_manifest_v1",
+  "deal_id": "DEAL-PMIC-MATERIAL-RISK-2026",
+  "legacy_project_id": null,
+  "company_name": "衡界（纯合成）",
+  "created_at": "2026-07-14T00:00:00Z",
+  "updated_at": "2026-07-14T00:00:00Z",
+  "synthetic_evaluation_only": true,
+  "fixture_label": "material_legal_and_financial_risk",
+  "documents": [
+    {
+      "document_id": "DOC-PMICMATRISK2026A1",
+      "parse_run_id": "PRUN-20260714-PMICMATRISK001",
+      "document_type": "prospectus",
+      "document_profile": "cn_a_share_prospectus",
+      "market": "CN",
+      "status": "ready",
+      "source_id": "PM:DEAL-PMIC-MATERIAL-RISK-2026:DOC-PMICMATRISK2026A1:PRUN-20260714-PMICMATRISK001",
+      "synthetic_evaluation_only": true
+    }
+  ],
+  "evidence": {
+    "index_path": "evidence/evidence_index.json",
+    "items_path": "evidence/evidence_items.ndjson",
+    "quality_path": "evidence/evidence_quality_report.json",
+    "snapshot_path": "evidence/evidence_snapshot.json"
+  },
+  "workflow": {
+    "state_path": "phases/workflow_state.json",
+    "policy_version": "2026-07-13"
+  },
+  "decision": {
+    "markdown_path": "decision/IC_DECISION_REPORT.md",
+    "html_path": "decision/IC_DECISION_REPORT.html"
+  },
+  "hashes": {
+    "evidence_items_sha256": "368d061f026d38f8c938886cee4a230edf9871db4165fe8c5d087291e020c1d5",
+    "evidence_index_sha256": "163f56b302d0fdb3e635cd6d42227015cefe6595747a7d71f9e376e2eccc277d",
+    "source_content_sha256": "4c6703f325e75e85913ffcb0849ad27fde3697e910522699f18886ed1af938ae",
+    "archive_manifest_sha256": "eafe9aa9711664e203a900ef8d26adb708468635873b84116455e5d7095eaf92"
+  },
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious.",
+  "golden_case_id": "GOLDEN-PMIC-MATERIAL-RISK",
+  "quality_accepted": false,
+  "input_only": true
+}

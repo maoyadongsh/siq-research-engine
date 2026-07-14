@@ -914,10 +914,13 @@ def wiki_fulltext_fallback_result(
 
     return {
         "company_dir": company_dir,
-        "company_id": company_dir.name,
+        "market": market,
+        "company_id": company.get("company_id") or company_dir.name,
         "company_name": company.get("company_short_name") or company.get("company_full_name") or company_dir.name,
         "stock_code": company.get("stock_code") or company_dir.name.split("-", 1)[0],
         "report_id": report_id,
+        "filing_id": report.get("filing_id"),
+        "parse_run_id": report.get("parse_run_id"),
         "task_id": report.get("task_id"),
         "report_md": report_md,
         "document_full": document_full_path,

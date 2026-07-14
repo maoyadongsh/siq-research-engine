@@ -42,3 +42,28 @@ test('primary market routes are registered as additive navigation', () => {
   assert.match(routesSource, /label: '投研决策'/)
   assert.match(routesSource, /label: '投后管理'/)
 })
+
+test('meeting transcription routes are isolated from chat and primary-market meeting routes', () => {
+  const routesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'routes.tsx'), 'utf-8')
+  const meetingRoutes = [
+    '/meetings',
+    '/meetings/new',
+    '/meetings/import',
+    '/meetings/lexicon',
+    '/meetings/voiceprints',
+    '/meetings/:meetingId/live',
+    '/meetings/:meetingId',
+  ]
+
+  for (const route of meetingRoutes) {
+    assert.match(routesSource, new RegExp(`defineRoute\\('${route.replaceAll('/', '\\/')}'`))
+  }
+
+  assert.match(routesSource, /const meetingsNavigationEnabled = import\.meta\.env\.VITE_SIQ_MEETINGS_ENABLED === '1'/)
+  assert.match(routesSource, /const loadMeetingUnavailable: PageLoader = \(\) => import\('\.\.\/pages\/MeetingUnavailable'\)/)
+  assert.match(routesSource, /selectFeatureRouteLoader\(meetingsNavigationEnabled, loadEnabled, loadMeetingUnavailable\)/)
+  assert.match(routesSource, /sidebar: meetingsNavigationEnabled/)
+  assert.match(routesSource, /to: '\/meetings', icon: AudioLines, label: '会议转写'/)
+  assert.match(routesSource, /defineRoute\('\/chat', \(\) => import\('\.\.\/pages\/ChatPage'\)/)
+  assert.match(routesSource, /defineRoute\('\/primary-market\/meeting', \(\) => import\('\.\.\/pages\/PrimaryMarketMeeting'\)/)
+})

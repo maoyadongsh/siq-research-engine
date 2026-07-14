@@ -232,6 +232,177 @@ def test_collect_stream_run_success_uses_streaming_terminal_owner(monkeypatch):
     assert state.status == "completed"
 
 
+def test_collect_stream_run_replaces_external_tool_loop_reply_with_recovery(monkeypatch):
+    async def run_case():
+        raw_reply = (
+            "I stopped retrying terminal because it hit the tool-call guardrail "
+            "(same_tool_failure_halt) after 5 repeated non-progressing attempts."
+        )
+        recovered_reply = "## 运行状态\n- 已改用后端验证的商誉证据。"
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="tool-loop-recovery-session",
+            run_id="run-tool-loop-recovery",
+        )
+        state.original_message = "分析美的集团的商誉"
+        state.context = {"company": "美的集团"}
+        saved_messages: list[str] = []
+
+        async def fake_stream_run(*_args, **_kwargs):
+            yield StreamEvent(type="delta", text="I stopped retrying ")
+            yield StreamEvent(type="delta", text=raw_reply[len("I stopped retrying "):])
+            yield StreamEvent(type="done", text=raw_reply)
+
+        async def fake_save_message(_role, content, _session_id, **_kwargs):
+            saved_messages.append(content)
+
+        async def fake_trusted_runs(*_args, **_kwargs):
+            return ()
+
+        monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
+        monkeypatch.setattr(runtime, "hermes_timeout", lambda: 1)
+        monkeypatch.setattr(runtime, "stream_idle_timeout", lambda _profile: 1)
+        monkeypatch.setattr(runtime, "save_message_in_background", fake_save_message)
+        monkeypatch.setattr(runtime, "recover_financial_tool_loop_reply", lambda *_args: recovered_reply)
+        monkeypatch.setattr(runtime, "deterministic_pdf_market_reply", lambda *_args: None)
+        monkeypatch.setattr(runtime, "normalize_evidence_trace_for_display", lambda reply: reply)
+        monkeypatch.setattr(runtime, "_trusted_financial_receipts_after_run", fake_trusted_runs)
+        monkeypatch.setattr(runtime, "_record_answer_audit_trace_compat", lambda **_kwargs: None)
+        monkeypatch.setattr(runtime, "_remember_completed_run", lambda *_args: None)
+
+        await runtime._collect_stream_run(state, None, enforce_evidence_contract=False)
+        return state, raw_reply, recovered_reply, saved_messages
+
+    state, raw_reply, recovered_reply, saved_messages = anyio.run(run_case)
+
+    assert state.content == recovered_reply
+    assert state.done_payload is not None
+    assert state.done_payload["content"] == recovered_reply
+    assert saved_messages == [recovered_reply]
+    assert raw_reply not in state.content
+    delta_content = "".join(
+        _event_payload(event).get("content", "")
+        for event in state.events
+        if event["event"] == "delta"
+    )
+    assert "I stopped retrying terminal" not in delta_content
+    assert "same_tool_failure_halt" not in delta_content
+    assert "replace" in [event["event"] for event in state.events]
+    assert state.status == "completed"
+
+
+def test_collect_stream_run_sanitizes_external_tool_loop_exception_events(monkeypatch):
+    async def run_case():
+        raw_error = (
+            "I stopped retrying terminal because it hit same_tool_failure_halt "
+            "after repeated non-progressing attempts."
+        )
+        state = runtime.ActiveRunState(
+            profile="siq_assistant",
+            session_id="tool-loop-exception-session",
+            run_id="run-tool-loop-exception",
+        )
+
+        async def fake_stream_run(*_args, **_kwargs):
+            raise RuntimeError(raw_error)
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
+        monkeypatch.setattr(runtime, "hermes_timeout", lambda: 1)
+        monkeypatch.setattr(runtime, "stream_idle_timeout", lambda _profile: 1)
+
+        await runtime._collect_stream_run(state, None, enforce_evidence_contract=False)
+        return state, raw_error
+
+    state, raw_error = anyio.run(run_case)
+
+    serialized_events = json.dumps(state.events, ensure_ascii=False)
+    assert raw_error not in serialized_events
+    assert "I stopped retrying terminal" not in serialized_events
+    assert "same_tool_failure_halt" not in serialized_events
+    assert runtime.TOOL_FAILURE_STOP_MESSAGE in serialized_events
+    assert state.terminal_result is not None
+    assert state.terminal_result.diagnostic == "Hermes upstream tool loop guard stopped the run"
+
+
+def test_collect_chat_reply_replaces_external_tool_loop_reply_before_history(monkeypatch):
+    async def run_case():
+        raw_reply = "I stopped retrying terminal after same_tool_failure_halt."
+        recovered_reply = "## 运行状态\n- 已返回后端验证的商誉证据。"
+        saved_messages: list[tuple[str, str]] = []
+
+        async def fake_prepare(*_args, **_kwargs):
+            return runtime.ChatRequestEnvelope(
+                all_attachments=[],
+                message_hash="tool-loop-recovery-hash",
+                user_display_message="分析美的集团的商誉",
+            )
+
+        async def fake_preflight(*_args, **_kwargs):
+            return runtime.ChatRunPreflightContext(history=[], local_memory_context=None, attachments=[])
+
+        async def fake_save(_session, role, content, _session_id, **_kwargs):
+            saved_messages.append((role, content))
+
+        async def fake_noop(*_args, **_kwargs):
+            return None
+
+        async def fake_true(*_args, **_kwargs):
+            return True
+
+        async def fake_images(*_args, **_kwargs):
+            return None, True
+
+        async def fake_create(*_args, **_kwargs):
+            return "run-non-stream-tool-loop-recovery"
+
+        async def fake_collect(*_args, **_kwargs):
+            return raw_reply
+
+        async def fake_trusted_runs(*_args, **_kwargs):
+            return ()
+
+        monkeypatch.setattr(runtime, "_prepare_chat_request_envelope", fake_prepare)
+        monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+        monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", fake_preflight)
+        monkeypatch.setattr(runtime, "wait_for_pdf_attachment_parses", fake_noop)
+        monkeypatch.setattr(runtime, "_attachments_with_fresh_metadata", lambda attachments: attachments)
+        monkeypatch.setattr(runtime, "save_message", fake_save)
+        monkeypatch.setattr(runtime, "refresh_session_memory", fake_noop)
+        monkeypatch.setattr(runtime, "analyze_images_with_primary_model", fake_images)
+        monkeypatch.setattr(runtime, "build_hermes_run_input", lambda message, **kwargs: {"message": message, **kwargs})
+        monkeypatch.setattr(runtime, "create_run", fake_create)
+        monkeypatch.setattr(runtime, "collect_run_result", fake_collect)
+        monkeypatch.setattr(runtime, "_claim_durable_active_run", fake_true)
+        monkeypatch.setattr(runtime, "_bind_durable_active_run", fake_true)
+        monkeypatch.setattr(runtime, "_release_durable_lease", fake_noop)
+        monkeypatch.setattr(runtime, "_trusted_financial_receipts_after_run", fake_trusted_runs)
+        monkeypatch.setattr(runtime, "recover_financial_tool_loop_reply", lambda *_args: recovered_reply)
+        monkeypatch.setattr(runtime, "deterministic_pdf_market_reply", lambda *_args: None)
+        monkeypatch.setattr(runtime, "normalize_evidence_trace_for_display", lambda reply: reply)
+        monkeypatch.setattr(runtime, "_record_answer_audit_trace_compat", lambda **_kwargs: None)
+        monkeypatch.setattr(runtime, "_record_financial_llm_provenance_if_needed", lambda **_kwargs: None)
+        monkeypatch.setattr(runtime, "_remember_completed_run", lambda *_args: None)
+
+        reply = await runtime._collect_chat_reply_impl(
+            "分析美的集团的商誉",
+            object(),
+            session_id="non-stream-tool-loop-recovery-session",
+            profile="siq_assistant",
+            enforce_evidence_contract=False,
+        )
+        return raw_reply, recovered_reply, reply, saved_messages
+
+    raw_reply, recovered_reply, reply, saved_messages = anyio.run(run_case)
+
+    assert reply == recovered_reply
+    assert saved_messages == [
+        ("user", "分析美的集团的商誉"),
+        ("assistant", recovered_reply),
+    ]
+    assert all(raw_reply not in content for _role, content in saved_messages)
+
+
 def test_collect_stream_run_reasoning_uses_streaming_event_owner(monkeypatch):
     async def run_case():
         state = runtime.ActiveRunState(

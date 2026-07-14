@@ -1,0 +1,33 @@
+{
+  "schema_version": "siq_primary_market_materials_manifest_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "status": "ready",
+  "document_count": 1,
+  "prospectus_count": 1,
+  "materials": [
+    {
+      "document_id": "DOC-PMICSMOKE2026A1",
+      "parse_run_id": "PRUN-20260713-PMICSMOKE001",
+      "document_type": "prospectus",
+      "document_profile": "cn_a_share_prospectus",
+      "market": "CN",
+      "status": "ready",
+      "quality_status": "pass",
+      "capabilities": {
+        "text_evidence": "ready",
+        "source_page_trace": "ready",
+        "financial_facts": "ready",
+        "semantic_index": "ready"
+      }
+    }
+  ],
+  "completeness": {
+    "identity": "complete",
+    "business": "complete_for_r1",
+    "finance": "complete_for_r1",
+    "legal": "complete_for_r1",
+    "risk": "complete_for_r1"
+  },
+  "blocking_reasons": [],
+  "fixture_notice": "Synthetic evidence package for isolated real-Hermes verification only."
+}

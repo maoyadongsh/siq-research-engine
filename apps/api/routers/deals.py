@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from database import get_async_session
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from pydantic import BaseModel, Field
 from services.auth_dependencies import require_permission
 from services.auth_service import User
-from services.job_service import FileBackedJobService
+from services.job_service import create_job_service
 from services.path_config import BACKEND_DATA_ROOT
 from services.usage_service import UserArtifact
 from sqlmodel import select
@@ -39,7 +39,8 @@ from services import (
 )
 
 router = APIRouter(prefix="/deals", tags=["deals"])
-deal_job_service = FileBackedJobService(store_path=BACKEND_DATA_ROOT / "deals" / "jobs.json")
+deal_job_service = create_job_service(store_path=BACKEND_DATA_ROOT / "deals" / "jobs.json")
+_REPORT_CREATE_DEPENDENCY = Depends(require_permission("report.create"))
 
 
 class DealCreateRequest(BaseModel):
@@ -63,7 +64,7 @@ class StartupRetrievalRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=50)
     include_external: bool = False
     external_providers: list[str] | None = None
-    include_vector: bool = False
+    include_vector: bool = True
     include_rerank: bool = False
     vector_collections: list[str] | None = None
 
@@ -76,6 +77,7 @@ class WorkflowRunR1AgentRequest(BaseModel):
     profile_id: str = Field(..., min_length=1)
     round_name: str = "R1"
     dry_run: bool = True
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowSubmitR1ReportRequest(BaseModel):
@@ -99,6 +101,14 @@ class WorkflowRunR1SerialRequest(BaseModel):
     round_name: str = "R1"
     dry_run: bool = True
     max_agents: int = Field(default=6, ge=1, le=6)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class WorkflowRunR0CoordinatorRequest(BaseModel):
+    dry_run: bool = True
+    mode: Literal["model", "deterministic_fallback"] = "model"
+    timeout: float | None = Field(default=None, ge=1, le=14400)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowIdentifyDisputesRequest(BaseModel):
@@ -127,35 +137,53 @@ class WorkflowGenerateDisputeRulingsRequest(BaseModel):
     overwrite: bool = False
 
 
+class WorkflowRunR15ChairmanRequest(BaseModel):
+    dry_run: bool = True
+    mode: Literal["model", "deterministic_fallback"] = "model"
+    overwrite: bool = False
+    timeout: float | None = Field(default=None, ge=1, le=14400)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
 class WorkflowRunR2Request(BaseModel):
     dry_run: bool = True
+    mode: Literal["model", "deterministic_fallback"] = "model"
+    timeout: float | None = Field(default=None, ge=1, le=14400)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowRunR3Request(BaseModel):
     dry_run: bool = True
+    mode: Literal["model", "deterministic_fallback"] = "model"
     skip: bool = False
     skip_reason: str | None = None
+    timeout: float | None = Field(default=None, ge=1, le=14400)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowFinalizeR4Request(BaseModel):
     dry_run: bool = True
+    mode: Literal["model", "deterministic_fallback"] = "model"
     overwrite: bool = False
+    timeout: float | None = Field(default=None, ge=1, le=14400)
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowAdvanceNextRequest(BaseModel):
     dry_run: bool = True
     allow_hermes: bool = False
     max_agents: int = Field(default=1, ge=1, le=6)
-    r3_skip: bool = True
-    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r3_skip: bool = False
+    r3_skip_reason: str | None = None
     r4_overwrite: bool = False
+    expected_evidence_snapshot_hash: str | None = Field(default=None, min_length=64, max_length=64)
 
 
 class WorkflowStateSnapshotRequest(BaseModel):
     allow_hermes: bool = False
     max_agents: int = Field(default=1, ge=1, le=6)
-    r3_skip: bool = True
-    r3_skip_reason: str | None = "R2 已覆盖核心分歧，P0 留痕跳过。"
+    r3_skip: bool = False
+    r3_skip_reason: str | None = None
     r4_overwrite: bool = False
 
 
@@ -182,6 +210,23 @@ def _user_payload(user: User) -> dict[str, Any]:
 
 def _not_found(deal_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Deal not found: {deal_id}")
+
+
+def _require_expected_evidence_snapshot(deal_id: str, expected_hash: str | None) -> None:
+    expected = str(expected_hash or "").strip()
+    if not expected:
+        return
+    current = ic_startup_retrieval.current_evidence_identity(deal_id)
+    actual = str(current.get("evidence_snapshot_hash") or "").strip()
+    if actual != expected:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "evidence_snapshot_mismatch",
+                "expected_evidence_snapshot_hash": expected,
+                "current_evidence_snapshot_hash": actual or None,
+            },
+        )
 
 
 def _report_memory_text(report: dict[str, Any]) -> str:
@@ -1134,8 +1179,8 @@ def get_workflow_state(
     deal_id: str,
     allow_hermes: bool = Query(default=False),
     max_agents: int = Query(default=1, ge=1, le=6),
-    r3_skip: bool = Query(default=True),
-    r3_skip_reason: str | None = Query(default="R2 已覆盖核心分歧，P0 留痕跳过。"),
+    r3_skip: bool = Query(default=False),
+    r3_skip_reason: str | None = Query(default=None),
     r4_overwrite: bool = Query(default=False),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
@@ -1233,12 +1278,17 @@ def generate_agent_startup_retrieval(
 def get_agent_startup_retrieval(
     deal_id: str,
     profile_id: str,
+    round_name: str | None = Query(default=None),
     current_user: User = Depends(require_permission("report.view")),
 ) -> dict[str, Any]:
     require_deal_access(deal_id, "view", current_user)
     try:
         return deal_store.redact_public_payload(
-            ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile_id)
+            ic_startup_retrieval.read_startup_retrieval_receipt(
+                deal_id,
+                profile_id,
+                round_name=round_name,
+            )
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1339,6 +1389,7 @@ async def post_workflow_run_r1_agent(
 ) -> dict[str, Any]:
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, payload.expected_evidence_snapshot_hash)
         if not payload.dry_run:
             result = deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_r1_agent(
@@ -1375,6 +1426,62 @@ async def post_workflow_run_r1_agent(
         raise HTTPException(status_code=502, detail=f"Hermes R1 agent run failed: {exc}") from exc
 
 
+@router.post("/{deal_id}/workflow/run-r0-coordinator")
+async def post_workflow_run_r0_coordinator(
+    deal_id: str,
+    payload: WorkflowRunR0CoordinatorRequest | None = None,
+    current_user: User = _REPORT_CREATE_DEPENDENCY,
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR0CoordinatorRequest()
+    try:
+        require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
+        if request.mode == "deterministic_fallback":
+            preflight = deal_contracts.run_deal_preflight(deal_id)
+            return deal_store.redact_public_payload({
+                "schema_version": "siq_ic_workflow_r0_deterministic_fallback_v1",
+                "deal_id": deal_id,
+                "phase": "R0",
+                "dry_run": request.dry_run,
+                "generation_mode": "deterministic_fallback",
+                "fallback": True,
+                "hermes_called": False,
+                "report_written": False,
+                "workflow_advanced": False,
+                "preflight": preflight,
+            })
+        readiness = ic_agent_runtime.build_model_phase_receipt_readiness(deal_id, "R0")
+        if request.dry_run:
+            return deal_store.redact_public_payload({
+                "schema_version": "siq_ic_workflow_r0_model_dry_run_v1",
+                "deal_id": deal_id,
+                "phase": "R0",
+                "dry_run": True,
+                "mode": "model",
+                "allowed": readiness["allowed"],
+                "blocking_reasons": readiness["blocking_reasons"],
+                "receipt_readiness": readiness,
+                "hermes_called": False,
+                "report_written": False,
+                "workflow_advanced": False,
+            })
+        return deal_store.redact_public_payload(
+            await ic_agent_runtime.run_workflow_r0_model(
+                deal_id,
+                timeout=request.timeout,
+                created_by=_user_payload(current_user),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R0 coordinator run failed: {exc}") from exc
+
+
 @router.post("/{deal_id}/workflow/run-r1-serial")
 async def post_workflow_run_r1_serial(
     deal_id: str,
@@ -1384,6 +1491,7 @@ async def post_workflow_run_r1_serial(
     request = payload or WorkflowRunR1SerialRequest()
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_r1_serial(
@@ -1410,8 +1518,66 @@ async def post_workflow_run_r1_serial(
         raise HTTPException(status_code=502, detail=f"Hermes R1 serial run failed: {exc}") from exc
 
 
+@router.post("/{deal_id}/workflow/run-r1-5-chairman")
+async def post_workflow_run_r1_5_chairman(
+    deal_id: str,
+    payload: WorkflowRunR15ChairmanRequest | None = None,
+    current_user: User = _REPORT_CREATE_DEPENDENCY,
+) -> dict[str, Any]:
+    request = payload or WorkflowRunR15ChairmanRequest()
+    try:
+        require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
+        if request.dry_run:
+            task = deal_disputes.build_chairman_ruling_task(deal_id, only_unresolved=True)
+            readiness = (
+                ic_agent_runtime.build_model_phase_receipt_readiness(deal_id, "R1.5")
+                if request.mode == "model"
+                else None
+            )
+            return deal_store.redact_public_payload({
+                "schema_version": "siq_ic_workflow_r1_5_model_dry_run_v1",
+                "deal_id": deal_id,
+                "phase": "R1.5",
+                "mode": request.mode,
+                "allowed": bool(task.get("disputes")) and (readiness is None or readiness["allowed"]),
+                "blocking_reasons": readiness["blocking_reasons"] if readiness else [],
+                "receipt_readiness": readiness,
+                "hermes_called": False,
+                "workflow_advanced": False,
+                "chairman_task": task,
+            })
+        if request.mode == "deterministic_fallback":
+            result = deal_disputes.generate_deal_dispute_rulings(
+                deal_id,
+                dry_run=False,
+                overwrite=request.overwrite,
+                created_by=_user_payload(current_user),
+            )
+            result["generation_mode"] = "deterministic_fallback"
+            result["fallback"] = True
+            result["hermes_called"] = False
+            return deal_store.redact_public_payload(result)
+        return deal_store.redact_public_payload(
+            await ic_agent_runtime.run_workflow_r1_5_model(
+                deal_id,
+                overwrite=request.overwrite,
+                timeout=request.timeout,
+                created_by=_user_payload(current_user),
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R1.5 chairman run failed: {exc}") from exc
+
+
 @router.post("/{deal_id}/workflow/run-r2")
-def post_workflow_run_r2(
+async def post_workflow_run_r2(
     deal_id: str,
     payload: WorkflowRunR2Request | None = None,
     current_user: User = Depends(require_permission("report.create")),
@@ -1419,24 +1585,40 @@ def post_workflow_run_r2(
     request = payload or WorkflowRunR2Request()
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
         if not request.dry_run:
             return deal_store.redact_public_payload(
-                ic_agent_runtime.run_workflow_r2(
+                await ic_agent_runtime.run_workflow_r2_async(
                     deal_id,
+                    mode=request.mode,
+                    timeout=request.timeout,
                     created_by=_user_payload(current_user),
                 )
             )
-        return deal_store.redact_public_payload(
-            ic_agent_runtime.build_workflow_r2_run_dry_run(deal_id)
-        )
+        result = ic_agent_runtime.build_workflow_r2_run_dry_run(deal_id)
+        result["mode"] = request.mode
+        if request.mode == "model":
+            readiness = ic_agent_runtime.build_model_phase_receipt_readiness(deal_id, "R2")
+            result["receipt_readiness"] = readiness
+            result["blocking_reasons"] = list(dict.fromkeys([
+                *result.get("blocking_reasons", []),
+                *readiness["blocking_reasons"],
+            ]))
+            result["allowed"] = not result["blocking_reasons"]
+            result["would_write"] = result["allowed"]
+        return deal_store.redact_public_payload(result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R2 run failed: {exc}") from exc
 
 
 @router.post("/{deal_id}/workflow/run-r3")
-def post_workflow_run_r3(
+async def post_workflow_run_r3(
     deal_id: str,
     payload: WorkflowRunR3Request | None = None,
     current_user: User = Depends(require_permission("report.create")),
@@ -1444,30 +1626,46 @@ def post_workflow_run_r3(
     request = payload or WorkflowRunR3Request()
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
         if not request.dry_run:
             return deal_store.redact_public_payload(
-                ic_agent_runtime.run_workflow_r3(
+                await ic_agent_runtime.run_workflow_r3_async(
                     deal_id,
+                    mode=request.mode,
                     skip=request.skip,
                     skip_reason=request.skip_reason,
+                    timeout=request.timeout,
                     created_by=_user_payload(current_user),
                 )
             )
-        return deal_store.redact_public_payload(
-            ic_agent_runtime.build_workflow_r3_run_dry_run(
-                deal_id,
-                skip=request.skip,
-                skip_reason=request.skip_reason,
-            )
+        result = ic_agent_runtime.build_workflow_r3_run_dry_run(
+            deal_id,
+            skip=request.skip,
+            skip_reason=request.skip_reason,
         )
+        result["execution_mode"] = request.mode
+        if request.mode == "model":
+            readiness = ic_agent_runtime.build_model_phase_receipt_readiness(deal_id, "R3")
+            result["receipt_readiness"] = readiness
+            result["blocking_reasons"] = list(dict.fromkeys([
+                *result.get("blocking_reasons", []),
+                *readiness["blocking_reasons"],
+            ]))
+            result["allowed"] = not result["blocking_reasons"]
+            result["would_write"] = result["allowed"]
+        return deal_store.redact_public_payload(result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R3 run failed: {exc}") from exc
 
 
 @router.post("/{deal_id}/workflow/finalize-r4")
-def post_workflow_finalize_r4(
+async def post_workflow_finalize_r4(
     deal_id: str,
     payload: WorkflowFinalizeR4Request | None = None,
     current_user: User = Depends(require_permission("report.create")),
@@ -1475,24 +1673,40 @@ def post_workflow_finalize_r4(
     request = payload or WorkflowFinalizeR4Request()
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
         if not request.dry_run:
             return deal_store.redact_public_payload(
-                ic_agent_runtime.finalize_workflow_r4(
+                await ic_agent_runtime.finalize_workflow_r4_async(
                     deal_id,
+                    mode=request.mode,
                     overwrite=request.overwrite,
+                    timeout=request.timeout,
                     created_by=_user_payload(current_user),
                 )
             )
-        return deal_store.redact_public_payload(
-            ic_agent_runtime.build_workflow_r4_finalize_dry_run(
-                deal_id,
-                overwrite=request.overwrite,
-            )
+        result = ic_agent_runtime.build_workflow_r4_finalize_dry_run(
+            deal_id,
+            overwrite=request.overwrite,
         )
+        result["mode"] = request.mode
+        if request.mode == "model":
+            readiness = ic_agent_runtime.build_model_phase_receipt_readiness(deal_id, "R4")
+            result["receipt_readiness"] = readiness
+            result["blocking_reasons"] = list(dict.fromkeys([
+                *result.get("blocking_reasons", []),
+                *readiness["blocking_reasons"],
+            ]))
+            result["allowed"] = not result["blocking_reasons"]
+            result["would_write"] = result["allowed"]
+        return deal_store.redact_public_payload(result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
+    except ic_agent_runtime.ICTaskAlreadyClaimedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(status_code=502, detail=f"Hermes R4 finalize failed: {exc}") from exc
 
 
 @router.post("/{deal_id}/workflow/advance-next")
@@ -1504,6 +1718,7 @@ async def post_workflow_advance_next(
     request = payload or WorkflowAdvanceNextRequest()
     try:
         require_deal_access(deal_id, "write", current_user)
+        _require_expected_evidence_snapshot(deal_id, request.expected_evidence_snapshot_hash)
         if not request.dry_run:
             return deal_store.redact_public_payload(
                 await ic_agent_runtime.run_workflow_advance_next(
@@ -1595,6 +1810,8 @@ def get_deal_decision(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     decision_json = deal_store.read_json(package_dir / "phases" / "r4_decision.json", {}) or {}
+    report_quality = deal_store.read_json(package_dir / "decision" / "report_quality.json", None)
+    factcheck = deal_store.read_json(package_dir / "decision" / "factcheck.json", None)
     report_path = package_dir / "decision" / "IC_DECISION_REPORT.md"
     report_markdown = report_path.read_text(encoding="utf-8") if report_path.is_file() else ""
     if not decision_json and not report_markdown:
@@ -1605,12 +1822,14 @@ def get_deal_decision(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise _not_found(deal_id) from exc
-    return {
+    return deal_store.redact_public_payload({
         "decision": decision_json,
         "report_markdown": report_markdown,
         "report_path": "decision/IC_DECISION_REPORT.md" if report_markdown else None,
         "contract": contract,
-    }
+        "quality": report_quality if isinstance(report_quality, dict) else None,
+        "factcheck": factcheck if isinstance(factcheck, dict) else None,
+    })
 
 
 @router.post("/{deal_id}/decision/human-confirmation")

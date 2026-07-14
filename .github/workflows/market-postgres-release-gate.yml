@@ -36,14 +36,32 @@ jobs:
       SIQ_MARKET_POSTGRES_SAMPLE_ROOT: ${{ vars.SIQ_MARKET_POSTGRES_SAMPLE_ROOT }}
       SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT: ${{ vars.SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT }}
       SIQ_FINANCIAL_GOLDEN_PDF_ROOT: ${{ vars.SIQ_FINANCIAL_GOLDEN_PDF_ROOT }}
-      SIQ_PARSER_FINANCIAL_PDF_GATE_MODE: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_GATE_MODE }}
-      SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED }}
+      SIQ_PARSER_FINANCIAL_PDF_GATE_MODE: live-http
+      SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED: '1'
       SIQ_PARSER_FINANCIAL_PDF_DEADLINE_SECONDS: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_DEADLINE_SECONDS }}
       SIQ_PARSER_FINANCIAL_PDF_POLL_INTERVAL: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_POLL_INTERVAL }}
       SIQ_PARSER_FINANCIAL_PDF_REQUEST_TIMEOUT: ${{ vars.SIQ_PARSER_FINANCIAL_PDF_REQUEST_TIMEOUT }}
       SIQ_PDF_PARSER_URL: ${{ vars.SIQ_PDF_PARSER_URL }}
-      SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED }}
-      SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP }}
+      SIQ_LIVE_MODEL_BENCHMARK_MODE: live-http
+      SIQ_LIVE_MODEL_BENCHMARK_REQUIRED: '1'
+      SIQ_LIVE_MODEL_URL: ${{ vars.SIQ_LIVE_MODEL_URL }}
+      SIQ_LIVE_MODEL_AUTH_TOKEN: ${{ secrets.SIQ_LIVE_MODEL_AUTH_TOKEN }}
+      SIQ_LIVE_MODEL_PROTOCOL: ${{ vars.SIQ_LIVE_MODEL_PROTOCOL }}
+      SIQ_LIVE_MODEL_TIMEOUT: ${{ vars.SIQ_LIVE_MODEL_TIMEOUT }}
+      SIQ_LIVE_MODEL_NAME: ${{ vars.SIQ_LIVE_MODEL_NAME }}
+      SIQ_AGENT_MEMORY_VECTOR_PROBES_REQUIRED: '1'
+      SIQ_AGENT_MEMORY_VECTOR_PROBES_SKIP: '0'
+      SIQ_PERFORMANCE_COMPARISON_REQUIRED: '1'
+      SIQ_PERFORMANCE_BASELINE_REPORT: ${{ vars.SIQ_PERFORMANCE_BASELINE_REPORT }}
+      SIQ_MARKET_INGESTION_EVIDENCE_PROFILE: final-v5-staging
+      SIQ_RESTORE_MATRIX_REQUIRED: '1'
+      SIQ_RESTORE_MATRIX_BACKUP_DIR: ${{ vars.SIQ_RESTORE_MATRIX_BACKUP_DIR }}
+      SIQ_RESTORE_MATRIX_ADMIN_URL: ${{ secrets.SIQ_RESTORE_MATRIX_ADMIN_URL }}
+      SIQ_RESTORE_MATRIX_VOICEPRINT_TOMBSTONE_REQUIRED: '1'
+      SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH }}
+      SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY: ${{ secrets.SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY }}
+      SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT }}
+      SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC: ${{ vars.SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC }}
       SIQ_AGENT_MEMORY_VECTOR_SEED: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED }}
       SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES_ROOT: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_PROFILES_ROOT }}
       SIQ_AGENT_MEMORY_VECTOR_SEED_MANIFEST: ${{ vars.SIQ_AGENT_MEMORY_VECTOR_SEED_MANIFEST }}
@@ -72,6 +90,47 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Verify release wrapper dependency closure
+        shell: bash
+        run: |
+          dependencies=(
+            scripts/maintenance/check_production_config.py
+            scripts/maintenance/run_live_financial_qa_benchmark.py
+            scripts/maintenance/run_permission_negative_report.py
+            scripts/ops/run_restore_matrix.py
+          )
+          git ls-files --error-unmatch "${dependencies[@]}" >/dev/null
+          for dependency in "${dependencies[@]}"; do
+            test -f "$dependency" || {
+              echo "Release wrapper dependency missing from checkout: $dependency" >&2
+              exit 1
+            }
+          done
+
+      - name: Require live financial QA inputs
+        shell: bash
+        run: |
+          if [[ "${SIQ_LIVE_MODEL_BENCHMARK_MODE:-}" != "live-http" ]]; then
+            echo "The formal release gate requires SIQ_LIVE_MODEL_BENCHMARK_MODE=live-http." >&2
+            exit 1
+          fi
+          if [[ "${SIQ_LIVE_MODEL_BENCHMARK_REQUIRED:-}" != "1" ]]; then
+            echo "The formal release gate requires SIQ_LIVE_MODEL_BENCHMARK_REQUIRED=1." >&2
+            exit 1
+          fi
+          if [[ -z "${SIQ_LIVE_MODEL_URL:-}" ]]; then
+            echo "Repository variable SIQ_LIVE_MODEL_URL must identify the live financial QA endpoint." >&2
+            exit 1
+          fi
+          if [[ "$SIQ_LIVE_MODEL_URL" != https://* ]]; then
+            echo "SIQ_LIVE_MODEL_URL must use HTTPS for the required live financial QA gate." >&2
+            exit 1
+          fi
+          if [[ -z "${SIQ_LIVE_MODEL_AUTH_TOKEN:-}" ]]; then
+            echo "Secret SIQ_LIVE_MODEL_AUTH_TOKEN must be configured for the required live financial QA gate." >&2
+            exit 1
+          fi
 
       - name: Require external production sample root
         shell: bash
@@ -115,52 +174,124 @@ jobs:
           esac
           echo "SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT=$sample_root" >> "$GITHUB_ENV"
 
-      - name: Validate optional parser financial PDF gate inputs
+      - name: Require external restore matrix inputs
+        shell: bash
+        run: |
+          required_restore_values=(
+            SIQ_RESTORE_MATRIX_BACKUP_DIR
+            SIQ_RESTORE_MATRIX_ADMIN_URL
+            SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH
+            SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY
+            SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT
+            SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC
+          )
+          for name in "${required_restore_values[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "$name must be configured for the required restore matrix." >&2
+              exit 1
+            fi
+          done
+          if [[ ! -d "$SIQ_RESTORE_MATRIX_BACKUP_DIR" || ! -r "$SIQ_RESTORE_MATRIX_BACKUP_DIR" ]]; then
+            echo "SIQ_RESTORE_MATRIX_BACKUP_DIR must be a readable directory." >&2
+            exit 1
+          fi
+          if [[ ! -f "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH" || ! -r "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH" ]]; then
+            echo "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH must be a readable file." >&2
+            exit 1
+          fi
+          if [[ ! "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT" =~ ^(0|[1-9][0-9]*)$ ]]; then
+            echo "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT must be a non-negative integer." >&2
+            exit 1
+          fi
+          if [[ ! "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC must contain 64 hexadecimal characters." >&2
+            exit 1
+          fi
+          if [[ "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_COUNT" == "0" \
+            && "${SIQ_MEETING_VOICEPRINT_TOMBSTONE_EXPECTED_HEAD_HMAC,,}" != "$(printf '0%.0s' {1..64})" ]]; then
+            echo "An empty voiceprint tombstone ledger must use the all-zero expected head HMAC." >&2
+            exit 1
+          fi
+          backup_dir="$(cd "$SIQ_RESTORE_MATRIX_BACKUP_DIR" && pwd -P)"
+          ledger_path="$(cd "$(dirname "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH")" && pwd -P)/$(basename "$SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH")"
+          workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          case "$backup_dir/" in
+            "$workspace/"*)
+              echo "Restore matrix backup directory must be outside the checkout: $backup_dir" >&2
+              exit 1
+              ;;
+          esac
+          case "$ledger_path" in
+            "$workspace"/*)
+              echo "Voiceprint tombstone ledger must be outside the checkout: $ledger_path" >&2
+              exit 1
+              ;;
+          esac
+          echo "SIQ_RESTORE_MATRIX_BACKUP_DIR=$backup_dir" >> "$GITHUB_ENV"
+          echo "SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH=$ledger_path" >> "$GITHUB_ENV"
+
+      - name: Require versioned performance baseline
+        shell: bash
+        run: |
+          if [[ -z "${SIQ_PERFORMANCE_BASELINE_REPORT:-}" ]]; then
+            echo "Repository variable SIQ_PERFORMANCE_BASELINE_REPORT must point to a versioned passing nightly JSON report." >&2
+            exit 1
+          fi
+          if [[ ! -f "$SIQ_PERFORMANCE_BASELINE_REPORT" ]]; then
+            echo "Performance baseline report is not readable." >&2
+            exit 1
+          fi
+          baseline_path="$(cd "$(dirname "$SIQ_PERFORMANCE_BASELINE_REPORT")" && pwd -P)/$(basename "$SIQ_PERFORMANCE_BASELINE_REPORT")"
+          workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          case "$baseline_path" in
+            "$workspace"/*)
+              echo "Performance baseline must be an external, immutable release artifact." >&2
+              exit 1
+              ;;
+          esac
+          echo "SIQ_PERFORMANCE_BASELINE_REPORT=$baseline_path" >> "$GITHUB_ENV"
+
+      - name: Require live parser financial PDF inputs
         shell: bash
         run: |
           pdf_gate_mode="${SIQ_PARSER_FINANCIAL_PDF_GATE_MODE:-off}"
-          pdf_gate_required=0
-          case "${SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED:-}" in
-            1|true|TRUE|True|yes|YES|Yes|on|ON|On) pdf_gate_required=1 ;;
-          esac
-          case "$pdf_gate_mode" in
-            off)
-              if [[ "$pdf_gate_required" == "1" ]]; then
-                echo "Required parser financial PDF gate needs preflight or live-http mode." >&2
-                exit 1
-              fi
-              exit 0
-              ;;
-            preflight|live-http) ;;
-            *)
-              echo "SIQ_PARSER_FINANCIAL_PDF_GATE_MODE must be off, preflight, or live-http: $pdf_gate_mode" >&2
-              exit 1
-              ;;
-          esac
+          if [[ "$pdf_gate_mode" != "live-http" ]]; then
+            echo "The formal release gate requires SIQ_PARSER_FINANCIAL_PDF_GATE_MODE=live-http." >&2
+            exit 1
+          fi
+          if [[ "${SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED:-}" != "1" ]]; then
+            echo "The formal release gate requires SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED=1." >&2
+            exit 1
+          fi
           if [[ -z "${SIQ_FINANCIAL_GOLDEN_PDF_ROOT:-}" || ! -d "$SIQ_FINANCIAL_GOLDEN_PDF_ROOT" ]]; then
-            message="SIQ_FINANCIAL_GOLDEN_PDF_ROOT must be a readable external PDF root when the PDF gate is enabled."
-            if [[ "$pdf_gate_required" == "1" ]]; then
-              echo "$message" >&2
-              exit 1
-            fi
-            echo "WARNING: $message The optional gate will emit a BLOCKED report." >&2
-            echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=" >> "$GITHUB_ENV"
-            exit 0
+            echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT must be a readable external PDF root for the required live gate." >&2
+            exit 1
           fi
           pdf_root="$(cd "$SIQ_FINANCIAL_GOLDEN_PDF_ROOT" && pwd -P)"
           workspace="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           case "$pdf_root/" in
             "$workspace/"*)
-              message="Financial golden PDF root must be outside the checkout: $pdf_root"
-              if [[ "$pdf_gate_required" == "1" ]]; then
-                echo "$message" >&2
-                exit 1
-              fi
-              echo "WARNING: $message. The optional gate will emit a BLOCKED report." >&2
-              echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=" >> "$GITHUB_ENV"
-              exit 0
+              echo "Financial golden PDF root must be outside the checkout: $pdf_root" >&2
+              exit 1
               ;;
           esac
+          if [[ -z "${SIQ_PDF_PARSER_URL:-}" ]]; then
+            echo "Repository variable SIQ_PDF_PARSER_URL must identify the live PDF parser origin." >&2
+            exit 1
+          fi
+          case "$SIQ_PDF_PARSER_URL" in
+            http://*|https://*) ;;
+            *)
+              echo "SIQ_PDF_PARSER_URL must be an absolute HTTP(S) URL." >&2
+              exit 1
+              ;;
+          esac
+          parser_authority="${SIQ_PDF_PARSER_URL#*://}"
+          parser_authority="${parser_authority%%/*}"
+          if [[ -z "$parser_authority" || "$parser_authority" == *"@"* || "$parser_authority" == *[[:space:]]* ]]; then
+            echo "SIQ_PDF_PARSER_URL must contain a credential-free parser authority." >&2
+            exit 1
+          fi
           echo "SIQ_FINANCIAL_GOLDEN_PDF_ROOT=$pdf_root" >> "$GITHUB_ENV"
 
       - name: Set up Python
@@ -257,6 +388,22 @@ jobs:
                       f"evidence_coverage=`{summary.get('evidence_coverage_rate', 0):.3f}`",
                   ]
               )
+
+          live_qa_path = output_dir / "live_financial_qa_benchmark.json"
+          if live_qa_path.exists():
+              live_qa = json.loads(live_qa_path.read_text(encoding="utf-8"))
+              live_summary = live_qa.get("summary") or {}
+              live_execution = live_qa.get("execution") or {}
+              lines.extend(
+                  [
+                      f"- Financial QA live-http: passed=`{live_qa.get('passed')}` "
+                      f"status=`{live_qa.get('status')}` required_execution=`{live_qa.get('required_execution_satisfied')}`",
+                      f"  cases=`{live_summary.get('passed_cases', 0)}/{live_summary.get('cases', 0)}` "
+                      f"network_requests_started=`{live_execution.get('network_requests_started', 0)}`",
+                  ]
+              )
+          else:
+              lines.append(f"- Financial QA live-http: missing `{live_qa_path}`")
 
           parser_golden_path = output_dir / "parser_financial_golden.json"
           lines.extend(["", "## Parser Financial Golden", ""])

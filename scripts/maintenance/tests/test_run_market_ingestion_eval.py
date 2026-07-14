@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 def _load_eval_module():
     source = Path(__file__).resolve().parents[1] / "run_market_ingestion_eval.py"
@@ -859,6 +861,27 @@ def test_strict_failure_reasons_reject_empty_case_set():
     ) == ["summary.cases=0"]
 
 
+def test_named_final_v5_profile_resolves_staging_root_without_weakening_source_contract():
+    module = _load_eval_module()
+
+    name, root, roots = module.resolve_evidence_profile("final-v5-staging", wiki_root=None)
+
+    assert name == "final-v5-staging"
+    assert root == module.FINAL_V5_STAGING_WIKI_ROOT
+    assert roots["HK"] == module.FINAL_V5_STAGING_WIKI_ROOT / "hk"
+    assert roots["US"] == module.FINAL_V5_STAGING_WIKI_ROOT / "us"
+    assert module.OFFICIAL_SOURCE_CONTRACT["required_for_expected_official_source"] is True
+    assert module.OFFICIAL_SOURCE_CONTRACT["fail_closed"] is True
+    assert "retrieved_at" in module.OFFICIAL_SOURCE_CONTRACT["required_fields"]
+
+
+def test_named_profile_rejects_ambiguous_custom_wiki_root(tmp_path):
+    module = _load_eval_module()
+
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        module.resolve_evidence_profile("final-v5-staging", wiki_root=tmp_path)
+
+
 def test_strict_main_uses_portable_wiki_root(tmp_path, capsys):
     module = _load_eval_module()
     case_root = tmp_path / "cases"
@@ -901,6 +924,8 @@ def test_strict_main_uses_portable_wiki_root(tmp_path, capsys):
     assert "FAIL market ingestion eval strict gate" not in capsys.readouterr().err
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["wiki_root"] == str(wiki_root)
+    assert report["evidence_profile"] == "custom-wiki-root"
+    assert report["official_source_contract"]["fail_closed"] is True
     assert report["passed"] is True
     assert report["failure_reasons"] == []
     assert report["base_commit"]

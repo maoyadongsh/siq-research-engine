@@ -1,0 +1,94 @@
+{
+  "$id": "siq_ic_r0_readiness_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "const": "siq_ic_master_coordinator"
+    },
+    "blocking_reasons": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "due_diligence_plan": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "evidence_gaps": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "material_completeness": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "readiness": {
+      "enum": [
+        "ready",
+        "blocked",
+        "needs_more_evidence"
+      ]
+    },
+    "research_identity": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "siq_ic_r0_readiness_v1"
+    },
+    "task_assignments": {
+      "items": {
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "workflow_run_id",
+    "deal_id",
+    "agent_id",
+    "research_identity",
+    "evidence_snapshot_hash",
+    "readiness",
+    "material_completeness",
+    "evidence_gaps",
+    "due_diligence_plan",
+    "task_assignments",
+    "blocking_reasons",
+    "created_at"
+  ],
+  "type": "object"
+}

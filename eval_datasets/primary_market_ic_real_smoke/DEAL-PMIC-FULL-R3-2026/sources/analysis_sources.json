@@ -1,0 +1,36 @@
+{
+  "schema_version": "siq_primary_market_analysis_sources_v1",
+  "deal_id": "DEAL-PMIC-FULL-R3-2026",
+  "sources": [
+    {
+      "schema_version": "siq_primary_market_analysis_source_v1",
+      "source_id": "PM:DEAL-PMIC-FULL-R3-2026:DOC-PMICFULLR32026A1:PRUN-20260714-PMICFULLR3001",
+      "domain": "primary_market",
+      "source_type": "primary_market_prospectus",
+      "deal_id": "DEAL-PMIC-FULL-R3-2026",
+      "market": "CN",
+      "company_id": "PRIMARY:DEAL-PMIC-FULL-R3-2026",
+      "filing_id": "SYNTHETIC-DILIGENCE:DOC-PMICFULLR32026A1",
+      "document_id": "DOC-PMICFULLR32026A1",
+      "parse_run_id": "PRUN-20260714-PMICFULLR3001",
+      "artifact_manifest_path": "parsed_documents/DOC-PMICFULLR32026A1/runs/PRUN-20260714-PMICFULLR3001/archive_manifest.json",
+      "archive_manifest_sha256": "6a3958b001bd18a69fa7ca59fff29960ba0c97ef639e89a3b449d150b0f1a424",
+      "status": "ready",
+      "capabilities": {
+        "text_evidence": "ready",
+        "source_page_trace": "ready",
+        "financial_facts": "ready",
+        "semantic_index": "ready"
+      },
+      "quality_status": "pass",
+      "synthetic_evaluation_only": true,
+      "activated_by": {
+        "id": "primary-market-ic-positive-smoke",
+        "username": "synthetic-evaluation-generator"
+      },
+      "activated_at": "2026-07-14T00:00:00Z",
+      "created_at": "2026-07-14T00:00:00Z",
+      "updated_at": "2026-07-14T00:00:00Z"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import importlib.util
+import json
 import sys
+import types
 from pathlib import Path
 
 
@@ -16,7 +18,7 @@ def _load_module(name: str, rel: str):
 
 
 def _build_rows(market: str, document_full: dict, tmp_path: Path):
-    common = _load_module("market_document_full_common", "market_document_full_rules/common.py")
+    _load_module("market_document_full_common", "market_document_full_rules/common.py")
     base = _load_module("market_document_full_base", "market_document_full_rules/base.py")
     registry = _load_module("market_document_full_registry", "market_document_full_rules/registry.py")
     path = tmp_path / "document_full.json"
@@ -47,6 +49,29 @@ def test_market_document_full_rules_have_independent_market_modules(tmp_path):
         assert rule.market == market
 
 
+def test_committed_eval_fixtures_keep_synthetic_identity_after_rule_build(tmp_path):
+    repo_root = Path(__file__).resolve().parents[3]
+    dataset_root = repo_root / "eval_datasets" / "market_document_full_postgres"
+    cases = json.loads((dataset_root / "cases.json").read_text(encoding="utf-8"))["cases"]
+
+    checked = 0
+    for case in cases:
+        if case["market"] == "CN":
+            continue
+        document_full = json.loads(
+            (dataset_root / case["document_full_path"]).read_text(encoding="utf-8")
+        )
+        rows = _build_rows(case["market"], document_full, tmp_path / case["case_id"])
+
+        assert rows.company["company_id"] == case["company_id"]
+        assert rows.filing["company_id"] == case["company_id"]
+        assert rows.filing["filing_id"] == case["expected_identity"]["filing_id"]
+        assert rows.company["ticker"].startswith("FIXTURE_")
+        checked += 1
+
+    assert checked == 6
+
+
 def test_market_document_full_wrappers_pin_default_market():
     imports_dir = Path(__file__).resolve().parents[1]
     cases = {
@@ -72,6 +97,188 @@ def test_market_document_full_importer_rejects_single_file_market_mismatch(tmp_p
         assert "Requested market HK does not match document_full market JP" in str(exc)
     else:
         raise AssertionError("expected market mismatch")
+
+
+def test_market_document_full_importer_rejects_real_identity_fixture_before_connect(
+    tmp_path, monkeypatch
+):
+    importer = _load_module(
+        "market_document_full_importer_fixture_identity_guard",
+        "import_market_document_full_to_postgres.py",
+    )
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text(
+        json.dumps(
+            {
+                "identity_scope": "synthetic_fixture",
+                "task": {"task_id": "fixture-hk-unsafe"},
+                "financial_data": {
+                    "market": "HK",
+                    "company_id": "HK:00700",
+                    "ticker": "00700",
+                    "report_id": "HK:00700:2025-annual",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        importer,
+        "connect",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("unsafe fixture must fail before database connect")
+        ),
+    )
+
+    try:
+        importer.import_document_full(document_full, market="HK")
+    except importer.FixtureIdentityError as exc:
+        assert "HK:FIXTURE:" in str(exc)
+        assert "ticker must start with 'FIXTURE_'" in str(exc)
+    else:
+        raise AssertionError("expected unsafe fixture identity to fail closed")
+
+
+def test_market_document_full_importer_detects_stripped_synthetic_namespace_before_connect(
+    tmp_path, monkeypatch
+):
+    importer = _load_module(
+        "market_document_full_importer_stripped_fixture_guard",
+        "import_market_document_full_to_postgres.py",
+    )
+    document_full = tmp_path / "copied_document_full.json"
+    document_full.write_text(
+        json.dumps(
+            {
+                "financial_data": {
+                    "market": "HK",
+                    "company_id": "HK:FIXTURE:STRIPPED_MARKERS",
+                    "ticker": "FIXTURE_STRIPPED_MARKERS",
+                    "report_id": "HK:FIXTURE:STRIPPED_MARKERS:2025-annual",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        importer,
+        "connect",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("synthetic namespace must fail before database connect")
+        ),
+    )
+
+    try:
+        importer.import_document_full(document_full, market="HK")
+    except importer.FixtureIdentityError as exc:
+        assert "identity_scope" in str(exc)
+        assert "task.task_id" in str(exc)
+    else:
+        raise AssertionError("expected stripped synthetic fixture markers to fail closed")
+
+
+def test_market_document_full_importer_rejects_synthetic_identity_drift_before_connect(
+    tmp_path, monkeypatch
+):
+    importer = _load_module(
+        "market_document_full_importer_fixture_row_guard",
+        "import_market_document_full_to_postgres.py",
+    )
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text(
+        json.dumps(
+            {
+                "identity_scope": "synthetic_fixture",
+                "task": {"task_id": "fixture-hk-row-drift"},
+                "financial_data": {
+                    "market": "HK",
+                    "company_id": "HK:FIXTURE:ROW_DRIFT",
+                    "ticker": "FIXTURE_ROW_DRIFT",
+                    "report_id": "HK:FIXTURE:ROW_DRIFT:2025-annual",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows = types.SimpleNamespace(
+        company={"company_id": "HK:00700"},
+        filing={
+            "company_id": "HK:00700",
+            "filing_id": "HK:FIXTURE:ROW_DRIFT:2025-annual",
+        },
+    )
+    monkeypatch.setattr(
+        importer,
+        "rule_for_market",
+        lambda _market: types.SimpleNamespace(build_rows=lambda _document, _context: rows),
+    )
+    monkeypatch.setattr(
+        importer,
+        "connect",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("identity drift must fail before database connect")
+        ),
+    )
+
+    try:
+        importer.import_document_full(document_full, market="HK")
+    except importer.FixtureIdentityError as exc:
+        assert "import rows company_id drifted" in str(exc)
+        assert "HK:00700" in str(exc)
+    else:
+        raise AssertionError("expected synthetic fixture row identity drift to fail closed")
+
+
+def test_market_document_full_importer_prohibits_valid_fixture_database_write_before_connect(
+    tmp_path, monkeypatch
+):
+    importer = _load_module(
+        "market_document_full_importer_fixture_write_guard",
+        "import_market_document_full_to_postgres.py",
+    )
+    document_full = tmp_path / "document_full.json"
+    document_full.write_text(
+        json.dumps(
+            {
+                "identity_scope": "synthetic_fixture",
+                "task": {"task_id": "fixture-hk-contract-only"},
+                "financial_data": {
+                    "market": "HK",
+                    "company_id": "HK:FIXTURE:CONTRACT_ONLY",
+                    "ticker": "FIXTURE_CONTRACT_ONLY",
+                    "report_id": "HK:FIXTURE:CONTRACT_ONLY:2025-annual",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    rows = types.SimpleNamespace(
+        company={"company_id": "HK:FIXTURE:CONTRACT_ONLY"},
+        filing={
+            "company_id": "HK:FIXTURE:CONTRACT_ONLY",
+            "filing_id": "HK:FIXTURE:CONTRACT_ONLY:2025-annual",
+        },
+    )
+    monkeypatch.setattr(
+        importer,
+        "rule_for_market",
+        lambda _market: types.SimpleNamespace(build_rows=lambda _document, _context: rows),
+    )
+    monkeypatch.setattr(
+        importer,
+        "connect",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fixture write prohibition must fire before database connect")
+        ),
+    )
+
+    try:
+        importer.import_document_full(document_full, market="HK")
+    except importer.FixtureDatabaseWriteProhibitedError as exc:
+        assert "contract-only" in str(exc)
+        assert "real production samples" in str(exc)
+    else:
+        raise AssertionError("expected committed fixture database write to be prohibited")
 
 
 def test_market_document_full_importer_rejects_package_directory_without_recursive_scan(tmp_path, monkeypatch):
@@ -416,6 +623,61 @@ def test_hk_document_full_rules_map_local_metrics_and_preserve_currency(tmp_path
     assert rows.statement_items[0]["reporting_currency"] == "CNY"
 
 
+def test_hk_document_full_rules_prefer_explicit_rmb_unit_over_stale_hkd_currency(tmp_path):
+    document_full = {
+        "metadata": {"market": "HK", "ticker": "700", "company_name": "Tencent", "currency": "HKD"},
+        "financial_data": {
+            "report_id": "HK:00700:2025-annual",
+            "period_end": "2025-12-31",
+            "currency": "HKD",
+            "statements": [
+                {
+                    "statement_id": "is",
+                    "statement_type": "income_statement",
+                    "title": "CONSOLIDATED INCOME STATEMENT RMB million",
+                    "unit": "RMB’Million 2024RMB’Million Revenue",
+                    "currency": "HKD",
+                    "items": [
+                        {
+                            "local_name": "收益",
+                            "values": {
+                                "2025": {
+                                    "value": "751766",
+                                    "raw_value": "751,766",
+                                    "unit": "RMB million",
+                                    "currency": "HKD",
+                                    "evidence": {"page_number": 10, "table_index": 1},
+                                }
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+        "quality_report": {"overall_status": "pass"},
+    }
+
+    rows = _build_rows("HK", document_full, tmp_path)
+
+    assert rows.statements[0]["currency"] == "CNY"
+    assert rows.statements[0]["unit"] == "RMB’Million 2024RMB’Million Revenue"
+    assert rows.statements[0]["raw"]["currency"] == "HKD"
+    item = rows.statement_items[0]
+    assert item["currency"] == "CNY"
+    assert item["unit"] == "RMB million"
+    assert item["fact_currency"] == "CNY"
+    assert item["reporting_currency"] == "CNY"
+    assert item["presentation_currency"] == "CNY"
+    enriched = rows.enriched_items[0]
+    assert enriched["currency"] == "CNY"
+    assert enriched["unit_raw"] == "RMB million"
+    assert enriched["unit_standardized"] == "CNY"
+    assert enriched["fact_currency"] == "CNY"
+    assert enriched["reporting_currency"] == "CNY"
+    assert enriched["presentation_currency"] == "CNY"
+    assert rows.wide_rows[0]["all_metrics"]["revenue"]["currency"] == "CNY"
+
+
 def test_hk_rules_normalize_common_ticker_shapes(tmp_path):
     document_full = {
         "metadata": {"market": "HK", "ticker": "700.HK", "company_name": "Tencent"},
@@ -463,6 +725,77 @@ def test_kr_rules_map_current_assets_to_common_core(tmp_path):
 
     assert rows.statement_items[0]["canonical_name"] == "current_assets"
     assert rows.statement_items[0]["canonical_scope"] == "common_core"
+
+
+def test_market_rules_map_cash_and_cash_equivalents_to_common_core(tmp_path):
+    for market, local_name in {
+        "HK": "現金及銀行結餘",
+        "JP": "現金及び現金同等物",
+        "KR": "현금및현금성자산",
+        "EU": "ifrs-full:CashAndCashEquivalents",
+        "US": "us-gaap:CashAndCashEquivalentsAtCarryingValue",
+    }.items():
+        document_full = {
+            "metadata": {"market": market, "ticker": "TEST", "company_name": "Test"},
+            "financial_data": {
+                "statements": [
+                    {
+                        "statement_type": "balance_sheet",
+                        "items": [{"local_name": local_name, "period_key": "2025-12-31", "value": "10"}],
+                    }
+                ]
+            },
+        }
+
+        rows = _build_rows(market, document_full, tmp_path / market)
+
+        assert rows.statement_items[0]["canonical_name"] == "cash_and_cash_equivalents"
+        assert rows.statement_items[0]["canonical_scope"] == "common_core"
+
+
+def test_market_rules_do_not_treat_cash_equivalents_component_as_combined_cash_metric(tmp_path):
+    document_full = {
+        "metadata": {"market": "US", "ticker": "FIVE", "company_name": "Five Point Holdings"},
+        "financial_data": {
+            "statements": [
+                {
+                    "statement_type": "balance_sheet",
+                    "items": [
+                        {
+                            "local_name": "Cash Equivalents",
+                            "concept": "five:CashEquivalents",
+                            "period_key": "2025-12-31",
+                            "value": "700400000",
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    rows = _build_rows("US", document_full, tmp_path)
+
+    assert rows.statement_items[0]["canonical_name"] is None
+    assert rows.statement_items[0]["canonical_scope"] == "unmapped"
+
+
+def test_market_rules_preserve_source_generated_at_as_parse_completion(tmp_path):
+    document_full = {
+        "generated_at": "2026-07-08T02:27:46Z",
+        "metadata": {"market": "HK", "ticker": "TEST", "company_name": "Test"},
+        "financial_data": {
+            "statements": [
+                {
+                    "statement_type": "balance_sheet",
+                    "items": [{"local_name": "Total assets", "period_key": "2025-12-31", "value": "10"}],
+                }
+            ]
+        },
+    }
+
+    rows = _build_rows("HK", document_full, tmp_path)
+
+    assert rows.parse_run["completed_at"] == "2026-07-08T02:27:46Z"
 
 
 def test_eu_rules_preserve_country_currency_and_ifrs_tags(tmp_path):

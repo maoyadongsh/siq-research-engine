@@ -1,0 +1,200 @@
+name: Primary-market IC release gate
+
+on:
+  workflow_call:
+    inputs:
+      run-release:
+        description: Validate the externally produced real behavior bundle
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      run-release:
+        description: Validate the externally produced real behavior bundle
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: '15 19 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  contract-integrity:
+    name: Verify PMIC contracts and gate behavior
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SIQ_AUTH_SECRET_KEY: ci-auth-secret-with-at-least-32-chars
+      SIQ_SOURCE_TOKEN_SECRET: ci-source-secret-with-at-least-32-chars
+      SIQ_DATA_ROOT: /tmp/siq-pmic-contract-data
+      SIQ_RUNTIME_ROOT: /tmp/siq-pmic-contract-runtime
+      SIQ_ARTIFACTS_ROOT: /tmp/siq-pmic-contract-artifacts
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
+
+      - name: Install API dependencies
+        run: uv sync --project apps/api --frozen --extra dev
+
+      - name: Verify all 15 exported IC contracts are current
+        run: >-
+          uv run --project apps/api python
+          scripts/maintenance/export_ic_contract_schemas.py --check
+
+      - name: Test PMIC contract, smoke, and release gates
+        run: |
+          uv run --project apps/api python -m pytest -q \
+            scripts/maintenance/tests/test_export_ic_contract_schemas.py \
+            scripts/maintenance/tests/test_primary_market_ic_release_workflow.py \
+            scripts/maintenance/tests/test_run_primary_market_ic_release_gate.py \
+            scripts/hermes/tests/test_primary_market_ic_evidence_complete_fixture.py \
+            scripts/hermes/tests/test_run_primary_market_ic_real_smoke.py
+
+      - name: Lint PMIC gate tools
+        run: |
+          uv run --project apps/api ruff check \
+            scripts/maintenance/export_ic_contract_schemas.py \
+            scripts/maintenance/run_primary_market_ic_release_gate.py \
+            scripts/maintenance/tests/test_export_ic_contract_schemas.py \
+            scripts/maintenance/tests/test_primary_market_ic_release_workflow.py \
+            scripts/maintenance/tests/test_run_primary_market_ic_release_gate.py \
+            scripts/hermes/run_primary_market_ic_real_smoke.py \
+            scripts/hermes/tests/test_primary_market_ic_evidence_complete_fixture.py \
+            scripts/hermes/tests/test_run_primary_market_ic_real_smoke.py
+
+  behavior-release:
+    name: Validate external real PMIC release evidence
+    if: inputs.run-release == true || github.event_name == 'schedule'
+    needs: contract-integrity
+    runs-on: self-hosted
+    timeout-minutes: 30
+    env:
+      SIQ_PMIC_RELEASE_BUNDLE: ${{ vars.SIQ_PMIC_RELEASE_BUNDLE }}
+      SIQ_PMIC_FACTCHECK_REPORT: ${{ vars.SIQ_PMIC_FACTCHECK_REPORT }}
+      SIQ_PMIC_REAL_SMOKE_REPORT: ${{ vars.SIQ_PMIC_REAL_SMOKE_REPORT }}
+      SIQ_PMIC_HUMAN_APPROVAL: ${{ vars.SIQ_PMIC_HUMAN_APPROVAL }}
+      SIQ_PMIC_GATE_OUTPUT_DIR: artifacts/eval-runs/primary-market-ic/ci-release
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
+
+      - name: Install locked API dependencies
+        run: uv sync --project apps/api --frozen
+
+      - name: Require immutable release evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+
+          def require_external(name: str, *, directory: bool = False) -> Path:
+              raw = os.environ.get(name, "").strip()
+              if not raw:
+                  raise SystemExit(f"Repository variable {name} is required")
+              path = Path(raw).expanduser().resolve()
+              exists = path.is_dir() if directory else path.is_file()
+              if not exists:
+                  kind = "directory" if directory else "file"
+                  raise SystemExit(f"{name} must be a readable {kind}: {path}")
+              if path == workspace or workspace in path.parents:
+                  raise SystemExit(f"{name} must be outside the mutable checkout: {path}")
+              return path
+
+          bundle = require_external("SIQ_PMIC_RELEASE_BUNDLE", directory=True)
+          require_external("SIQ_PMIC_FACTCHECK_REPORT")
+          require_external("SIQ_PMIC_REAL_SMOKE_REPORT")
+          require_external("SIQ_PMIC_HUMAN_APPROVAL")
+          bindings = bundle / "release" / "golden_case_bindings.json"
+          if not bindings.is_file():
+              raise SystemExit(f"five-case golden binding is missing: {bindings}")
+          PY
+
+      - name: Run fail-closed PMIC v3 release gate
+        shell: bash
+        run: |
+          mkdir -p "$SIQ_PMIC_GATE_OUTPUT_DIR"
+          set +e
+          uv run --project apps/api --frozen python scripts/maintenance/run_primary_market_ic_release_gate.py \
+            --bundle "$SIQ_PMIC_RELEASE_BUNDLE" \
+            --manifest agents/hermes/profiles/siq_ic_shared/golden_case_manifest.json \
+            --profile-matrix agents/hermes/profiles/siq_ic_shared/ic_profile_matrix.json \
+            --factcheck-report "$SIQ_PMIC_FACTCHECK_REPORT" \
+            --real-smoke-report "$SIQ_PMIC_REAL_SMOKE_REPORT" \
+            --human-approval "$SIQ_PMIC_HUMAN_APPROVAL" \
+            --output-json "$SIQ_PMIC_GATE_OUTPUT_DIR/release-gate.json" \
+            --output-markdown "$SIQ_PMIC_GATE_OUTPUT_DIR/release-gate.md"
+          gate_status=$?
+          set -e
+          python3 - "$gate_status" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          status = int(sys.argv[1])
+          report_path = Path(os.environ["SIQ_PMIC_GATE_OUTPUT_DIR"]) / "release-gate.json"
+          if not report_path.is_file():
+              raise SystemExit("PMIC v3 gate did not produce its JSON report")
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          if report.get("schema_version") != "siq_primary_market_ic_behavior_release_gate_v3":
+              raise SystemExit("PMIC release report is not schema v3")
+          if status != 0 or report.get("passed") is not True or report.get("release_eligible") is not True:
+              raise SystemExit(f"PMIC release evidence failed closed (gate exit={status})")
+          PY
+
+      - name: Publish PMIC release summary
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path(os.environ["SIQ_PMIC_GATE_OUTPUT_DIR"]) / "release-gate.json"
+          lines = ["# Primary-market IC Release Gate", ""]
+          if report_path.is_file():
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              lines.extend(
+                  [
+                      f"- Schema: `{report.get('schema_version')}`",
+                      f"- Passed: `{report.get('passed')}`",
+                      f"- Release eligible: `{report.get('release_eligible')}`",
+                      f"- Blocking reasons: `{len(report.get('blocking_reasons') or [])}`",
+                  ]
+              )
+          else:
+              lines.append("- Release report missing; gate failed closed before evaluation.")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload PMIC release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: primary-market-ic-release-gate
+          path: artifacts/eval-runs/primary-market-ic/ci-release/
+          if-no-files-found: error
+          retention-days: 30

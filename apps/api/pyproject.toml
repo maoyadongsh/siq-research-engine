@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "sqlmodel>=0.0.22",
     "httpx[socks]>=0.27",
+    "cryptography>=45.0.0",
     "aiosqlite>=0.22.1",
     "sse-starlette>=3.4.2",
     "greenlet>=3.5.0",
@@ -20,6 +21,8 @@ dependencies = [
     "redis>=5.0.0",
     "pymilvus>=2.4.0",
     "siq-market-contracts",
+    "python-docx>=1.1,<2",
+    "jsonschema>=4.23",
 ]
 
 [tool.uv.sources]
@@ -27,7 +30,6 @@ siq-market-contracts = { path = "../../packages/market-contracts", editable = tr
 
 [project.optional-dependencies]
 dev = [
-    "jsonschema>=4.23",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
 ]

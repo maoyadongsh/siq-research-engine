@@ -1,5 +1,4 @@
-from market_report_rules_service.contracts import financial_data_contract
-from market_report_rules_service.contracts import financial_checks_contract
+from market_report_rules_service.contracts import financial_checks_contract, financial_data_contract
 from market_report_rules_service.markets.eu.rules import find_eu_label_rule
 from market_report_rules_service.models import AccountingStandard, Market, ParsedArtifact, ParsedTable
 from market_report_rules_service.pipeline import process_artifact
@@ -182,6 +181,12 @@ def test_eu_split_balance_sheet_uses_equity_liabilities_context_and_shifted_head
     checks = financial_checks_contract(result.validation)
 
     assert checks["overall_status"] == "pass"
+    assert checks["warnings"] == [
+        "EU bank/insurance profile: cash-flow statement coverage may be partial and should be reviewed manually."
+    ]
+    assert checks["advisories"] == [
+        "IFRS 17/HKFRS 17 changes revenue and liability presentation; use insurance profile rules."
+    ]
     balance = next(statement for statement in data["statements"] if statement["statement_type"] == "balance_sheet")
     total_assets = next(item for item in balance["items"] if item["canonical_name"] == "total_assets")
     total_equity = next(item for item in balance["items"] if item["canonical_name"] == "total_equity")

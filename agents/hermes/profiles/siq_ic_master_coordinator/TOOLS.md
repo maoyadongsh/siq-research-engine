@@ -59,7 +59,7 @@
 - `apps/api/services/deal_retrieval.py`
   动态 query 生成、角色维度匹配和本地 evidence ranking
 - `apps/api/services/vector_retrieval.py`
-  可选 Milvus 向量检索 adapter，通过 `include_vector` 和 SIQ 环境配置显式启用
+  正式 IC prepare 强制使用的 Milvus 向量检索 adapter；`include_vector=false` 仅用于诊断或 fallback
 - `apps/api/services/rerank_provider.py`
   可选 reranker adapter，调用平台托管的 OpenAI-compatible `/v1/rerank`
 - `apps/api/services/external_research_clients.py`

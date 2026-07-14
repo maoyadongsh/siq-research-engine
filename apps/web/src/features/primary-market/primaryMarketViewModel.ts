@@ -9,7 +9,15 @@ import type {
   DealEvidenceResponse,
   DealPhaseArtifactPhase,
   DealPhaseArtifactsResponse,
+  PrimaryMarketMaterial,
+  PrimaryMarketMaterialCapabilities,
+  PrimaryMarketMaterialCapabilityValue,
+  PrimaryMarketMaterialParseStatusResponse,
+  PrimaryMarketMaterialResponse,
+  PrimaryMarketMaterialsResponse,
   DealPreflight,
+  DealR2AgentReportsResponse,
+  DealR3ReviewSummaryResponse,
   DealStatusResponse,
   DealStartupReceipt,
   DealStartupRetrievalResponse,
@@ -38,6 +46,7 @@ export const PRIMARY_MARKET_TABS: PrimaryMarketTab[] = [
 ]
 
 export const DOCUMENT_TYPE_OPTIONS = [
+  { value: 'prospectus', label: '招股书' },
   { value: 'teaser', label: 'Teaser' },
   { value: 'bp', label: 'BP' },
   { value: 'financial_model', label: '财务模型' },
@@ -48,6 +57,30 @@ export const DOCUMENT_TYPE_OPTIONS = [
   { value: 'term_sheet', label: '条款清单' },
   { value: 'meeting_note', label: '会议纪要' },
   { value: 'other', label: '其他' },
+]
+
+export const PROSPECTUS_EXCHANGE_OPTIONS = [
+  { value: 'SSE', label: '上海证券交易所' },
+  { value: 'SZSE', label: '深圳证券交易所' },
+  { value: 'BSE', label: '北京证券交易所' },
+]
+
+export const PROSPECTUS_BOARD_OPTIONS = [
+  { value: 'main', label: '主板' },
+  { value: 'star', label: '科创板' },
+  { value: 'chinext', label: '创业板' },
+  { value: 'beijing', label: '北交所' },
+]
+
+export const PROSPECTUS_FILING_STAGE_OPTIONS = [
+  { value: 'application_draft', label: '申报稿' },
+  { value: 'pre_disclosure', label: '预披露' },
+  { value: 'pre_disclosure_update', label: '预披露更新稿' },
+  { value: 'inquiry_response_draft', label: '问询回复稿' },
+  { value: 'registration_draft', label: '注册稿' },
+  { value: 'registration_effective', label: '注册生效稿' },
+  { value: 'final_prospectus', label: '正式招股书' },
+  { value: 'issuance', label: '发行阶段' },
 ]
 
 export const EVIDENCE_DIMENSIONS = [
@@ -213,6 +246,24 @@ export const R1_AGENT_SEQUENCE = [
   'siq_ic_chairman',
 ]
 
+export const IC_EXPERT_AGENT_IDS = [
+  'siq_ic_strategist',
+  'siq_ic_sector_expert',
+  'siq_ic_finance_auditor',
+  'siq_ic_legal_scanner',
+  'siq_ic_risk_controller',
+]
+
+export type MeetingPreparationRound = 'R0' | 'R1' | 'R1.5' | 'R2' | 'R3' | 'R4'
+
+export interface MeetingPreparationPlan {
+  roundName: MeetingPreparationRound
+  profileIds: string[]
+  individualProfileIds: string[]
+  label: string
+  reason: string
+}
+
 const STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
   r0_ready: 'R0 就绪',
@@ -339,6 +390,8 @@ export interface MeetingBundle {
   audit?: DealAuditResponse | null
   evidence?: DealEvidenceResponse | null
   meetingReadiness?: PrimaryMarketMeetingAgentReadiness | null
+  r2Reports?: DealR2AgentReportsResponse | null
+  r3Review?: DealR3ReviewSummaryResponse | null
   startupReceipts?: Record<string, DealStartupRetrievalResponse | null>
 }
 
@@ -395,9 +448,106 @@ export interface MeetingAgentReadinessRow {
   r1ReportRecommendation: string
   contractSourceCount: number
   contractSourceText: string
+  contractVersion: string
+  sharedCollection: string
+  privateCollection: string
+  logicalCollections: string[]
+  physicalCollections: string[]
+  projectEvidenceHits: number
+  backgroundKnowledgeHits: number
+  retrievalStatus: string
+  retrievalTone: BadgeTone
+  degradedReasons: string[]
+  evidenceSnapshotHash: string
+  capabilityRestrictions: string[]
+  phaseTaskStatus: string
+  qualityStatus: string
+  stale: boolean
   readyForFormalTask: boolean
   blockingReasons: string[]
   warnings: string[]
+}
+
+export interface WorkflowPhaseObservabilityRow {
+  phase: string
+  label: string
+  status: string
+  tone: BadgeTone
+  blocking: boolean
+  generationMode: string
+  deterministicFallback: boolean
+  detail: string
+}
+
+export interface AgentHandoffObservabilityRow {
+  id: string
+  phase: string
+  fromAgentId: string
+  fromLabel: string
+  toAgentId: string
+  toLabel: string
+  workflowRunId: string
+  inputDigest: string
+  createdAt: string
+}
+
+export interface R15DisputeBoardRow {
+  id: string
+  topic: string
+  severity: string
+  resolved: boolean
+  positionCount: number
+  evidenceIds: string[]
+  agents: string[]
+  ruling: string
+  generationMode: string
+  fallback: boolean
+  followups: string[]
+}
+
+export interface R2DeltaRow {
+  agentId: string
+  label: string
+  status: string
+  r1Score: number | null
+  r2Score: number | null
+  scoreChange: number | null
+  recommendation: string
+  revisions: number
+  summary: string
+  artifactAvailable: boolean
+}
+
+export interface R3TimelineRow {
+  id: string
+  agentId: string
+  label: string
+  stance: string
+  status: string
+  summary: string
+  challengeCount: number
+  evidenceCount: number
+  createdAt?: string | null
+  generationMode: string
+  fallback: boolean
+}
+
+export interface R4QualityObservability {
+  status: string
+  generationMode: string
+  fallback: boolean
+  factcheckStatus: string
+  qualityStatus: string
+  humanStatus: string
+  humanConfirmed: boolean
+  attestationStatus: 'pending' | 'bound' | 'incomplete'
+  reportId: string
+  reportRevision: number | null
+  workflowRunId: string
+  missingRequired: string[]
+  missingAdvisory: string[]
+  findings: string[]
+  reportPath: string
 }
 
 export interface MeetingReadinessChip {
@@ -616,6 +766,210 @@ export function documentTitle(document: DealDocument) {
   return document.original_filename || document.filename || document.document_id
 }
 
+const MATERIAL_STATUS_LABELS: Record<string, string> = {
+  uploaded: '已上传',
+  not_started: '已上传',
+  submitting: '提交解析中',
+  queued: '排队中',
+  parsing: '解析中',
+  processing: '解析中',
+  archiving: '归档中',
+  review_required: '质量待确认',
+  pending: '质量待确认',
+  ready: '可用于分析',
+  ready_with_restrictions: '可用于文本分析，财务受限',
+  failed: '解析失败',
+  cancelled: '解析已取消',
+  interrupted: '解析已中断',
+  blocked: '质量未通过',
+  disabled: '分析源已停用',
+  superseded: '已被新版替代',
+}
+
+const TERMINAL_PARSE_STATUSES = new Set(['succeeded', 'completed', 'success', 'done', 'finished', 'failed', 'cancelled', 'interrupted'])
+
+export function materialStatusValue(material: PrimaryMarketMaterial) {
+  if (material.document_status === 'superseded') return 'superseded'
+  if (material.document_status === 'deleted') return 'deleted'
+  const parseStatus = String(material.parse_status || material.parse_run?.status || material.current_parse_run?.status || '')
+  if (parseStatus && parseStatus !== 'succeeded') return parseStatus
+  return String(material.analysis_source_status || (parseStatus === 'succeeded' ? 'review_required' : material.status || 'uploaded'))
+}
+
+export function materialStatusLabel(material: PrimaryMarketMaterial) {
+  const value = materialStatusValue(material)
+  return MATERIAL_STATUS_LABELS[value] || value || '状态未知'
+}
+
+export function materialStatusTone(material: PrimaryMarketMaterial): BadgeTone {
+  const value = materialStatusValue(material)
+  if (['ready', 'indexed'].includes(value)) return 'success'
+  if (['failed', 'blocked', 'deleted'].includes(value)) return 'error'
+  if (['ready_with_restrictions', 'review_required', 'pending', 'cancelled', 'interrupted'].includes(value)) return 'warning'
+  if (value === 'superseded' || value === 'disabled') return 'neutral'
+  return statusTone(value)
+}
+
+export function isMaterialPolling(material: PrimaryMarketMaterial) {
+  const status = String(material.parse_status || material.parse_run?.status || material.current_parse_run?.status || '')
+  return Boolean(status && !TERMINAL_PARSE_STATUSES.has(status))
+}
+
+function capabilityStatus(value: PrimaryMarketMaterialCapabilityValue | undefined) {
+  if (typeof value === 'boolean') return value ? 'ready' : 'blocked'
+  if (typeof value === 'string') return value
+  if (!value) return 'pending'
+  if (value.ready === true) return value.restricted ? 'ready_with_restrictions' : 'ready'
+  if (value.ready === false && !value.status) return 'blocked'
+  return String(value.status || 'pending')
+}
+
+function capabilityReason(value: PrimaryMarketMaterialCapabilityValue | undefined) {
+  if (!value || typeof value !== 'object') return ''
+  return value.reason || value.warnings?.[0] || ''
+}
+
+function capabilityTone(status: string): BadgeTone {
+  if (['ready', 'indexed'].includes(status)) return 'success'
+  if (['blocked', 'failed'].includes(status)) return 'error'
+  if (['ready_with_restrictions', 'review_required', 'pending', 'not_requested', 'queued', 'indexing'].includes(status)) return 'warning'
+  return statusTone(status)
+}
+
+export interface PrimaryMarketCapabilityRow {
+  id: 'text_evidence' | 'source_trace' | 'financial_facts' | 'semantic_index'
+  label: string
+  status: string
+  detail: string
+  tone: BadgeTone
+}
+
+export function materialCapabilities(material: PrimaryMarketMaterial): PrimaryMarketCapabilityRow[] {
+  const capabilities: PrimaryMarketMaterialCapabilities = material.capabilities
+    || material.parse_run?.capabilities
+    || material.current_parse_run?.capabilities
+    || {}
+  const sourceTrace = capabilities.source_page_trace ?? capabilities.source_trace ?? capabilities.page_trace
+  const semanticIndex = capabilities.semantic_index ?? capabilities.indexing ?? material.index_status
+  const entries: Array<[PrimaryMarketCapabilityRow['id'], string, PrimaryMarketMaterialCapabilityValue | undefined]> = [
+    ['text_evidence', '文本', capabilities.text_evidence],
+    ['source_trace', '页码', sourceTrace],
+    ['financial_facts', '财务', capabilities.financial_facts],
+    ['semantic_index', '索引', semanticIndex],
+  ]
+  return entries.map(([id, label, value]) => {
+    const status = capabilityStatus(value)
+    return {
+      id,
+      label,
+      status,
+      detail: capabilityReason(value),
+      tone: capabilityTone(status),
+    }
+  })
+}
+
+export function materialVersionLabel(material: PrimaryMarketMaterial) {
+  if (material.version !== null && material.version !== undefined && material.version !== '') {
+    return `V${material.version}`
+  }
+  const chainLength = material.version_chain?.length || 0
+  return chainLength ? `V${chainLength}` : '当前版本'
+}
+
+export function withMaterialVersions(materials: PrimaryMarketMaterial[]) {
+  const prospectuses = materials
+    .filter((material) => material.document_type === 'prospectus' || material.document_profile === 'cn_a_share_prospectus')
+    .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime())
+  const versionById = new Map(prospectuses.map((material, index) => [material.document_id, index + 1]))
+  const versionChain = prospectuses.map((material, index) => ({
+    document_id: material.document_id,
+    supersedes_document_id: material.supersedes_document_id,
+    superseded_by_document_id: material.superseded_by_document_id,
+    version: material.version ?? index + 1,
+    is_current: material.is_active_source ?? (
+      material.document_status === 'active' && !material.superseded_by_document_id && index === prospectuses.length - 1
+    ),
+  }))
+  return materials.map((material) => {
+    const version = versionById.get(material.document_id)
+    return version ? { ...material, version: material.version ?? version, version_chain: material.version_chain || versionChain } : material
+  })
+}
+
+export function exchangeLabel(exchange?: string | null) {
+  return PROSPECTUS_EXCHANGE_OPTIONS.find((item) => item.value === exchange)?.label || text(exchange, '交易所未设置')
+}
+
+export function boardLabel(board?: string | null) {
+  return PROSPECTUS_BOARD_OPTIONS.find((item) => item.value === board)?.label || text(board, '板块未设置')
+}
+
+export function filingStageLabel(stage?: string | null) {
+  return PROSPECTUS_FILING_STAGE_OPTIONS.find((item) => item.value === stage)?.label || text(stage, '文件阶段未设置')
+}
+
+export function materialsFromResponse(payload: PrimaryMarketMaterialsResponse) {
+  return sortDocuments(payload.materials || payload.documents || []) as PrimaryMarketMaterial[]
+}
+
+export function materialFromResponse(payload: PrimaryMarketMaterialResponse) {
+  const material = payload.document || payload.material
+  if (!material) return null
+  const analysisSource = payload.analysis_source || {}
+  const analysisSourceStatus = typeof analysisSource.status === 'string' ? analysisSource.status : material.analysis_source_status
+  return {
+    ...material,
+    parse_run: payload.parse_run || material.parse_run || null,
+    current_parse_run: payload.current_parse_run || material.current_parse_run || null,
+    quality_report: payload.quality || material.quality_report || null,
+    capabilities: (
+      analysisSource.capabilities && typeof analysisSource.capabilities === 'object'
+        ? analysisSource.capabilities as PrimaryMarketMaterialCapabilities
+        : material.capabilities
+    ) || material.current_parse_run?.capabilities || material.parse_run?.capabilities || null,
+    analysis_source_status: analysisSourceStatus,
+    is_active_source: typeof analysisSource.is_active === 'boolean'
+      ? analysisSource.is_active
+      : material.is_active_source ?? Boolean(
+        analysisSource.parse_run_id
+        && material.current_parse_run_id
+        && analysisSource.parse_run_id === material.current_parse_run_id
+        && ['ready', 'ready_with_restrictions'].includes(String(analysisSource.status || ''))
+      ),
+    source_id: typeof analysisSource.source_id === 'string' ? analysisSource.source_id : material.source_id,
+    status_url: payload.status_url || material.status_url || null,
+    reused: payload.reused ?? material.reused,
+  } satisfies PrimaryMarketMaterial
+}
+
+export function mergeMaterialParseStatus(
+  material: PrimaryMarketMaterial,
+  payload: PrimaryMarketMaterialParseStatusResponse,
+) {
+  const updated: Partial<PrimaryMarketMaterial> = payload.document || payload.material || {}
+  const parseRun = payload.parse_run || updated.parse_run || updated.current_parse_run || material.parse_run || material.current_parse_run
+  const analysisSource = payload.analysis_source || {}
+  const sourceCapabilities = analysisSource.capabilities && typeof analysisSource.capabilities === 'object'
+    ? analysisSource.capabilities
+    : null
+  return {
+    ...material,
+    ...updated,
+    parse_run: parseRun || null,
+    current_parse_run: parseRun || null,
+    parse_status: payload.parse_status || updated.parse_status || parseRun?.parse_status || parseRun?.status || material.parse_status,
+    analysis_source_status: payload.analysis_source_status || updated.analysis_source_status || analysisSource.status || material.analysis_source_status,
+    index_status: payload.index_status || updated.index_status || material.index_status,
+    capabilities: payload.capabilities || updated.capabilities || sourceCapabilities || parseRun?.capabilities || material.capabilities,
+    quality_report: payload.quality_report || updated.quality_report || parseRun?.quality_report || material.quality_report,
+    source_id: analysisSource.source_id || updated.source_id || material.source_id,
+    is_active_source: typeof analysisSource.is_active === 'boolean'
+      ? analysisSource.is_active
+      : updated.is_active_source ?? material.is_active_source,
+  } satisfies PrimaryMarketMaterial
+}
+
 export function createdByText(document: DealDocument) {
   const user = document.created_by
   if (!user) return ''
@@ -745,6 +1099,24 @@ function profileReadinessFor(bundle: MeetingBundle, agentId: string): PrimaryMar
   return profileReadinessByAgent(bundle).get(agentId)
 }
 
+const IC_PRIVATE_COLLECTIONS: Record<string, string> = {
+  siq_ic_master_coordinator: 'ic_master_coordinator',
+  siq_ic_chairman: 'ic_chairman',
+  siq_ic_strategist: 'ic_strategist',
+  siq_ic_sector_expert: 'ic_sector_expert',
+  siq_ic_finance_auditor: 'ic_finance_auditor',
+  siq_ic_legal_scanner: 'ic_legal_scanner',
+  siq_ic_risk_controller: 'ic_risk_controller',
+}
+
+function retrievalStatusTone(status: string): BadgeTone {
+  const value = status.toLowerCase()
+  if (['ready', 'complete', 'completed', 'success'].includes(value)) return 'success'
+  if (['blocked', 'failed', 'error', 'unavailable'].includes(value)) return 'error'
+  if (['degraded', 'partial', 'warning', 'pending'].includes(value)) return 'warning'
+  return 'neutral'
+}
+
 export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingAgentReadinessRow[] {
   const receiptByAgent = new Map(deriveMeetingReceiptRows(bundle).map((row) => [row.agentId, row]))
   const scoreByAgent = new Map(deriveMeetingScoreRows(bundle).map((row) => [row.agentId, row]))
@@ -757,13 +1129,58 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
     const receipt = receiptByAgent.get(agentId)
     const score = scoreByAgent.get(agentId)
     const agent = agentsById.get(agentId)
+    const rawReceipt = bundle.startupReceipts?.[agentId]?.receipt
     const runtimeHealth = readiness?.runtime.health
       || (agent?.runtime?.enabled === false ? 'disabled' : agent?.runtime?.enabled === true ? 'running' : 'unknown')
     const sourceFiles = readiness?.contract.sourceFiles || []
     const contractSourceText = sourceFiles.length ? sourceFiles.join('/') : 'missing'
-    const receiptPresent = agentOption.r1 ? Boolean(readiness?.startupReceipt.present ?? receipt?.present) : null
+    const receiptPresent = Boolean(readiness?.startupReceipt.present ?? receipt?.present ?? rawReceipt)
     const r1ReportPresent = agentOption.r1 ? Boolean(readiness?.r1Report.present ?? score?.hasReport) : null
     const blockingReasons = readiness?.quality.blockingReasons || []
+    const logicalCollections = readiness?.startupReceipt.collections?.length
+      ? readiness.startupReceipt.collections
+      : asStringArray(rawReceipt?.collections)
+    const physicalCollections = readiness?.startupReceipt.physicalCollections?.length
+      ? readiness.startupReceipt.physicalCollections
+      : asStringArray(rawReceipt?.physical_collections)
+    const expectedPrivateCollection = IC_PRIVATE_COLLECTIONS[agentId] || agentId.replace(/^siq_/, '')
+    const sharedCollection = readiness?.startupReceipt.sharedCollection
+      || text(rawReceipt?.shared_collection, '')
+      || physicalCollections.find((item) => item === 'ic_collaboration_shared')
+      || 'ic_collaboration_shared'
+    const privateCollection = readiness?.startupReceipt.privateCollection
+      || text(rawReceipt?.private_collection, '')
+      || physicalCollections.find((item) => item !== 'ic_collaboration_shared')
+      || expectedPrivateCollection
+    const projectEvidenceHits = numericValue(rawReceipt?.project_evidence_hits)
+      ?? numericValue(rawReceipt?.shared_hits)
+      ?? readiness?.startupReceipt.sharedHits
+      ?? 0
+    const backgroundKnowledgeHits = numericValue(rawReceipt?.background_knowledge_hits)
+      ?? numericValue(rawReceipt?.private_hits)
+      ?? readiness?.startupReceipt.privateHits
+      ?? 0
+    const explicitRetrievalStatus = readiness?.startupReceipt.retrievalStatus
+      || text(rawReceipt?.retrieval_status, '')
+    const retrievalStatus = explicitRetrievalStatus
+      || (!receiptPresent ? 'blocked' : backgroundKnowledgeHits > 0 ? 'ready' : 'degraded')
+    const degradedReasons = [
+      ...(readiness?.startupReceipt.degradedReasons || []),
+      ...asStringArray(rawReceipt?.degraded_reasons),
+      ...(receiptPresent && backgroundKnowledgeHits === 0 ? ['private_background_hits_missing'] : []),
+    ].filter((item, index, values) => item && values.indexOf(item) === index)
+    const receiptBlockingReasons = [
+      ...(readiness?.startupReceipt.blockingReasons || []),
+      ...asStringArray(rawReceipt?.blocking_reasons),
+    ]
+    const allBlockingReasons = [...blockingReasons, ...receiptBlockingReasons]
+      .filter((item, index, values) => item && values.indexOf(item) === index)
+    const evidenceSnapshotHash = readiness?.startupReceipt.evidenceSnapshotHash
+      || text(rawReceipt?.evidence_snapshot_hash, '')
+    const capabilityRestrictions = (readiness?.startupReceipt.capabilityRestrictions?.length
+      ? readiness.startupReceipt.capabilityRestrictions
+      : asStringArray(rawReceipt?.capability_restrictions))
+    const stale = Boolean(readiness?.startupReceipt.stale || readiness?.quality.stale || rawReceipt?.stale)
     return {
       agentId,
       label: readiness?.label || agent?.label || agentOption.label,
@@ -776,11 +1193,297 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
       r1ReportRecommendation: readiness?.r1Report.recommendation || score?.recommendation || '',
       contractSourceCount: sourceFiles.length,
       contractSourceText,
-      readyForFormalTask: readiness?.quality.readyForFormalTask ?? (receipt?.allowed !== false && receiptPresent !== false),
-      blockingReasons,
+      contractVersion: readiness?.contract.version || 'unversioned',
+      sharedCollection,
+      privateCollection,
+      logicalCollections,
+      physicalCollections,
+      projectEvidenceHits,
+      backgroundKnowledgeHits,
+      retrievalStatus,
+      retrievalTone: retrievalStatusTone(retrievalStatus),
+      degradedReasons,
+      evidenceSnapshotHash,
+      capabilityRestrictions,
+      phaseTaskStatus: readiness?.phaseTaskStatus || 'unavailable',
+      qualityStatus: readiness?.quality.status || (allBlockingReasons.length ? 'blocked' : readiness?.quality.warnings.length ? 'warning' : 'ready'),
+      stale,
+      readyForFormalTask: (readiness?.quality.readyForFormalTask ?? (receipt?.allowed !== false && receiptPresent))
+        && retrievalStatus.toLowerCase() !== 'blocked'
+        && !stale,
+      blockingReasons: allBlockingReasons,
       warnings: readiness?.quality.warnings || receipt?.warnings || [],
     }
   })
+}
+
+function generationModeFrom(...values: unknown[]) {
+  for (const value of values) {
+    const record = asRecord(value)
+    const mode = text(
+      record?.generation_mode
+        || record?.generationMode
+        || record?.execution_mode
+        || record?.executionMode,
+      '',
+    ).trim()
+    if (mode) return mode
+  }
+  return 'unavailable'
+}
+
+function isDeterministicFallback(mode: string) {
+  const value = mode.toLowerCase()
+  return value.includes('deterministic') || value.includes('fallback')
+}
+
+function observabilityStatus(status: string, fallback = 'missing') {
+  const value = status.trim()
+  return value || fallback
+}
+
+export function deriveWorkflowPhaseObservability(bundle: MeetingBundle): WorkflowPhaseObservabilityRow[] {
+  const artifacts = phaseArtifactByPhase(bundle.phaseArtifacts)
+  const r1Artifact = artifacts.get('R1')
+  const r2Artifact = artifacts.get('R2')
+  const r3Artifact = artifacts.get('R3')
+  const r4Artifact = artifacts.get('R4')
+  const decisionRaw = bundle.decision?.decision || {}
+  const rows = [
+    {
+      phase: 'R0',
+      label: 'R0 准入与范围',
+      status: observabilityStatus(bundle.preflight?.status || ''),
+      blocking: bundle.preflight?.status === 'fail',
+      generationMode: generationModeFrom(bundle.preflight),
+      detail: bundle.preflight?.checks?.filter((check) => check.status !== 'pass').map((check) => check.message).slice(0, 2).join(' / ') || '项目身份、Evidence 与检索范围',
+    },
+    {
+      phase: 'R1A/R1B',
+      label: 'R1 独立研究与交叉验证',
+      status: observabilityStatus(r1Artifact?.status || ''),
+      blocking: Boolean(r1Artifact?.blocking),
+      generationMode: generationModeFrom(r1Artifact),
+      detail: `${bundle.workflow?.agent_reports?.filter((report) => report.has_report).length || 0}/${R1_AGENT_SEQUENCE.length} 正式报告`,
+    },
+    {
+      phase: 'R1.5',
+      label: 'R1.5 分歧与裁决',
+      status: observabilityStatus(bundle.disputes?.status || ''),
+      blocking: Number(bundle.disputes?.counts?.unresolved || 0) > 0,
+      generationMode: generationModeFrom(bundle.disputes),
+      detail: `${bundle.disputes?.counts?.disputes || 0} 个争议 / ${bundle.disputes?.counts?.unresolved || 0} 个未解决`,
+    },
+    {
+      phase: 'R2',
+      label: 'R2 专家修订',
+      status: observabilityStatus(
+        bundle.r2Reports?.counts?.reports
+          ? Number(bundle.r2Reports.counts.warn || 0) > 0 ? 'warn' : 'pass'
+          : r2Artifact?.status || '',
+      ),
+      blocking: Boolean(r2Artifact?.blocking),
+      generationMode: generationModeFrom(bundle.r2Reports, r2Artifact),
+      detail: `${bundle.r2Reports?.counts?.reports || 0} 份修订 / ${bundle.r2Reports?.counts?.revisions || 0} 个 delta`,
+    },
+    {
+      phase: 'R3',
+      label: 'R3 红蓝对抗',
+      status: observabilityStatus(bundle.r3Review?.status || r3Artifact?.status || ''),
+      blocking: Boolean(r3Artifact?.blocking),
+      generationMode: generationModeFrom(bundle.r3Review, r3Artifact),
+      detail: bundle.r3Review?.skipped
+        ? `skip: ${bundle.r3Review.skip_reason || 'reason unavailable'}`
+        : `${bundle.r3Review?.counts?.reports || 0} 个回合产物 / ${bundle.r3Review?.counts?.challenges || 0} 个 challenge`,
+    },
+    {
+      phase: 'R4',
+      label: 'R4 决策与质量门禁',
+      status: observabilityStatus(bundle.decision?.contract?.status || r4Artifact?.status || ''),
+      blocking: Boolean(bundle.decision?.contract?.missing_required_fields?.length),
+      generationMode: generationModeFrom(decisionRaw, bundle.decision?.contract, r4Artifact),
+      detail: `${bundle.decision?.contract?.missing_required_fields?.length || 0} 个必填缺失 / human ${bundle.decision?.contract?.human_confirmation?.status || 'pending'}`,
+    },
+  ]
+  return rows.map((row) => ({
+    ...row,
+    tone: row.blocking ? 'error' : statusTone(row.status),
+    deterministicFallback: isDeterministicFallback(row.generationMode),
+  }))
+}
+
+export function deriveAgentHandoffRows(bundle: MeetingBundle): AgentHandoffObservabilityRow[] {
+  const seen = new Set<string>()
+  return (bundle.audit?.audit.events || [])
+    .filter((event) => event.event_type === 'ic_agent_handoff_persisted')
+    .map((event, index) => {
+      const id = text(event.handoff_id, `handoff-${index + 1}`)
+      const fromAgentId = text(event.from_agent_id, 'workflow')
+      const toAgentId = text(event.to_agent_id, 'unknown')
+      return {
+        id,
+        phase: text(event.phase, 'unknown'),
+        fromAgentId,
+        fromLabel: fromAgentId === 'workflow' ? 'Workflow' : agentLabel(fromAgentId),
+        toAgentId,
+        toLabel: agentLabel(toAgentId),
+        workflowRunId: text(event.workflow_run_id, ''),
+        inputDigest: text(event.input_digest, ''),
+        createdAt: text(event.created_at, ''),
+      }
+    })
+    .filter((row) => {
+      if (seen.has(row.id)) return false
+      seen.add(row.id)
+      return true
+    })
+    .slice(-20)
+    .reverse()
+}
+
+export function deriveR15DisputeBoard(bundle: MeetingBundle): R15DisputeBoardRow[] {
+  const topMode = generationModeFrom(bundle.disputes)
+  return (bundle.disputes?.disputes || bundle.workflow?.disputes || []).map((dispute, index) => {
+    const ruling = asRecord(dispute.chairman_ruling)
+    const generationMode = generationModeFrom(ruling, { generation_mode: topMode })
+    return {
+      id: text(dispute.dispute_id, `DISPUTE-${index + 1}`),
+      topic: text(dispute.topic || dispute.dimension, '未命名争议'),
+      severity: text(dispute.severity, 'unknown'),
+      resolved: dispute.resolved === true,
+      positionCount: Number(dispute.position_count || 0),
+      evidenceIds: asStringArray(dispute.evidence_ids),
+      agents: asStringArray(dispute.agent_ids),
+      ruling: text(ruling?.decision || ruling?.ruling || ruling?.status, '未裁决'),
+      generationMode,
+      fallback: isDeterministicFallback(generationMode),
+      followups: asStringArray(dispute.required_followups || ruling?.required_followups),
+    }
+  })
+}
+
+export function deriveR2DeltaRows(bundle: MeetingBundle): R2DeltaRow[] {
+  return (bundle.r2Reports?.agents || []).map((report) => {
+    const r1Score = numericValue(report.r1_score)
+    const r2Score = numericValue(report.r2_score ?? report.score)
+    const explicitChange = numericValue(report.score_change)
+    return {
+      agentId: report.agent_id,
+      label: report.label || agentLabel(report.agent_id),
+      status: report.status || (report.has_report ? 'warn' : 'missing'),
+      r1Score,
+      r2Score,
+      scoreChange: explicitChange ?? (r1Score !== null && r2Score !== null ? Number((r2Score - r1Score).toFixed(2)) : null),
+      recommendation: report.recommendation || '',
+      revisions: Number(report.revision_count || 0),
+      summary: report.summary || '',
+      artifactAvailable: report.artifact_available === true,
+    }
+  })
+}
+
+export function deriveR3Timeline(bundle: MeetingBundle): R3TimelineRow[] {
+  const topMode = generationModeFrom(bundle.r3Review)
+  return (bundle.r3Review?.reports || []).map((report, index) => {
+    const generationMode = generationModeFrom(report, { generation_mode: topMode })
+    return {
+      id: `${report.agent_id || 'r3'}-${index + 1}`,
+      agentId: report.agent_id,
+      label: report.label || agentLabel(report.agent_id),
+      stance: report.stance || 'unavailable',
+      status: report.status || 'unknown',
+      summary: report.summary || '',
+      challengeCount: Number(report.challenge_count || 0),
+      evidenceCount: Number(report.evidence_count || 0),
+      createdAt: report.created_at,
+      generationMode,
+      fallback: isDeterministicFallback(generationMode),
+    }
+  })
+}
+
+function findingTexts(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    if (typeof item === 'string') return item
+    const record = asRecord(item)
+    const claimId = text(record?.claim_id, '')
+    const finding = text(
+      record?.message || record?.detail || record?.finding || record?.action || record?.id || record?.severity,
+      '',
+    )
+    return [claimId, finding].filter(Boolean).join(' · ')
+  }).filter(Boolean)
+}
+
+export function deriveR4QualityObservability(bundle: MeetingBundle): R4QualityObservability {
+  const contract = bundle.decision?.contract
+  const decision = bundle.decision?.decision || {}
+  const quality = asRecord(bundle.decision?.quality || decision.quality || decision.report_quality || decision.quality_gate)
+  const factcheck = asRecord(bundle.decision?.factcheck || decision.factcheck || decision.fact_check || quality?.factcheck)
+  const generationMode = generationModeFrom(decision, contract)
+  const human = {
+    ...(contract?.human_confirmation || {}),
+    ...(asRecord(decision.human_confirmation) || {}),
+  }
+  const humanStatus = text(human.status || (human.confirmed ? 'confirmed' : 'pending'))
+  const humanConfirmed = human.confirmed === true || ['confirmed', 'approved', 'overridden'].includes(humanStatus.toLowerCase())
+  const reportId = text(decision.report_id, '')
+  const reportRevision = typeof decision.revision === 'number' ? decision.revision : null
+  const workflowRunId = text(decision.workflow_run_id, '')
+  const evidenceSnapshotHash = text(decision.evidence_snapshot_hash, '')
+  const sha256Pattern = /^[a-f0-9]{64}$/i
+  const attestationBound = Boolean(
+    human.attestation_schema_version === 'siq_ic_human_confirmation_attestation_v1'
+      && reportId
+      && reportRevision
+      && workflowRunId
+      && sha256Pattern.test(evidenceSnapshotHash)
+      && human.report_id === reportId
+      && human.report_revision === reportRevision
+      && human.workflow_run_id === workflowRunId
+      && human.evidence_snapshot_hash === evidenceSnapshotHash
+      && sha256Pattern.test(text(human.decision_sha256, ''))
+      && sha256Pattern.test(text(human.quality_sha256, ''))
+      && sha256Pattern.test(text(human.factcheck_sha256, ''))
+      && quality?.report_id === reportId
+      && quality.report_revision === reportRevision
+      && quality.evidence_snapshot_hash === evidenceSnapshotHash
+      && factcheck?.report_id === reportId
+      && factcheck.report_revision === reportRevision
+      && factcheck.evidence_snapshot_hash === evidenceSnapshotHash,
+  )
+  const qualityAttentionChecks = Array.isArray(quality?.checks)
+    ? quality.checks.filter((item) => text(asRecord(item)?.status, '').toLowerCase() !== 'pass')
+    : []
+  const findings = Array.from(new Set([
+    ...findingTexts(quality?.findings),
+    ...findingTexts(quality?.warnings),
+    ...findingTexts(quality?.blocking_reasons),
+    ...findingTexts(qualityAttentionChecks),
+    ...findingTexts(factcheck?.findings),
+    ...findingTexts(factcheck?.warnings),
+    ...findingTexts(factcheck?.contradictions),
+    ...findingTexts(factcheck?.unsupported_claims),
+    ...findingTexts(factcheck?.required_repairs),
+  ]))
+  return {
+    status: contract?.status || (bundle.decision ? 'warn' : 'missing'),
+    generationMode,
+    fallback: isDeterministicFallback(generationMode),
+    factcheckStatus: text(factcheck?.status, 'unavailable'),
+    qualityStatus: text(quality?.status, contract?.status || 'unavailable'),
+    humanStatus,
+    humanConfirmed,
+    attestationStatus: humanConfirmed ? (attestationBound ? 'bound' : 'incomplete') : 'pending',
+    reportId: text(human.report_id || reportId, ''),
+    reportRevision: typeof human.report_revision === 'number' ? human.report_revision : reportRevision,
+    workflowRunId: text(human.workflow_run_id || workflowRunId, ''),
+    missingRequired: contract?.missing_required_fields || [],
+    missingAdvisory: contract?.missing_advisory_fields || [],
+    findings,
+    reportPath: bundle.decision?.report_path || contract?.artifacts?.markdown?.path || '',
+  }
 }
 
 function readinessSummaryChips(bundle: MeetingBundle): MeetingReadinessChip[] {
@@ -1039,7 +1742,7 @@ function decisionAvailable(bundle: MeetingBundle) {
 }
 
 function isHumanDecisionConfirmed(status?: string | null, confirmed?: boolean | null) {
-  return confirmed === true || ['confirmed', 'approved'].includes(String(status || '').trim().toLowerCase())
+  return confirmed === true || ['confirmed', 'approved', 'overridden'].includes(String(status || '').trim().toLowerCase())
 }
 
 function coordinatorAction(action: CoordinatorNextAction) {
@@ -1338,6 +2041,70 @@ export function deriveCoordinatorNextActions(bundle: MeetingBundle): Coordinator
       reason: '同步最新工作流、审计和产物状态。',
     }),
   ]
+}
+
+function normalizedPreparationRound(bundle: MeetingBundle): MeetingPreparationRound {
+  const actionPhase = deriveCoordinatorNextActions(bundle)[0]?.phase
+  if (['R0', 'R1', 'R1.5', 'R2', 'R3', 'R4'].includes(String(actionPhase))) {
+    return actionPhase as MeetingPreparationRound
+  }
+  if (actionPhase === 'HUMAN') return 'R4'
+  const currentPhase = String(bundle.workflow?.workflow.current_phase || bundle.detail?.summary.current_phase || '').toUpperCase()
+  if (['R0', 'R1', 'R1.5', 'R2', 'R3', 'R4'].includes(currentPhase)) {
+    return currentPhase as MeetingPreparationRound
+  }
+  return 'R0'
+}
+
+export function deriveMeetingPreparationPlan(bundle: MeetingBundle): MeetingPreparationPlan {
+  const roundName = normalizedPreparationRound(bundle)
+  const chairman = 'siq_ic_chairman'
+  const coordinator = 'siq_ic_master_coordinator'
+  const plans: Record<MeetingPreparationRound, MeetingPreparationPlan> = {
+    R0: {
+      roundName: 'R0',
+      profileIds: [coordinator],
+      individualProfileIds: [coordinator],
+      label: 'R0 准入核验',
+      reason: '由 Coordinator 检索项目身份、材料完整性和尽调范围所需背景知识。',
+    },
+    R1: {
+      roundName: 'R1',
+      profileIds: [...R1_AGENT_SEQUENCE],
+      individualProfileIds: [...R1_AGENT_SEQUENCE],
+      label: 'R1 独立研究',
+      reason: '为 R1A 专家、R1B 风控和主席准备各自专属背景知识。',
+    },
+    'R1.5': {
+      roundName: 'R1.5',
+      profileIds: [chairman],
+      individualProfileIds: [chairman],
+      label: 'R1.5 主席裁决',
+      reason: '仅主席读取结构化分歧、项目 Evidence 和主席专属知识后裁决。',
+    },
+    R2: {
+      roundName: 'R2',
+      profileIds: [...IC_EXPERT_AGENT_IDS],
+      individualProfileIds: [...IC_EXPERT_AGENT_IDS],
+      label: 'R2 专家修订',
+      reason: '五位领域专家依据裁决和新增 Evidence 修订观点与评分。',
+    },
+    R3: {
+      roundName: 'R3',
+      profileIds: [...IC_EXPERT_AGENT_IDS, chairman],
+      individualProfileIds: [...IC_EXPERT_AGENT_IDS, chairman],
+      label: 'R3 红蓝对抗',
+      reason: '为相关五专家和主席准备红方、蓝方、反驳及裁定上下文。',
+    },
+    R4: {
+      roundName: 'R4',
+      profileIds: [chairman],
+      individualProfileIds: [chairman, coordinator],
+      label: 'R4 决策与汇编',
+      reason: '主席准备最终决策知识；Coordinator 可单独准备报告汇编和审计上下文。',
+    },
+  }
+  return plans[roundName]
 }
 
 export function deriveMeetingAgenda(bundle: MeetingBundle): MeetingAgendaItem[] {

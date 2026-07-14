@@ -1,0 +1,157 @@
+groups:
+  - name: siq-meeting-safety
+    interval: 30s
+    rules:
+      - alert: SIQMeetingCaptionBlockedByPostprocess
+        expr: increase(meeting_caption_blocked_by_postprocess_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Meeting post-processing blocked the caption path
+          runbook: docs/runbooks/meeting-stream-gateway.md
+      - alert: SIQMeetingStableSegmentDuplicate
+        expr: increase(meeting_stable_segment_total{result="duplicate"}[10m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Durable meeting stable-segment duplication detected
+          runbook: docs/runbooks/meeting-stream-gateway.md
+      - alert: SIQMeetingDataBoundaryViolation
+        expr: increase(meeting_data_boundary_violation_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Meeting data crossed a configured locality boundary
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingModelIsolationViolation
+        expr: increase(meeting_model_isolation_violation_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Meeting artifact used an unexpected model snapshot
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingVoiceprintPolicyViolation
+        expr: increase(meeting_voiceprint_policy_violation_total[5m]) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Voiceprint processing violated consent or revocation policy
+          runbook: docs/runbooks/meeting-voiceprint-worker.md
+      - alert: SIQMeetingAudioStorageFailures
+        expr: increase(meeting_audio_storage_failure_total[5m]) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Meeting audio persistence or finalization is failing
+          runbook: docs/runbooks/meeting-stream-gateway.md
+  - name: siq-meeting-capacity
+    interval: 30s
+    rules:
+      - alert: SIQMeetingStableLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(meeting_asr_stable_latency_seconds_bucket[10m]))) > 2.5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Meeting stable ASR P95 exceeds 2.5 seconds
+          runbook: docs/runbooks/meeting-services.md
+      - alert: SIQMeetingPartialLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(meeting_asr_partial_latency_seconds_bucket[10m]))) > 1.2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Meeting partial ASR P95 exceeds 1.2 seconds
+          runbook: docs/runbooks/meeting-services.md
+      - alert: SIQMeetingPostprocessQueueOld
+        expr: max(meeting_postprocess_oldest_age_seconds) > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: A meeting post-processing job has waited over five minutes
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingSummaryStale
+        expr: meeting_summary_freshness_seconds > 180
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Meeting summary freshness exceeds the final-minutes target
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingFinalASRWindowSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(meeting_final_asr_window_processing_seconds_bucket[15m]))) > 30
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: Final ASR window processing P95 exceeds one 30-second window
+          runbook: docs/runbooks/meeting-ai-worker.md
+      - alert: SIQMeetingFinalASRFailures
+        expr: sum(increase(meeting_final_asr_window_total{result=~"retryable_failure|permanent_failure"}[10m])) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: Final ASR window processing failed
+          runbook: docs/runbooks/meeting-ai-worker.md
+  - name: siq-meeting-native-capture
+    interval: 30s
+    rules:
+      - alert: SIQMeetingNativeCaptureAuthFailureBurst
+        expr: sum(increase(meeting_native_capture_auth_failure_total[5m])) > 20
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: iOS native-capture authentication failures are elevated
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureBatchConflict
+        expr: sum(increase(meeting_native_capture_batch_total{result="conflict"}[10m])) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: A native-capture batch conflicted with a durable sequence
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureStorageWriteRejected
+        expr: sum(increase(meeting_native_capture_storage_rejection_total[5m])) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: Native-capture storage rejected an audio write
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureStorageProbeFailed
+        expr: meeting_native_capture_operational == 1 and meeting_native_capture_storage_probe_success == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Native-capture storage capacity cannot be measured
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureStorageLow
+        expr: meeting_native_capture_operational == 1 and meeting_native_capture_storage_probe_success == 1 and meeting_native_capture_storage_free_bytes < meeting_native_capture_storage_required_free_bytes
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: Native-capture storage is below its configured safety headroom
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCapturePendingUploadOld
+        expr: max(meeting_native_capture_finalization_oldest_age_seconds{state="pending_upload"}) > 900
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: A sealed native capture has waited over 15 minutes for missing uploads
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureFinalizationBacklogOld
+        expr: max(meeting_native_capture_finalization_oldest_age_seconds{state!="pending_upload"}) > 600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: A native-capture finalization has been backlogged over 10 minutes
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureFinalizationFailed
+        expr: max(meeting_native_capture_finalization_failed) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations:
+          summary: One or more native captures reached terminal finalization failure
+          runbook: docs/runbooks/meeting-native-capture-finalization.md
+      - alert: SIQMeetingNativeCaptureGapRecorded
+        expr: sum(clamp_min(delta(meeting_native_capture_gap_durable_total[5m]), 0)) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations:
+          summary: A durable unrecoverable native-capture audio gap was recorded
+          runbook: docs/runbooks/meeting-native-capture-finalization.md

@@ -76,6 +76,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_report_reviews_updated_at ON report_reviews;
 CREATE TRIGGER update_report_reviews_updated_at BEFORE UPDATE ON report_reviews
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

@@ -1,0 +1,66 @@
+name: Meeting release evidence gate
+
+on:
+  workflow_call:
+    inputs:
+      evidence_run_id:
+        description: Workflow run containing the redacted evidence artifact
+        required: true
+        type: string
+      evidence_artifact_name:
+        description: Artifact with asr-release.json, voiceprint-release.json, and performance-release.json
+        required: false
+        default: meeting-release-redacted-evidence
+        type: string
+  workflow_dispatch:
+    inputs:
+      evidence_run_id:
+        description: Workflow run containing the redacted evidence artifact
+        required: true
+        type: string
+      evidence_artifact_name:
+        description: Redacted evidence artifact name
+        required: true
+        default: meeting-release-redacted-evidence
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify-release-evidence:
+    name: Verify redacted release evidence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download redacted evidence reports
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.evidence_artifact_name }}
+          path: artifacts/meeting/release-input
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.evidence_run_id }}
+
+      - name: Bind passing reports to candidate
+        run: |
+          python scripts/meeting/verify_release_evidence_bundle.py \
+            --asr artifacts/meeting/release-input/asr-release.json \
+            --voiceprint artifacts/meeting/release-input/voiceprint-release.json \
+            --performance artifacts/meeting/release-input/performance-release.json \
+            --candidate-commit "$GITHUB_SHA" \
+            --output artifacts/meeting/release-evidence-receipt.json
+
+      - name: Upload release evidence receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: meeting-release-evidence-receipt
+          path: artifacts/meeting/release-evidence-receipt.json
+          if-no-files-found: error

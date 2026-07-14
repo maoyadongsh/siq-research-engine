@@ -388,6 +388,27 @@ function demoR2RunResponse(dryRun: boolean) {
   }
 }
 
+function demoR15RunResponse(body: Record<string, unknown>) {
+  const dryRun = body.dry_run !== false
+  const mode = body.mode === 'deterministic_fallback' ? 'deterministic_fallback' : 'model'
+  return {
+    schema_version: dryRun ? 'siq_ic_workflow_r1_5_model_dry_run_v1' : 'siq_ic_workflow_r1_5_model_v1',
+    deal_id: demoDealId,
+    workflow_action: 'run-r1-5-chairman',
+    phase: 'R1.5',
+    dry_run: dryRun,
+    allowed: true,
+    mode,
+    generation_mode: mode === 'model' ? 'chairman_model_v2' : 'deterministic_fallback',
+    fallback: mode !== 'model',
+    chairman_task: { disputes: [{ dispute_id: 'DSP-001' }] },
+    output_paths: { json: 'phases/r1_5_disputes.json', markdown: 'discussion/02_R1.5_裁决记录.md' },
+    hermes_called: !dryRun && mode === 'model',
+    report_written: !dryRun,
+    workflow_advanced: !dryRun,
+  }
+}
+
 function demoR3RunResponse(body: Record<string, unknown>) {
   const dryRun = body.dry_run !== false
   const skip = body.skip === true
@@ -751,6 +772,12 @@ async function fulfillMockApi(route: Route) {
   if (pathname === `/api/deals/${demoDealId}/workflow/run-r2`) {
     const body = await parseRequestJson(route)
     await route.fulfill(json(demoR2RunResponse(body.dry_run !== false)))
+    return
+  }
+
+  if (pathname === `/api/deals/${demoDealId}/workflow/run-r1-5-chairman`) {
+    const body = await parseRequestJson(route)
+    await route.fulfill(json(demoR15RunResponse(body)))
     return
   }
 

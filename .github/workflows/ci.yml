@@ -11,6 +11,20 @@ permissions:
   contents: read
 
 jobs:
+  primary-market-ic-contract:
+    name: Primary-market IC contract gate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/primary-market-ic-release-gate.yml
+    with:
+      run-release: false
+
+  meeting-additive-contract:
+    name: Meeting additive contract gate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/meeting-contract-gate.yml
+
   security-and-config:
     name: Security and config gates
     runs-on: ubuntu-latest
@@ -20,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run actionlint
+      - name: Validate workflow YAML with actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 
       - name: Install shellcheck
@@ -34,6 +48,8 @@ jobs:
             scripts/check_async_db_audit.sh \
             scripts/ci/observe_security_artifacts.sh \
             scripts/ops/run_market_postgres_release_gate.sh \
+            scripts/ops/backup.sh \
+            scripts/ops/restore_smoke.sh \
             start_all.sh \
             apps/api/start.sh \
             apps/pdf-parser/run.sh \
@@ -123,6 +139,8 @@ jobs:
           bash -n scripts/check_async_db_audit.sh
           bash -n scripts/ci/observe_security_artifacts.sh
           bash -n scripts/ops/run_market_postgres_release_gate.sh
+          bash -n scripts/ops/backup.sh
+          bash -n scripts/ops/restore_smoke.sh
           bash -n start_all.sh
           bash -n apps/api/start.sh
           bash -n apps/pdf-parser/run.sh
@@ -143,6 +161,13 @@ jobs:
             scripts/maintenance/run_parser_financial_pdf_release_gate.py \
             scripts/maintenance/run_production_compose_smoke.py \
             scripts/maintenance/run_performance_baseline.py \
+            scripts/maintenance/compare_financial_quality_baselines.py \
+            scripts/maintenance/audit_market_postgres_fixture_contamination.py \
+            scripts/maintenance/check_production_config.py \
+            scripts/maintenance/run_live_financial_qa_benchmark.py \
+            scripts/maintenance/run_permission_negative_report.py \
+            scripts/maintenance/write_release_artifact_manifest.py \
+            scripts/ops/run_restore_matrix.py \
             scripts/maintenance/run_web_container_smoke.py \
             scripts/maintenance/tests/test_check_api_ci_test_coverage.py \
             scripts/maintenance/tests/test_check_mypy_whitelist.py \
@@ -150,6 +175,14 @@ jobs:
             scripts/maintenance/tests/test_container_security_config.py \
             scripts/maintenance/tests/test_python_dependency_security_config.py \
             scripts/maintenance/tests/test_run_performance_baseline.py \
+            scripts/maintenance/tests/test_compare_financial_quality_baselines.py \
+            scripts/maintenance/tests/test_audit_market_postgres_fixture_contamination.py \
+            scripts/maintenance/tests/test_check_production_config.py \
+            scripts/maintenance/tests/test_run_live_financial_qa_benchmark.py \
+            scripts/maintenance/tests/test_run_permission_negative_report.py \
+            scripts/maintenance/tests/test_write_release_artifact_manifest.py \
+            scripts/ops/tests/test_backup_restore_scripts.py \
+            scripts/ops/tests/test_run_restore_matrix.py \
             scripts/maintenance/observe_large_files.py \
             scripts/maintenance/run_market_ingestion_eval.py \
             scripts/maintenance/run_financial_qa_benchmark.py \
@@ -337,6 +370,14 @@ jobs:
             scripts/maintenance/tests/test_container_security_config.py \
             scripts/maintenance/tests/test_production_startup_guards.py \
             scripts/maintenance/tests/test_run_performance_baseline.py \
+            scripts/maintenance/tests/test_compare_financial_quality_baselines.py \
+            scripts/maintenance/tests/test_audit_market_postgres_fixture_contamination.py \
+            scripts/maintenance/tests/test_check_production_config.py \
+            scripts/maintenance/tests/test_run_live_financial_qa_benchmark.py \
+            scripts/maintenance/tests/test_run_permission_negative_report.py \
+            scripts/maintenance/tests/test_write_release_artifact_manifest.py \
+            scripts/ops/tests/test_backup_restore_scripts.py \
+            scripts/ops/tests/test_run_restore_matrix.py \
             scripts/maintenance/tests/test_run_market_ingestion_eval.py \
             db/imports/tests/test_document_fact_normalizer.py \
             db/imports/tests/test_contract_cases.py \
@@ -430,8 +471,11 @@ jobs:
           if-no-files-found: warn
 
   web-e2e-smoke:
-    name: Web E2E smoke
+    name: Web E2E default (meetings off)
     runs-on: ubuntu-latest
+    env:
+      VITE_SIQ_MEETINGS_ENABLED: '0'
+      VITE_SIQ_MEETING_IMPORT_ENABLED: '0'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -453,7 +497,49 @@ jobs:
 
       - name: Run Playwright smoke tests
         working-directory: apps/web
-        run: npm run e2e
+        run: npm run e2e:default
 
       - name: Run production web container smoke
         run: python3 scripts/maintenance/run_web_container_smoke.py
+
+  web-e2e-meeting-flags:
+    name: Meeting E2E (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - disabled
+          - enabled
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run meeting feature-flag suite
+        working-directory: apps/web
+        run: npm run e2e:meeting:${{ matrix.suite }}
+
+      - name: Upload meeting Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meeting-e2e-${{ matrix.suite }}
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          if-no-files-found: warn

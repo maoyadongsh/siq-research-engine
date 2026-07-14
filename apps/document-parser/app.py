@@ -171,7 +171,7 @@ store.requeue_interrupted_tasks()
 @app.before_request
 def require_access_token():
     ensure_worker_started()
-    if request.path == "/api/health":
+    if request.path in {"/api/health", "/api/ready"}:
         return None
     if not _request_is_authorized(APP_ACCESS_TOKEN):
         return jsonify({"error": "unauthorized"}), 401
@@ -991,6 +991,7 @@ def _list_mineru_import_candidates(limit: int = 50) -> list[dict[str, object]]:
 def health():
     return {
         "status": "ok",
+        "worker_ready": bool(worker_thread and worker_thread.is_alive()),
         "version": APP_VERSION,
         "data_dir": str(DATA_DIR),
         "providers": {
@@ -1025,6 +1026,30 @@ def health():
         "max_file_mb": MAX_FILE_SIZE // 1024 // 1024,
         "max_files_per_upload": MAX_FILES_PER_UPLOAD,
     }
+
+
+def _readiness_payload() -> dict[str, object]:
+    worker_ready = bool(WORKER_AUTOSTART and worker_thread and worker_thread.is_alive())
+    upstream = pdf_parser_json_request(
+        f"{_pdf_parser_api_base()}/api/ready",
+        headers=_pdf_parser_headers(),
+        timeout=5,
+    )
+    pdf_parser_ready = bool(not upstream.get("_error") and upstream.get("ready"))
+    ready = worker_ready and pdf_parser_ready
+    return {
+        "status": "ready" if ready else "unavailable",
+        "ready": ready,
+        "worker_ready": worker_ready,
+        "pdf_parser_ready": pdf_parser_ready,
+        "pdf_parser_status": str(upstream.get("status") or "unavailable"),
+    }
+
+
+@app.get("/api/ready")
+def ready():
+    payload = _readiness_payload()
+    return jsonify(payload), 200 if payload["ready"] else 503
 
 
 @app.route("/api/tasks", methods=["POST"])

@@ -166,6 +166,47 @@ def test_financial_evidence_fallback_uses_statement_renderer_and_tolerates_excep
     assert "postgres rows" in skipped
 
 
+def test_financial_tool_loop_reply_recovers_with_deterministic_evidence():
+    raw_reply = (
+        "I stopped retrying terminal because it hit the tool-call guardrail "
+        "(same_tool_failure_halt) after 5 repeated non-progressing attempts."
+    )
+
+    reply = guard.recover_financial_tool_loop_reply(
+        "分析美的集团的商誉",
+        {"company": "美的集团"},
+        raw_reply,
+        deps=_deps(
+            build_primary_data_evidence_supplement=lambda _message, _context: (
+                "[D1] source_type=wiki_metrics, metric=商誉, value=34256859"
+            ),
+        ),
+    )
+
+    assert reply is not None
+    assert "工具调用参数连续失败" in reply
+    assert "后端已验证的原始事实" in reply
+    assert "source_type=wiki_metrics" in reply
+    assert "same_tool_failure_halt" not in reply
+    assert "I stopped retrying terminal" not in reply
+
+
+def test_financial_tool_loop_reply_returns_clean_status_without_evidence():
+    raw_reply = "[Tool loop hard stop: terminal made no progress]"
+
+    reply = guard.recover_financial_tool_loop_reply(
+        "分析未知公司的商誉",
+        None,
+        raw_reply,
+        deps=_deps(),
+    )
+
+    assert reply is not None
+    assert "没有足够的已验证证据" in reply
+    assert "Tool loop hard stop" not in reply
+    assert guard.recover_financial_tool_loop_reply("分析商誉", None, "正常回答", deps=_deps()) is None
+
+
 def test_enforce_financial_evidence_contract_returns_guarded_reply_when_auto_evidence_is_added():
     reply = guard.enforce_financial_evidence_contract(
         "收入是多少？",

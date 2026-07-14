@@ -686,16 +686,18 @@ alter table eu_ifrs.financial_items_enriched add column if not exists converted_
 alter table eu_ifrs.financial_items_enriched add column if not exists fx_rate_date date;
 alter table eu_ifrs.financial_items_enriched add column if not exists fx_rate_source text;
 
+-- PostgreSQL view replacement requires existing output names and positions to stay stable.
+-- Keep the earlier projection as a prefix and append newly exposed columns at the end.
 create or replace view eu_ifrs.v_latest_parse_runs as
 select distinct on (f.filing_id)
     f.*,
     pr.parse_run_id,
     pr.completed_at,
-    pr.status,
     pr.status as parse_status,
     pr.wiki_package_path,
     pr.parser_version,
-    pr.rules_version
+    pr.rules_version,
+    pr.status
 from eu_ifrs.filings f
 join eu_ifrs.parse_runs pr on pr.filing_id = f.filing_id
 where pr.status in ('pass', 'warning', 'completed', 'success')

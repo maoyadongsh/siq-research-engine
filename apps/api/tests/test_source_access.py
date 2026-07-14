@@ -629,3 +629,9 @@ def test_user_has_task_access_accepts_parse_artifact(tmp_path):
 
         assert source._user_has_task_access(session, user, "task-a")
         assert not source._user_has_task_access(session, user, "task-b")
+
+
+def test_user_has_task_access_allows_admin_without_parse_artifact():
+    admin = SimpleNamespace(id=99, role="admin")
+
+    assert source._user_has_task_access(None, admin, "unlinked-task")

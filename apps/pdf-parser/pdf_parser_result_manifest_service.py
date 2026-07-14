@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from cn_a_share_prospectus_profile import build_profile_analysis
 
 METADATA_SCHEMA_VERSION = "pdf_parser_metadata_v1"
 ARTIFACT_MANIFEST_SCHEMA_VERSION = "pdf_parser_artifact_manifest_v1"
 HASH_MANIFEST_SCHEMA_VERSION = "pdf_parser_hash_manifest_v1"
+PARSER_CONFIG_VERSION = os.environ.get("SIQ_PDF_PARSE_CONFIG_VERSION", "pdf_parser_v1").strip() or "pdf_parser_v1"
 
 REQUIRED_ARTIFACTS = (
     "result.md",
@@ -225,6 +227,13 @@ def build_metadata(task: dict[str, Any], result_dir: Path, *, generated_at: str 
     filename_meta = parse_filename_metadata(task.get("filename"))
     submit_config = load_submit_config(task)
     market = infer_market(task, financial_data, quality_report, filename_meta) or infer_market_from_result_content(result_dir)
+    document_profile = submit_config.get("document_profile")
+    source_context = (
+        submit_config.get("source_context")
+        if isinstance(submit_config.get("source_context"), dict)
+        else None
+    )
+    profile_analysis = build_profile_analysis(document_profile, result_dir)
 
     metadata: dict[str, Any] = {
         "schema_version": METADATA_SCHEMA_VERSION,
@@ -236,6 +245,10 @@ def build_metadata(task: dict[str, Any], result_dir: Path, *, generated_at: str 
         "upload_path": task.get("upload_path"),
         "markdown_path": task.get("markdown_path"),
         "file_sha256": task.get("file_sha256"),
+        "raw_sha256": task.get("file_sha256"),
+        "parse_config_hash": task.get("parse_config_hash"),
+        "document_profile": document_profile,
+        "source_context": source_context,
         "pdf_page_count": task.get("pdf_page_count"),
         "status": task.get("status"),
         "stage": task.get("stage"),
@@ -245,12 +258,15 @@ def build_metadata(task: dict[str, Any], result_dir: Path, *, generated_at: str 
         "started_at": task.get("started_at"),
         "completed_at": task.get("completed_at"),
         "parser": {
+            "version": submit_config.get("parser_version") or PARSER_CONFIG_VERSION,
             "backend": submit_config.get("backend"),
             "parse_method": submit_config.get("parse_method"),
             "formula_enable": submit_config.get("formula_enable"),
             "table_enable": submit_config.get("table_enable"),
         },
     }
+    if profile_analysis:
+        metadata["profile_analysis"] = profile_analysis
     metadata.update({key: value for key, value in filename_meta.items() if key not in {"source_file", "market"}})
 
     for payload in (financial_data, quality_report):
@@ -358,10 +374,19 @@ def build_artifact_manifest(
     ]
     content_issues = result_content_issues(result_dir)
     ready = not missing and not invalid_json and not content_issues
+    profile_analysis = metadata.get("profile_analysis") if isinstance(metadata.get("profile_analysis"), dict) else None
     return {
         "schema_version": ARTIFACT_MANIFEST_SCHEMA_VERSION,
         "generated_at": generated_at,
         "task_id": task.get("task_id"),
+        "identity": {
+            "parser_version": (metadata.get("parser") or {}).get("version"),
+            "market": metadata.get("market"),
+            "document_profile": metadata.get("document_profile"),
+            "raw_sha256": metadata.get("raw_sha256"),
+            "parse_config_hash": metadata.get("parse_config_hash"),
+            "source_context": metadata.get("source_context"),
+        },
         "result_dir": safe_relative(result_dir, repo_root),
         "metadata_file": "metadata.json",
         "storage_policy": {
@@ -388,6 +413,16 @@ def build_artifact_manifest(
             "period_end": metadata.get("period_end"),
             "report_type": metadata.get("report_type"),
             "source": metadata.get("source"),
+            "document_profile": metadata.get("document_profile"),
+            "parse_config_hash": metadata.get("parse_config_hash"),
+        },
+        "capabilities": (profile_analysis or {}).get("capabilities", {}),
+        "quality": {
+            "document_profile": metadata.get("document_profile"),
+            "status": (profile_analysis or {}).get("quality_status"),
+            "issues": (profile_analysis or {}).get("issues", []),
+            "chapter_coverage": (profile_analysis or {}).get("chapter_coverage"),
+            "reporting_period_check": (profile_analysis or {}).get("reporting_period_check"),
         },
         "artifacts": artifacts,
     }
@@ -416,6 +451,13 @@ def build_hash_manifest(
         "schema_version": HASH_MANIFEST_SCHEMA_VERSION,
         "generated_at": generated_at,
         "task_id": task.get("task_id"),
+        "identity": {
+            "parser_version": ((artifact_manifest.get("identity") or {}).get("parser_version")),
+            "market": ((artifact_manifest.get("identity") or {}).get("market")),
+            "document_profile": ((artifact_manifest.get("identity") or {}).get("document_profile")),
+            "raw_sha256": ((artifact_manifest.get("identity") or {}).get("raw_sha256")),
+            "parse_config_hash": ((artifact_manifest.get("identity") or {}).get("parse_config_hash")),
+        },
         "result_dir": str(result_dir),
         "algorithm": "sha256",
         "bundle_sha256": (artifact_manifest.get("core") or {}).get("bundle_sha256"),

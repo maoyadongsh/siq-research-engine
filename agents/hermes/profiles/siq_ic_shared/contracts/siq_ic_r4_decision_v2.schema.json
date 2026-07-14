@@ -1,0 +1,634 @@
+{
+  "$id": "siq_ic_r4_decision_v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "agent_id": {
+      "const": "siq_ic_chairman"
+    },
+    "assumptions": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "background_knowledge_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "enum": [
+              "background",
+              "methodology",
+              "comparable_context"
+            ]
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "chairman_dimension_score": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "chairman_qualitative_decision": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "claims": {
+      "items": {
+        "$id": "siq_ic_claim_v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "verified"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "derived"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "calculation_trace_ids": {
+                  "minItems": 1
+                },
+                "evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "assumed"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "assumption",
+                "verification_method"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "contested"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "counter_evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "assumption": {
+            "maxLength": 4000,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "background_knowledge_ref_ids": {
+            "items": {
+              "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "calculation_trace_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "claim_id": {
+            "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "conclusion": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "counter_evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "currency": {
+            "maxLength": 16,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_impact": {
+            "enum": [
+              "critical",
+              "material",
+              "supporting"
+            ],
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "methodology_ref_ids": {
+            "items": {
+              "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "period": {
+            "maxLength": 80,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "verified",
+              "derived",
+              "assumed",
+              "contested",
+              "missing"
+            ],
+            "type": "string"
+          },
+          "topic": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ]
+          },
+          "verification_method": {
+            "maxLength": 4000,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "claim_id",
+          "topic",
+          "conclusion",
+          "status",
+          "evidence_ids",
+          "counter_evidence_ids",
+          "calculation_trace_ids",
+          "background_knowledge_ref_ids",
+          "methodology_ref_ids",
+          "confidence",
+          "decision_impact",
+          "period",
+          "currency",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "conditions": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "core_disputes": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "pass",
+        "review",
+        "reject",
+        "insufficient_evidence"
+      ]
+    },
+    "decision_rationale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "executive_summary": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "generation_mode": {
+      "enum": [
+        "model",
+        "deterministic_preview",
+        "deterministic_recovery",
+        "human_authored"
+      ],
+      "type": "string"
+    },
+    "methodology_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "const": "methodology"
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "monitoring_metrics": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "parent_report_id": {
+      "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "principal_risks": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "recommendation": {
+      "enum": [
+        "support",
+        "conditional_support",
+        "review",
+        "reject",
+        "insufficient_evidence"
+      ]
+    },
+    "report_id": {
+      "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    },
+    "research_identity": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "revision": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "siq_ic_r4_decision_v2"
+    },
+    "score_delta_explanation": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "six_dimension_scorecard": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "claim_ids": {
+            "items": {
+              "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "dimension": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "rationale": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "score": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "weight": {
+            "exclusiveMinimum": 0,
+            "maximum": 100,
+            "type": "number"
+          }
+        },
+        "required": [
+          "dimension",
+          "score",
+          "weight",
+          "rationale",
+          "claim_ids",
+          "evidence_ids",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "maxItems": 6,
+      "minItems": 6,
+      "type": "array"
+    },
+    "startup_receipt_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "startup_retrieval_gate": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_to_speak": {
+          "type": "boolean"
+        },
+        "blocking_reasons": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "private_background_ready": {
+          "type": "boolean"
+        },
+        "private_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_evidence_ready": {
+          "type": "boolean"
+        },
+        "receipt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        },
+        "shared_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt_id",
+        "allowed_to_speak",
+        "project_evidence_ready",
+        "private_background_ready",
+        "shared_collection",
+        "private_collection",
+        "blocking_reasons"
+      ],
+      "type": "object"
+    },
+    "threshold_result": {
+      "enum": [
+        "pass",
+        "review",
+        "reject"
+      ]
+    },
+    "valuation_and_exit": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "verified_facts": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "weighted_agent_score": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "report_id",
+    "workflow_run_id",
+    "deal_id",
+    "agent_id",
+    "research_identity",
+    "evidence_snapshot_hash",
+    "recommendation",
+    "claims",
+    "background_knowledge_refs",
+    "methodology_refs",
+    "startup_receipt_id",
+    "startup_retrieval_gate",
+    "six_dimension_scorecard",
+    "weighted_agent_score",
+    "chairman_dimension_score",
+    "chairman_qualitative_decision",
+    "threshold_result",
+    "conditions",
+    "monitoring_metrics",
+    "decision",
+    "score_delta_explanation",
+    "executive_summary",
+    "decision_rationale",
+    "verified_facts",
+    "assumptions",
+    "core_disputes",
+    "principal_risks",
+    "valuation_and_exit",
+    "generation_mode",
+    "revision",
+    "parent_report_id",
+    "created_at"
+  ],
+  "type": "object"
+}

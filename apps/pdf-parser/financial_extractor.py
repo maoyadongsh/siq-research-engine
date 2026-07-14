@@ -2823,7 +2823,15 @@ def _apply_llm_judge(data, statements, candidates, missing_types, llm_judge, fil
         missing_types = _missing_consolidated_statement_types(statements)
 
 
-def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, llm_cache_dir=None, market=None):
+def build_financial_data(
+    markdown,
+    task_id=None,
+    filename=None,
+    llm_judge=None,
+    llm_cache_dir=None,
+    market=None,
+    result_dir_path=None,
+):
     markdown = markdown or ""
     market = str(market or "").upper() or None
     if market == "EU":
@@ -2836,6 +2844,7 @@ def build_financial_data(markdown, task_id=None, filename=None, llm_judge=None, 
             llm_judge=llm_judge,
             llm_cache_dir=llm_cache_dir,
             market=market,
+            result_dir_path=result_dir_path,
         )
     report_year = _detect_report_year(markdown, filename=filename)
     if market == "JP":

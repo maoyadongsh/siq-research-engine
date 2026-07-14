@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import logging
 import os
@@ -21,6 +22,12 @@ from routers import (
     factchecker,
     legal,
     market_reports,
+    meeting_exports,
+    meeting_imports,
+    meeting_native_captures,
+    meeting_stream,
+    meetings,
+    primary_market_materials,
     primary_market_meeting,
     settings,
     source,
@@ -33,6 +40,9 @@ from routers import (
 from seed import seed_data
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService
+from services.meeting_database import get_meeting_async_session
+from services.meeting_metrics import render_meeting_database_metrics, render_meeting_process_metrics
+from services.meeting_stream_deployment import embedded_meeting_stream_gateway_enabled
 from services.observability import (
     REQUEST_ID_HEADER,
     emit_json_log,
@@ -46,6 +56,9 @@ from services.observability import (
 )
 from services.path_config import FRONTEND_ROOT
 from services.runtime_security import cors_origins_from_env, validate_runtime_security_config
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from services import primary_market_materials as primary_market_materials_service
 
 FRONT_DIR = str(FRONTEND_ROOT)
 logger = logging.getLogger("siq.api")
@@ -57,6 +70,15 @@ async def lifespan(app: FastAPI):
     validate_runtime_security_config()
     create_db_and_tables()
     seed_data()
+    if os.environ.get("SIQ_PRIMARY_MARKET_RECONCILE_ON_STARTUP", "1").strip().lower() in {
+        "1", "true", "yes", "on"
+    }:
+        try:
+            await asyncio.to_thread(
+                primary_market_materials_service.recover_primary_market_materials_on_startup
+            )
+        except Exception:
+            logger.exception("primary_market_startup_reconcile_failed")
     yield
 
 
@@ -147,8 +169,23 @@ app.include_router(tracking_agent.router, prefix="/api", dependencies=[Depends(g
 app.include_router(settings.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(system.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(market_reports.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(meetings.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(meeting_exports.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(meeting_imports.router, prefix="/api", dependencies=[Depends(get_current_user)])
+# Native batch endpoints authenticate with a capture-scoped Bearer token; only
+# token issuance/renewal routes use the normal user dependency internally.
+app.include_router(meeting_native_captures.router, prefix="/api")
+# Ticket issuance stays in the API control plane. Development may embed the
+# data plane; protected deployments default to the standalone gateway process.
+app.include_router(
+    meeting_stream.router
+    if embedded_meeting_stream_gateway_enabled()
+    else meeting_stream.control_router,
+    prefix="/api",
+)
 app.include_router(document_parser.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(deals.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(primary_market_materials.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(primary_market_meeting.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(downloads.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(workflow.router, prefix="/api", dependencies=[Depends(get_current_user)])
@@ -193,8 +230,18 @@ def _require_metrics_access(request: Request) -> None:
 
 
 @app.get("/metrics", response_class=PlainTextResponse, dependencies=[Depends(_require_metrics_access)])
-def metrics():
-    return PlainTextResponse(render_prometheus_metrics(), media_type="text/plain; version=0.0.4; charset=utf-8")
+async def metrics(
+    meeting_session: AsyncSession = Depends(get_meeting_async_session),  # noqa: B008
+):
+    payload = render_prometheus_metrics() + render_meeting_process_metrics()
+    try:
+        payload += await render_meeting_database_metrics(meeting_session)
+    except Exception:
+        # Meeting metrics are optional and must never make the aggregate API
+        # health/metrics surface depend on the additive meeting domain.
+        logger.exception("meeting_metrics_collection_failed")
+        payload += "# TYPE meeting_metrics_collection_error gauge\nmeeting_metrics_collection_error 1\n"
+    return PlainTextResponse(payload, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @app.get("/", include_in_schema=False)

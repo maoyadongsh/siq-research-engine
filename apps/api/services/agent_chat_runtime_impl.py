@@ -74,6 +74,7 @@ from services.agent_runtime_loop_guard import (
     STOPPED_MESSAGE,
     TIMEOUT_MESSAGE,
     TOOL_FAILURE_STOP_MESSAGE,
+    ExternalToolLoopStreamFilter,
     _assistant_reply_for_display,
     _detect_output_loop,
     _detect_stream_output_loop,
@@ -448,7 +449,10 @@ CHAT_OUTPUT_CONTRACT = (
 FINANCIAL_CALCULATION_RUNTIME_CONTRACT = (
     "财务派生计算硬约束：\n"
     f"- 人均、每股、同比、增长率、占比、CAGR、外币折人民币和金额单位归一，必须使用 `{FINANCIAL_CALCULATOR_PATH_TEXT}` 或后端同源函数；工具调用应使用单条、完整的 `--format json` 命令，后端会从当前 Hermes 回执生成并校验新版 `siq_financial_calculation_trace_v1` JSON envelope。最终回答保留简洁的 `## 计算器校验` / `## 勾稽校验` 摘要即可，不要手写或重复整段 JSON。\n"
+    f"- 计算器是子命令 CLI，只允许 `normalize|per-capita|ratio|yoy|cagr`。金额单位必须与来源一致，不能依赖默认 `元`。同比示例：`python3 {FINANCIAL_CALCULATOR_PATH_TEXT} --format json yoy --current 34256859 --current-unit '人民币千元' --previous 29581014 --previous-unit '人民币千元' --currency CNY`；占比示例：`python3 {FINANCIAL_CALCULATOR_PATH_TEXT} --format json ratio --numerator 23435302 --numerator-unit '人民币千元' --denominator 34813270 --denominator-unit '人民币千元' --currency CNY`；单位归一示例：`python3 {FINANCIAL_CALCULATOR_PATH_TEXT} --format json normalize --value 34256859 --unit '人民币千元' --currency CNY`。不存在 `--operation`、`growth` 或 `proportion` 参数。\n"
     f"- 商誉、坏账准备、存货跌价准备、资产减值准备等涉及原值/准备/净额的口径，必须使用 `{FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT}` 或后端同源函数勾稽；后端内部保存 `siq_financial_reconciliation_trace_v1` JSON envelope（含 gross/allowance/net 三项输入与 evidence_id），可见回答只展示简要勾稽结论。商誉主表值是账面净额，不得把附注账面原值当成主表余额。\n"
+    f"- 勾稽脚本同样使用子命令；商誉示例：`python3 {FINANCIAL_RECONCILIATION_VALIDATOR_PATH_TEXT} --format json goodwill --company '<公司名>' --report-id '<report_id>'`。不得把原值、准备、净额作为无子命令的位置参数。\n"
+    "- 若命令返回 argparse `usage:` / `invalid choice` / `unrecognized arguments`，说明调用语法错误：不得原样重试；应按该次 usage 选择有效子命令和参数。若上下文已有结构化事实，则停止调用工具并只返回已验证事实，不输出未经校验的派生结论。\n"
     "- 中国上市公司商誉口径必须区分账面原值、减值准备余额、账面价值、当期减值损失和准备变动；若附注写明“本年/本期计入当期损益”或减值准备由 `-`/0 增加为正数，不能表述为“本期未新增减值”。\n"
     "- 上期值为 0 或负数时，普通同比/增长率默认 `not_applicable`，应描述扭亏/亏损扩大/亏损收窄和绝对变动，不能硬写普通增长百分比。\n"
     "- `(1,016)`、`（1,016）` 这类括号金额按负数处理；`HKD`、`HK$` 是港元币种，不是 `K=千` 单位。\n"
@@ -2391,6 +2395,9 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
     # Resolution may record fallback diagnostics. Keep those mutations local so
     # a guard/audit lookup cannot rewrite caller-owned context or benchmark data.
     output = dict(raw)
+    existing_events = output.get("_audit_fallback_events")
+    if isinstance(existing_events, list):
+        output["_audit_fallback_events"] = list(existing_events)
     existing = agent_runtime_context.research_identity(raw)
     if all(existing.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
         return output
@@ -4872,12 +4879,22 @@ def _postgres_fallback_result(
     limit: int = POSTGRES_FALLBACK_ROW_LIMIT,
 ) -> dict[str, Any] | None:
     resolved_context = _resolved_research_context(message, context)
-    return agent_runtime_postgres_fallback.postgres_fallback_result(
+    result = agent_runtime_postgres_fallback.postgres_fallback_result(
         message,
         resolved_context,
         limit=limit,
         deps=_postgres_fallback_dependencies(),
     )
+    # Identity completion stays local, but fallback decisions are audit state
+    # and must survive after this helper returns.
+    if isinstance(context, dict):
+        events = resolved_context.get("_audit_fallback_events")
+        if isinstance(events, list):
+            context["_audit_fallback_events"] = list(events)
+        fallback_reason = resolved_context.get("fallback_reason")
+        if fallback_reason:
+            context.setdefault("fallback_reason", fallback_reason)
+    return result
 
 
 def _render_postgres_fallback_context(result: dict[str, Any]) -> str:
@@ -5052,6 +5069,19 @@ def build_financial_evidence_fallback_reply(message: str, context: Any | None = 
     return agent_runtime_financial_guard.build_financial_evidence_fallback_reply(
         message,
         context,
+        deps=_financial_evidence_contract_dependencies(),
+    )
+
+
+def recover_financial_tool_loop_reply(
+    message: str,
+    context: Any | None,
+    reply: str,
+) -> str | None:
+    return agent_runtime_financial_guard.recover_financial_tool_loop_reply(
+        message,
+        context,
+        reply,
         deps=_financial_evidence_contract_dependencies(),
     )
 
@@ -5550,7 +5580,8 @@ async def _collect_chat_reply_impl(
     trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
     try:
         raw_reply = reply
-        reply = deterministic_pdf_market_reply(message, audit_context) or reply
+        recovered_reply = recover_financial_tool_loop_reply(message, audit_context, reply)
+        reply = deterministic_pdf_market_reply(message, audit_context) or recovered_reply or reply
         reply = normalize_evidence_trace_for_display(reply)
         if enforce_evidence_contract:
             reply = enforce_financial_evidence_contract(message, audit_context, reply)
@@ -5630,12 +5661,19 @@ async def _collect_stream_run(
     emit_audit_trace_id: bool = False,
 ) -> None:
     full_reply = ""
+    display_filter = ExternalToolLoopStreamFilter()
     audit_trace_id: str | None = None
     failed = False
     loop_detected = False
     idle_timed_out = False
     terminal_accumulator = RunTerminalAccumulator(state.run_id)
     terminal_result: RunTerminalResult | None = None
+
+    async def append_model_delta(text: str, *, final: bool = False) -> None:
+        display_text = display_filter.feed(text, final=final)
+        if display_text:
+            await _append_state_event(state, "delta", {"content": display_text})
+
     try:
         await _append_progress_event(
             state,
@@ -5659,7 +5697,7 @@ async def _collect_stream_run(
                     full_reply += ev.text
                     state.tool_events_since_delta = 0
                     state.consecutive_same_tool_calls = 0
-                    await _append_state_event(state, "delta", {"content": ev.text})
+                    await append_model_delta(ev.text)
                     progress = _extract_progress_from_text(full_reply)
                     if progress:
                         await _append_progress_event(state, progress)
@@ -5820,12 +5858,13 @@ async def _collect_stream_run(
                         break
                     if ev.text and not full_reply:
                         full_reply = ev.text
-                        await _append_state_event(state, "delta", {"content": ev.text})
+                        await append_model_delta(ev.text)
                     elif ev.text and ev.text.startswith(full_reply):
                         suffix = ev.text[len(full_reply):]
                         if suffix:
                             full_reply = ev.text
-                            await _append_state_event(state, "delta", {"content": suffix})
+                            await append_model_delta(suffix)
+                    await append_model_delta("", final=True)
                     break
                 elif ev.type in {"failed", "cancelled"}:
                     failed = True
@@ -5836,6 +5875,8 @@ async def _collect_stream_run(
                         else (STOPPED_MESSAGE if state.user_stop_requested else RUN_CANCELLED_MESSAGE)
                     )
                     detail = _trim_tool_preview(ev.text, 600)
+                    if agent_runtime_financial_guard.is_external_tool_loop_guard_reply(detail):
+                        detail = ""
                     if ev.type == "cancelled" and state.user_stop_requested:
                         full_reply = status_message
                         await _append_state_event(state, "replace", {"content": status_message})
@@ -5922,19 +5963,34 @@ async def _collect_stream_run(
         )
     except Exception as exc:
         failed = True
+        exception_detail = str(exc)
+        external_tool_loop_guard = agent_runtime_financial_guard.is_external_tool_loop_guard_reply(
+            exception_detail
+        )
+        diagnostic = (
+            "Hermes upstream tool loop guard stopped the run"
+            if external_tool_loop_guard
+            else exception_detail
+        )
         terminal_result = RunTerminalResult(
             run_id=state.run_id,
             status="failed",
             received_text=terminal_accumulator.received_text,
             error_code="agent_runtime_exception",
             retryable=True,
-            diagnostic=str(exc),
+            diagnostic=diagnostic,
         )
-        error_text = f"\n\n[错误] {exc}"
+        error_text = (
+            f"\n\n{TOOL_FAILURE_STOP_MESSAGE}"
+            if external_tool_loop_guard
+            else f"\n\n[错误] {exception_detail}"
+        )
         full_reply = f"{full_reply}{error_text}" if full_reply else error_text.strip()
         await _append_progress_event(
             state,
-            agent_runtime_progress.runtime_exception_progress_payload(exc),
+            agent_runtime_progress.runtime_exception_progress_payload(
+                TOOL_FAILURE_STOP_MESSAGE if external_tool_loop_guard else exc
+            ),
         )
         await _append_state_event(state, "delta", {"content": error_text})
         await _append_state_event(
@@ -5978,7 +6034,35 @@ async def _collect_stream_run(
             if full_reply and terminal_result is not None and terminal_result.succeeded:
                 trusted_runs: tuple[Mapping[str, Any], ...] = ()
                 raw_full_reply = full_reply
-                if failed or _is_loop_polluted_assistant_message(full_reply):
+                recovered_reply = recover_financial_tool_loop_reply(
+                    state.original_message or "",
+                    state.context,
+                    full_reply,
+                )
+                if recovered_reply is not None:
+                    reply = deterministic_pdf_market_reply(
+                        state.original_message or "",
+                        state.context,
+                    ) or recovered_reply
+                    reply = normalize_evidence_trace_for_display(reply)
+                    trusted_runs = await _trusted_financial_receipts_after_run(
+                        state.profile,
+                        state.session_id,
+                        message=state.original_message or "",
+                        reply=reply,
+                    )
+                    trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
+                    try:
+                        if enforce_evidence_contract:
+                            reply = enforce_financial_evidence_contract(
+                                state.original_message or "",
+                                state.context,
+                                reply,
+                            )
+                    finally:
+                        agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
+                    reply = normalize_evidence_trace_for_display(reply)
+                elif failed or _is_loop_polluted_assistant_message(full_reply):
                     reply = _failed_run_reply_for_history(full_reply)
                 else:
                     reply = deterministic_pdf_market_reply(state.original_message or "", state.context) or full_reply

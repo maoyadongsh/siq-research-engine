@@ -22,8 +22,104 @@ def _normalise_hk_code(value: Any) -> str:
     return digits.zfill(5) if digits else text
 
 
+def _is_synthetic_fixture_company_id(value: Any, market: str) -> bool:
+    return str(value or "").strip().upper().startswith(f"{market}:FIXTURE:")
+
+
 def _items(rows: MarketDocumentFullRows) -> list[dict[str, Any]]:
     return rows.statement_items + rows.key_metrics
+
+
+def _normalized_currency(value: Any) -> str | None:
+    return infer_currency(value) or (str(value).strip().upper() if value not in (None, "") else None)
+
+
+def _standardized_currency_unit(unit: Any, currency: str | None) -> str | None:
+    text = str(unit or "").lower()
+    if "%" in text or "percent" in text:
+        return "ratio"
+    if "per share" in text or "/股" in text or "eps" in text:
+        return f"{currency or ''}/share".strip("/")
+    return currency or (str(unit) if unit else None)
+
+
+def _apply_hk_currency_precedence(rows: MarketDocumentFullRows) -> None:
+    statement_currencies: dict[str, str] = {}
+    explicit_statement_currencies: set[str] = set()
+    for statement in rows.statements:
+        explicit = infer_currency(statement.get("unit"), statement.get("title"), statement.get("statement_name"))
+        resolved = explicit or _normalized_currency(statement.get("currency"))
+        if not resolved:
+            continue
+        statement["currency"] = resolved
+        statement_id = str(statement.get("statement_id") or "")
+        if statement_id:
+            statement_currencies[statement_id] = resolved
+        if explicit:
+            explicit_statement_currencies.add(explicit)
+
+    meta = _metadata_from_rows(rows)
+    declared_reporting_currency = _normalized_currency(
+        rows.filing.get("reporting_currency")
+        or meta.get("reporting_currency")
+        or meta.get("presentation_currency")
+        or meta.get("currency")
+    )
+    reporting_currency = (
+        next(iter(explicit_statement_currencies))
+        if len(explicit_statement_currencies) == 1
+        else declared_reporting_currency
+    )
+    if reporting_currency:
+        rows.filing["reporting_currency"] = reporting_currency
+
+    item_currency_by_uid: dict[str, str] = {}
+    for item in _items(rows):
+        statement_currency = statement_currencies.get(str(item.get("statement_id") or ""))
+        resolved = (
+            infer_currency(item.get("unit"))
+            or _normalized_currency(item.get("currency"))
+            or statement_currency
+            or reporting_currency
+        )
+        if not resolved:
+            continue
+        item["currency"] = resolved
+        item_uid = str(item.get("item_uid") or "")
+        if item_uid:
+            item_currency_by_uid[item_uid] = resolved
+
+    for enriched in rows.enriched_items:
+        resolved = (
+            infer_currency(enriched.get("unit_raw"), enriched.get("unit"))
+            or item_currency_by_uid.get(str(enriched.get("item_uid") or ""))
+            or _normalized_currency(enriched.get("currency"))
+            or reporting_currency
+        )
+        if not resolved:
+            continue
+        enriched["currency"] = resolved
+        enriched["unit_standardized"] = _standardized_currency_unit(
+            enriched.get("unit_raw") or enriched.get("unit"),
+            resolved,
+        )
+
+    for table in rows.tables:
+        explicit = infer_currency(table.get("unit"), table.get("title"))
+        if explicit:
+            table["currency"] = explicit
+
+    for period in rows.wide_rows:
+        for bucket_name in ("balance_sheet", "income_statement", "cash_flow_statement", "key_metrics", "all_metrics"):
+            bucket = period.get(bucket_name)
+            if not isinstance(bucket, dict):
+                continue
+            for payload in bucket.values():
+                if not isinstance(payload, dict):
+                    continue
+                resolved = infer_currency(payload.get("unit")) or _normalized_currency(payload.get("currency"))
+                if resolved:
+                    payload["currency"] = resolved
 
 
 def _annotate_currency_model(rows: MarketDocumentFullRows, *, default_currency: str | None = None) -> None:
@@ -62,9 +158,22 @@ def _annotate_currency_model(rows: MarketDocumentFullRows, *, default_currency: 
 def apply_hk_rules(rows: MarketDocumentFullRows) -> MarketDocumentFullRows:
     code = _normalise_hk_code(rows.company.get("stock_code") or rows.company.get("ticker"))
     if code:
-        rows.company.update({"company_id": f"HK:{code}", "ticker": code, "stock_code": code, "hkex_stock_code": code})
+        company_id = (
+            rows.company.get("company_id")
+            if _is_synthetic_fixture_company_id(rows.company.get("company_id"), "HK")
+            else f"HK:{code}"
+        )
+        rows.company.update(
+            {
+                "company_id": company_id,
+                "ticker": code,
+                "stock_code": code,
+                "hkex_stock_code": code,
+            }
+        )
         rows.filing.update({"company_id": rows.company["company_id"], "ticker": code, "stock_code": code})
-    _annotate_currency_model(rows)
+    _apply_hk_currency_precedence(rows)
+    _annotate_currency_model(rows, default_currency=rows.filing.get("reporting_currency"))
     return rows
 
 
@@ -106,8 +215,11 @@ def apply_eu_rules(rows: MarketDocumentFullRows) -> MarketDocumentFullRows:
     ticker = str(rows.company.get("ticker") or meta.get("ticker") or isin or lei or "").upper()
     identity_anchor = lei or isin or ticker
     rows.company.update({"country": country, "ticker": ticker, "isin": isin, "lei": lei})
-    if identity_anchor:
+    if identity_anchor and not _is_synthetic_fixture_company_id(
+        rows.company.get("company_id"), "EU"
+    ):
         rows.company["company_id"] = f"EU:{country}:{ticker}:{identity_anchor}"
+    if identity_anchor:
         rows.filing["company_id"] = rows.company["company_id"]
     rows.filing.update({"country": country, "ticker": ticker, "isin": isin, "lei": lei})
     _annotate_currency_model(rows)

@@ -174,6 +174,7 @@ def ensure_deal_package_dirs(package_dir: Path) -> None:
         "data_room/raw",
         "data_room/metadata",
         "parsed_documents",
+        "sources",
         "evidence",
         "phases",
         "discussion",

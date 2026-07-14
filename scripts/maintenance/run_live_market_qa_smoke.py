@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,6 +111,23 @@ def _fulltext_metric_errors(result: dict[str, Any] | None) -> list[str]:
         errors.append("incomplete_fulltext_evidence")
     if not result.get("report_id"):
         errors.append("incomplete_fulltext_report_identity")
+    if not result.get("company_id"):
+        errors.append("incomplete_fulltext_company_identity")
+    if not result.get("filing_id") or not result.get("parse_run_id"):
+        errors.append("incomplete_fulltext_research_identity")
+    numeric_rows = 0
+    for row in rows:
+        snippet = str(row.get("snippet") or "")
+        has_number = bool(re.search(r"(?<![A-Za-z0-9])[+-]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)", snippet))
+        has_unit = bool(
+            row.get("unit")
+            or row.get("currency")
+            or re.search(r"(?i)(?:RMB|CNY|人民币|人民幣|HKD|HK\$|港币|港幣|USD|US\$|美元|EUR|JPY|KRW|%|million|百万元|亿元)", snippet)
+        )
+        if has_number and has_unit:
+            numeric_rows += 1
+    if numeric_rows == 0:
+        errors.append("no_numeric_fulltext_evidence")
     return errors
 
 
@@ -208,6 +226,14 @@ def _artifact_path(value: Any) -> str:
         return str(path)
 
 
+def _package_path(result: dict[str, Any] | None) -> str:
+    company_dir = (result or {}).get("company_dir")
+    report_id = str((result or {}).get("report_id") or "").strip()
+    if not company_dir or not report_id:
+        return ""
+    return _artifact_path(Path(str(company_dir)) / "reports" / report_id)
+
+
 def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, Any]:
     metric_question = case["metric_question"]
     package_question = case["package_question"]
@@ -274,7 +300,7 @@ def evaluate_case(runtime: Any, market: str, case: dict[str, str]) -> dict[str, 
         "package_row_count": len(package_rows),
         "package_statement_types": sorted(package_statement_types),
         "package_evidence_coverage": _coverage(package_rows),
-        "package_path": _artifact_path((package or {}).get("metrics_file")),
+        "package_path": _package_path(package),
         "metrics_file": _artifact_path((package or {}).get("metrics_file")),
         "metric_task_ids": _task_ids(metric_rows),
         "package_task_ids": _task_ids(package_rows),
@@ -295,7 +321,9 @@ def main() -> int:
     report = {
         "schema_version": "siq_live_market_qa_smoke_v2",
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "wiki_root": str(args.wiki_root.expanduser().resolve()),
+        # The root is an execution detail; persisting it would leak a host-local path
+        # into release evidence and make otherwise portable artifacts fail closed.
+        "wiki_root": "<redacted>",
         "passed": all(result["passed"] for result in results),
         "summary": {
             "markets": len(results),
@@ -303,6 +331,9 @@ def main() -> int:
             "metric_evidence_passed_markets": sum(1 for result in results if result["metric_evidence_pass"]),
             "three_statement_package_passed_markets": sum(
                 1 for result in results if result["three_statement_package_pass"]
+            ),
+            "package_identity_passed_markets": sum(
+                1 for result in results if result["package_identity_pass"]
             ),
             "metric_total_rows": sum(int(result.get("metric_row_count") or 0) for result in results),
             "package_total_rows": sum(int(result.get("package_row_count") or 0) for result in results),

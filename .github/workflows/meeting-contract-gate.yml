@@ -1,0 +1,107 @@
+name: Meeting additive contract gate
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-contract:
+    name: Verify legacy contracts are unchanged
+    runs-on: ubuntu-latest
+    env:
+      SIQ_AUTH_SECRET_KEY: ci-auth-secret-with-at-least-32-chars
+      SIQ_SOURCE_TOKEN_SECRET: ci-source-secret-with-at-least-32-chars
+      SIQ_DATA_ROOT: /tmp/siq-meeting-contract-data
+      SIQ_RUNTIME_ROOT: /tmp/siq-meeting-contract-runtime
+      SIQ_ARTIFACTS_ROOT: /tmp/siq-meeting-contract-artifacts
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
+
+      - name: Install API dependencies
+        run: uv sync --project apps/api --frozen --extra dev
+
+      - name: Test meeting quality-gate tools
+        run: >-
+          uv run --project apps/api python -m pytest -q
+          scripts/meeting/tests
+
+      - name: Prove empty release evidence fails closed
+        run: |
+          mkdir -p artifacts/meeting/schema-smoke-nonpassing
+          set +e
+          uv run --project apps/api python \
+            scripts/meeting/evaluate_asr_release.py \
+            --input scripts/meeting/templates/asr-release-evidence.v2.json \
+            --output artifacts/meeting/schema-smoke-nonpassing/asr.json \
+            --require-passing
+          asr_status=$?
+          uv run --project apps/api python \
+            scripts/meeting/evaluate_voiceprint_release.py \
+            --input scripts/meeting/templates/voiceprint-release-evidence.v1.json \
+            --output artifacts/meeting/schema-smoke-nonpassing/voiceprint.json \
+            --require-passing
+          voiceprint_status=$?
+          uv run --project apps/api python \
+            scripts/meeting/evaluate_performance_release.py \
+            --input scripts/meeting/templates/performance-release-evidence.v1.json \
+            --output artifacts/meeting/schema-smoke-nonpassing/performance.json \
+            --require-passing
+          performance_status=$?
+          set -e
+          uv run --project apps/api python - \
+            "$asr_status" "$voiceprint_status" "$performance_status" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          statuses = [int(value) for value in sys.argv[1:]]
+          if statuses != [1, 1, 1]:
+              raise SystemExit(f"empty evidence did not fail closed: {statuses}")
+          root = pathlib.Path("artifacts/meeting/schema-smoke-nonpassing")
+          for name in ("asr", "voiceprint", "performance"):
+              report = json.loads((root / f"{name}.json").read_text())
+              if report.get("passed") is not False:
+                  raise SystemExit(f"{name} empty evidence unexpectedly passed")
+          PY
+
+      - name: Reproduce immutable baseline
+        run: |
+          mkdir -p artifacts/meeting/m0
+          uv run --project apps/api python \
+            scripts/meeting/meeting_contract_baseline.py verify \
+            --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
+            --candidate-ref 6727ce3441f2415c7e6dbc65f78c9e1983941168 \
+            --report artifacts/meeting/m0/baseline-self-verify.json
+
+      - name: Verify candidate against pre-meeting baseline
+        run: |
+          mkdir -p artifacts/meeting/m0
+          uv run --project apps/api python \
+            scripts/meeting/meeting_contract_baseline.py verify \
+            --baseline scripts/meeting/baselines/pre-meeting-6727ce3.contract.json \
+            --candidate-ref WORKTREE \
+            --report artifacts/meeting/m0/candidate-contract-verify.json
+
+      - name: Upload contract verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: meeting-contract-verification
+          path: |
+            artifacts/meeting/m0/
+            artifacts/meeting/schema-smoke-nonpassing/
+          if-no-files-found: warn

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
@@ -293,6 +293,24 @@ class MarketDocumentFullWriter:
         self._insert_dynamic("filings", filing, conflict=("filing_id",), update=True)
 
     def _upsert_parse_run(self, parse_run: dict[str, Any]) -> None:
+        # Every market's Agent view selects the latest successful parse run.
+        # Preserve a source completion time when supplied; otherwise record the
+        # first successful ingestion without moving it on idempotent re-imports.
+        if str(parse_run.get("status") or "").lower() in {
+            "pass",
+            "warning",
+            "completed",
+            "success",
+        } and "completed_at" in self.columns("parse_runs"):
+            parse_run_id = parse_run.get("parse_run_id")
+            existing = self.conn.execute(
+                f"select completed_at from {self.schema_sql}.parse_runs where parse_run_id = %s",
+                (parse_run_id,),
+            ).fetchone()
+            if existing and existing[0] is not None:
+                parse_run = {**parse_run, "completed_at": existing[0]}
+            elif not parse_run.get("completed_at"):
+                parse_run = {**parse_run, "completed_at": datetime.now(timezone.utc)}
         self._insert_dynamic("parse_runs", parse_run, conflict=("parse_run_id",), update=True)
 
     def _insert_sections(self, rows: MarketDocumentFullRows) -> None:

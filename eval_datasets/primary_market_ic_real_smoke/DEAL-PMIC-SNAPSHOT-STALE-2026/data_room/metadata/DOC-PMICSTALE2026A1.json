@@ -1,0 +1,15 @@
+{
+  "schema_version": "siq_deal_document_v2",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "document_id": "DOC-PMICSTALE2026A1",
+  "document_type": "prospectus",
+  "document_profile": "cn_a_share_prospectus",
+  "parser_kind": "synthetic_fixture",
+  "original_filename": "synthetic_evaluation_only_pmic_diligence_book.pdf",
+  "sha256": "3f07e2efe82de057921f39213e186098def9376cf145e98b77a6007c4c0a912c",
+  "current_parse_run_id": "PRUN-20260714-PMICSTALE001",
+  "analysis_source_status": "ready",
+  "status": "ready",
+  "synthetic_evaluation_only": true,
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

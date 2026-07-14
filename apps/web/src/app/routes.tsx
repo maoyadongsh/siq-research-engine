@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import {
+  AudioLines,
   BarChart3,
   DatabaseZap,
   FileText,
@@ -18,8 +19,16 @@ import {
   UsersRound,
   type LucideIcon,
 } from 'lucide-react'
+import { selectFeatureRouteLoader } from './featureRouteGate'
 
 type PageLoader = () => Promise<{ default: ComponentType }>
+
+const meetingsNavigationEnabled = import.meta.env.VITE_SIQ_MEETINGS_ENABLED === '1'
+const loadMeetingUnavailable: PageLoader = () => import('../pages/MeetingUnavailable')
+
+function loadMeetingRoute(loadEnabled: PageLoader): PageLoader {
+  return selectFeatureRouteLoader(meetingsNavigationEnabled, loadEnabled, loadMeetingUnavailable)
+}
 
 type SidebarGroup = 'nav' | 'assistant' | 'utility' | 'userAdmin' | 'systemAdmin'
 
@@ -74,6 +83,17 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/documents', () => import('../pages/DocumentParsing'), {
     sidebar: { group: 'nav', to: '/documents', icon: Files, label: '文档解析' },
   }),
+  defineRoute('/meetings', loadMeetingRoute(() => import('../pages/Meetings')), {
+    sidebar: meetingsNavigationEnabled
+      ? { group: 'nav', to: '/meetings', icon: AudioLines, label: '会议转写' }
+      : undefined,
+  }),
+  defineRoute('/meetings/new', loadMeetingRoute(() => import('../pages/MeetingCreate'))),
+  defineRoute('/meetings/import', loadMeetingRoute(() => import('../pages/MeetingImport'))),
+  defineRoute('/meetings/lexicon', loadMeetingRoute(() => import('../pages/MeetingLexicon'))),
+  defineRoute('/meetings/voiceprints', loadMeetingRoute(() => import('../pages/MeetingVoiceprints'))),
+  defineRoute('/meetings/:meetingId/live', loadMeetingRoute(() => import('../pages/MeetingLive'))),
+  defineRoute('/meetings/:meetingId', loadMeetingRoute(() => import('../pages/MeetingDetail'))),
   defineRoute('/deals', () => import('../pages/Deals')),
   defineRoute('/primary-market', () => import('../pages/PrimaryMarketWorkbench'), {
     sidebar: {

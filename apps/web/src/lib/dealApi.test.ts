@@ -25,6 +25,7 @@ const {
   identifyDealWorkflowDisputes,
   postDealDecisionHumanConfirmation,
   ruleDealWorkflowDispute,
+  runDealWorkflowR15Chairman,
   runDealWorkflowR1Serial,
   runDealWorkflowR2,
   runDealWorkflowR3,
@@ -113,8 +114,9 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
   await dryRunDealWorkflowR1Agent('DEAL-1', 'siq/ic strategist')
   await runDealWorkflowR1Serial('DEAL-1')
   await runDealWorkflowR1Serial('DEAL 1/测试', { dry_run: false, max_agents: 2 })
+  await runDealWorkflowR15Chairman('DEAL-1')
   await runDealWorkflowR2('DEAL-1')
-  await runDealWorkflowR2('DEAL 1/测试', { dry_run: false })
+  await runDealWorkflowR2('DEAL 1/测试', { dry_run: false, mode: 'deterministic_fallback', timeout: 42 })
   await runDealWorkflowR3('DEAL-1', { skip: true, skip_reason: 'R2 已闭环，留痕跳过。' })
   await runDealWorkflowR3('DEAL 1/测试', { dry_run: false })
   await finalizeDealWorkflowR4('DEAL-1')
@@ -172,10 +174,24 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       },
     },
     {
+      url: '/api/deals/DEAL-1/workflow/run-r1-5-chairman',
+      method: 'POST',
+      body: {
+        dry_run: true,
+        mode: 'model',
+        overwrite: false,
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
+      },
+    },
+    {
       url: '/api/deals/DEAL-1/workflow/run-r2',
       method: 'POST',
       body: {
         dry_run: true,
+        mode: 'model',
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {
@@ -183,6 +199,9 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       method: 'POST',
       body: {
         dry_run: false,
+        mode: 'deterministic_fallback',
+        timeout: 42,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {
@@ -190,8 +209,11 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       method: 'POST',
       body: {
         dry_run: true,
+        mode: 'model',
         skip: true,
         skip_reason: 'R2 已闭环，留痕跳过。',
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {
@@ -199,8 +221,11 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       method: 'POST',
       body: {
         dry_run: false,
+        mode: 'model',
         skip: false,
         skip_reason: null,
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {
@@ -208,7 +233,10 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       method: 'POST',
       body: {
         dry_run: true,
+        mode: 'model',
         overwrite: false,
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {
@@ -216,7 +244,10 @@ test('deal agent APIs preserve R1 defaults and dry-run contract', async () => {
       method: 'POST',
       body: {
         dry_run: false,
+        mode: 'model',
         overwrite: true,
+        timeout: null,
+        expected_evidence_snapshot_hash: null,
       },
     },
     {

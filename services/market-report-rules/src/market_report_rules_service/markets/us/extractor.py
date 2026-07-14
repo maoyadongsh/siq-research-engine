@@ -31,6 +31,8 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
         rule = find_us_rule(fact.concept)
         if not rule:
             continue
+        raw = fact.raw if isinstance(fact.raw, dict) else {}
+        raw_value = str(raw.get("value_text") or fact.value)
         extracted.append(
             ExtractedFact(
                 canonical_name=rule.canonical_name,
@@ -38,7 +40,7 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
                 label=fact.label or fact.concept,
                 statement_type=rule.statement_type,
                 value=fact.value,
-                raw_value=str(fact.value),
+                raw_value=raw_value,
                 unit=fact.unit or artifact.unit,
                 currency=_currency(fact.unit, artifact.currency),
                 period_key=_fact_period_key(fact, artifact),
@@ -64,10 +66,11 @@ def extract_artifact(artifact: ParsedArtifact) -> ExtractionResult:
                     accession_number=fact.accession_number,
                     url=artifact.source_url,
                     section=_sec_section_for_fact(fact),
-                    anchor=fact.raw.get("anchor") if isinstance(fact.raw, dict) else None,
-                    xpath=fact.raw.get("xpath") if isinstance(fact.raw, dict) else None,
-                    html_snippet=fact.raw.get("html_snippet") if isinstance(fact.raw, dict) else None,
-                    rendered_page_number=fact.raw.get("rendered_page_number") if isinstance(fact.raw, dict) else None,
+                    anchor=raw.get("anchor"),
+                    xpath=raw.get("xpath"),
+                    html_snippet=raw.get("html_snippet"),
+                    rendered_page_number=raw.get("rendered_page_number"),
+                    quote_text=raw.get("value_text"),
                     raw=fact.raw,
                 ),
                 raw=fact.model_dump(mode="json"),

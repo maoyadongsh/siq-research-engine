@@ -17,6 +17,7 @@ from services import (
     deal_store,
     hermes_client,
     ic_decision_report,
+    ic_phase_orchestrator,
     ic_policy,
 )
 from services.ic_task_lease import (
@@ -57,6 +58,7 @@ REPORT_STEMS = {
 R1_SERIAL_MAX_AGENTS = len(REPORT_STEMS)
 LEGACY_BY_PROFILE = {value: key for key, value in ic_policy.LEGACY_PROFILE_IDS.items()}
 R2_AGENT_SEQUENCE = tuple(agent_id for agent_id in ic_policy.R1_AGENT_SEQUENCE if agent_id != "siq_ic_chairman")
+R1A_AGENT_IDS = ic_phase_orchestrator.R1A_AGENT_IDS
 ROLE_AGENT_FALLBACK = {
     "chairman": "siq_ic_chairman",
     "strategy": "siq_ic_strategist",
@@ -134,11 +136,92 @@ def _canonical_keyed_payload(value: Any) -> dict[str, dict[str, Any]]:
 def _receipt_agents(package_dir: Path) -> dict[str, dict[str, Any]]:
     payload = deal_store.read_json(package_dir / "phases" / "startup_receipts.json", {}) or {}
     agents = payload.get("agents", payload) if isinstance(payload, dict) else {}
-    return _canonical_keyed_payload(agents)
+    result = _canonical_keyed_payload(agents)
+    history = payload.get("by_agent_phase") if isinstance(payload, dict) and isinstance(payload.get("by_agent_phase"), dict) else {}
+    for agent_id, phases in history.items():
+        if isinstance(phases, dict) and isinstance(phases.get("R1"), dict):
+            canonical = ic_policy.canonical_ic_profile_id(str(agent_id))
+            result[canonical] = {**phases["R1"], "agent_id": canonical}
+    return result
 
 
 def _r1_reports(package_dir: Path) -> dict[str, dict[str, Any]]:
     return _canonical_keyed_payload(deal_store.read_json(package_dir / "phases" / "r1_reports.json", {}) or {})
+
+
+def _evidence_identity(package_dir: Path) -> dict[str, Any]:
+    snapshot = deal_store.read_json(package_dir / "evidence" / "evidence_snapshot.json", {}) or {}
+    return {
+        "source_ids": list(snapshot.get("source_ids") or []),
+        "evidence_snapshot_hash": snapshot.get("snapshot_hash"),
+        "active_sources": list(snapshot.get("active_sources") or []),
+    }
+
+
+MODEL_PHASE_AGENT_IDS: dict[str, tuple[str, ...]] = {
+    "R0": (ic_phase_orchestrator.COORDINATOR_AGENT_ID,),
+    "R1.5": (ic_phase_orchestrator.CHAIRMAN_AGENT_ID,),
+    "R2": tuple(R2_AGENT_SEQUENCE),
+    "R3": (*tuple(R2_AGENT_SEQUENCE), ic_phase_orchestrator.CHAIRMAN_AGENT_ID),
+    "R4": (ic_phase_orchestrator.CHAIRMAN_AGENT_ID,),
+}
+
+
+def build_model_phase_receipt_readiness(
+    deal_id: str,
+    phase: str,
+    *,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    normalized_phase = str(phase or "").strip().upper()
+    if normalized_phase not in MODEL_PHASE_AGENT_IDS:
+        raise ValueError("phase must be R0, R1.5, R2, R3, or R4")
+    raw = deal_store.read_json(package_dir / "phases" / "startup_receipts.json", {}) or {}
+    history = raw.get("by_agent_phase") if isinstance(raw, dict) and isinstance(raw.get("by_agent_phase"), dict) else {}
+    latest = raw.get("agents") if isinstance(raw, dict) and isinstance(raw.get("agents"), dict) else {}
+    current_snapshot = str(_evidence_identity(package_dir).get("evidence_snapshot_hash") or "")
+    agents: list[dict[str, Any]] = []
+    blocking_reasons: list[str] = []
+    for agent_id in MODEL_PHASE_AGENT_IDS[normalized_phase]:
+        agent_history = history.get(agent_id) if isinstance(history.get(agent_id), dict) else {}
+        receipt = agent_history.get(normalized_phase) if isinstance(agent_history, dict) else None
+        if not isinstance(receipt, dict):
+            candidate = latest.get(agent_id)
+            if isinstance(candidate, dict) and str(candidate.get("round_name") or "").upper() == normalized_phase:
+                receipt = candidate
+        reasons: list[str] = []
+        if not isinstance(receipt, dict):
+            reasons.append("startup_receipt_missing")
+        else:
+            reasons.extend(_startup_receipt_gate_blocks(receipt))
+            receipt_snapshot = str(receipt.get("evidence_snapshot_hash") or "")
+            if not current_snapshot or receipt_snapshot != current_snapshot:
+                reasons.append("startup_receipt_snapshot_mismatch")
+        blocking_reasons.extend(f"{normalized_phase}:{agent_id}:{reason}" for reason in reasons)
+        agents.append(
+            {
+                "agent_id": agent_id,
+                "round_name": normalized_phase,
+                "receipt_id": receipt.get("receipt_id") if isinstance(receipt, dict) else None,
+                "ready": not reasons,
+                "blocking_reasons": reasons,
+                "private_hits": int(receipt.get("private_hits") or 0) if isinstance(receipt, dict) else 0,
+                "milvus_used": bool(receipt.get("milvus_used")) if isinstance(receipt, dict) else False,
+                "evidence_snapshot_hash": receipt.get("evidence_snapshot_hash") if isinstance(receipt, dict) else None,
+            }
+        )
+    return {
+        "schema_version": "siq_ic_model_phase_receipt_readiness_v1",
+        "deal_id": deal_store.validate_deal_id(deal_id),
+        "phase": normalized_phase,
+        "evidence_snapshot_hash": current_snapshot or None,
+        "allowed": not blocking_reasons,
+        "blocking_reasons": _dedupe_strings(blocking_reasons),
+        "agents": agents,
+        "ready_count": sum(1 for item in agents if item["ready"]),
+        "required_count": len(agents),
+    }
 
 
 def _submitted_agents(workflow: dict[str, Any]) -> set[str]:
@@ -162,19 +245,47 @@ def _workflow_phase_allows(workflow: dict[str, Any], profile_id: str, round_name
     if status in {"r4_completed", "archived", "closed"}:
         reasons.append(f"workflow_status_closed:{status}")
 
-    sequence = list(ic_policy.R1_AGENT_SEQUENCE)
-    if profile_id in sequence:
-        index = sequence.index(profile_id)
-        submitted_set = _submitted_agents(workflow)
-        missing_previous = [agent_id for agent_id in sequence[:index] if agent_id not in submitted_set]
+    submitted_set = _submitted_agents(workflow)
+    if profile_id == ic_phase_orchestrator.RISK_AGENT_ID:
+        missing_previous = [agent_id for agent_id in R1A_AGENT_IDS if agent_id not in submitted_set]
         if missing_previous:
-            reasons.append(f"r1_sequence_waiting_for:{','.join(missing_previous)}")
+            reasons.append(f"r1a_reports_waiting_for:{','.join(missing_previous)}")
+    elif profile_id == ic_phase_orchestrator.CHAIRMAN_AGENT_ID:
+        dependencies = (*R1A_AGENT_IDS, ic_phase_orchestrator.RISK_AGENT_ID)
+        missing_previous = [agent_id for agent_id in dependencies if agent_id not in submitted_set]
+        if missing_previous:
+            reasons.append(f"r1b_reports_waiting_for:{','.join(missing_previous)}")
     return not reasons, reasons
 
 
 def _receipt_for(package_dir: Path, deal_id: str, profile_id: str) -> dict[str, Any] | None:
     del deal_id
     return _receipt_agents(package_dir).get(profile_id)
+
+
+def _startup_receipt_gate_blocks(receipt: dict[str, Any] | None) -> list[str]:
+    """Allow formal execution only from a current, private-KB-backed receipt.
+
+    Legacy receipts remain readable for audit and migration, but they do not
+    prove that the role's private Milvus collection was queried.  Treating a
+    missing gate as executable would let R1 bypass the v2 knowledge contract.
+    """
+
+    if not isinstance(receipt, dict):
+        return []
+    gate = receipt.get("gate")
+    if not isinstance(gate, dict):
+        return ["startup_receipt_gate_blocked:receipt_gate_missing"]
+    reasons = _dedupe_strings(_as_list(gate.get("blocking_reasons")))
+    if gate.get("allowed_to_speak") is not True:
+        return [f"startup_receipt_gate_blocked:{reason}" for reason in (reasons or ["not_ready"])]
+    if int(receipt.get("private_hits") or 0) <= 0:
+        return ["startup_receipt_gate_blocked:private_kb_empty"]
+    if not receipt.get("milvus_used"):
+        return ["startup_receipt_gate_blocked:milvus_not_used"]
+    if not _as_list(receipt.get("background_knowledge_refs")):
+        return ["startup_receipt_gate_blocked:background_knowledge_refs_missing"]
+    return []
 
 
 def _preflight_blocks(
@@ -343,6 +454,10 @@ def _build_report_entry(
         "evidence_ids": _as_list(parsed.get("evidence_ids")),
         "evidence_stats": parsed.get("evidence_stats") if isinstance(parsed.get("evidence_stats"), dict) else {},
         "startup_receipt_id": payload.get("startup_receipt_id"),
+        "source_ids": payload.get("source_ids") or [],
+        "evidence_snapshot_hash": payload.get("evidence_snapshot_hash"),
+        "capability_restrictions": payload.get("capability_restrictions") or {},
+        "research_identities": payload.get("research_identities") or [],
         "artifact_path": output_contract.get("markdown_path"),
         "markdown_path": output_contract.get("markdown_path"),
         "hermes_run_id": run_id,
@@ -936,6 +1051,7 @@ def _r2_gate(
         "r1_reports": r1_reports,
         "preflight": preflight,
         "disputes": disputes,
+        "evidence_identity": _evidence_identity(package_dir),
         "blocking_reasons": _dedupe_strings(blocks),
         "warnings": _dedupe_strings(warnings),
         "counts": {
@@ -989,6 +1105,9 @@ def _build_r2_reports_payload(plan: dict[str, Any], *, created_by: dict[str, Any
             "risk_flags": _as_list(r1_report.get("risk_flags")),
             "key_points": _as_list(r1_report.get("key_points")),
             "evidence_ids": _as_list(r1_report.get("evidence_ids")),
+            "source_ids": plan.get("evidence_identity", {}).get("source_ids") or [],
+            "evidence_snapshot_hash": plan.get("evidence_identity", {}).get("evidence_snapshot_hash"),
+            "active_sources": plan.get("evidence_identity", {}).get("active_sources") or [],
             "artifact_path": deal_reports.R2_REPORT_ARTIFACT_PATH,
             "generation_mode": "deterministic_r1_5_revision_v1",
             "created_by": created_by,
@@ -1120,6 +1239,7 @@ def _r3_gate(
         "deal_id": normalized_deal_id,
         "workflow": workflow,
         "r2_reports": r2_reports,
+        "evidence_identity": _evidence_identity(package_dir),
         "preflight": preflight,
         "skip": bool(skip),
         "skip_reason": str(skip_reason or "").strip(),
@@ -1143,6 +1263,8 @@ def _build_r3_payload(plan: dict[str, Any], *, created_by: dict[str, Any] | None
             "skipped": True,
             "skip_reason": plan.get("skip_reason"),
             "reports": {},
+            "source_ids": plan.get("evidence_identity", {}).get("source_ids") or [],
+            "evidence_snapshot_hash": plan.get("evidence_identity", {}).get("evidence_snapshot_hash"),
             "generation_mode": "deterministic_r3_skip_v1",
             "created_by": created_by,
             "created_at": now,
@@ -1169,6 +1291,8 @@ def _build_r3_payload(plan: dict[str, Any], *, created_by: dict[str, Any] | None
             "summary": f"{_profile_label(agent_id)} R3 deterministic review challenged unresolved R2 assumptions.",
             "challenges": challenges,
             "evidence_ids": _as_list(r2_report.get("evidence_ids")),
+            "source_ids": plan.get("evidence_identity", {}).get("source_ids") or [],
+            "evidence_snapshot_hash": plan.get("evidence_identity", {}).get("evidence_snapshot_hash"),
             "generation_mode": "deterministic_r2_red_blue_review_v1",
             "created_by": created_by,
             "created_at": now,
@@ -1181,6 +1305,8 @@ def _build_r3_payload(plan: dict[str, Any], *, created_by: dict[str, Any] | None
         "mode": "normal",
         "skipped": False,
         "reports": reports,
+        "source_ids": plan.get("evidence_identity", {}).get("source_ids") or [],
+        "evidence_snapshot_hash": plan.get("evidence_identity", {}).get("evidence_snapshot_hash"),
         "generation_mode": "deterministic_r2_red_blue_review_v1",
         "created_by": created_by,
         "created_at": now,
@@ -1334,6 +1460,7 @@ def _r4_gate(
         "r2_reports": r2_reports,
         "r3_summary": r3_summary,
         "chairman_score": chairman_score,
+        "evidence_identity": _evidence_identity(package_dir),
         "blocking_reasons": _dedupe_strings(blocks),
         "warnings": _dedupe_strings(warnings),
         "counts": {
@@ -1461,6 +1588,165 @@ def finalize_workflow_r4(
     })
 
 
+def _require_phase_model_enabled(env_name: str) -> None:
+    raw = os.getenv(env_name)
+    if raw is not None and raw.strip().lower() not in {"1", "true", "yes", "on"}:
+        raise ValueError(f"Hermes model phase is disabled by {env_name}")
+
+
+async def run_workflow_r0_model(
+    deal_id: str,
+    *,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    _require_phase_model_enabled("SIQ_IC_R0_MODEL_ENABLED")
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    receipt_readiness = build_model_phase_receipt_readiness(deal_id, "R0", wiki_root=wiki_root)
+    if not receipt_readiness["allowed"]:
+        raise ValueError("R0 model run blocked: " + ", ".join(receipt_readiness["blocking_reasons"]))
+    return deal_store.redact_public_payload(
+        await ic_phase_orchestrator.run_r0_model(
+            package_dir,
+            created_by=created_by,
+            timeout=timeout,
+        )
+    )
+
+
+async def run_workflow_r1_5_model(
+    deal_id: str,
+    *,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    _require_phase_model_enabled("SIQ_IC_R15_MODEL_ENABLED")
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    receipt_readiness = build_model_phase_receipt_readiness(deal_id, "R1.5", wiki_root=wiki_root)
+    if not receipt_readiness["allowed"]:
+        raise ValueError("R1.5 model run blocked: " + ", ".join(receipt_readiness["blocking_reasons"]))
+    return deal_store.redact_public_payload(await ic_phase_orchestrator.run_r15_model(
+        package_dir,
+        created_by=created_by,
+        timeout=timeout,
+        overwrite=overwrite,
+    ))
+
+
+async def run_workflow_r2_async(
+    deal_id: str,
+    *,
+    mode: str = "model",
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    normalized_mode = str(mode or "model").strip().lower()
+    if normalized_mode == "deterministic_fallback":
+        fallback = run_workflow_r2(deal_id, created_by=created_by, wiki_root=wiki_root)
+        fallback["generation_mode"] = "deterministic_fallback"
+        fallback["fallback"] = True
+        fallback["hermes_called"] = False
+        return fallback
+    if normalized_mode != "model":
+        raise ValueError("R2 mode must be model or deterministic_fallback")
+    _require_phase_model_enabled("SIQ_IC_R2_MODEL_ENABLED")
+    receipt_readiness = build_model_phase_receipt_readiness(deal_id, "R2", wiki_root=wiki_root)
+    if not receipt_readiness["allowed"]:
+        raise ValueError("R2 model run blocked: " + ", ".join(receipt_readiness["blocking_reasons"]))
+    plan = _r2_gate(deal_id, wiki_root=wiki_root)
+    if plan["blocking_reasons"]:
+        raise ValueError(f"R2 model run blocked: {', '.join(plan['blocking_reasons'])}")
+    return deal_store.redact_public_payload(await ic_phase_orchestrator.run_r2_model(
+        plan["package_dir"],
+        created_by=created_by,
+        timeout=timeout,
+    ))
+
+
+async def run_workflow_r3_async(
+    deal_id: str,
+    *,
+    mode: str = "model",
+    skip: bool = False,
+    skip_reason: str | None = None,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    normalized_mode = str(mode or "model").strip().lower()
+    if normalized_mode == "deterministic_fallback":
+        fallback = run_workflow_r3(
+            deal_id,
+            skip=skip,
+            skip_reason=skip_reason,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+        fallback["generation_mode"] = "deterministic_fallback"
+        fallback["fallback"] = True
+        fallback["hermes_called"] = False
+        return fallback
+    if normalized_mode != "model":
+        raise ValueError("R3 mode must be model or deterministic_fallback")
+    if skip:
+        raise ValueError("R3 model mode uses the dynamic planner; use deterministic_fallback for an explicit manual skip")
+    _require_phase_model_enabled("SIQ_IC_R3_MODEL_ENABLED")
+    receipt_readiness = build_model_phase_receipt_readiness(deal_id, "R3", wiki_root=wiki_root)
+    if not receipt_readiness["allowed"]:
+        raise ValueError("R3 model run blocked: " + ", ".join(receipt_readiness["blocking_reasons"]))
+    plan = _r3_gate(deal_id, skip=False, wiki_root=wiki_root)
+    if plan["blocking_reasons"]:
+        raise ValueError(f"R3 model run blocked: {', '.join(plan['blocking_reasons'])}")
+    return deal_store.redact_public_payload(await ic_phase_orchestrator.run_r3_model(
+        plan["package_dir"],
+        created_by=created_by,
+        timeout=timeout,
+        allow_skip=True,
+    ))
+
+
+async def finalize_workflow_r4_async(
+    deal_id: str,
+    *,
+    mode: str = "model",
+    overwrite: bool = False,
+    created_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
+    normalized_mode = str(mode or "model").strip().lower()
+    if normalized_mode == "deterministic_fallback":
+        fallback = finalize_workflow_r4(
+            deal_id,
+            overwrite=overwrite,
+            created_by=created_by,
+            wiki_root=wiki_root,
+        )
+        fallback["generation_mode"] = "deterministic_fallback"
+        fallback["fallback"] = True
+        fallback["hermes_called"] = False
+        return fallback
+    if normalized_mode != "model":
+        raise ValueError("R4 mode must be model or deterministic_fallback")
+    _require_phase_model_enabled("SIQ_IC_R4_MODEL_ENABLED")
+    receipt_readiness = build_model_phase_receipt_readiness(deal_id, "R4", wiki_root=wiki_root)
+    if not receipt_readiness["allowed"]:
+        raise ValueError("R4 model finalize blocked: " + ", ".join(receipt_readiness["blocking_reasons"]))
+    plan = _r4_gate(deal_id, overwrite=overwrite, wiki_root=wiki_root)
+    if plan["blocking_reasons"]:
+        raise ValueError(f"R4 model finalize blocked: {', '.join(plan['blocking_reasons'])}")
+    return deal_store.redact_public_payload(await ic_phase_orchestrator.run_r4_model(
+        plan["package_dir"],
+        created_by=created_by,
+        timeout=timeout,
+        overwrite=overwrite,
+    ))
+
+
 def _task_payload(
     *,
     package_dir: Path,
@@ -1488,6 +1774,10 @@ def _task_payload(
         "workflow_policy_path": "agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json",
         "startup_receipt_path": "phases/startup_receipts.json",
         "startup_receipt_id": receipt.get("receipt_id") if isinstance(receipt, dict) else None,
+        "source_ids": receipt.get("source_ids", []) if isinstance(receipt, dict) else [],
+        "evidence_snapshot_hash": receipt.get("evidence_snapshot_hash") if isinstance(receipt, dict) else None,
+        "capability_restrictions": receipt.get("capability_restrictions", {}) if isinstance(receipt, dict) else {},
+        "research_identities": receipt.get("research_identities", []) if isinstance(receipt, dict) else [],
         "input_artifacts": {
             "manifest": "manifest.json",
             "evidence_index": evidence.get("index_path") or "evidence/evidence_index.json",
@@ -1500,6 +1790,8 @@ def _task_payload(
             "必须先读取 startup receipt",
             "必须区分 verified/assumed",
             "必须引用已知 evidence_id；历史文本引用只能作为兼容说明",
+            "所有一级市场引用必须匹配 payload 的 source_ids 和 evidence_snapshot_hash",
+            "financial_facts 受限时不得生成 verified 数字 claim，只能标记 assumed/contested/insufficient_evidence",
             "不得访问 data/wiki/companies，除非任务显式授权",
             "不得输出投资执行指令，只输出投委会建议",
             "API 服务层负责最终写文件、审计和阶段状态更新",
@@ -1534,6 +1826,8 @@ def build_ic_agent_task_dry_run(
         blocking_reasons.append("agent_already_submitted")
     if receipt is None:
         blocking_reasons.append("startup_receipt_missing")
+    else:
+        blocking_reasons.extend(_startup_receipt_gate_blocks(receipt))
 
     payload = _task_payload(
         package_dir=package_dir,
@@ -1543,6 +1837,22 @@ def build_ic_agent_task_dry_run(
         workflow=workflow,
         receipt=receipt,
     )
+    phase_task: dict[str, Any] | None = None
+    handoff: dict[str, Any] | None = None
+    if (
+        not blocking_reasons
+        and isinstance(receipt, dict)
+        and str(receipt.get("schema_version") or "").endswith("_v2")
+        and receipt.get("evidence_snapshot_hash")
+    ):
+        phase_task, handoff = ic_phase_orchestrator.build_r1_task_envelope(
+            package_dir,
+            agent_id=canonical_profile,
+            receipt=receipt,
+            persist=False,
+        )
+        payload["phase_task_envelope"] = phase_task
+        payload["agent_handoff"] = handoff
     return {
         "schema_version": AGENT_TASK_DRY_RUN_SCHEMA,
         "deal_id": normalized_deal_id,
@@ -1554,6 +1864,8 @@ def build_ic_agent_task_dry_run(
         "preflight_status": preflight.get("status"),
         "receipt": deal_store.redact_public_payload(receipt) if isinstance(receipt, dict) else None,
         "payload": deal_store.redact_public_payload(payload),
+        "phase_task_envelope": deal_store.redact_public_payload(phase_task),
+        "agent_handoff": deal_store.redact_public_payload(handoff),
         "dry_run": True,
         "hermes_called": False,
         "report_written": False,
@@ -1593,6 +1905,8 @@ def build_r1_agent_readiness(
         blocking_reasons = [*workflow_reasons, *preflight_blocks]
         if receipt is None:
             blocking_reasons.append("startup_receipt_missing")
+        else:
+            blocking_reasons.extend(_startup_receipt_gate_blocks(receipt))
         allowed = not blocking_reasons
         agents.append({
             "agent_id": profile_id,
@@ -1707,8 +2021,13 @@ def build_workflow_r1_serial_run_dry_run(
     for profile_id in ic_policy.R1_AGENT_SEQUENCE:
         profile = profiles.get(profile_id, {"id": profile_id, "label": profile_id, "role": profile_id})
         receipt = receipts.get(profile_id)
-        index = ic_policy.R1_AGENT_SEQUENCE.index(profile_id)
-        missing_previous = [agent_id for agent_id in ic_policy.R1_AGENT_SEQUENCE[:index] if agent_id not in virtual_submitted]
+        if profile_id in R1A_AGENT_IDS:
+            dependencies: tuple[str, ...] = ()
+        elif profile_id == ic_phase_orchestrator.RISK_AGENT_ID:
+            dependencies = tuple(R1A_AGENT_IDS)
+        else:
+            dependencies = (*R1A_AGENT_IDS, ic_phase_orchestrator.RISK_AGENT_ID)
+        missing_previous = [agent_id for agent_id in dependencies if agent_id not in virtual_submitted]
         blocking_reasons: list[str] = []
         action = "pending"
         would_run = False
@@ -1727,9 +2046,11 @@ def build_workflow_r1_serial_run_dry_run(
                     current_agent_id=profile_id,
                 ))
                 if missing_previous:
-                    blocking_reasons.append(f"r1_sequence_waiting_for:{','.join(missing_previous)}")
+                    blocking_reasons.append(f"r1_hybrid_dag_waiting_for:{','.join(missing_previous)}")
                 if receipt is None:
                     blocking_reasons.append("startup_receipt_missing")
+                else:
+                    blocking_reasons.extend(_startup_receipt_gate_blocks(receipt))
                 if blocking_reasons:
                     action = "blocked"
                     stop_reason = blocking_reasons[0]
@@ -1814,72 +2135,79 @@ async def _run_workflow_r1_agent_without_claim(
 
     package_dir = _require_package_dir(task["deal_id"], wiki_root=wiki_root)
     payload = task.get("payload") if isinstance(task.get("payload"), dict) else {}
-    prompt = _agent_prompt(payload)
-    run_id = await hermes_client.create_run(
-        prompt,
-        [],
-        profile=task["agent_id"],
-        session_id=f"deal-{task['deal_id']}-{task['agent_id']}-{task['round_name']}",
-    )
-    output_text = await hermes_client.collect_run_result(
-        run_id,
-        profile=task["agent_id"],
+    receipt = _receipt_for(package_dir, task["deal_id"], task["agent_id"])
+    if not (
+        isinstance(receipt, dict)
+        and str(receipt.get("schema_version") or "").endswith("_v2")
+        and receipt.get("evidence_snapshot_hash")
+    ):
+        raise ValueError("R1 formal model run requires a current startup receipt v2")
+    model_result = await ic_phase_orchestrator.run_r1_model_task(
+        package_dir,
+        agent_id=task["agent_id"],
+        receipt=receipt,
+        created_by=created_by,
         timeout=timeout,
     )
-
-    parsed = _extract_json_object(output_text)
-    try:
-        parsed = _validate_r1_report_contract(
-            package_dir=package_dir,
-            task=task,
-            parsed=parsed,
-        )
-    except ValueError as exc:
-        contract_errors = exc.errors if isinstance(exc, R1ReportContractError) else [str(exc)]
-        missing_fields = [
-            error.removesuffix("_missing")
-            for error in contract_errors
-            if error.endswith("_missing")
-        ]
-        deal_store.append_audit_event(
+    phase_task = model_result["task"]
+    handoff = model_result["handoff"]
+    execution = model_result["execution"]
+    run_id = str(execution.get("hermes_run_id") or "")
+    payload["phase_task_envelope"] = phase_task
+    payload["agent_handoff"] = handoff
+    payload["handoff_payload"] = ic_phase_orchestrator.read_handoff_payload(
+        package_dir,
+        handoff.get("handoff_id"),
+    )
+    task["payload"] = payload
+    if model_result["stale_on_completion"]:
+        audit_event = deal_store.append_audit_event(
             task["deal_id"],
             {
-                "event_type": "deal_r1_agent_run_rejected",
+                "event_type": "deal_r1_agent_run_stale_on_completion",
                 "deal_id": task["deal_id"],
                 "agent_id": task["agent_id"],
-                "round_name": task["round_name"],
                 "hermes_run_id": run_id,
-                "startup_receipt_id": payload.get("startup_receipt_id"),
-                "reason": str(exc),
-                "contract_errors": contract_errors,
-                "missing_fields": missing_fields,
-                "invalid_fields": [error for error in contract_errors if not error.endswith("_missing")],
-                "required_fields": (payload.get("output_contract") or {}).get("required_fields"),
+                "expected_evidence_snapshot_hash": phase_task.get("evidence_snapshot_hash"),
+                "current_evidence_snapshot_hash": phase_task.get("current_evidence_snapshot_hash"),
+                "task_id": phase_task.get("task_id"),
+                "input_digest": phase_task.get("input_digest"),
                 "report_written": False,
                 "workflow_advanced": False,
-                "output_preview": _text_preview(output_text),
                 "created_by": created_by,
             },
             wiki_root=wiki_root,
         )
-        raise
-    markdown_path = _write_markdown_report(
-        package_dir,
-        task=task,
-        run_id=run_id,
-        output_text=output_text,
+        return deal_store.redact_public_payload({
+            "schema_version": WORKFLOW_R1_AGENT_RUN_SCHEMA,
+            "deal_id": task["deal_id"],
+            "agent_id": task["agent_id"],
+            "round_name": task["round_name"],
+            "status": "stale_on_completion",
+            "hermes_called": True,
+            "hermes_run_id": run_id,
+            "phase_task_envelope": phase_task,
+            "report_written": False,
+            "workflow_advanced": False,
+            "audit_event": audit_event,
+        })
+    report_entry = dict(model_result["report"])
+    output_contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+    markdown_path = str(
+        output_contract.get("markdown_path")
+        or _output_contract(task["agent_id"], task["round_name"])["markdown_path"]
     )
-    report_entry = _build_report_entry(
-        task=task,
-        run_id=run_id,
-        output_text=output_text,
-        parsed=parsed,
-        created_by=created_by,
-    )
+    markdown_file = package_dir / markdown_path
+    markdown_file.parent.mkdir(parents=True, exist_ok=True)
+    markdown_file.write_text(str(model_result["markdown"]), encoding="utf-8")
     report_entry["markdown_path"] = markdown_path
     report_entry["artifact_path"] = markdown_path
     json_path = _merge_r1_report(package_dir, task["agent_id"], report_entry)
     workflow = _advance_workflow_for_r1_report(package_dir, task["agent_id"])
+    persisted_handoffs = ic_phase_orchestrator.persist_available_r1_handoffs(
+        package_dir,
+        created_by=created_by,
+    )
     _touch_package_status(package_dir, str(workflow.get("status") or "r1_in_progress"))
     audit_event = deal_store.append_audit_event(
         task["deal_id"],
@@ -1922,6 +2250,9 @@ async def _run_workflow_r1_agent_without_claim(
         "markdown_path": markdown_path,
         "json_path": json_path,
         "report": report_entry,
+        "phase_task_envelope": phase_task,
+        "agent_handoff": handoff,
+        "persisted_handoffs": persisted_handoffs,
         "workflow": workflow,
         "audit_event": audit_event,
     })
@@ -1951,6 +2282,26 @@ def _ic_task_claim_public(claim: dict[str, Any] | None) -> dict[str, Any]:
             "recovery_reason",
         )
     }
+
+
+async def _finish_ic_task_off_thread(
+    store_path: Path,
+    *,
+    task_key: str,
+    owner: str,
+    now: str,
+    status: str,
+    failure_reason: str | None = None,
+) -> dict[str, Any] | None:
+    return await asyncio.to_thread(
+        finish_ic_task,
+        store_path,
+        task_key=task_key,
+        owner=owner,
+        now=now,
+        status=status,
+        failure_reason=failure_reason,
+    )
 
 
 async def run_workflow_r1_agent(
@@ -2028,8 +2379,13 @@ async def run_workflow_r1_agent(
         if lease_lost.is_set():
             raise RuntimeError("IC task lease ownership was lost before completion")
     except BaseException as exc:
-        terminal_status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
-        finish_ic_task(
+        if isinstance(exc, asyncio.CancelledError):
+            terminal_status = "cancelled"
+        elif isinstance(exc, hermes_client.RunTerminalError) and exc.result.status == "timed_out":
+            terminal_status = "timed_out"
+        else:
+            terminal_status = "failed"
+        await _finish_ic_task_off_thread(
             store_path,
             task_key=task_key,
             owner=owner,
@@ -2039,12 +2395,13 @@ async def run_workflow_r1_agent(
         )
         raise
     else:
-        finished = finish_ic_task(
+        terminal_status = "stale_on_completion" if result.get("status") == "stale_on_completion" else "succeeded"
+        finished = await _finish_ic_task_off_thread(
             store_path,
             task_key=task_key,
             owner=owner,
             now=deal_store.utc_now_iso(),
-            status="succeeded",
+            status=terminal_status,
         )
         if finished is None:
             raise RuntimeError("IC task completion rejected because lease ownership changed")
@@ -2161,8 +2518,8 @@ def build_workflow_advance_next_dry_run(
     *,
     allow_hermes: bool = False,
     max_agents: int | None = 1,
-    r3_skip: bool = True,
-    r3_skip_reason: str | None = DEFAULT_R3_SKIP_REASON,
+    r3_skip: bool = False,
+    r3_skip_reason: str | None = None,
     r4_overwrite: bool = False,
     wiki_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -2176,9 +2533,44 @@ def build_workflow_advance_next_dry_run(
     action_dry_run: dict[str, Any] = {}
     requires_hermes = False
 
+    r0_readiness = deal_store.read_json(package_dir / "phases" / "r0_readiness.json", {}) or {}
+    current_snapshot = str(_evidence_identity(package_dir).get("evidence_snapshot_hash") or "")
+    r0_snapshot = str(r0_readiness.get("evidence_snapshot_hash") or "") if isinstance(r0_readiness, dict) else ""
+    if not r0_readiness or r0_snapshot != current_snapshot:
+        selected_action = "run-r0-coordinator"
+        receipt_readiness = build_model_phase_receipt_readiness(
+            normalized_deal_id,
+            "R0",
+            wiki_root=wiki_root,
+        )
+        action_dry_run = {
+            "schema_version": "siq_ic_workflow_r0_model_dry_run_v1",
+            "deal_id": normalized_deal_id,
+            "phase": "R0",
+            "allowed": receipt_readiness["allowed"],
+            "receipt_readiness": receipt_readiness,
+            "existing_readiness_stale": bool(r0_readiness),
+        }
+        blocking_reasons.extend(receipt_readiness["blocking_reasons"])
+        requires_hermes = True
+        if not allow_hermes:
+            blocking_reasons.append("r0_coordinator_requires_allow_hermes")
+    elif str(r0_readiness.get("readiness") or "") != "ready":
+        selected_action = "run-r0-coordinator"
+        action_dry_run = {
+            "schema_version": "siq_ic_workflow_r0_model_dry_run_v1",
+            "deal_id": normalized_deal_id,
+            "phase": "R0",
+            "allowed": False,
+            "blocking_reasons": ["r0_readiness_requires_new_evidence"],
+            "readiness": r0_readiness,
+        }
+        blocking_reasons.append("r0_readiness_requires_new_evidence")
+        requires_hermes = True
+
     r1_reports = _r1_reports(package_dir)
     r1_reports_complete = all(agent_id in r1_reports for agent_id in ic_policy.R1_AGENT_SEQUENCE)
-    if not r1_reports_complete:
+    if selected_action == "no-op" and not r1_reports_complete:
         r1_plan = build_workflow_r1_serial_run_dry_run(
             normalized_deal_id,
             max_agents=max_agents,
@@ -2209,35 +2601,79 @@ def build_workflow_advance_next_dry_run(
                 wiki_root=wiki_root,
             )
         elif unresolved > 0:
-            selected_action = "generate-dispute-rulings"
-            action_dry_run = deal_disputes.generate_deal_dispute_rulings(
+            selected_action = "run-r1-5-chairman"
+            chairman_task = deal_disputes.build_chairman_ruling_task(
                 normalized_deal_id,
-                dry_run=True,
-                overwrite=False,
+                only_unresolved=True,
                 wiki_root=wiki_root,
             )
-            if int(action_dry_run.get("generated_count") or 0) <= 0:
-                blocking_reasons.append("r1_5_unresolved_disputes_without_generated_rulings")
+            action_dry_run = {
+                "schema_version": "siq_ic_workflow_r1_5_model_dry_run_v1",
+                "deal_id": normalized_deal_id,
+                "phase": "R1.5",
+                "allowed": bool(chairman_task.get("disputes")),
+                "chairman_task": chairman_task,
+            }
+            receipt_readiness = build_model_phase_receipt_readiness(
+                normalized_deal_id,
+                "R1.5",
+                wiki_root=wiki_root,
+            )
+            action_dry_run["receipt_readiness"] = receipt_readiness
+            blocking_reasons.extend(receipt_readiness["blocking_reasons"])
+            requires_hermes = True
+            if not allow_hermes:
+                blocking_reasons.append("r1_5_chairman_requires_allow_hermes")
         elif not (package_dir / "phases" / "r2_reports.json").is_file():
             selected_action = "run-r2"
+            requires_hermes = True
+            if not allow_hermes:
+                blocking_reasons.append("r2_model_requires_allow_hermes")
             action_dry_run = build_workflow_r2_run_dry_run(normalized_deal_id, wiki_root=wiki_root)
+            receipt_readiness = build_model_phase_receipt_readiness(
+                normalized_deal_id,
+                "R2",
+                wiki_root=wiki_root,
+            )
+            action_dry_run["receipt_readiness"] = receipt_readiness
+            blocking_reasons.extend(receipt_readiness["blocking_reasons"])
             blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
         elif not (package_dir / "phases" / "r3_reports.json").is_file():
             selected_action = "run-r3"
+            requires_hermes = True
+            if not allow_hermes:
+                blocking_reasons.append("r3_model_requires_allow_hermes")
             action_dry_run = build_workflow_r3_run_dry_run(
                 normalized_deal_id,
                 skip=r3_skip,
                 skip_reason=r3_skip_reason,
                 wiki_root=wiki_root,
             )
+            receipt_readiness = build_model_phase_receipt_readiness(
+                normalized_deal_id,
+                "R3",
+                wiki_root=wiki_root,
+            )
+            action_dry_run["receipt_readiness"] = receipt_readiness
+            blocking_reasons.extend(receipt_readiness["blocking_reasons"])
             blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
         elif r4_overwrite or not (package_dir / "phases" / "r4_decision.json").is_file():
             selected_action = "finalize-r4"
+            requires_hermes = True
+            if not allow_hermes:
+                blocking_reasons.append("r4_model_requires_allow_hermes")
             action_dry_run = build_workflow_r4_finalize_dry_run(
                 normalized_deal_id,
                 overwrite=r4_overwrite,
                 wiki_root=wiki_root,
             )
+            receipt_readiness = build_model_phase_receipt_readiness(
+                normalized_deal_id,
+                "R4",
+                wiki_root=wiki_root,
+            )
+            action_dry_run["receipt_readiness"] = receipt_readiness
+            blocking_reasons.extend(receipt_readiness["blocking_reasons"])
             blocking_reasons.extend(str(item) for item in action_dry_run.get("blocking_reasons") or [])
 
     if action_dry_run and action_dry_run.get("allowed") is False and not blocking_reasons:
@@ -2268,8 +2704,8 @@ async def run_workflow_advance_next(
     *,
     allow_hermes: bool = False,
     max_agents: int | None = 1,
-    r3_skip: bool = True,
-    r3_skip_reason: str | None = DEFAULT_R3_SKIP_REASON,
+    r3_skip: bool = False,
+    r3_skip_reason: str | None = None,
     r4_overwrite: bool = False,
     created_by: dict[str, Any] | None = None,
     wiki_root: Path | str | None = None,
@@ -2300,7 +2736,14 @@ async def run_workflow_advance_next(
         reasons = ", ".join(str(item) for item in plan.get("blocking_reasons") or [])
         raise ValueError(f"Workflow advance-next blocked: {reasons or selected_action}")
 
-    if selected_action == "run-r1-serial":
+    if selected_action == "run-r0-coordinator":
+        result = await run_workflow_r0_model(
+            deal_id,
+            created_by=created_by,
+            wiki_root=wiki_root,
+            timeout=timeout,
+        )
+    elif selected_action == "run-r1-serial":
         result = await run_workflow_r1_serial(
             deal_id,
             max_agents=max_agents,
@@ -2316,30 +2759,33 @@ async def run_workflow_advance_next(
             created_by=created_by,
             wiki_root=wiki_root,
         )
-    elif selected_action == "generate-dispute-rulings":
-        result = deal_disputes.generate_deal_dispute_rulings(
+    elif selected_action == "run-r1-5-chairman":
+        result = await run_workflow_r1_5_model(
             deal_id,
-            dry_run=False,
-            overwrite=False,
             created_by=created_by,
             wiki_root=wiki_root,
+            timeout=timeout,
         )
     elif selected_action == "run-r2":
-        result = run_workflow_r2(deal_id, created_by=created_by, wiki_root=wiki_root)
+        result = await run_workflow_r2_async(deal_id, mode="model", created_by=created_by, wiki_root=wiki_root, timeout=timeout)
     elif selected_action == "run-r3":
-        result = run_workflow_r3(
+        result = await run_workflow_r3_async(
             deal_id,
+            mode="model",
             skip=r3_skip,
             skip_reason=r3_skip_reason,
             created_by=created_by,
             wiki_root=wiki_root,
+            timeout=timeout,
         )
     elif selected_action == "finalize-r4":
-        result = finalize_workflow_r4(
+        result = await finalize_workflow_r4_async(
             deal_id,
+            mode="model",
             overwrite=r4_overwrite,
             created_by=created_by,
             wiki_root=wiki_root,
+            timeout=timeout,
         )
     else:
         raise ValueError(f"Unknown workflow advance-next action: {selected_action}")
@@ -2358,5 +2804,5 @@ async def run_workflow_advance_next(
         "action_result": result,
         "hermes_called": bool(result.get("hermes_called")),
         "report_written": bool(result.get("report_written") or result.get("written")),
-        "workflow_advanced": bool(result.get("workflow_advanced") or result.get("workflow")),
+        "workflow_advanced": bool(result.get("workflow_advanced")),
     })

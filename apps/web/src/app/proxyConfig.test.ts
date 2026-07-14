@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
@@ -10,16 +11,19 @@ type ProxyRule = {
   target: string
   rewrite?: (url: string) => string
   headers?: Record<string, string>
+  ws?: boolean
 }
 
 type ViteProxyRule = {
   target: string
   rewrite?: (url: string) => string
   headers?: Record<string, string>
+  ws?: boolean
 }
 
 type CreateProxyOptions = {
   backendUrl?: string
+  meetingStreamGatewayUrl?: string
   reportFinderUrl?: string
   includeAuth?: boolean
   includeEval?: boolean
@@ -72,6 +76,56 @@ test('vite proxy exposes deal APIs without inheriting the finder rewrite', () =>
   const finderRewrite = proxy['/api'].rewrite
   if (!finderRewrite) throw new Error('Expected /api fallback rewrite')
   assert.equal(finderRewrite('/api/v1/reports/search'), '/v1/reports/search')
+})
+
+test('meeting APIs stay on the backend before the finder fallback', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const prefixes = rules.map((rule) => rule.prefix)
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+
+  assert.ok(prefixes.includes('/api/meetings'))
+  assert.ok(prefixes.indexOf('/api/meetings') < prefixes.indexOf('/api'))
+  assert.equal(proxy['/api/meetings'].target, 'http://backend.local')
+  assert.equal(proxy['/api/meetings'].rewrite, undefined)
+  assert.equal(proxy['/api/meetings'].ws, true)
+  assert.equal(proxy['/api/deals'].ws, undefined)
+})
+
+test('meeting capture and replay can use an isolated same-origin gateway', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    meetingStreamGatewayUrl: 'http://meeting-stream.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const audioRule = rules.find((rule) => rule.prefix.startsWith('^/api/meetings/v1/sessions/'))
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    meetingStreamGatewayUrl: 'http://meeting-stream.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+
+  assert.ok(audioRule)
+  assert.equal(audioRule?.target, 'http://meeting-stream.local')
+  assert.equal(audioRule?.ws, true)
+  assert.equal(proxy[audioRule?.prefix || '']?.target, 'http://meeting-stream.local')
+  assert.ok(rules.indexOf(audioRule as ProxyRule) < rules.findIndex((rule) => rule.prefix === '/api/meetings'))
+})
+
+test('production nginx keeps meeting APIs on the backend', () => {
+  const nginxTemplate = readFileSync(resolvePath('nginx.conf.template'), 'utf8')
+  const backendRoute = nginxTemplate.match(/location ~ \^\/api\/\(([^)]+)\)/)?.[1] || ''
+  const backendBlock = nginxTemplate.match(/location ~ \^\/api\/\([^)]+\)[^{]*\{([\s\S]*?)\n\s*\}/)?.[1] || ''
+
+  assert.ok(backendRoute.split('|').includes('meetings'))
+  assert.match(backendBlock, /proxy_set_header Upgrade \$http_upgrade;/)
+  assert.match(backendBlock, /proxy_set_header Connection \$connection_upgrade;/)
+  assert.match(nginxTemplate, /proxy_pass \$\{SIQ_MEETING_STREAM_GATEWAY_URL\};/)
 })
 
 test('proxy rules keep primary-market meeting APIs on the backend before the finder fallback', () => {

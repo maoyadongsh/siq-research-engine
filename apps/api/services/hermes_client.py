@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
+import re
 import socket
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncGenerator, Literal
@@ -244,10 +248,82 @@ class StreamEvent:
     status: str = ""
     error_code: str | None = None
     retryable: bool | None = None
+    runtime: RunRuntimeMetadata | None = None
 
 
 RunTerminalStatus = Literal["succeeded", "failed", "cancelled", "timed_out", "protocol_eof"]
 RUN_TERMINAL_SCHEMA_VERSION = "siq.hermes.run_terminal.v1"
+RUN_RUNTIME_SCHEMA_VERSION = "hermes.run_runtime.v1"
+_RUNTIME_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$")
+
+
+@dataclass(frozen=True)
+class RunRuntimeMetadata:
+    """Strict, secret-free projection of Hermes runtime provenance."""
+
+    requested_model: str | None
+    configured_provider: str | None
+    configured_model: str | None
+    effective_provider: str | None
+    effective_model: str | None
+    fallback_activated: bool | None
+    schema_version: str = RUN_RUNTIME_SCHEMA_VERSION
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "requested_model": self.requested_model,
+            "configured": {
+                "provider": self.configured_provider,
+                "model": self.configured_model,
+            },
+            "effective": {
+                "provider": self.effective_provider,
+                "model": self.effective_model,
+            },
+            "fallback": {"activated": self.fallback_activated},
+        }
+
+
+def _runtime_label(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("runtime label must be a string or null")
+    normalized = value.strip()
+    if (
+        not _RUNTIME_LABEL_RE.fullmatch(normalized)
+        or "://" in normalized
+        or normalized.lower().startswith("bearer")
+    ):
+        raise ValueError("runtime label is not a safe identifier")
+    return normalized
+
+
+def normalize_run_runtime(value: Any) -> RunRuntimeMetadata | None:
+    """Accept only the versioned runtime envelope and discard all extra keys."""
+
+    if not isinstance(value, dict) or value.get("schema_version") != RUN_RUNTIME_SCHEMA_VERSION:
+        return None
+    configured = value.get("configured")
+    effective = value.get("effective")
+    fallback = value.get("fallback")
+    if not isinstance(configured, dict) or not isinstance(effective, dict) or not isinstance(fallback, dict):
+        return None
+    activated = fallback.get("activated")
+    if activated is not None and not isinstance(activated, bool):
+        return None
+    try:
+        return RunRuntimeMetadata(
+            requested_model=_runtime_label(value.get("requested_model")),
+            configured_provider=_runtime_label(configured.get("provider")),
+            configured_model=_runtime_label(configured.get("model")),
+            effective_provider=_runtime_label(effective.get("provider")),
+            effective_model=_runtime_label(effective.get("model")),
+            fallback_activated=activated,
+        )
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -260,6 +336,7 @@ class RunTerminalResult:
     error_code: str | None = None
     retryable: bool = False
     diagnostic: str | None = None
+    runtime: RunRuntimeMetadata | None = None
     schema_version: str = RUN_TERMINAL_SCHEMA_VERSION
 
     @property
@@ -267,7 +344,7 @@ class RunTerminalResult:
         return self.status == "succeeded"
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
             "status": self.status,
@@ -276,6 +353,9 @@ class RunTerminalResult:
             "received_text": self.received_text,
             "diagnostic": self.diagnostic,
         }
+        if self.runtime is not None:
+            payload["runtime"] = self.runtime.to_payload()
+        return payload
 
 
 class RunTerminalError(RuntimeError):
@@ -284,6 +364,28 @@ class RunTerminalError(RuntimeError):
     def __init__(self, result: RunTerminalResult):
         self.result = result
         super().__init__(result.diagnostic or result.error_code or result.status)
+
+
+_RECENT_RUN_TERMINALS: OrderedDict[str, RunTerminalResult] = OrderedDict()
+_RECENT_RUN_TERMINAL_LIMIT = 256
+
+
+def _remember_run_terminal(result: RunTerminalResult) -> RunTerminalResult:
+    _RECENT_RUN_TERMINALS[result.run_id] = result
+    _RECENT_RUN_TERMINALS.move_to_end(result.run_id)
+    while len(_RECENT_RUN_TERMINALS) > _RECENT_RUN_TERMINAL_LIMIT:
+        _RECENT_RUN_TERMINALS.popitem(last=False)
+    return result
+
+
+def discard_run_terminal_result(run_id: str) -> None:
+    _RECENT_RUN_TERMINALS.pop(str(run_id), None)
+
+
+def pop_run_terminal_result(run_id: str) -> RunTerminalResult | None:
+    """Consume the terminal captured by the compatibility text collector."""
+
+    return _RECENT_RUN_TERMINALS.pop(str(run_id), None)
 
 
 class RunTerminalAccumulator:
@@ -309,6 +411,7 @@ class RunTerminalAccumulator:
                 run_id=self.run_id,
                 status="succeeded",
                 received_text=text,
+                runtime=event.runtime,
             )
             return self.terminal
 
@@ -322,6 +425,7 @@ class RunTerminalAccumulator:
             error_code=error_code,
             retryable=retryable,
             diagnostic=event.text.strip() or None,
+            runtime=event.runtime,
         )
         return self.terminal
 
@@ -510,6 +614,7 @@ async def stream_run(
                         status=status,
                         error_code=error_code,
                         retryable=retryable,
+                        runtime=normalize_run_runtime(event.get("runtime")),
                     )
                     break
 
@@ -542,10 +647,10 @@ async def collect_run_terminal_result(
         async for event in stream_run(run_id, profile=profile, timeout=timeout):
             terminal = accumulator.accept(event)
             if terminal is not None:
-                return terminal
+                return _remember_run_terminal(terminal)
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
-        return accumulator.timed_out(str(exc) or exc.__class__.__name__)
-    return accumulator.protocol_eof()
+        return _remember_run_terminal(accumulator.timed_out(str(exc) or exc.__class__.__name__))
+    return _remember_run_terminal(accumulator.protocol_eof())
 
 
 async def collect_run_result(

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def _load_module():
@@ -80,7 +81,24 @@ def test_complete_pdf_archive_is_a_status(tmp_path: Path):
 
     assert result["status"] == "A_complete_pdf_wiki_archive"
     assert result["capabilities"]["can_agent_deep_research"] is True
+    assert result["capabilities"]["can_postgres_import"] is False
+    assert result["package_contract"]["ok"] is False
     assert result["missing"]["parser_archive"] == []
+
+
+def test_postgres_import_capability_requires_standard_package_contract(tmp_path: Path, monkeypatch):
+    module = _load_module()
+    _, package_dir = _base_package(tmp_path)
+    monkeypatch.setattr(
+        module,
+        "validate_evidence_package",
+        lambda _path: SimpleNamespace(ok=True, errors=[], warnings=[]),
+    )
+
+    result = module.audit_package(package_dir, "JP")
+
+    assert result["capabilities"]["can_postgres_import"] is True
+    assert result["package_contract"] == {"ok": True, "errors": [], "warnings": []}
 
 
 def test_missing_root_compat_only_is_b_status(tmp_path: Path):

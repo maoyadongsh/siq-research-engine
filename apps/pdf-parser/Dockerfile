@@ -34,4 +34,4 @@ EXPOSE 15000
 
 USER siq
 
-CMD ["gunicorn", "--bind", "0.0.0.0:15000", "--workers", "1", "--threads", "8", "--timeout", "300", "--graceful-timeout", "30", "--keep-alive", "5", "--worker-tmp-dir", "/tmp", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:15000", "--workers", "1", "--threads", "8", "--timeout", "300", "--graceful-timeout", "30", "--keep-alive", "5", "--max-requests", "1000", "--max-requests-jitter", "100", "--worker-tmp-dir", "/tmp", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]

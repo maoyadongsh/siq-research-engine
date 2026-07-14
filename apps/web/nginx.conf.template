@@ -9,7 +9,13 @@ http {
   include /etc/nginx/mime.types;
   default_type application/octet-stream;
 
-  access_log /dev/stdout;
+  # Do not log $request or $request_uri: meeting playback and stream bearer
+  # tickets are intentionally query parameters for browser media/WebSocket
+  # compatibility. $uri retains route observability without query secrets.
+  log_format siq_safe '$remote_addr - $remote_user [$time_local] '
+                      '"$request_method $uri $server_protocol" $status $body_bytes_sent '
+                      '"$http_referer" "$http_user_agent"';
+  access_log /dev/stdout siq_safe;
   error_log /dev/stderr warn;
   sendfile on;
   keepalive_timeout 65;
@@ -20,6 +26,14 @@ http {
     "http" http;
     "https" https;
   }
+
+  map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+  }
+
+  limit_req_zone $binary_remote_addr zone=meeting_native_ingest_rate:10m rate=20r/s;
+  limit_conn_zone $binary_remote_addr zone=meeting_native_ingest_conn:10m;
 
   client_body_temp_path /tmp/nginx-client-body;
   proxy_temp_path /tmp/nginx-proxy;
@@ -57,13 +71,52 @@ http {
       proxy_buffering off;
     }
 
-    location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|legal|settings|system|market-report-health|market-reports|us-sec|jobs|downloads|workflow|workspace|documents|deals|primary-market|pdf|pdf_page|source)(/|$) {
+    # Native background uploads are independently bounded at the edge. The
+    # application enforces the capture-specific byte/duration quota and a
+    # second process-level concurrency admission bound.
+    location ~ ^/api/meetings/v1/sessions/[^/]+/native-captures/[^/]+/batches/[0-9]+/[0-9]+$ {
+      client_max_body_size 64m;
+      limit_req zone=meeting_native_ingest_rate burst=40 nodelay;
+      limit_req_status 429;
+      limit_conn meeting_native_ingest_conn 4;
+      limit_conn_status 429;
       proxy_pass ${SIQ_BACKEND_URL};
       proxy_http_version 1.1;
       proxy_set_header Host $http_host;
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_request_buffering off;
+      proxy_buffering off;
+    }
+
+    # Meeting capture/replay can run outside the aggregate API. Local embedded
+    # mode points this target back at SIQ_BACKEND_URL.
+    location ~ ^/api/meetings/v1/sessions/[^/]+/audio$ {
+      # Nginx upstream error lines include the raw request target (and thus the
+      # media/WS query bearer). Stream failures are covered by meeting metrics;
+      # suppress location-scoped error text until tickets leave the query.
+      error_log /dev/null crit;
+      proxy_pass ${SIQ_MEETING_STREAM_GATEWAY_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_buffering off;
+    }
+
+    location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|legal|settings|system|market-report-health|market-reports|us-sec|jobs|downloads|workflow|workspace|documents|deals|meetings|primary-market|pdf|pdf_page|source)(/|$) {
+      proxy_pass ${SIQ_BACKEND_URL};
+      proxy_http_version 1.1;
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
       proxy_buffering off;
     }
 

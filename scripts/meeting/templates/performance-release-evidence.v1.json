@@ -1,0 +1,54 @@
+{
+  "schema_version": "siq.meeting.performance-release-evidence.v1",
+  "evaluation_id": "not-run-performance-evidence",
+  "authorization": {
+    "approved": false,
+    "all_observations_authorized": false,
+    "unapproved_production_or_historical_observations": 0,
+    "reference": "not-run-approval"
+  },
+  "candidate": {
+    "commit_sha": "0000000000000000000000000000000000000000",
+    "environment_profile": "not-run"
+  },
+  "concurrency": {
+    "release": 0,
+    "overload": 0,
+    "measurements_at_or_above_overload": false
+  },
+  "imports": [],
+  "ai_pipeline": {
+    "enqueue_ms": [],
+    "job_queue_to_complete_seconds": [],
+    "rolling_minutes_freshness_seconds": [],
+    "final_minutes_after_last_stable_seconds": []
+  },
+  "soak": {
+    "duration_seconds": 0,
+    "expected_sample_interval_seconds": 60,
+    "process_memory_limit_bytes": 1073741824,
+    "open_handle_limit": 1024,
+    "queue_capacity": 1000,
+    "samples": []
+  },
+  "hermes_outage": {
+    "duration_seconds": 0,
+    "caption_latency_baseline_p95_seconds": 0,
+    "caption_latency_outage_p95_seconds": 0,
+    "stable_segments_lost": 0
+  },
+  "recovery": {
+    "gateway_restart_runs": 0,
+    "gateway_restart_recovered_runs": 0,
+    "worker_restart_runs": 0,
+    "worker_restart_recovered_runs": 0,
+    "database_outage_runs": 0,
+    "database_outage_explicit_gap_or_safe_stop_runs": 0,
+    "storage_failure_runs": 0,
+    "storage_failure_explicit_gap_or_safe_stop_runs": 0,
+    "stable_segments_lost": 0,
+    "stable_segments_duplicated": 0,
+    "duplicate_artifacts": 0,
+    "model_cross_use_count": 0
+  }
+}

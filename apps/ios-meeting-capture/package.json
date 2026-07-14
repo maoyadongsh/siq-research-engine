@@ -1,0 +1,26 @@
+{
+  "name": "@siq/meeting-capture-ios",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "ios/",
+    "Package.swift"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test scripts/contract.test.mjs",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.4.1",
+    "@capacitor/ios": "8.4.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.4.1",
+    "typescript": "6.0.2"
+  }
+}

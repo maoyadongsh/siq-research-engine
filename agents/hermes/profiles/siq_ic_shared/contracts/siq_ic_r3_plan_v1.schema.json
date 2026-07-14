@@ -1,0 +1,61 @@
+{
+  "$id": "siq_ic_r3_plan_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "estimated_rounds": {
+      "maximum": 10,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "human_skip_confirmation": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "skip",
+        "short",
+        "full"
+      ]
+    },
+    "reason_codes": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "requires_human_confirmation_to_skip": {
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "siq_ic_r3_plan_v1"
+    },
+    "skip_checks": {
+      "additionalProperties": {
+        "type": "boolean"
+      },
+      "type": "object"
+    },
+    "topics": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "mode",
+    "reason_codes",
+    "topics",
+    "estimated_rounds",
+    "requires_human_confirmation_to_skip"
+  ],
+  "type": "object"
+}

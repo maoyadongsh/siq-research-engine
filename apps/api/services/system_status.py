@@ -10,9 +10,8 @@ import httpx
 
 from services.hermes_client import HERMES_PROFILES
 from services.hermes_model_control import describe_all_profile_models
-from services.path_config import WIKI_ROOT as CONFIG_WIKI_ROOT
 from services.llm_settings import load_llm_settings
-
+from services.path_config import WIKI_ROOT as CONFIG_WIKI_ROOT
 
 WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 COMPANIES_DIR = Path(WIKI_ROOT) / "companies"
@@ -181,7 +180,7 @@ def _model_status() -> dict[str, Any]:
 
 
 async def collect_system_status() -> dict[str, Any]:
-    ic_hermes_enabled = _env_bool("SIQ_ENABLE_IC_HERMES", False)
+    ic_hermes_enabled = _env_bool("SIQ_ENABLE_IC_HERMES", True)
     service_specs = [
         {
             "service_id": "report_finder",
@@ -193,7 +192,7 @@ async def collect_system_status() -> dict[str, Any]:
             "service_id": "pdf_parser",
             "name": "PDF 解析服务",
             "category": "pdf",
-            "url": _env_url_any(("SIQ_PDF2MD_HEALTH_URL", "PDF2MD_HEALTH_URL"), "http://127.0.0.1:15000/api/health"),
+            "url": _env_url_any(("SIQ_PDF2MD_HEALTH_URL", "PDF2MD_HEALTH_URL"), "http://127.0.0.1:15000/api/ready"),
             "headers": (
                 {"X-PDF2MD-Token": os.environ["PDF2MD_ACCESS_TOKEN"]}
                 if os.environ.get("PDF2MD_ACCESS_TOKEN")
@@ -227,8 +226,8 @@ async def collect_system_status() -> dict[str, Any]:
                     category="agent",
                     url=health_url,
                     reason=(
-                        "SIQ_ENABLE_IC_HERMES is not enabled; IC Hermes gateways are optional "
-                        "and are skipped by start_all.sh by default."
+                        "SIQ_ENABLE_IC_HERMES is explicitly disabled; IC Hermes gateways "
+                        "were skipped."
                     ),
                 )
             )

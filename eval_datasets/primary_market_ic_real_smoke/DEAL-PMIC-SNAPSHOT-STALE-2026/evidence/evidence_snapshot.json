@@ -1,0 +1,27 @@
+{
+  "schema_version": "siq_deal_evidence_snapshot_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "snapshot_hash": "45e2d312033c1c38a19d099b65b56ef8aa9ba3b12b81fe040baacbb30503b23a",
+  "active_sources": [
+    {
+      "source_id": "PM:DEAL-PMIC-SNAPSHOT-STALE-2026:DOC-PMICSTALE2026A1:PRUN-20260714-PMICSTALE001",
+      "document_id": "DOC-PMICSTALE2026A1",
+      "parse_run_id": "PRUN-20260714-PMICSTALE001",
+      "status": "ready",
+      "capabilities": {
+        "text_evidence": "ready",
+        "source_page_trace": "ready",
+        "financial_facts": "ready",
+        "semantic_index": "ready"
+      },
+      "archive_manifest_sha256": "e7a34d96e5c3b478f6fc396f7e90241972db23ef5b9d0c32eaf7e2a7988e1643"
+    }
+  ],
+  "source_ids": [
+    "PM:DEAL-PMIC-SNAPSHOT-STALE-2026:DOC-PMICSTALE2026A1:PRUN-20260714-PMICSTALE001"
+  ],
+  "evidence_index_sha256": "48b9bfbb9ff1b17e396d530059aabf75f536dec96ae96474e7494693f95786e1",
+  "evidence_contract_version": "siq_deal_evidence_item_v1",
+  "synthetic_evaluation_only": true,
+  "created_at": "2026-07-14T00:00:00Z"
+}

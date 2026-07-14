@@ -15,6 +15,8 @@
 | `ic_prompt_contract.md` | prompt 组合、角色边界与协作限制 |
 | `openclaw_script_migration_matrix.json` | OpenClaw 到 SIQ 的迁移追踪矩阵 |
 | `openclaw_asset_migration_inventory.json` | OpenClaw profile / template / skill 资产迁移清单 |
+| `golden_case_manifest.json` | 候选黄金用例与尚未通过的质量验收状态 |
+| `tasks/` | R0-R4 结构化任务、双库来源分类和 fallback 身份模板 |
 | `templates/` | 复用型模板目录 |
 | `skills/` | 迁入 Hermes runtime 的一级市场投委会技能包 |
 
@@ -32,6 +34,8 @@
 - 共享报告结构与 evidence 等级定义。
 - 共享 workflow 阶段和门禁语义。
 - 不在各自目录重复定义一套相互冲突的评分或报告 contract。
+- 每个 IC profile 同时检索共享项目 Evidence collection 与自己的 Milvus 私有背景 collection。
+- 项目 Evidence 与背景知识引用必须保存不同的 `source_class`；背景知识不得验证项目事实。
 
 ## 与 `data/wiki/deals` 的关系
 

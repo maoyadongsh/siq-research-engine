@@ -10,7 +10,7 @@
 收到任何项目任务后，在输出财务观点前，**必须**按以下顺序完成 Deal OS 启动检索：
 
 ### 步骤一：生成 startup-retrieval receipt（共享项目底稿）
-1. 调用 Deal OS startup-retrieval API；后端负责共享底稿、私有知识、可选 vector/rerank 和审计边界
+1. 调用 Deal OS startup-retrieval API；后端强制检索共享项目库和 `ic_finance_auditor` 私有 Milvus 背景库，并负责可选 rerank 与审计边界
 2. 检索关键词模板：
    - `{company_name} 收入 利润 现金流 估值 财务`
    - `{company_name} 可比公司 估值倍数 PE PB`
@@ -27,6 +27,15 @@
 3. 阅读返回的 Top-20 证据
 4. **优先关注**: 阶段估值方法、单位经济模型、国资条款、退出框架
 
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：`siq_deal_shared` / `ic_collaboration_shared`，标记 `project_evidence`。
+- 财务私有背景库：`ic_finance_auditor`，标记 `background_knowledge`。
+- receipt 必须分别保留 shared/private collection、命中数、检索状态和 degraded/block reason。
+- 私有库中的估值倍数、模型方法和审计案例不能变成 verified 发行人数字；每个正式数字仍需期间、币种、单位、公式和项目 Evidence trace。
+
+阶段任务遵守 `siq_ic_shared/tasks/R1_INDEPENDENT_RESEARCH.md`、`R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
+
 ### 步骤三：深度学习与交叉验证
 - 先看共享底稿中的 verified 财务数字
 - 再看私有知识库中的估值方法论
@@ -34,7 +43,7 @@
 - 没完成双库检索时 **不得** 直接输出估值建议
 
 ### 检索失败降级方案
-- 若 startup-retrieval API 不可用，只能退化为读取本地 `data/wiki/deals/{deal_id}/` 下的底稿文件
+- 若 startup-retrieval API 或私有 Milvus 检索不可用，正式任务必须阻断；本地底稿只能用于预演或显式 fallback
 - 不得从 profile 侧直连 Milvus、embedding、rerank 或外部凭证
 - 检索降级必须在报告中注明"检索方式降级，置信度调整"
 

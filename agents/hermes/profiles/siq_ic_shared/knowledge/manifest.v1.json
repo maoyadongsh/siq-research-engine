@@ -1,0 +1,89 @@
+{
+  "schema_version": "siq_ic_profile_knowledge_manifest_v1",
+  "manifest_version": "2026-07-13.v1",
+  "contract_version": "siq_ic_profile_knowledge_v1",
+  "published_at": "2026-07-13",
+  "source_class": "background_knowledge",
+  "project_tag": "siq-ic-profile-knowledge-2026-07-13-v1",
+  "vector_dimensions": 1024,
+  "chunking": {
+    "max_chars": 1200,
+    "overlap_chars": 120
+  },
+  "provenance": {
+    "method": "OpenClaw-derived role behavior normalized against current Hermes IC contracts",
+    "authoritative_contracts": [
+      "agents/hermes/profiles/siq_ic_shared/ic_evidence_contract.md",
+      "agents/hermes/profiles/siq_ic_shared/ic_prompt_contract.md",
+      "agents/hermes/profiles/siq_ic_shared/ic_report_contract.md",
+      "agents/hermes/profiles/siq_ic_shared/ic_workflow_policy.json",
+      "agents/hermes/profiles/siq_ic_shared/ic_profile_matrix.json"
+    ],
+    "excluded_sources": [
+      "project facts and reports",
+      "runtime memory and sessions",
+      "credentials and local configuration",
+      "hardcoded machine paths",
+      "unreviewed discussion artifacts"
+    ]
+  },
+  "profiles": [
+    {
+      "profile_id": "siq_ic_master_coordinator",
+      "physical_collection": "ic_master_coordinator",
+      "role": "master_coordinator",
+      "title": "Master Coordinator Methodology",
+      "path": "siq_ic_master_coordinator.md",
+      "sha256": "3ba84cdf0ba1e5126d9e25c5e4e16b6ba40f3288bcbb8010fb0f1a7bb34c76f1"
+    },
+    {
+      "profile_id": "siq_ic_chairman",
+      "physical_collection": "ic_chairman",
+      "role": "chairman",
+      "title": "Investment Committee Chairman Methodology",
+      "path": "siq_ic_chairman.md",
+      "sha256": "9bc2a50a756f4b23955da5df834e23b5db744144400b01a0f3514ad5e9b7de69"
+    },
+    {
+      "profile_id": "siq_ic_strategist",
+      "physical_collection": "ic_strategist",
+      "role": "strategy",
+      "title": "Strategy Expert Methodology",
+      "path": "siq_ic_strategist.md",
+      "sha256": "17fa508852e37f2452637299247659a713a73bcfaae6f7f278235f00accac64d"
+    },
+    {
+      "profile_id": "siq_ic_sector_expert",
+      "physical_collection": "ic_sector_expert",
+      "role": "sector",
+      "title": "Sector Expert Methodology",
+      "path": "siq_ic_sector_expert.md",
+      "sha256": "ddec223d83c3403dc01f96c282525a6fefcba808ac5bbeb8ee8fd40ae51e8f6b"
+    },
+    {
+      "profile_id": "siq_ic_finance_auditor",
+      "physical_collection": "ic_finance_auditor",
+      "role": "finance",
+      "title": "Finance Auditor Methodology",
+      "path": "siq_ic_finance_auditor.md",
+      "sha256": "6dc9dc56579d1056d40ddf8d4145f7dca2094ff5b7016e577c5e10e8f09f37f9"
+    },
+    {
+      "profile_id": "siq_ic_legal_scanner",
+      "physical_collection": "ic_legal_scanner",
+      "role": "legal",
+      "title": "Legal Scanner Methodology",
+      "path": "siq_ic_legal_scanner.md",
+      "sha256": "4fd3e79fd1f713bf49e34d33eb6c89981097a74adb3805801bccc5608f799a72"
+    },
+    {
+      "profile_id": "siq_ic_risk_controller",
+      "physical_collection": "ic_risk_controller",
+      "role": "risk",
+      "title": "Risk Controller Methodology",
+      "path": "siq_ic_risk_controller.md",
+      "sha256": "995aca23941c15c28631dada3e25d9255f74fc098d6c23c185232be50c7e8ae8"
+    }
+  ],
+  "manifest_digest": "33f5a56241b1a4935874a683270936ce627259a24d88060501055ac076755090"
+}

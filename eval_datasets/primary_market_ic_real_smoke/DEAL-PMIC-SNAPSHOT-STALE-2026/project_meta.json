@@ -1,0 +1,22 @@
+{
+  "schema_version": "siq_deal_project_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "legacy_project_id": null,
+  "company_name": "更衡（纯合成）",
+  "industry": "先进封装检测",
+  "stage": "Pre-IPO",
+  "deal_type": "合成股权投资评测项目",
+  "source": "synthetic_evaluation_only",
+  "status": "draft",
+  "created_by": {
+    "id": "primary-market-ic-positive-smoke",
+    "username": "synthetic-evaluation-generator"
+  },
+  "created_at": "2026-07-14T00:00:00Z",
+  "updated_at": "2026-07-14T00:00:00Z",
+  "final_decision": null,
+  "final_score": null,
+  "confidentiality_level": "private",
+  "synthetic_evaluation_only": true,
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

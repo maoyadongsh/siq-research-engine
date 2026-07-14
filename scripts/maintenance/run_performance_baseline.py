@@ -14,6 +14,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterator, Mapping
@@ -32,6 +33,9 @@ DEFAULT_MARKET_INGESTION_WIKI_ROOT = REPO_ROOT / "eval_datasets" / "market_inges
 DEFAULT_DOCUMENT_FULL_CASES = REPO_ROOT / "eval_datasets" / "market_document_full_postgres" / "cases.json"
 DEFAULT_PRODUCTION_SAMPLE_MANIFEST = (
     REPO_ROOT / "eval_datasets" / "market_document_full_postgres" / "production_sample_manifest.json"
+)
+DEFAULT_IC_VECTOR_RETRIEVAL_CASES = (
+    REPO_ROOT / "eval_datasets" / "ic_profile_vector_retrieval_contract" / "cases.json"
 )
 DEFAULT_MARKET_PACKAGE = (
     REPO_ROOT
@@ -369,7 +373,7 @@ def _parser_document_full_load_benchmark(
 
 def _postgres_agent_view_query_benchmark() -> dict[str, Any]:
     try:
-        import psycopg
+        psycopg = import_module("psycopg")
     except Exception as exc:
         return {
             "passed": False,
@@ -450,6 +454,129 @@ def _agent_memory_ingest_module() -> Any:
         "siq_agent_memory_milvus_ingest_for_perf",
         REPO_ROOT / "scripts" / "hermes" / "ingest_agent_memory_to_milvus.py",
     )
+
+
+def _ic_vector_retrieval_module() -> Any:
+    return _load_module(
+        "siq_ic_vector_retrieval_for_perf",
+        REPO_ROOT / "apps" / "api" / "services" / "vector_retrieval.py",
+    )
+
+
+def _load_ic_vector_retrieval_cases(cases_path: Path, *, max_cases: int) -> list[dict[str, Any]]:
+    payload = json.loads(cases_path.read_text(encoding="utf-8"))
+    raw_cases = payload.get("cases") if isinstance(payload, dict) else payload
+    if not isinstance(raw_cases, list):
+        raise ValueError("IC vector retrieval cases must be a JSON array or a cases object")
+    return [item for item in raw_cases if isinstance(item, dict)][: max(1, int(max_cases))]
+
+
+def _ic_methodology_hit_rank(
+    payload: dict[str, Any],
+    case: dict[str, Any],
+) -> int | None:
+    expected_profile = str(case.get("profile_id") or "")
+    expected_title = str(case.get("expected_title_contains") or "").casefold()
+    expected_project_tag = str(case.get("expected_project_tag") or "")
+    for rank, hit in enumerate(payload.get("methodology_hits") or [], start=1):
+        if not isinstance(hit, dict):
+            continue
+        raw_metadata = hit.get("metadata")
+        metadata: Mapping[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+        if metadata.get("profile_id") != expected_profile:
+            continue
+        if expected_title and expected_title not in str(hit.get("title") or "").casefold():
+            continue
+        if expected_project_tag and str(hit.get("project_tag") or metadata.get("project_tag") or "") != expected_project_tag:
+            continue
+        return rank
+    return None
+
+
+def _ic_vector_retrieval_live_benchmark(
+    *,
+    embedding_base_url: str | None,
+    embedding_model: str | None,
+    cases_path: Path,
+    top_k: int,
+    max_cases: int,
+    timeout_seconds: float,
+    required: bool,
+) -> dict[str, Any]:
+    base_url = _configured_embedding_base_url(embedding_base_url)
+    if base_url is None:
+        return _optional_external_probe_result(
+            required=required,
+            reason=f"embedding base URL is not configured ({', '.join(EMBEDDING_BASE_URL_ENVS)})",
+        )
+    if not _module_available("pymilvus"):
+        return _optional_external_probe_result(required=required, reason="pymilvus is not installed")
+    try:
+        retrieval = _ic_vector_retrieval_module()
+        cases = _load_ic_vector_retrieval_cases(cases_path, max_cases=max_cases)
+        if not cases:
+            return {"passed": False, "reason": "IC vector retrieval loaded no cases", "cases": 0}
+        updates = {
+            "SIQ_VECTOR_RETRIEVAL_ENABLED": "1",
+            "SIQ_EMBEDDING_BASE_URL": base_url,
+            "SIQ_EMBEDDING_MODEL": _configured_embedding_model(embedding_model),
+        }
+        results: list[dict[str, Any]] = []
+        with _temporary_env(updates):
+            for case in cases:
+                started = time.perf_counter()
+                payload = retrieval.retrieve_vector_hits(
+                    query=str(case.get("query") or ""),
+                    private_query=str(case.get("private_query") or case.get("query") or ""),
+                    profile_id=str(case.get("profile_id") or ""),
+                    enabled=True,
+                    top_k=max(1, int(top_k)),
+                    timeout=float(timeout_seconds),
+                )
+                latency_ms = round((time.perf_counter() - started) * 1000, 3)
+                expected_physical = str(case.get("expected_physical_collection") or "")
+                actual_physical = (payload.get("physical_collections") or {}).get(case.get("profile_id"))
+                rank = _ic_methodology_hit_rank(payload, case)
+                reason = None
+                if payload.get("status") != "completed" or payload.get("milvus_used") is not True:
+                    reason = str(payload.get("reason") or "retrieval_not_completed")
+                elif expected_physical and actual_physical != expected_physical:
+                    reason = "physical_collection_mismatch"
+                elif rank is None:
+                    reason = "expected_methodology_hit_missing"
+                results.append(
+                    {
+                        "case_id": case.get("case_id"),
+                        "profile_id": case.get("profile_id"),
+                        "status": "passed" if reason is None else "failed",
+                        "rank": rank,
+                        "latency_ms": latency_ms,
+                        "reason": reason,
+                        "expected_physical_collection": expected_physical,
+                        "actual_physical_collection": actual_physical,
+                    }
+                )
+    except Exception as exc:
+        return _optional_external_probe_result(
+            required=required,
+            reason=f"IC vector retrieval probe failed: {type(exc).__name__}",
+        )
+    passed_cases = sum(1 for item in results if item.get("status") == "passed")
+    reciprocal_ranks = _reciprocal_ranks(results)
+    latencies = _float_values(results, "latency_ms")
+    case_count = len(results)
+    hit_rate = passed_cases / case_count if case_count else 0.0
+    return {
+        "passed": case_count > 0 and passed_cases == case_count,
+        "cases": case_count,
+        "passed_cases": passed_cases,
+        "hit_rate": round(hit_rate, 4),
+        "recall_at_k": round(hit_rate, 4),
+        "mrr": round(sum(reciprocal_ranks) / case_count, 4) if case_count else 0.0,
+        "top_k": max(1, int(top_k)),
+        "latency_ms": _elapsed_stats(latencies),
+        "results": results,
+    }
 
 
 def _load_agent_memory_cases(cases_path: Path | None, *, max_cases: int) -> list[dict[str, Any]]:
@@ -732,6 +859,23 @@ def build_benchmark_specs(args: argparse.Namespace) -> list[BenchmarkSpec]:
                     ),
                 ]
             )
+        ic_vector_required = bool(args.require_ic_vector_retrieval_probe)
+        if not args.skip_ic_vector_retrieval_probe:
+            specs.append(
+                BenchmarkSpec(
+                    name="ic_profile_vector_retrieval_live",
+                    fn=lambda: _ic_vector_retrieval_live_benchmark(
+                        embedding_base_url=args.agent_memory_embedding_base_url,
+                        embedding_model=args.agent_memory_embedding_model,
+                        cases_path=repo_path(args.ic_vector_retrieval_cases),
+                        top_k=max(1, int(args.ic_vector_retrieval_top_k)),
+                        max_cases=max(1, int(args.ic_vector_retrieval_max_cases)),
+                        timeout_seconds=float(args.ic_vector_retrieval_timeout),
+                        required=ic_vector_required,
+                    ),
+                    required=ic_vector_required,
+                )
+            )
     return specs
 
 
@@ -858,6 +1002,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--agent-memory-retrieval-cases", type=Path, default=None)
     parser.add_argument("--agent-memory-retrieval-top-k", type=int, default=5)
     parser.add_argument("--agent-memory-retrieval-max-cases", type=int, default=3)
+    parser.add_argument("--skip-ic-vector-retrieval-probe", action="store_true")
+    parser.add_argument("--require-ic-vector-retrieval-probe", action="store_true")
+    parser.add_argument("--ic-vector-retrieval-cases", type=Path, default=DEFAULT_IC_VECTOR_RETRIEVAL_CASES)
+    parser.add_argument("--ic-vector-retrieval-top-k", type=int, default=5)
+    parser.add_argument("--ic-vector-retrieval-max-cases", type=int, default=7)
+    parser.add_argument("--ic-vector-retrieval-timeout", type=float, default=30.0)
     parser.add_argument("--market-package", type=Path, default=DEFAULT_MARKET_PACKAGE)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--markdown", type=Path, default=DEFAULT_MARKDOWN)
@@ -881,6 +1031,8 @@ def _performance_evidence_artifacts(args: argparse.Namespace) -> list[Path]:
         artifacts.append(market_manifest)
     if args.agent_memory_retrieval_cases:
         artifacts.append(repo_path(args.agent_memory_retrieval_cases))
+    if args.mode == "nightly" and not args.skip_ic_vector_retrieval_probe:
+        artifacts.append(repo_path(args.ic_vector_retrieval_cases))
     return sorted(
         {path.resolve() for path in artifacts},
         key=lambda path: path.as_posix(),
@@ -915,6 +1067,14 @@ def _performance_evidence_command(args: argparse.Namespace) -> str:
         str(max(1, int(args.agent_memory_retrieval_top_k))),
         "--agent-memory-retrieval-max-cases",
         str(max(1, int(args.agent_memory_retrieval_max_cases))),
+        "--ic-vector-retrieval-cases",
+        "<configured-path>",
+        "--ic-vector-retrieval-top-k",
+        str(max(1, int(args.ic_vector_retrieval_top_k))),
+        "--ic-vector-retrieval-max-cases",
+        str(max(1, int(args.ic_vector_retrieval_max_cases))),
+        "--ic-vector-retrieval-timeout",
+        str(float(args.ic_vector_retrieval_timeout)),
     ]
     if args.production_sample_root is not None:
         parts.extend(["--production-sample-root", "<configured-path>"])
@@ -926,6 +1086,10 @@ def _performance_evidence_command(args: argparse.Namespace) -> str:
         parts.append("--skip-agent-memory-vector-probes")
     if args.require_agent_memory_vector_probes:
         parts.append("--require-agent-memory-vector-probes")
+    if args.skip_ic_vector_retrieval_probe:
+        parts.append("--skip-ic-vector-retrieval-probe")
+    if args.require_ic_vector_retrieval_probe:
+        parts.append("--require-ic-vector-retrieval-probe")
     if args.agent_memory_embedding_base_url is not None or args.require_agent_memory_vector_probes:
         parts.extend(["--agent-memory-embedding-base-url", "<configured-url>"])
     if args.agent_memory_embedding_model is not None or args.require_agent_memory_vector_probes:

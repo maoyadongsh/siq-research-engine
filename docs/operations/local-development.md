@@ -151,8 +151,8 @@ uv run uvicorn market_report_rules_service.app:app --host 127.0.0.1 --port 18020
 curl -s http://localhost:15173
 curl -s http://localhost:18081/health
 curl -s http://localhost:18081/metrics | head
-curl -s http://localhost:15000/api/health
-curl -s http://localhost:15010/api/health
+curl -s http://localhost:15000/api/ready
+curl -s http://localhost:15010/api/ready
 curl -s http://localhost:18000/health
 curl -s http://localhost:18010/health
 curl -s http://localhost:18020/healthz
@@ -203,6 +203,17 @@ uv run python -m pytest tests
 ```
 
 ## 注意事项
+
+### 发布门禁与开发门禁
+
+PR 和本地开发可以继续运行不依赖外部服务的 parser financial PDF `contract` 模式。正式的
+`market-postgres-release-gate` 固定使用 `live-http` 且不可跳过：runner 必须提供 checkout 外的
+`SIQ_FINANCIAL_GOLDEN_PDF_ROOT` 和可访问的 `SIQ_PDF_PARSER_URL`，并生成
+`parser_financial_pdf_release.json` 后才允许发布。
+
+性能回归 baseline 必须是通过且包含实际 benchmark 的 JSON。baseline 的 benchmark 名称集合必须
+覆盖当前报告的全部 benchmark；新增探针但未更新受批准 baseline 时，比较会 fail closed，避免空基线
+或过期基线把新探针静默排除在回归门禁之外。
 
 - 模型服务、MinerU API、VLM 和 vLLM 是主机相关服务，不由 `start_all.sh` 自动启动。
 - `data/` 是运行态目录，不应整体纳入 Git。

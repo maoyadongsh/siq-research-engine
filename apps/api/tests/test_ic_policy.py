@@ -66,23 +66,21 @@ def test_public_ic_policy_redacts_local_directories():
 def test_openclaw_script_migration_matrix_tracks_key_scripts():
     matrix = ic_policy.public_openclaw_script_migration_matrix()
 
-    assert matrix["schema_version"] == "siq_ic_openclaw_script_migration_matrix_v1"
-    assert matrix["counts"]["entries"] == len(matrix["entries"])
+    assert matrix["schema_version"] == "siq_ic_openclaw_behavior_migration_matrix_v2"
+    assert matrix["counts"]["entries"] == len(matrix["behavior_entries"])
     assert sum(matrix["counts"]["by_status"].values()) == matrix["counts"]["entries"]
-    assert matrix["counts"]["entries"] >= 37
-    for status in ("migrated", "planned", "wrap_required", "reference_only", "do_not_migrate"):
-        assert status in matrix["status_definitions"]
-    assert matrix["counts"]["by_status"]["migrated"] >= 1
-    assert matrix["counts"]["by_status"]["reference_only"] >= 1
-    assert matrix["counts"]["by_status"]["do_not_migrate"] >= 1
-    assert "planned" not in matrix["counts"]["by_status"]
-    assert "wrap_required" not in matrix["counts"]["by_status"]
-    by_script = {item["script"].rsplit("/", 1)[-1]: item for item in matrix["entries"]}
-    assert by_script["embedding_client.py"]["status"] == "migrated"
-    assert by_script["knowledge_ingestor.py"]["siq_target"].startswith("scripts/vector-index/milvus-ingestion")
-    assert by_script["r1_serial_dispatcher.py"]["status"] == "migrated"
-    assert by_script["weighted_scoring.py"]["status"] == "migrated"
-    assert by_script["qcc_client.py"]["status"] == "migrated"
+    assert matrix["counts"]["entries"] >= 10
+    for level in ("asset_migrated", "contract_migrated", "behavior_migrated", "quality_accepted"):
+        assert level in matrix["parity_definitions"]
+    assert matrix["counts"]["quality_accepted"] == 0
+    assert matrix["acceptance_policy"]["quality_accepted_default"] is False
+    by_behavior = {item["behavior_id"]: item for item in matrix["behavior_entries"]}
+    assert by_behavior["retrieval.startup.role_scoped"]["parity_level"] in {
+        "contract_migrated",
+        "behavior_migrated",
+    }
+    assert by_behavior["r3.red_blue.full"]["quality_accepted"] is False
+    assert by_behavior["report.complete_render_factcheck_and_repair"]["quality_accepted"] is False
     assert "/home/maoyd" not in json.dumps(matrix, ensure_ascii=False)
 
 
@@ -104,22 +102,26 @@ def test_openclaw_script_migration_payload_counts_filtered_entries_and_defaults(
     assert payload["schema_version"] == "matrix-v1"
     assert payload["source_scope"] == []
     assert payload["status_definitions"] == {}
+    assert payload["parity_definitions"] == {}
     assert payload["counts"] == {
         "entries": 3,
         "by_status": {"migrated": 1, "planned": 1, "unknown": 1},
         "by_category": {"retrieval": 1, "unknown": 1, "workflow": 1},
         "by_owner": {"deal": 1, "platform": 1, "unknown": 1},
+        "quality_accepted": 0,
     }
     assert [item["script"] for item in payload["entries"]] == ["a.py", "b.py", "c.py"]
 
     empty_payload = ic_policy.public_openclaw_script_migration_matrix_payload({})
     assert empty_payload["source_scope"] == []
     assert empty_payload["status_definitions"] == {}
+    assert empty_payload["parity_definitions"] == {}
     assert empty_payload["counts"] == {
         "entries": 0,
         "by_status": {},
         "by_category": {},
         "by_owner": {},
+        "quality_accepted": 0,
     }
     assert empty_payload["entries"] == []
 
@@ -146,9 +148,9 @@ def test_deals_ic_policy_endpoint_uses_public_contract():
 def test_deals_ic_script_migration_endpoint_uses_public_matrix():
     result = deals.get_ic_script_migration(current_user=SimpleNamespace(id=1, username="viewer"))
 
-    assert result["matrix"]["counts"]["entries"] >= 37
-    assert result["matrix"]["counts"]["by_status"]["do_not_migrate"] >= 1
+    assert result["matrix"]["counts"]["entries"] >= 10
+    assert result["matrix"]["counts"]["quality_accepted"] == 0
     assert any(
-        item["script"].endswith("startup_retrieval.py") and item["status"] == "migrated"
-        for item in result["matrix"]["entries"]
+        item["behavior_id"] == "retrieval.startup.role_scoped"
+        for item in result["matrix"]["behavior_entries"]
     )

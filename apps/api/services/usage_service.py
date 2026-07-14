@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Index, UniqueConstraint, func
+from sqlalchemy import Index, UniqueConstraint, func, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlmodel import Field, Session, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -395,23 +395,81 @@ async def reserve_quota_async(
 
 
 def release_quota(session: Session, reservation_id: str) -> bool:
-    reservation = session.get(QuotaReservation, reservation_id)
-    if not reservation or reservation.status != "reserved":
+    transitioned = _transition_reservation_sync(
+        session,
+        reservation_id=reservation_id,
+        status="released",
+    )
+    if not transitioned:
+        _remove_pending_reservation(session, reservation_id)
         return False
-    ledger = session.exec(select(QuotaLedger).where(
-        QuotaLedger.user_id == reservation.user_id,
-        QuotaLedger.event_type == reservation.event_type,
-        QuotaLedger.event_date == reservation.event_date,
-    ).with_for_update()).first()
-    if not ledger:
-        return False
-    ledger.reserved_count = max(0, ledger.reserved_count - reservation.amount)
-    reservation.status = "released"
-    reservation.updated_at = utcnow_naive()
-    ledger.updated_at = utcnow_naive()
-    session.add(ledger)
-    session.add(reservation)
     session.commit()
+    _remove_pending_reservation(session, reservation_id)
+    return True
+
+
+def _remove_pending_reservation(session: object, reservation_id: str) -> None:
+    info = _session_info(session)
+    for key in [item for item in info if str(item).startswith("quota_reservation:")]:
+        pending = info.get(key)
+        if isinstance(pending, str):
+            pending = [pending]
+        if not isinstance(pending, list):
+            continue
+        pending[:] = [item for item in pending if item != reservation_id]
+        if not pending:
+            info.pop(key, None)
+
+
+def _transition_reservation_sync(
+    session: Session,
+    *,
+    reservation_id: str,
+    status: str,
+    used_increment: int = 0,
+) -> bool:
+    """Move one reservation out of ``reserved`` and update its ledger once.
+
+    PostgreSQL re-evaluates the status predicate after a concurrent updater
+    commits, so only one release/consume/reconciler can obtain the RETURNING
+    row.  The ledger update shares the transaction with that state transition.
+    """
+
+    timestamp = utcnow_naive()
+    transitioned = session.exec(
+        update(QuotaReservation)
+        .where(
+            QuotaReservation.id == reservation_id,
+            QuotaReservation.status == "reserved",
+        )
+        .values(status=status, updated_at=timestamp)
+        .returning(
+            QuotaReservation.user_id,
+            QuotaReservation.event_type,
+            QuotaReservation.event_date,
+            QuotaReservation.amount,
+        )
+    ).mappings().first()
+    if transitioned is None:
+        return False
+    amount = int(transitioned["amount"])
+    changed = session.exec(
+        update(QuotaLedger)
+        .where(
+            QuotaLedger.user_id == transitioned["user_id"],
+            QuotaLedger.event_type == transitioned["event_type"],
+            QuotaLedger.event_date == transitioned["event_date"],
+            QuotaLedger.reserved_count >= amount,
+        )
+        .values(
+            reserved_count=QuotaLedger.reserved_count - amount,
+            used_count=QuotaLedger.used_count + used_increment,
+            updated_at=timestamp,
+        )
+    ).rowcount
+    if changed != 1:
+        session.rollback()
+        raise RuntimeError("quota reservation ledger invariant violated")
     return True
 
 
@@ -429,48 +487,81 @@ def _increment_existing_ledger_sync(session: Session, *, user_id: int, event_typ
 
 def _consume_pending_reservation_sync(session: Session, *, user_id: int, event_type: str, amount: int) -> bool:
     pending = _session_info(session).get(_pending_key(user_id, event_type), [])
-    reservation_id = pending.pop(0) if pending else None
-    if not pending:
-        _session_info(session).pop(_pending_key(user_id, event_type), None)
-    if not reservation_id:
-        return False
-    reservation = session.get(QuotaReservation, reservation_id)
-    if not reservation or reservation.status != "reserved":
-        return False
-    ledger = session.exec(select(QuotaLedger).where(
-        QuotaLedger.user_id == user_id,
-        QuotaLedger.event_type == event_type,
-        QuotaLedger.event_date == reservation.event_date,
-    ).with_for_update()).first()
-    if ledger:
-        ledger.reserved_count = max(0, ledger.reserved_count - reservation.amount)
-        ledger.used_count += amount
-        ledger.updated_at = utcnow_naive()
-        session.add(ledger)
-    reservation.status = "consumed"
-    reservation.updated_at = utcnow_naive()
-    session.add(reservation)
-    return True
+    while pending:
+        reservation_id = pending.pop(0)
+        if _transition_reservation_sync(
+            session,
+            reservation_id=reservation_id,
+            status="consumed",
+            used_increment=amount,
+        ):
+            if not pending:
+                _session_info(session).pop(_pending_key(user_id, event_type), None)
+            return True
+    _session_info(session).pop(_pending_key(user_id, event_type), None)
+    return False
 
 
 async def release_quota_async(session: AsyncSession, reservation_id: str) -> bool:
-    reservation = await session.get(QuotaReservation, reservation_id)
-    if not reservation or reservation.status != "reserved":
+    transitioned = await _transition_reservation_async(
+        session,
+        reservation_id=reservation_id,
+        status="released",
+    )
+    if not transitioned:
+        _remove_pending_reservation(session, reservation_id)
         return False
-    ledger = (await session.exec(select(QuotaLedger).where(
-        QuotaLedger.user_id == reservation.user_id,
-        QuotaLedger.event_type == reservation.event_type,
-        QuotaLedger.event_date == reservation.event_date,
-    ).with_for_update())).first()
-    if not ledger:
-        return False
-    ledger.reserved_count = max(0, ledger.reserved_count - reservation.amount)
-    reservation.status = "released"
-    reservation.updated_at = utcnow_naive()
-    ledger.updated_at = utcnow_naive()
-    session.add(ledger)
-    session.add(reservation)
     await session.commit()
+    _remove_pending_reservation(session, reservation_id)
+    return True
+
+
+async def _transition_reservation_async(
+    session: AsyncSession,
+    *,
+    reservation_id: str,
+    status: str,
+    used_increment: int = 0,
+) -> bool:
+    timestamp = utcnow_naive()
+    transitioned = (
+        await session.exec(
+            update(QuotaReservation)
+            .where(
+                QuotaReservation.id == reservation_id,
+                QuotaReservation.status == "reserved",
+            )
+            .values(status=status, updated_at=timestamp)
+            .returning(
+                QuotaReservation.user_id,
+                QuotaReservation.event_type,
+                QuotaReservation.event_date,
+                QuotaReservation.amount,
+            )
+        )
+    ).mappings().first()
+    if transitioned is None:
+        return False
+    amount = int(transitioned["amount"])
+    changed = (
+        await session.exec(
+            update(QuotaLedger)
+            .where(
+                QuotaLedger.user_id == transitioned["user_id"],
+                QuotaLedger.event_type == transitioned["event_type"],
+                QuotaLedger.event_date == transitioned["event_date"],
+                QuotaLedger.reserved_count >= amount,
+            )
+            .values(
+                reserved_count=QuotaLedger.reserved_count - amount,
+                used_count=QuotaLedger.used_count + used_increment,
+                updated_at=timestamp,
+            )
+        )
+    ).rowcount
+    if changed != 1:
+        await session.rollback()
+        raise RuntimeError("quota reservation ledger invariant violated")
     return True
 
 
@@ -488,28 +579,19 @@ async def _increment_existing_ledger_async(session: AsyncSession, *, user_id: in
 
 async def _consume_pending_reservation_async(session: AsyncSession, *, user_id: int, event_type: str, amount: int) -> bool:
     pending = _session_info(session).get(_pending_key(user_id, event_type), [])
-    reservation_id = pending.pop(0) if pending else None
-    if not pending:
-        _session_info(session).pop(_pending_key(user_id, event_type), None)
-    if not reservation_id:
-        return False
-    reservation = await session.get(QuotaReservation, reservation_id)
-    if not reservation or reservation.status != "reserved":
-        return False
-    ledger = (await session.exec(select(QuotaLedger).where(
-        QuotaLedger.user_id == user_id,
-        QuotaLedger.event_type == event_type,
-        QuotaLedger.event_date == reservation.event_date,
-    ).with_for_update())).first()
-    if ledger:
-        ledger.reserved_count = max(0, ledger.reserved_count - reservation.amount)
-        ledger.used_count += amount
-        ledger.updated_at = utcnow_naive()
-        session.add(ledger)
-    reservation.status = "consumed"
-    reservation.updated_at = utcnow_naive()
-    session.add(reservation)
-    return True
+    while pending:
+        reservation_id = pending.pop(0)
+        if await _transition_reservation_async(
+            session,
+            reservation_id=reservation_id,
+            status="consumed",
+            used_increment=amount,
+        ):
+            if not pending:
+                _session_info(session).pop(_pending_key(user_id, event_type), None)
+            return True
+    _session_info(session).pop(_pending_key(user_id, event_type), None)
+    return False
 
 
 def reconcile_expired_reservations(session: Session, *, now: datetime | None = None) -> int:

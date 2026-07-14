@@ -1,11 +1,10 @@
-import json
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SIQ_ANALYSIS_SCRIPT_DIR = PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_analysis" / "scripts"
@@ -214,7 +213,16 @@ def test_prior_r1_agents_respects_fixed_sequence():
 
 
 def test_build_smoke_package_satisfies_evidence_gate_for_default_dry_run(tmp_path):
-    smoke_r1_agent_workflow.build_smoke_package(tmp_path, "siq_ic_strategist")
+    package_dir = smoke_r1_agent_workflow.build_smoke_package(tmp_path, "siq_ic_strategist")
+
+    receipts = json.loads((package_dir / "phases" / "startup_receipts.json").read_text(encoding="utf-8"))
+    receipt = receipts["agents"]["siq_ic_strategist"]
+    assert receipts["schema_version"] == "siq_ic_startup_receipts_v2"
+    assert receipt["schema_version"] == "siq_ic_startup_receipt_v2"
+    assert receipt["created_by"] == {"type": "synthetic_contract_smoke"}
+    assert receipt["gate"] == {"allowed_to_speak": True, "blocking_reasons": []}
+    assert receipt["milvus_used"] is True
+    assert receipt["background_knowledge_refs"]
 
     dry_run = smoke_r1_agent_workflow.ic_agent_runtime.build_workflow_r1_agent_run_dry_run(
         smoke_r1_agent_workflow.DEAL_ID,

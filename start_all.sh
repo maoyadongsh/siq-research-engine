@@ -97,10 +97,14 @@ HERMES_IC_FINANCE_PORT="${SIQ_HERMES_IC_FINANCE_PORT:-${HERMES_IC_FINANCE_PORT:-
 HERMES_IC_LEGAL_PORT="${SIQ_HERMES_IC_LEGAL_PORT:-${HERMES_IC_LEGAL_PORT:-18665}}"
 HERMES_IC_RISK_PORT="${SIQ_HERMES_IC_RISK_PORT:-${HERMES_IC_RISK_PORT:-18666}}"
 START_HERMES_GATEWAYS="${SIQ_START_HERMES_GATEWAYS:-1}"
-ENABLE_IC_HERMES="${SIQ_ENABLE_IC_HERMES:-0}"
+ENABLE_IC_HERMES="${SIQ_ENABLE_IC_HERMES:-1}"
 START_MARKET_REPORT_FINDER="${SIQ_START_MARKET_REPORT_FINDER:-0}"
 START_MARKET_REPORT_RULES="${SIQ_START_MARKET_REPORT_RULES:-0}"
 START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
+case "${SIQ_MEETINGS_ENABLED:-0}" in
+    1|true|TRUE|yes|YES|on|ON) START_MEETING_SERVICES=1 ;;
+    *) START_MEETING_SERVICES=0 ;;
+esac
 VECTOR_INGEST_PORT="${SIQ_VECTOR_INGEST_PORT:-${VECTOR_INGEST_PORT:-7862}}"
 VECTOR_INGEST_DIR="${SIQ_VECTOR_INGEST_ROOT:-${VECTOR_INGEST_ROOT:-$SIQ_PROJECT_ROOT/scripts/vector-index/milvus-ingestion}}"
 VECTOR_INGEST_COLLECTION="${SIQ_MILVUS_COLLECTION:-${MILVUS_COLLECTION:-ic_collaboration_shared}}"
@@ -155,8 +159,15 @@ if [[ "$LOADED_LEGACY_ENV" == "1" ]]; then
     esac
     case "${SIQ_PDF2MD_HEALTH_URL:-}" in
         http://127.0.0.1:*|http://localhost:*)
-            if [[ "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://127.0.0.1:$PDF2MD_PORT/api/health" && "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://localhost:$PDF2MD_PORT/api/health" ]]; then
-                SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/health"
+            if [[ "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://127.0.0.1:$PDF2MD_PORT/api/ready" && "${SIQ_PDF2MD_HEALTH_URL%/}" != "http://localhost:$PDF2MD_PORT/api/ready" ]]; then
+                SIQ_PDF2MD_HEALTH_URL="http://127.0.0.1:$PDF2MD_PORT/api/ready"
+            fi
+            ;;
+    esac
+    case "${SIQ_DOCUMENT_PARSER_HEALTH_URL:-}" in
+        http://127.0.0.1:*|http://localhost:*)
+            if [[ "${SIQ_DOCUMENT_PARSER_HEALTH_URL%/}" != "http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/ready" && "${SIQ_DOCUMENT_PARSER_HEALTH_URL%/}" != "http://localhost:$DOCUMENT_PARSER_PORT/api/ready" ]]; then
+                SIQ_DOCUMENT_PARSER_HEALTH_URL="http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/ready"
             fi
             ;;
     esac
@@ -169,8 +180,8 @@ export SIQ_MARKET_REPORT_RULES_BASE="${SIQ_MARKET_REPORT_RULES_BASE:-http://127.
 export SIQ_REPORT_FINDER_HEALTH_URL="${SIQ_REPORT_FINDER_HEALTH_URL:-http://127.0.0.1:$REPORT_FINDER_PORT/health}"
 export SIQ_MARKET_REPORT_FINDER_HEALTH_URL="${SIQ_MARKET_REPORT_FINDER_HEALTH_URL:-http://127.0.0.1:$MARKET_REPORT_FINDER_PORT/health}"
 export SIQ_MARKET_REPORT_RULES_HEALTH_URL="${SIQ_MARKET_REPORT_RULES_HEALTH_URL:-http://127.0.0.1:$MARKET_REPORT_RULES_PORT/healthz}"
-export SIQ_PDF2MD_HEALTH_URL="${SIQ_PDF2MD_HEALTH_URL:-http://127.0.0.1:$PDF2MD_PORT/api/health}"
-export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/health}"
+export SIQ_PDF2MD_HEALTH_URL="${SIQ_PDF2MD_HEALTH_URL:-http://127.0.0.1:$PDF2MD_PORT/api/ready}"
+export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/ready}"
 export SIQ_PUBLIC_ORIGIN="${SIQ_PUBLIC_ORIGIN:-http://localhost:$FRONTEND_PORT}"
 export SIQ_HERMES_ASSISTANT_PORT="$HERMES_ASSISTANT_PORT"
 export SIQ_HERMES_FACTCHECKER_PORT="$HERMES_FACTCHECKER_PORT"
@@ -231,6 +242,7 @@ install_node_dependencies() {
     fi
 }
 
+# shellcheck disable=SC2329  # Invoked indirectly by the trap below.
 cleanup() {
     log "正在停止所有子进程 (PID: ${pids[*]})..."
     for pid in "${pids[@]}"; do
@@ -351,7 +363,7 @@ if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
         start_hermes_gateway "siq_ic_legal_scanner" "IC 法务扫描"
         start_hermes_gateway "siq_ic_risk_controller" "IC 风控"
     else
-        warn "已跳过 IC Hermes 网关；需要时设置 SIQ_ENABLE_IC_HERMES=1。"
+        warn "SIQ_ENABLE_IC_HERMES=0，已显式跳过 IC Hermes 网关。"
     fi
 fi
 
@@ -403,7 +415,7 @@ log "启动 FastAPI 后端 (端口 $BACKEND_PORT, host $BACKEND_HOST, profile $D
 (
     cd "$BACKEND_DIR"
     uv_sync_project
-    uvicorn_args=(main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT")
+    uvicorn_args=(main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" --no-access-log)
     if [[ "$BACKEND_RELOAD" =~ ^(1|true|yes|on)$ ]]; then
         uvicorn_args+=(--reload)
     fi
@@ -429,6 +441,8 @@ log "启动 Vite 前端 (端口 $FRONTEND_PORT)..."
 (
     cd "$FRONT_DIR"
     install_node_dependencies
+    export VITE_SIQ_MEETINGS_ENABLED="${SIQ_MEETINGS_ENABLED:-0}"
+    export VITE_SIQ_MEETING_IMPORT_ENABLED="${SIQ_MEETING_IMPORT_ENABLED:-0}"
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 ) &
 pids+=($!)
@@ -458,21 +472,34 @@ log "等待后端就绪..."
 wait_for_http "http://localhost:$BACKEND_PORT/health" "后端" 30
 ok "后端已就绪  -> http://localhost:$BACKEND_PORT/health"
 
+if [[ "$START_MEETING_SERVICES" == "1" ]]; then
+    log "启动会议转写独立服务组..."
+    "$SIQ_PROJECT_ROOT/scripts/meeting/run_meeting_services.sh" &
+    meeting_services_pid=$!
+    pids+=("$meeting_services_pid")
+    sleep 1
+    if ! kill -0 "$meeting_services_pid" 2>/dev/null; then
+        wait "$meeting_services_pid" || meeting_services_exit=$?
+        die "会议转写服务组启动失败 (exit ${meeting_services_exit:-0})，请检查会议能力开关与运行配置。"
+    fi
+    ok "会议转写独立服务组已启动"
+fi
+
 log "等待 PDF 解析服务就绪..."
 PDF2MD_HEALTH_HEADER=""
 if [[ -n "${PDF2MD_ACCESS_TOKEN:-}" ]]; then
     PDF2MD_HEALTH_HEADER="X-PDF2MD-Token: $PDF2MD_ACCESS_TOKEN"
 fi
-wait_for_http "http://localhost:$PDF2MD_PORT/api/health" "PDF 解析服务" 30 "$PDF2MD_HEALTH_HEADER"
-ok "PDF 解析服务已就绪  -> http://localhost:$PDF2MD_PORT/api/health"
+wait_for_http "http://localhost:$PDF2MD_PORT/api/ready" "PDF 解析服务" 30 "$PDF2MD_HEALTH_HEADER"
+ok "PDF 解析服务已就绪  -> http://localhost:$PDF2MD_PORT/api/ready"
 
 log "等待通用文档解析服务就绪..."
 DOCUMENT_PARSER_HEALTH_HEADER=""
 if [[ -n "${SIQ_DOCUMENT_PARSER_ACCESS_TOKEN:-}" ]]; then
     DOCUMENT_PARSER_HEALTH_HEADER="X-Document-Parser-Token: $SIQ_DOCUMENT_PARSER_ACCESS_TOKEN"
 fi
-wait_for_http "http://localhost:$DOCUMENT_PARSER_PORT/api/health" "通用文档解析服务" 30 "$DOCUMENT_PARSER_HEALTH_HEADER"
-ok "通用文档解析服务已就绪  -> http://localhost:$DOCUMENT_PARSER_PORT/api/health"
+wait_for_http "http://localhost:$DOCUMENT_PARSER_PORT/api/ready" "通用文档解析服务" 30 "$DOCUMENT_PARSER_HEALTH_HEADER"
+ok "通用文档解析服务已就绪  -> http://localhost:$DOCUMENT_PARSER_PORT/api/ready"
 
 if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     log "等待 Hermes 智能体网关就绪..."
@@ -522,9 +549,9 @@ if [[ "$START_MARKET_REPORT_RULES" != "0" ]]; then
 fi
 curl -s "http://localhost:$BACKEND_PORT/health"
 echo ""
-curl -s ${PDF2MD_HEALTH_HEADER:+-H "$PDF2MD_HEALTH_HEADER"} "http://localhost:$PDF2MD_PORT/api/health"
+curl -s ${PDF2MD_HEALTH_HEADER:+-H "$PDF2MD_HEALTH_HEADER"} "http://localhost:$PDF2MD_PORT/api/ready"
 echo ""
-curl -s ${DOCUMENT_PARSER_HEALTH_HEADER:+-H "$DOCUMENT_PARSER_HEALTH_HEADER"} "http://localhost:$DOCUMENT_PARSER_PORT/api/health"
+curl -s ${DOCUMENT_PARSER_HEALTH_HEADER:+-H "$DOCUMENT_PARSER_HEALTH_HEADER"} "http://localhost:$DOCUMENT_PARSER_PORT/api/ready"
 echo ""
 curl -s "http://localhost:$BACKEND_PORT/api/wiki/companies/list" | head -c 200
 echo ""

@@ -1,0 +1,47 @@
+{
+  "schema_version": "siq_deal_evidence_quality_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "status": "pass",
+  "build_mode": "synthetic_isolated_real_smoke_v1",
+  "llm_used": false,
+  "agent_used": false,
+  "milvus_written": false,
+  "built_at": "2026-07-13T00:00:00Z",
+  "policy_version": "2026-07-13",
+  "required_verified_items": 3,
+  "required_dimensions": ["business", "finance", "legal", "risk"],
+  "item_count": 16,
+  "verified_count": 16,
+  "dimensions": ["business", "finance", "legal", "risk"],
+  "missing_dimensions": [],
+  "counts": {
+    "documents_total": 1,
+    "documents_bound": 1,
+    "documents_indexed": 1,
+    "documents_skipped": 0,
+    "items": 16,
+    "verified_items": 16,
+    "invalid_metadata_files": 0,
+    "invalid_ndjson_lines": 0
+  },
+  "gates": [
+    {"id": "document_bindings", "status": "pass", "message": "1/1 documents have parser task bindings"},
+    {"id": "parser_artifacts", "status": "pass", "message": "1/1 bound documents were indexed"},
+    {"id": "verified_items", "status": "pass", "message": "16/3 verified evidence items"},
+    {"id": "dimension_coverage", "status": "pass", "message": "Required dimensions are covered"},
+    {"id": "ndjson_valid", "status": "pass", "message": "evidence_items.ndjson is valid"}
+  ],
+  "documents": [
+    {
+      "document_id": "DOC-PMICSMOKE2026A1",
+      "parse_run_id": "PRUN-20260713-PMICSMOKE001",
+      "status": "indexed",
+      "item_count": 16
+    }
+  ],
+  "warnings": [],
+  "errors": [],
+  "limitations": [
+    "The issuer and all figures are synthetic; this package validates orchestration and contracts, not factual research quality."
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "$id": "siq_ic_workflow_run_identity_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "profile_contract_version": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string"
+    },
+    "research_identity": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "siq_ic_workflow_run_identity_v1"
+    },
+    "source_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "workflow_run_id",
+    "deal_id",
+    "research_identity",
+    "evidence_snapshot_hash",
+    "source_ids",
+    "profile_contract_version",
+    "started_at"
+  ],
+  "type": "object"
+}

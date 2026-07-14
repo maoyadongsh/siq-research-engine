@@ -74,34 +74,50 @@ def read_openclaw_script_migration_matrix(*, matrix_path: Path | str | None = No
 
 
 def public_openclaw_script_migration_matrix_payload(matrix: dict[str, Any]) -> dict[str, Any]:
+    behavior_entries = matrix.get("behavior_entries")
+    is_behavior_v2 = isinstance(behavior_entries, list)
     entries = [
-        item for item in matrix.get("entries", [])
+        item for item in (behavior_entries if is_behavior_v2 else matrix.get("entries", []))
         if isinstance(item, dict)
     ]
     status_counts: dict[str, int] = {}
     category_counts: dict[str, int] = {}
     owner_counts: dict[str, int] = {}
+    quality_accepted_count = 0
     for item in entries:
-        status = str(item.get("status") or "unknown")
-        category = str(item.get("category") or "unknown")
+        status = str(item.get("parity_level") or item.get("status") or "unknown")
+        category = str(item.get("phase") or item.get("category") or "unknown")
         owner = str(item.get("owner") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
         category_counts[category] = category_counts.get(category, 0) + 1
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
-    return {
+        if item.get("quality_accepted") is True:
+            quality_accepted_count += 1
+    payload = {
         "schema_version": matrix.get("schema_version"),
         "updated_at": matrix.get("updated_at"),
         "purpose": matrix.get("purpose"),
         "source_scope": matrix.get("source_scope") or [],
         "status_definitions": matrix.get("status_definitions") or {},
+        "parity_definitions": matrix.get("parity_definitions") or {},
         "counts": {
             "entries": len(entries),
             "by_status": dict(sorted(status_counts.items())),
             "by_category": dict(sorted(category_counts.items())),
             "by_owner": dict(sorted(owner_counts.items())),
+            "quality_accepted": quality_accepted_count,
         },
         "entries": entries,
     }
+    if is_behavior_v2:
+        payload.update({
+            "authority": matrix.get("authority") or {},
+            "acceptance_policy": matrix.get("acceptance_policy") or {},
+            "behavior_entries": entries,
+        })
+        payload["counts"]["by_parity_level"] = payload["counts"]["by_status"]
+        payload["counts"]["by_phase"] = payload["counts"]["by_category"]
+    return payload
 
 
 def public_openclaw_script_migration_matrix() -> dict[str, Any]:
@@ -143,7 +159,7 @@ def list_ic_profiles(*, include_runtime: bool = False) -> list[dict[str, Any]]:
         item["config_exists"] = (IC_PROFILES_ROOT / profile_id / "config.yaml").is_file()
         item["in_manifest"] = profile_id in manifest_profiles
         item["in_manifest_group"] = profile_id in manifest_ic_group
-        item["startup_retrieval_required"] = profile_id != "siq_ic_master_coordinator"
+        item["startup_retrieval_required"] = True
         item["r1_sequence_index"] = (
             R1_AGENT_SEQUENCE.index(profile_id)
             if profile_id in R1_AGENT_SEQUENCE

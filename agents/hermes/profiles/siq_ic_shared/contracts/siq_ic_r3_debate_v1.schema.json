@@ -1,0 +1,206 @@
+{
+  "$id": "siq_ic_r3_debate_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "blue_team": {
+      "items": {
+        "enum": [
+          "siq_ic_master_coordinator",
+          "siq_ic_chairman",
+          "siq_ic_strategist",
+          "siq_ic_sector_expert",
+          "siq_ic_finance_auditor",
+          "siq_ic_legal_scanner",
+          "siq_ic_risk_controller"
+        ]
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "chairman_verdict": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_argument_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "decision_impact": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rationale": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "rejected_argument_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "ruling": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ruling",
+        "rationale",
+        "accepted_argument_ids",
+        "rejected_argument_ids",
+        "decision_impact"
+      ],
+      "type": "object"
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "debate_id": {
+      "pattern": "^DEB-[A-Z0-9][A-Z0-9-]{5,95}$",
+      "type": "string"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "red_team": {
+      "items": {
+        "enum": [
+          "siq_ic_master_coordinator",
+          "siq_ic_chairman",
+          "siq_ic_strategist",
+          "siq_ic_sector_expert",
+          "siq_ic_finance_auditor",
+          "siq_ic_legal_scanner",
+          "siq_ic_risk_controller"
+        ]
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "rounds": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "argument": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "argument_id": {
+            "pattern": "^ARG-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "claim_ids": {
+            "items": {
+              "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "responds_to_argument_ids": {
+            "items": {
+              "pattern": "^ARG-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "round": {
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "speaker": {
+            "enum": [
+              "siq_ic_master_coordinator",
+              "siq_ic_chairman",
+              "siq_ic_strategist",
+              "siq_ic_sector_expert",
+              "siq_ic_finance_auditor",
+              "siq_ic_legal_scanner",
+              "siq_ic_risk_controller"
+            ],
+            "type": "string"
+          },
+          "unanswered_points": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "argument_id",
+          "round",
+          "speaker",
+          "argument",
+          "claim_ids",
+          "evidence_ids",
+          "responds_to_argument_ids",
+          "unanswered_points"
+        ],
+        "type": "object"
+      },
+      "minItems": 2,
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "siq_ic_r3_debate_v1"
+    },
+    "status": {
+      "enum": [
+        "resolved",
+        "unresolved",
+        "needs_more_evidence"
+      ]
+    },
+    "topic": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "debate_id",
+    "workflow_run_id",
+    "deal_id",
+    "evidence_snapshot_hash",
+    "topic",
+    "red_team",
+    "blue_team",
+    "rounds",
+    "chairman_verdict",
+    "status",
+    "created_at"
+  ],
+  "type": "object"
+}

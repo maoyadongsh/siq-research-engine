@@ -255,7 +255,51 @@ class FileBackedJobService:
         return _snapshot_job(job)
 
 
-market_report_job_service = FileBackedJobService()
+def _app_database_url() -> str:
+    return os.getenv("SIQ_APP_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
+
+
+def _is_production_profile() -> bool:
+    return os.getenv("SIQ_DEPLOYMENT_PROFILE", "local").strip().lower() in {"prod", "production"}
+
+
+def create_job_service(*, store_path: Path | None = None, max_jobs: int = 200) -> Any:
+    """Select file coordination locally and PostgreSQL authority in production."""
+    configured = os.getenv("SIQ_BACKGROUND_JOB_BACKEND", "").strip().lower()
+    if configured not in {"", "file", "postgres"}:
+        raise RuntimeError("SIQ_BACKGROUND_JOB_BACKEND must be 'file' or 'postgres'.")
+
+    production = _is_production_profile()
+    backend = configured or ("postgres" if production else "file")
+    if production and backend != "postgres":
+        raise RuntimeError("Production background jobs require the PostgreSQL backend.")
+    if backend == "file":
+        return FileBackedJobService(store_path=store_path, max_jobs=max_jobs)
+
+    database_url = _app_database_url()
+    if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        raise RuntimeError("PostgreSQL SIQ_APP_DATABASE_URL is required for durable background jobs.")
+
+    from database import engine
+    from sqlmodel import Session
+
+    from services.durable_job_service import DurableJobCoordinator, DurableJobService
+
+    try:
+        lease_seconds = max(30, int(os.getenv("SIQ_BACKGROUND_JOB_LEASE_SECONDS", "120")))
+    except ValueError as exc:
+        raise RuntimeError("SIQ_BACKGROUND_JOB_LEASE_SECONDS must be an integer.") from exc
+    coordinator = DurableJobCoordinator(
+        session_factory=lambda: Session(engine),
+        lease_seconds=lease_seconds,
+    )
+    return DurableJobService(
+        coordinator=coordinator,
+        final_state_recorder=_record_background_job_final_state,
+    )
+
+
+market_report_job_service = create_job_service()
 
 # Backward-compatible name kept for existing imports and tests.
 InMemoryJobService = FileBackedJobService

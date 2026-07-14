@@ -1,0 +1,30 @@
+{
+  "schema_version": "siq_primary_market_ic_stale_update_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "synthetic_evaluation_only": true,
+  "requires_existing_human_confirmation": true,
+  "source": {
+    "schema_version": "siq_primary_market_analysis_source_v1",
+    "source_id": "PM:DEAL-PMIC-SNAPSHOT-STALE-2026:DOC-PMICSTALE2026B1:PRUN-20260714-PMICSTALE002",
+    "domain": "primary_market",
+    "source_type": "primary_market_prospectus",
+    "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+    "market": "CN",
+    "company_id": "PRIMARY:DEAL-PMIC-SNAPSHOT-STALE-2026",
+    "filing_id": "SYNTHETIC-PROSPECTUS-UPDATE:DOC-PMICSTALE2026B1",
+    "document_id": "DOC-PMICSTALE2026B1",
+    "parse_run_id": "PRUN-20260714-PMICSTALE002",
+    "artifact_manifest_path": "scenario_inputs/stale_update/archive_manifest.json",
+    "archive_manifest_sha256": "5e61a19f7659cf346fec400a12732066b9379d31084ebb80fddcf4ac17ed614f",
+    "status": "ready",
+    "capabilities": {
+      "text_evidence": "ready",
+      "source_page_trace": "ready",
+      "financial_facts": "ready",
+      "semantic_index": "ready"
+    },
+    "quality_status": "pass",
+    "synthetic_evaluation_only": true,
+    "activated_at": "2026-07-14T00:00:00Z"
+  }
+}

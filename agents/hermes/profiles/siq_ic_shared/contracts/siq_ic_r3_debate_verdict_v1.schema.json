@@ -1,0 +1,82 @@
+{
+  "$id": "siq_ic_r3_debate_verdict_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "properties": {
+        "accepted_argument_ids": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "rejected_argument_ids": {
+          "minItems": 1
+        }
+      }
+    }
+  ],
+  "properties": {
+    "accepted_argument_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "decision_impact": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "outcome": {
+      "enum": [
+        "red_prevails",
+        "blue_prevails",
+        "synthesize",
+        "needs_more_evidence",
+        "unresolved"
+      ]
+    },
+    "rationale": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "rejected_argument_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_followups": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "outcome",
+    "rationale",
+    "accepted_argument_ids",
+    "rejected_argument_ids",
+    "evidence_ids",
+    "decision_impact",
+    "required_followups"
+  ],
+  "type": "object"
+}

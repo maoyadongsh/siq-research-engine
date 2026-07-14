@@ -1,8 +1,28 @@
 {
-  "version": "2026-04-13",
+  "version": "2026-07-13",
+  "execution": {
+    "r0_mode": "model_with_deterministic_preflight_fallback",
+    "r1_mode": "hybrid_dag",
+    "r1_5_mode": "deterministic_detect_model_rule",
+    "r2_mode": "model_with_deterministic_fallback",
+    "r3_default_mode": "dynamic",
+    "r3_allow_skip": true,
+    "r3_max_topics": 2,
+    "r4_mode": "model_decision_deterministic_render",
+    "require_human_confirmation": true
+  },
   "workflow": {
     "name": "SIQ Investment Committee",
-    "decision_mode": "fixed_v2",
+    "decision_mode": "hybrid_dag_v3",
+    "execution_modes": {
+      "R1": "independent_then_cross_validation",
+      "R1.5": "model_with_manual_or_deterministic_fallback",
+      "R2": "model_with_deterministic_fallback",
+      "R3": "dynamic_model_with_deterministic_fallback",
+      "R4": "model_decision_deterministic_render"
+    },
+    "r3_default_mode": "dynamic",
+    "require_human_confirmation": true,
     "phases": [
       "R0",
       "R1",
@@ -24,6 +44,20 @@
       "R3": 20,
       "R4": 10
     }
+  },
+  "retrieval_gate": {
+    "require_project_evidence": true,
+    "require_private_background_collection": true,
+    "shared_collection": "siq_deal_shared",
+    "shared_physical_collection": "ic_collaboration_shared",
+    "minimum_private_background_hits": 1,
+    "background_knowledge_can_verify_project_fact": false,
+    "allowed_degraded_modes": [],
+    "blocked_reasons": [
+      "project_evidence_missing",
+      "private_collection_not_configured",
+      "source_classification_missing"
+    ]
   },
   "weights": {
     "chairman": 0.3,
@@ -65,8 +99,8 @@
     }
   },
   "directories": {
-    "project_root": "/home/maoyd/siq-research-engine/data/wiki/deals",
-    "legacy_project_root": "/home/maoyd/siq-research-engine/data/ic/projects",
+    "project_root": "data/wiki/deals",
+    "legacy_project_root": "data/ic/projects",
     "phases_dir": "phases",
     "rounds_dir": "10_rounds",
     "conflicts_dir": "20_conflicts",

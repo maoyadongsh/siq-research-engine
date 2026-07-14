@@ -1,27 +1,23 @@
-"""Local startup retrieval receipts for Deal OS IC agents.
-
-This P1 bridge is intentionally file-backed and deterministic. It prepares the
-receipt contract that IC agents must have before speaking, without invoking
-Hermes, PostgreSQL, Milvus, or a private knowledge base.
-"""
+"""Snapshot-bound project Evidence and private-Milvus receipts for IC agents."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
-from services import deal_retrieval
-from services import deal_store
-from services import ic_policy
+from services import deal_retrieval, deal_store, ic_policy
 from services.path_config import PROJECT_ROOT
 
-
-STARTUP_RECEIPTS_SCHEMA = "siq_ic_startup_receipts_v1"
+STARTUP_RECEIPTS_V1_SCHEMA = "siq_ic_startup_receipts_v1"
+STARTUP_RECEIPTS_SCHEMA = "siq_ic_startup_receipts_v2"
+STARTUP_RECEIPT_SCHEMA = "siq_ic_startup_receipt_v2"
 STARTUP_RETRIEVAL_MODE = "local_evidence_package_v1"
 DEFAULT_EVIDENCE_LIMIT = 10
 MAX_EVIDENCE_LIMIT = 50
 PROFILE_DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "siq_ic_master_coordinator": ("business", "finance", "legal", "risk", "unknown"),
     "siq_ic_strategist": ("business",),
     "siq_ic_sector_expert": ("business",),
     "siq_ic_finance_auditor": ("finance",),
@@ -44,16 +40,20 @@ def _normalize_profile_id(profile_id: str) -> str:
     canonical = ic_policy.canonical_ic_profile_id(profile_id)
     if canonical not in ic_policy.IC_PROFILE_IDS:
         raise ValueError(f"Unknown IC profile: {profile_id}")
-    if canonical == "siq_ic_master_coordinator":
-        raise ValueError("Startup retrieval is not required for siq_ic_master_coordinator")
     return canonical
 
 
 def _normalize_round_name(round_name: str | None) -> str:
     value = str(round_name or "R1").strip().upper()
-    if value not in {"R1", "R2", "R4"}:
-        raise ValueError("round_name must be R1, R2, or R4")
+    if value not in {"R0", "R1", "R1.5", "R2", "R3", "R4"}:
+        raise ValueError("round_name must be R0, R1, R1.5, R2, R3, or R4")
     return value
+
+
+def _phase_for(profile_id: str, round_name: str) -> str:
+    if round_name == "R1":
+        return "R1B" if profile_id in {"siq_ic_risk_controller", "siq_ic_chairman"} else "R1A"
+    return round_name
 
 
 def _normalize_limit(value: int | str | None) -> int:
@@ -113,6 +113,82 @@ def _quality_missing_dimensions(package_dir: Path) -> list[str]:
     return [str(item) for item in missing if str(item or "").strip()] if isinstance(missing, list) else []
 
 
+def _primary_market_source_context(package_dir: Path) -> dict[str, Any]:
+    snapshot = deal_store.read_json(package_dir / "evidence" / "evidence_snapshot.json", {}) or {}
+    active_sources = snapshot.get("active_sources") if isinstance(snapshot.get("active_sources"), list) else []
+    source_ids: list[str] = []
+    restrictions: dict[str, list[str]] = {}
+    identities: list[dict[str, Any]] = []
+    for source in active_sources:
+        if not isinstance(source, dict) or not source.get("source_id"):
+            continue
+        source_id = str(source["source_id"])
+        source_ids.append(source_id)
+        capabilities = source.get("capabilities") if isinstance(source.get("capabilities"), dict) else {}
+        restricted = sorted(
+            key for key, value in capabilities.items() if str(value or "") != "ready"
+        )
+        if restricted:
+            restrictions[source_id] = restricted
+        document_id = str(source.get("document_id") or "")
+        parse_run_id = str(source.get("parse_run_id") or "")
+        identities.append({
+            "domain": "primary_market",
+            "market": "CN",
+            "company_id": f"PRIMARY:{snapshot.get('deal_id')}",
+            "filing_id": f"PROSPECTUS:{document_id}",
+            "document_id": document_id,
+            "parse_run_id": parse_run_id,
+            "source_id": source_id,
+        })
+    return {
+        "source_ids": sorted(source_ids),
+        "evidence_snapshot_hash": snapshot.get("snapshot_hash"),
+        "capability_restrictions": restrictions,
+        "research_identities": identities,
+    }
+
+
+def current_evidence_identity(
+    deal_id: str,
+    *,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Return the active, immutable evidence identity used by IC phase tasks."""
+
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    return _primary_market_source_context(package_dir)
+
+
+def evaluate_startup_receipt_freshness(
+    receipt: dict[str, Any] | None,
+    current_identity: dict[str, Any],
+) -> dict[str, Any]:
+    """Compare one receipt with the active source set without mutating it."""
+
+    receipt_payload = receipt if isinstance(receipt, dict) else {}
+    current_hash = str(current_identity.get("evidence_snapshot_hash") or "")
+    receipt_hash = str(receipt_payload.get("evidence_snapshot_hash") or "")
+    current_sources = sorted(str(item) for item in current_identity.get("source_ids") or [] if str(item or ""))
+    receipt_sources = sorted(str(item) for item in receipt_payload.get("source_ids") or [] if str(item or ""))
+    reasons: list[str] = []
+    if not receipt_payload:
+        reasons.append("startup_receipt_missing")
+    if current_hash and receipt_hash != current_hash:
+        reasons.append("evidence_snapshot_changed")
+    if current_sources and receipt_sources != current_sources:
+        reasons.append("active_source_set_changed")
+    return {
+        "status": "stale" if reasons else "current",
+        "stale": bool(reasons),
+        "reasons": reasons,
+        "receipt_evidence_snapshot_hash": receipt_hash or None,
+        "current_evidence_snapshot_hash": current_hash or None,
+        "receipt_source_ids": receipt_sources,
+        "current_source_ids": current_sources,
+    }
+
+
 def _matches_profile(item: dict[str, Any], profile_id: str, dimensions: tuple[str, ...]) -> bool:
     role_hints = item.get("role_hints") if isinstance(item.get("role_hints"), list) else []
     if profile_id in role_hints:
@@ -140,15 +216,68 @@ def _receipt_id(profile_id: str, round_name: str) -> str:
     return f"startup-{profile_id}-{round_name}-001"
 
 
+def _background_reference(item: dict[str, Any], *, profile_id: str, physical_collection: str) -> dict[str, Any]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    usage = (
+        "methodology"
+        if item.get("knowledge_lane") == "methodology"
+        or metadata.get("knowledge_type") == "methodology"
+        else "background"
+    )
+    locator = str(item.get("source_id") or item.get("id") or item.get("title") or "").strip()
+    stable = json.dumps(
+        {
+            "profile_id": profile_id,
+            "collection": item.get("collection"),
+            "locator": locator,
+            "text": item.get("text") or item.get("quote_preview"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    ref_id = "KBREF-" + hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24].upper()
+    return {
+        "ref_id": ref_id,
+        "source_class": "background_knowledge",
+        "collection": str(item.get("collection") or profile_id),
+        "physical_collection": physical_collection,
+        "locator": locator or ref_id,
+        "title": str(item.get("title") or item.get("source_id") or profile_id)[:500],
+        "usage": usage,
+        "quote_preview": str(item.get("quote_preview") or item.get("text") or "")[:500],
+    }
+
+
 def _read_receipts(path: Path, deal_id: str) -> dict[str, Any]:
     payload = deal_store.read_json(path, None)
     if not isinstance(payload, dict):
         payload = {}
     agents = payload.get("agents") if isinstance(payload.get("agents"), dict) else {}
+    by_agent_phase = (
+        payload.get("by_agent_phase")
+        if isinstance(payload.get("by_agent_phase"), dict)
+        else {}
+    )
+    normalized_history: dict[str, dict[str, Any]] = {
+        str(agent_id): {
+            str(round_name).upper(): dict(receipt)
+            for round_name, receipt in rounds.items()
+            if isinstance(receipt, dict)
+        }
+        for agent_id, rounds in by_agent_phase.items()
+        if isinstance(rounds, dict)
+    }
+    for agent_id, receipt in agents.items():
+        if not isinstance(receipt, dict):
+            continue
+        round_name = str(receipt.get("round_name") or "R1").upper()
+        normalized_history.setdefault(str(agent_id), {}).setdefault(round_name, dict(receipt))
     return {
         "schema_version": STARTUP_RECEIPTS_SCHEMA,
         "deal_id": deal_id,
         "agents": agents,
+        "by_agent_phase": normalized_history,
         "updated_at": payload.get("updated_at"),
     }
 
@@ -162,7 +291,7 @@ def generate_startup_retrieval_receipt(
     limit: int | str | None = DEFAULT_EVIDENCE_LIMIT,
     include_external: bool = False,
     external_providers: list[str] | tuple[str, ...] | None = None,
-    include_vector: bool = False,
+    include_vector: bool = True,
     include_rerank: bool = False,
     vector_collections: list[str] | tuple[str, ...] | None = None,
     created_by: dict[str, Any] | None = None,
@@ -174,6 +303,7 @@ def generate_startup_retrieval_receipt(
     normalized_round = _normalize_round_name(round_name)
     normalized_limit = _normalize_limit(limit)
     created_at = deal_store.utc_now_iso()
+    source_context = _primary_market_source_context(package_dir)
 
     retrieval = deal_retrieval.retrieve_for_agent(
         normalized_deal_id,
@@ -190,25 +320,109 @@ def generate_startup_retrieval_receipt(
     dimensions = tuple(retrieval.get("dimensions") or PROFILE_DIMENSIONS.get(canonical_profile, ()))
     evidence_hits = retrieval.get("evidence_hits") if isinstance(retrieval.get("evidence_hits"), list) else []
     hybrid_hits = retrieval.get("hybrid_hits") if isinstance(retrieval.get("hybrid_hits"), list) else []
+    background_hits = (
+        retrieval.get("background_knowledge_hits")
+        if isinstance(retrieval.get("background_knowledge_hits"), list)
+        else []
+    )
+    methodology_hits = (
+        retrieval.get("methodology_hits")
+        if isinstance(retrieval.get("methodology_hits"), list)
+        else []
+    )
+    domain_background_hits = (
+        retrieval.get("domain_background_hits")
+        if isinstance(retrieval.get("domain_background_hits"), list)
+        else []
+    )
+    vector_retrieval = retrieval.get("vector_retrieval") if isinstance(retrieval.get("vector_retrieval"), dict) else {}
+    expected_collections = ["siq_deal_shared", canonical_profile]
+    actual_collections = [str(item) for item in vector_retrieval.get("collections") or []]
+    background_retrieval_ready = (
+        bool(retrieval.get("milvus_used"))
+        and bool(vector_retrieval.get("milvus_used", retrieval.get("milvus_used")))
+        and vector_retrieval.get("status") == "completed"
+        and all(collection in actual_collections for collection in expected_collections)
+        and bool(methodology_hits)
+    )
 
     gaps = [str(item) for item in retrieval.get("gaps", []) if str(item or "").strip()]
     missing_dimensions = _quality_missing_dimensions(package_dir)
     role_missing = sorted(set(dimensions).intersection(missing_dimensions))
     for dimension in role_missing:
         gaps.append(f"missing_{dimension}_evidence")
+    if canonical_profile == "siq_ic_finance_auditor" and any(
+        "financial_facts" in restrictions
+        for restrictions in source_context["capability_restrictions"].values()
+    ):
+        gaps.append("primary_market_financial_facts_restricted")
+    if methodology_hits and not domain_background_hits:
+        gaps.append("private_domain_corpus_empty")
+    if not background_retrieval_ready:
+        gaps.append("private_kb_unavailable")
+
+    if background_retrieval_ready:
+        retrieval_blocking_reasons: list[str] = []
+    elif vector_retrieval.get("status") == "completed" and not methodology_hits:
+        retrieval_blocking_reasons = ["private_methodology_missing"]
+    else:
+        retrieval_blocking_reasons = [
+            str(vector_retrieval.get("reason") or "background_knowledge_retrieval_incomplete")
+        ]
+    physical_collection = str(
+        (vector_retrieval.get("physical_collections") or {}).get(canonical_profile)
+        or canonical_profile
+    )
+    background_refs = [
+        _background_reference(
+            item,
+            profile_id=canonical_profile,
+            physical_collection=physical_collection,
+        )
+        for item in background_hits
+        if isinstance(item, dict)
+    ]
+    methodology_refs = [
+        item for item in background_refs if item.get("usage") == "methodology"
+    ]
 
     receipt = {
+        "schema_version": STARTUP_RECEIPT_SCHEMA,
         "receipt_id": _receipt_id(canonical_profile, normalized_round),
+        "deal_id": normalized_deal_id,
         "agent_id": canonical_profile,
         "legacy_agent_id": LEGACY_BY_PROFILE.get(canonical_profile),
+        "phase": _phase_for(canonical_profile, normalized_round),
         "round_name": normalized_round,
         "query": _project_query(package_dir, normalized_deal_id, query),
+        "queries": [
+            item
+            for item in [
+                _project_query(package_dir, normalized_deal_id, query),
+                *[str(value) for value in retrieval.get("dynamic_queries") or []],
+            ]
+            if item
+        ],
         "project_tag": normalized_deal_id,
         "retrieval_mode": STARTUP_RETRIEVAL_MODE,
         "retrieval_contract": retrieval,
         "dynamic_queries": retrieval.get("dynamic_queries") or [],
         "shared_hits": int(retrieval.get("matched_evidence_count") or 0),
-        "private_hits": 0,
+        "private_hits": len(background_hits),
+        "project_evidence_hits": evidence_hits,
+        "background_knowledge_hits": background_hits,
+        "background_knowledge_hit_count": len(background_hits),
+        "background_knowledge_refs": background_refs,
+        "methodology_refs": methodology_refs,
+        "methodology_hit_count": len(methodology_hits),
+        "domain_background_hit_count": len(domain_background_hits),
+        "background_selection": retrieval.get("background_selection") or {},
+        "retrieval_collections": expected_collections,
+        "physical_collections": vector_retrieval.get("physical_collections") or {},
+        "shared_collection": "siq_deal_shared",
+        "private_collection": canonical_profile,
+        "retrieval_status": "ready" if background_retrieval_ready else "blocked",
+        "degraded_reasons": retrieval_blocking_reasons,
         "evidence_hits": evidence_hits,
         "evidence_hit_count": len(evidence_hits),
         "hybrid_hits": hybrid_hits,
@@ -216,13 +430,22 @@ def generate_startup_retrieval_receipt(
         "dimensions": list(dimensions),
         "workspace_rules_read": _workspace_rules_read(canonical_profile),
         "gaps": gaps,
-        "vector_retrieval": retrieval.get("vector_retrieval") or {},
+        "vector_retrieval": vector_retrieval,
         "rerank": retrieval.get("rerank") or {},
         "external_research": retrieval.get("external_research") or {},
         "milvus_used": bool(retrieval.get("milvus_used")),
         "postgres_used": False,
         "reranker_used": bool(retrieval.get("reranker_used")),
         "hermes_used": False,
+        "source_ids": source_context["source_ids"],
+        "evidence_snapshot_hash": source_context["evidence_snapshot_hash"],
+        "capability_restrictions": source_context["capability_restrictions"],
+        "research_identities": source_context["research_identities"],
+        "readiness_status": "current",
+        "gate": {
+            "allowed_to_speak": background_retrieval_ready,
+            "blocking_reasons": retrieval_blocking_reasons,
+        },
         "created_at": created_at,
         "created_by": created_by,
     }
@@ -231,6 +454,9 @@ def generate_startup_retrieval_receipt(
     receipts = _read_receipts(path, normalized_deal_id)
     agents = receipts.setdefault("agents", {})
     agents[canonical_profile] = receipt
+    by_agent_phase = receipts.setdefault("by_agent_phase", {})
+    agent_history = by_agent_phase.setdefault(canonical_profile, {})
+    agent_history[normalized_round] = receipt
     receipts["updated_at"] = created_at
     deal_store.write_json(path, receipts)
     deal_store.append_audit_event(
@@ -246,6 +472,8 @@ def generate_startup_retrieval_receipt(
             "vector_retrieval_enabled": bool(include_vector),
             "rerank_enabled": bool(include_rerank),
             "gaps": gaps,
+            "source_ids": source_context["source_ids"],
+            "evidence_snapshot_hash": source_context["evidence_snapshot_hash"],
             "created_by": created_by,
         },
         wiki_root=wiki_root,
@@ -257,13 +485,35 @@ def read_startup_retrieval_receipt(
     deal_id: str,
     profile_id: str,
     *,
+    round_name: str | None = None,
     wiki_root: Path | str | None = None,
 ) -> dict[str, Any]:
     package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
     canonical_profile = _normalize_profile_id(profile_id)
     receipts = _read_receipts(package_dir / "phases" / "startup_receipts.json", deal_store.validate_deal_id(deal_id))
     agents = receipts.get("agents") if isinstance(receipts.get("agents"), dict) else {}
-    receipt = agents.get(canonical_profile)
+    if round_name is not None:
+        normalized_round = _normalize_round_name(round_name)
+        history = receipts.get("by_agent_phase") if isinstance(receipts.get("by_agent_phase"), dict) else {}
+        agent_history = history.get(canonical_profile) if isinstance(history.get(canonical_profile), dict) else {}
+        receipt = agent_history.get(normalized_round)
+    else:
+        receipt = agents.get(canonical_profile)
+    if isinstance(receipt, dict):
+        receipt = dict(receipt)
+        current = _primary_market_source_context(package_dir)
+        freshness = evaluate_startup_receipt_freshness(receipt, current)
+        receipt["readiness_status"] = freshness["status"]
+        receipt["freshness"] = freshness
+        if freshness["stale"]:
+            receipt["stale_reason"] = freshness["reasons"][0]
+            receipt["current_evidence_snapshot_hash"] = freshness["current_evidence_snapshot_hash"]
+            gate = receipt.get("gate") if isinstance(receipt.get("gate"), dict) else {}
+            receipt["gate"] = {
+                **gate,
+                "allowed_to_speak": False,
+                "blocking_reasons": freshness["reasons"],
+            }
     return {
         "deal_id": deal_store.validate_deal_id(deal_id),
         "agent_id": canonical_profile,

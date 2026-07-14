@@ -23,7 +23,15 @@ def financial_report(*, evidence: float = 1.0, cases: int = 3, blocks: int = 1) 
     return {"mode": "trace-offline", "passed": True, "summary": summary}
 
 
-def performance_report(*, p95: float = 10.0, hit_rate: float = 1.0, cases: int = 3, repeat: int = 5) -> dict:
+def performance_report(
+    *,
+    p95: float = 10.0,
+    domain_p95: float = 8.0,
+    hit_rate: float = 1.0,
+    recall_at_k: float = 1.0,
+    cases: int = 3,
+    repeat: int = 5,
+) -> dict:
     return {
         "mode": "contract",
         "passed": True,
@@ -33,7 +41,13 @@ def performance_report(*, p95: float = 10.0, hit_rate: float = 1.0, cases: int =
                 "name": "market_ingestion_contract",
                 "passed": True,
                 "elapsed_ms": {"p95": p95},
-                "domain": {"cases": cases, "passed_cases": cases, "hit_rate": hit_rate},
+                "domain": {
+                    "cases": cases,
+                    "passed_cases": cases,
+                    "hit_rate": hit_rate,
+                    "recall_at_k": recall_at_k,
+                    "latency_ms": {"p95": domain_p95},
+                },
             }
         ],
     }
@@ -83,12 +97,23 @@ def test_performance_comparison_rejects_p95_over_budget():
 def test_performance_comparison_rejects_recall_or_case_coverage_drop():
     result = MODULE.compare_performance_report(
         performance_report(hit_rate=1.0, cases=3),
-        performance_report(hit_rate=0.8, cases=2),
+        performance_report(hit_rate=0.8, recall_at_k=0.8, cases=2),
     )
 
     assert result["passed"] is False
     assert any("domain.cases decreased" in item for item in result["failures"])
     assert any("domain.hit_rate decreased" in item for item in result["failures"])
+    assert any("domain.recall_at_k decreased" in item for item in result["failures"])
+
+
+def test_performance_comparison_rejects_business_domain_p95_over_budget():
+    result = MODULE.compare_performance_report(
+        performance_report(domain_p95=8.0),
+        performance_report(domain_p95=8.401),
+    )
+
+    assert result["passed"] is False
+    assert any("domain latency p95 regression exceeds 5% budget" in item for item in result["failures"])
 
 
 def test_performance_comparison_rejects_mismatched_measurement_settings():
@@ -111,3 +136,32 @@ def test_performance_comparison_rejects_embedding_throughput_drop():
 
     assert result["passed"] is False
     assert any("domain.texts_per_second decreased" in item for item in result["failures"])
+
+
+def test_performance_comparison_rejects_passing_but_empty_baseline():
+    baseline = performance_report()
+    baseline["benchmarks"] = []
+
+    result = MODULE.compare_performance_report(baseline, performance_report())
+
+    assert result["passed"] is False
+    assert "performance baseline has no benchmarks" in result["failures"]
+    assert any("benchmark missing from baseline" in item for item in result["failures"])
+
+
+def test_performance_comparison_requires_baseline_to_cover_every_current_benchmark():
+    baseline = performance_report()
+    current = performance_report()
+    extra = {**current["benchmarks"][0], "name": "new_production_probe"}
+    current["benchmarks"].append(extra)
+
+    result = MODULE.compare_performance_report(baseline, current)
+
+    assert result["passed"] is False
+    assert "performance new_production_probe: benchmark missing from baseline" in result["failures"]
+    missing = next(item for item in result["benchmarks"] if item["name"] == "new_production_probe")
+    assert missing == {
+        "name": "new_production_probe",
+        "passed": False,
+        "failures": ["benchmark missing from baseline"],
+    }

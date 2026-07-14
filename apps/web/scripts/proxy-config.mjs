@@ -1,5 +1,6 @@
 const DEFAULT_BACKEND_URL = 'http://127.0.0.1:18081'
 const DEFAULT_REPORT_FINDER_URL = 'http://127.0.0.1:18000'
+const MEETING_AUDIO_ROUTE = '^/api/meetings/v1/sessions/[^/]+/audio(?:\\?|$)'
 
 const BACKEND_PREFIXES = [
   '/api/v1',
@@ -20,6 +21,7 @@ const BACKEND_PREFIXES = [
   '/api/workspace',
   '/api/documents',
   '/api/deals',
+  '/api/meetings',
   '/api/primary-market',
   '/api/pdf',
   '/api/pdf_page',
@@ -56,6 +58,11 @@ export function createProxyRules(options = {}) {
     ['SIQ_REPORT_FINDER_URL', 'TRIAL_REPORT_FINDER_URL'],
     DEFAULT_REPORT_FINDER_URL,
   )
+  const meetingStreamGatewayUrl = resolveUrl(
+    options.meetingStreamGatewayUrl,
+    ['SIQ_MEETING_STREAM_GATEWAY_URL'],
+    backendUrl,
+  )
   const backendPrefixes = [
     ...(options.includeAuth === false ? [] : ['/api/auth']),
     ...(options.includeEval === false ? [] : ['/api/eval']),
@@ -64,7 +71,13 @@ export function createProxyRules(options = {}) {
 
   return [
     ...BACKEND_REWRITE_RULES.map((rule) => ({ ...rule, target: backendUrl })),
-    ...backendPrefixes.map((prefix) => ({ prefix, target: backendUrl })),
+    { prefix: MEETING_AUDIO_ROUTE, target: meetingStreamGatewayUrl, ws: true },
+    ...backendPrefixes.map((prefix) => ({
+      prefix,
+      target: backendUrl,
+      // Meeting audio uses a one-time-ticket WebSocket on the same API prefix.
+      ...(prefix === '/api/meetings' ? { ws: true } : {}),
+    })),
     { prefix: '/api', target: reportFinderUrl, rewrite: (url) => url.replace(/^\/api/, '') || '/' },
   ]
 }
@@ -76,6 +89,7 @@ export function createViteProxy(options = {}) {
       {
         target: rule.target,
         changeOrigin: true,
+        ...(rule.ws ? { ws: true } : {}),
         ...(rule.rewrite ? { rewrite: rule.rewrite } : {}),
         ...(rule.headers ? { headers: rule.headers } : {}),
       },

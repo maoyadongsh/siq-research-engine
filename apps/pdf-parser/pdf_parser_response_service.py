@@ -18,7 +18,8 @@ def build_task_duplicate_payload(
 ) -> dict[str, Any] | None:
     if not task:
         return None
-    return {
+    submit_config = task.get("submit_config") if isinstance(task.get("submit_config"), Mapping) else {}
+    payload = {
         "task_id": task.get("task_id"),
         "filename": task.get("filename"),
         "market": task.get("market"),
@@ -30,6 +31,13 @@ def build_task_duplicate_payload(
         "pdf_page_count": task.get("pdf_page_count"),
         "markdown_ready": bool(has_markdown_artifact(task)),
     }
+    if submit_config.get("document_profile"):
+        payload["document_profile"] = submit_config["document_profile"]
+    if submit_config.get("parser_version"):
+        payload["parser_version"] = submit_config["parser_version"]
+    if submit_config.get("source_context"):
+        payload["source_context"] = submit_config["source_context"]
+    return payload
 
 
 def build_recent_tasks_payload(
@@ -58,7 +66,8 @@ def build_status_response_payload(
         page_progress["remaining"] = 0
         progress_percent = 100.0
 
-    return {
+    submit_config = task.get("submit_config") if isinstance(task.get("submit_config"), Mapping) else {}
+    payload = {
         "task_id": task["task_id"],
         "status": task["status"],
         "stage": task["stage"],
@@ -76,6 +85,18 @@ def build_status_response_payload(
         "log_count": len(task.get("logs", [])),
         "logs": logs_slice if logs_slice is not None else [],
     }
+    market = submit_config.get("market") or task.get("market")
+    if market:
+        payload["market"] = market
+    if task.get("parse_config_hash"):
+        payload["parse_config_hash"] = task["parse_config_hash"]
+    if submit_config.get("document_profile"):
+        payload["document_profile"] = submit_config["document_profile"]
+    if submit_config.get("parser_version"):
+        payload["parser_version"] = submit_config["parser_version"]
+    if submit_config.get("source_context"):
+        payload["source_context"] = submit_config["source_context"]
+    return payload
 
 
 def build_result_response_payload(markdown: Any, artifacts: Mapping[str, Any]) -> dict[str, Any]:

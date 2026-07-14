@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -89,6 +89,24 @@ def as_date_text(value: Any) -> str | None:
         return text[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", text) else text
 
 
+def as_datetime_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def normalize_scale(value: Any, unit: Any = None) -> Decimal | None:
     parsed = as_decimal(value)
     if parsed is not None:
@@ -171,6 +189,20 @@ COMMON_CORE_ALIASES = {
     "current_assets": {"current_assets", "current assets", "流动资产", "流動資產", "流動資産", "유동자산"},
     "total_liabilities": {"total_liabilities", "负债合计", "負債總額", "負債合計", "부채총계", "ifrs-full:liabilities"},
     "total_equity": {"total_equity", "equity", "权益合计", "權益總額", "資本合計", "자본총계", "ifrs-full:equity"},
+    "cash_and_cash_equivalents": {
+        "cash_and_cash_equivalents",
+        "cash_and_equivalents",
+        "cash and cash equivalents",
+        "cash and bank balances",
+        "现金及现金等价物",
+        "現金及現金等價物",
+        "現金及銀行結餘",
+        "現金及銀行餘額",
+        "現金及び現金同等物",
+        "현금및현금성자산",
+        "ifrs-full:cashandcashequivalents",
+        "us-gaap:cashandcashequivalentsatcarryingvalue",
+    },
     "operating_cash_flow": {
         "operating_cash_flow",
         "operating_cash_flow_net",

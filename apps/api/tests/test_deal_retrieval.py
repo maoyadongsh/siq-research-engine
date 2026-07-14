@@ -1,10 +1,6 @@
 import json
 
-from services import deal_retrieval
-from services import deal_store
-from services import external_research_clients
-from services import rerank_provider
-from services import vector_retrieval
+from services import deal_retrieval, deal_store, external_research_clients, rerank_provider, vector_retrieval
 
 
 def _write_ndjson(path, rows):
@@ -66,6 +62,7 @@ def test_deal_retrieval_ranks_role_evidence_and_builds_dynamic_queries(tmp_path,
     assert result["retrieval_mode"] == "local_dynamic_evidence_package_v1"
     assert result["matched_evidence_count"] == 1
     assert result["evidence_hits"][0]["evidence_id"] == "EVID-DEAL-RETRIEVAL-001-000002"
+    assert result["evidence_hits"][0]["source_class"] == "project_evidence"
     assert result["evidence_hits"][0]["retrieval_score"] > 0
     assert result["hybrid_hits"][0]["evidence_id"] == "EVID-DEAL-RETRIEVAL-001-000002"
     assert result["hybrid_hit_count"] == 1
@@ -115,6 +112,174 @@ def test_vector_retrieval_explicit_false_overrides_enabled_environment(monkeypat
     assert result["status"] == "skipped"
     assert result["reason"] == "vector_retrieval_disabled"
     assert result["hits"] == []
+
+
+def test_vector_retrieval_fairly_merges_shared_and_private_collections(monkeypatch):
+    _clear_optional_retrieval_env(monkeypatch)
+    monkeypatch.setenv("SIQ_EMBEDDING_BASE_URL", "https://embedding.example")
+    monkeypatch.setattr(vector_retrieval, "find_spec", lambda _name: object())
+    monkeypatch.setattr(vector_retrieval, "_embed_query", lambda *_args, **_kwargs: [0.1, 0.2])
+
+    def fake_search(collection_name, _embedding, *, top_k, expr=None):
+        if expr:
+            return []
+        return [
+            {
+                "source_id": f"{collection_name}-{index}",
+                "collection": collection_name,
+                "text": f"{collection_name} knowledge {index}",
+            }
+            for index in range(top_k)
+        ]
+
+    monkeypatch.setattr(vector_retrieval, "_search_milvus_collection", fake_search)
+
+    result = vector_retrieval.retrieve_vector_hits(
+        query="机器人估值方法",
+        profile_id="siq_ic_finance_auditor",
+        enabled=True,
+        top_k=4,
+    )
+
+    assert result["status"] == "completed"
+    assert result["milvus_used"] is True
+    assert result["collection_hit_counts"] == {
+        "siq_deal_shared": 4,
+        "siq_ic_finance_auditor": 4,
+    }
+    assert result["physical_collections"] == {
+        "siq_deal_shared": "ic_collaboration_shared",
+        "siq_ic_finance_auditor": "ic_finance_auditor",
+    }
+    assert [item["collection"] for item in result["hits"]] == [
+        "siq_deal_shared",
+        "siq_ic_finance_auditor",
+        "siq_deal_shared",
+        "siq_ic_finance_auditor",
+    ]
+
+
+def test_deal_retrieval_separates_project_evidence_from_profile_background(tmp_path, monkeypatch):
+    _clear_optional_retrieval_env(monkeypatch)
+    deal_store.create_deal_package(
+        deal_id="DEAL-RETRIEVAL-KB-001",
+        company_name="Knowledge Robotics",
+        industry="Robotics",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-RETRIEVAL-KB-001"
+    _write_ndjson(
+        package_dir / "evidence" / "evidence_items.ndjson",
+        [{
+            "evidence_id": "EVID-DEAL-RETRIEVAL-KB-001-000001",
+            "dimension": "finance",
+            "evidence_type": "verified",
+            "claim": "Issuer revenue is RMB 100m.",
+        }],
+    )
+    monkeypatch.setattr(
+        vector_retrieval,
+        "retrieve_vector_hits",
+        lambda **_kwargs: {
+            "schema_version": "siq_vector_retrieval_result_v1",
+            "status": "completed",
+            "collections": ["siq_deal_shared", "siq_ic_finance_auditor"],
+            "physical_collections": {
+                "siq_deal_shared": "ic_collaboration_shared",
+                "siq_ic_finance_auditor": "ic_finance_auditor",
+            },
+            "hits": [
+                {"source_id": "shared-1", "collection": "siq_deal_shared", "text": "Issuer evidence"},
+                {
+                    "source_id": "private-domain-1",
+                    "collection": "siq_ic_finance_auditor",
+                    "text": "Receivable aging domain guidance",
+                    "metadata": {"source_path": "finance-domain.md"},
+                },
+            ],
+            "hit_count": 2,
+            "methodology_hits": [
+                {
+                    "source_id": "private-method-1",
+                    "collection": "siq_ic_finance_auditor",
+                    "text": "Revenue quality review methodology",
+                    "project_tag": vector_retrieval.DEFAULT_MANAGED_KNOWLEDGE_PROJECT_TAG,
+                    "metadata": {
+                        "content_hash": "method-1",
+                        "knowledge_type": "methodology",
+                        "managed_by": vector_retrieval.MANAGED_KNOWLEDGE_WRITER,
+                    },
+                }
+            ],
+        },
+    )
+
+    result = deal_retrieval.retrieve_for_agent(
+        "DEAL-RETRIEVAL-KB-001",
+        "siq_ic_finance_auditor",
+        include_vector=True,
+        wiki_root=tmp_path,
+    )
+
+    assert result["background_knowledge_hit_count"] == 2
+    assert result["background_knowledge_hits"][0]["source_class"] == "background_knowledge"
+    assert result["methodology_hit_count"] == 1
+    assert result["domain_background_hit_count"] == 1
+    assert result["background_selection"]["methodology_selected"] == 1
+    assert result["shared_vector_hits"][0]["source_class"] == "project_evidence"
+    assert {item["source_class"] for item in result["hybrid_hits"]} == {
+        "project_evidence",
+        "background_knowledge",
+    }
+
+
+def test_private_background_selection_prioritizes_methodology_and_dedupes_domain_sources():
+    methodology = [
+        {
+            "source_id": f"method-{index}",
+            "metadata": {"content_hash": f"hash-{index}"},
+        }
+        for index in range(1, 4)
+    ]
+    domain = [
+        {
+            "source_id": "hainan-1",
+            "title": "海南法规",
+            "metadata": {"source_path": "hainan.md"},
+        },
+        {
+            "source_id": "hainan-duplicate",
+            "title": "海南法规重复片段",
+            "metadata": {"source_path": "hainan.md"},
+        },
+        {
+            "source_id": "jiangsu-patent",
+            "title": "江苏省专利促进条例",
+            "metadata": {"source_path": "jiangsu-patent.md"},
+        },
+    ]
+
+    selected, stats = deal_retrieval._select_private_background_hits(
+        methodology_hits=methodology,
+        domain_hits=domain,
+        limit=10,
+    )
+
+    assert [item["source_id"] for item in selected] == [
+        "method-1",
+        "method-2",
+        "hainan-1",
+        "jiangsu-patent",
+    ]
+    assert [item["knowledge_lane"] for item in selected] == [
+        "methodology",
+        "methodology",
+        "domain_background",
+        "domain_background",
+    ]
+    assert stats["methodology_selected"] == 2
+    assert stats["domain_selected"] == 2
+    assert stats["domain_duplicates_dropped"] == 1
 
 
 def test_rerank_provider_normalizes_openai_compatible_response(monkeypatch):

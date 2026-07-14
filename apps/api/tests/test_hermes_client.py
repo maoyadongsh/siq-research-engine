@@ -108,6 +108,84 @@ def test_terminal_accumulator_keeps_first_terminal_and_received_text():
     assert duplicate == first
 
 
+def test_runtime_metadata_is_strictly_projected_without_extra_fields():
+    runtime = hermes_client.normalize_run_runtime(
+        {
+            "schema_version": "hermes.run_runtime.v1",
+            "requested_model": "siq_ic_chairman",
+            "configured": {
+                "provider": "minimax-cn",
+                "model": "MiniMax-M3",
+                "api_key": "configured-secret",
+            },
+            "effective": {
+                "provider": "custom:stepfun-step-3.7-flash",
+                "model": "step-3.7-flash",
+                "base_url": "https://secret.example/v1",
+            },
+            "fallback": {"activated": True, "reason": "secret detail"},
+            "prompt": "secret prompt",
+        }
+    )
+
+    assert runtime is not None
+    assert runtime.to_payload() == {
+        "schema_version": "hermes.run_runtime.v1",
+        "requested_model": "siq_ic_chairman",
+        "configured": {"provider": "minimax-cn", "model": "MiniMax-M3"},
+        "effective": {
+            "provider": "custom:stepfun-step-3.7-flash",
+            "model": "step-3.7-flash",
+        },
+        "fallback": {"activated": True},
+    }
+    assert "secret" not in str(runtime.to_payload()).lower()
+
+
+def test_runtime_metadata_rejects_malformed_or_unsafe_known_fields():
+    valid = {
+        "schema_version": "hermes.run_runtime.v1",
+        "requested_model": "siq_ic_chairman",
+        "configured": {"provider": "minimax-cn", "model": "MiniMax-M3"},
+        "effective": {"provider": "minimax-cn", "model": "MiniMax-M3"},
+        "fallback": {"activated": False},
+    }
+
+    assert hermes_client.normalize_run_runtime({**valid, "schema_version": "unknown"}) is None
+    assert (
+        hermes_client.normalize_run_runtime(
+            {**valid, "effective": {"provider": "https://secret.example", "model": "MiniMax-M3"}}
+        )
+        is None
+    )
+    assert hermes_client.normalize_run_runtime({**valid, "fallback": {"activated": "false"}}) is None
+
+
+def test_terminal_result_carries_runtime_for_success_and_failure():
+    runtime = hermes_client.normalize_run_runtime(
+        {
+            "schema_version": "hermes.run_runtime.v1",
+            "requested_model": "siq_ic_chairman",
+            "configured": {"provider": "minimax-cn", "model": "MiniMax-M3"},
+            "effective": {"provider": "minimax-cn", "model": "MiniMax-M3"},
+            "fallback": {"activated": False},
+        }
+    )
+    assert runtime is not None
+
+    succeeded = hermes_client.RunTerminalAccumulator("run-success").accept(
+        hermes_client.StreamEvent(type="done", text="{}", status="completed", runtime=runtime)
+    )
+    failed = hermes_client.RunTerminalAccumulator("run-failed").accept(
+        hermes_client.StreamEvent(type="failed", text="abort", status="failed", runtime=runtime)
+    )
+
+    assert succeeded is not None and succeeded.runtime == runtime
+    assert failed is not None and failed.runtime == runtime
+    assert succeeded.to_payload()["runtime"] == runtime.to_payload()
+    assert failed.to_payload()["runtime"] == runtime.to_payload()
+
+
 def test_collect_run_terminal_result_projects_success_and_eof(monkeypatch):
     async def run_case():
         async def completed_stream(*_args, **_kwargs):
@@ -133,6 +211,22 @@ def test_collect_run_terminal_result_projects_success_and_eof(monkeypatch):
     assert eof.error_code == "hermes_protocol_eof"
     assert eof.retryable is True
     assert eof.received_text == "partial"
+    assert hermes_client.pop_run_terminal_result("run-completed") == completed
+    assert hermes_client.pop_run_terminal_result("run-eof") == eof
+    assert hermes_client.pop_run_terminal_result("run-eof") is None
+
+
+def test_terminal_cache_is_bounded_and_can_be_discarded(monkeypatch):
+    monkeypatch.setattr(hermes_client, "_RECENT_RUN_TERMINAL_LIMIT", 2)
+    hermes_client._RECENT_RUN_TERMINALS.clear()
+    for index in range(3):
+        hermes_client._remember_run_terminal(
+            hermes_client.RunTerminalResult(run_id=f"run-{index}", status="succeeded")
+        )
+
+    assert list(hermes_client._RECENT_RUN_TERMINALS) == ["run-1", "run-2"]
+    hermes_client.discard_run_terminal_result("run-1")
+    assert list(hermes_client._RECENT_RUN_TERMINALS) == ["run-2"]
 
 
 def test_collect_run_result_raises_structured_error_for_failed_partial(monkeypatch):

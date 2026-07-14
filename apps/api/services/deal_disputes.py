@@ -6,9 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from services import deal_store
-from services import ic_policy
-
+from services import deal_store, ic_policy
 
 DEAL_DISPUTES_SUMMARY_SCHEMA = "siq_deal_r1_5_disputes_summary_v1"
 DEAL_DISPUTES_SCHEMA = "siq_ic_disputes_v1"
@@ -72,6 +70,45 @@ def _dedupe_strings(values: list[Any]) -> list[str]:
     return result
 
 
+def _dedupe_items(values: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    for value in values:
+        if value in (None, "") or value in result:
+            continue
+        result.append(deepcopy(value))
+    return result
+
+
+def _normalized_materiality(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _open_question_is_blocking(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("blocking") is True or value.get("required") is True:
+        return True
+    materiality = _normalized_materiality(
+        value.get("severity") or value.get("decision_impact") or value.get("priority")
+    )
+    return materiality in {"critical", "high", "material", "p0", "重大", "高"}
+
+
+def _red_flag_is_material(value: Any) -> bool:
+    if not isinstance(value, dict):
+        # Legacy R1 reports used unstructured risk flag strings. Preserve their
+        # blocking behavior until those artifacts are upgraded.
+        return bool(str(value or "").strip())
+    if value.get("veto") is True or value.get("blocking") is True:
+        return True
+    materiality = _normalized_materiality(value.get("severity") or value.get("level") or value.get("decision_impact"))
+    flag_type = _normalized_materiality(value.get("type"))
+    return materiality in {"critical", "high", "material", "重大", "高"} or flag_type in {
+        "diligence_blocker",
+        "veto",
+    }
+
+
 def _canonical_keyed_payload(value: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(value, dict):
         return {}
@@ -102,15 +139,48 @@ def _recommendation_bucket(value: Any) -> str:
 
 
 def _report_position(report: dict[str, Any]) -> dict[str, Any]:
+    red_flags = _dedupe_items(_string_values(report.get("red_flags")) + _string_values(report.get("risk_flags")))
     return {
         "agent_id": report.get("agent_id"),
         "recommendation": report.get("recommendation"),
         "score": report.get("score"),
         "summary": report.get("summary") or report.get("output_preview"),
-        "evidence_ids": _dedupe_strings(_string_values(report.get("evidence_ids")) + _string_values(report.get("evidence_id"))),
-        "open_questions": _dedupe_strings(_string_values(report.get("open_questions"))),
-        "risk_flags": _dedupe_strings(_string_values(report.get("risk_flags"))),
+        "evidence_ids": _dedupe_strings(
+            _string_values(report.get("evidence_ids")) + _string_values(report.get("evidence_id"))
+        ),
+        "open_questions": _dedupe_items(_string_values(report.get("open_questions"))),
+        "red_flags": red_flags,
     }
+
+
+def _material_gap_position(position: dict[str, Any]) -> dict[str, Any] | None:
+    recommendation = str(position.get("recommendation") or "").strip().lower()
+    open_questions = [
+        item for item in _string_values(position.get("open_questions")) if _open_question_is_blocking(item)
+    ]
+    red_flags = [item for item in _string_values(position.get("red_flags")) if _red_flag_is_material(item)]
+    if recommendation != "insufficient_evidence" and not open_questions and not red_flags:
+        return None
+    result = deepcopy(position)
+    if recommendation != "insufficient_evidence":
+        result["open_questions"] = open_questions
+        result["red_flags"] = red_flags
+    return result
+
+
+def _material_gap_severity(positions: list[dict[str, Any]]) -> str:
+    if any(str(item.get("recommendation") or "").strip().lower() == "insufficient_evidence" for item in positions):
+        return "high"
+    for position in positions:
+        for flag in _string_values(position.get("red_flags")):
+            if not isinstance(flag, dict):
+                return "high"
+            materiality = _normalized_materiality(
+                flag.get("severity") or flag.get("level") or flag.get("decision_impact")
+            )
+            if materiality in {"critical", "high", "重大", "高"} or flag.get("veto") is True:
+                return "high"
+    return "medium"
 
 
 def _dispute_id(deal_id: str, index: int) -> str:
@@ -126,23 +196,29 @@ def _build_r1_disputes(deal_id: str, reports: dict[str, dict[str, Any]]) -> tupl
     disputes: list[dict[str, Any]] = []
     positions = [_report_position(report) for report in ordered_reports]
     agent_ids = [str(report.get("agent_id")) for report in ordered_reports if report.get("agent_id")]
-    evidence_ids = _dedupe_strings([item for position in positions for item in _string_values(position.get("evidence_ids"))])
+    evidence_ids = _dedupe_strings(
+        [item for position in positions for item in _string_values(position.get("evidence_ids"))]
+    )
 
     buckets = {_recommendation_bucket(report.get("recommendation")) for report in ordered_reports}
     meaningful_buckets = buckets - {"unknown"}
     if len(meaningful_buckets) > 1:
-        disputes.append({
-            "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
-            "topic": "R1 recommendation divergence",
-            "dimension": "committee_alignment",
-            "severity": "high" if "negative" in meaningful_buckets and "positive" in meaningful_buckets else "medium",
-            "resolved": False,
-            "agent_ids": agent_ids,
-            "evidence_ids": evidence_ids,
-            "positions": positions,
-            "required_followups": ["Chairman ruling on divergent R1 recommendations"],
-            "detection_rules": ["recommendation_bucket_divergence"],
-        })
+        disputes.append(
+            {
+                "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
+                "topic": "R1 recommendation divergence",
+                "dimension": "committee_alignment",
+                "severity": "high"
+                if "negative" in meaningful_buckets and "positive" in meaningful_buckets
+                else "medium",
+                "resolved": False,
+                "agent_ids": agent_ids,
+                "evidence_ids": evidence_ids,
+                "positions": positions,
+                "required_followups": ["Chairman ruling on divergent R1 recommendations"],
+                "detection_rules": ["recommendation_bucket_divergence"],
+            }
+        )
 
     scored = [(report, _number(report.get("score"))) for report in ordered_reports]
     scored = [(report, score) for report, score in scored if score is not None]
@@ -150,40 +226,43 @@ def _build_r1_disputes(deal_id: str, reports: dict[str, dict[str, Any]]) -> tupl
         scores = [score for _report, score in scored]
         spread = max(scores) - min(scores)
         if spread >= SCORE_SPREAD_THRESHOLD:
-            disputes.append({
-                "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
-                "topic": f"R1 score spread {spread:.1f}",
-                "dimension": "scoring_consistency",
-                "severity": "high" if spread >= 30 else "medium",
-                "resolved": False,
-                "agent_ids": [str(report.get("agent_id")) for report, _score in scored if report.get("agent_id")],
-                "evidence_ids": evidence_ids,
-                "positions": [
-                    {**_report_position(report), "score": score}
-                    for report, score in scored
-                ],
-                "required_followups": ["Review score assumptions and normalize scoring basis"],
-                "detection_rules": ["score_spread_threshold"],
-            })
+            disputes.append(
+                {
+                    "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
+                    "topic": f"R1 score spread {spread:.1f}",
+                    "dimension": "scoring_consistency",
+                    "severity": "high" if spread >= 30 else "medium",
+                    "resolved": False,
+                    "agent_ids": [str(report.get("agent_id")) for report, _score in scored if report.get("agent_id")],
+                    "evidence_ids": evidence_ids,
+                    "positions": [{**_report_position(report), "score": score} for report, score in scored],
+                    "required_followups": ["Review score assumptions and normalize scoring basis"],
+                    "detection_rules": ["score_spread_threshold"],
+                }
+            )
 
     gap_positions = [
-        position
-        for position in positions
-        if position.get("open_questions") or position.get("risk_flags")
+        material_gap for position in positions if (material_gap := _material_gap_position(position)) is not None
     ]
     if gap_positions:
-        disputes.append({
-            "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
-            "topic": "R1 unresolved diligence gaps",
-            "dimension": "evidence_sufficiency",
-            "severity": "medium",
-            "resolved": False,
-            "agent_ids": _dedupe_strings([str(position.get("agent_id")) for position in gap_positions if position.get("agent_id")]),
-            "evidence_ids": _dedupe_strings([item for position in gap_positions for item in _string_values(position.get("evidence_ids"))]),
-            "positions": gap_positions,
-            "required_followups": ["Resolve open questions and risk flags before R2"],
-            "detection_rules": ["open_questions_or_risk_flags_present"],
-        })
+        disputes.append(
+            {
+                "dispute_id": _dispute_id(deal_id, len(disputes) + 1),
+                "topic": "R1 unresolved diligence gaps",
+                "dimension": "evidence_sufficiency",
+                "severity": _material_gap_severity(gap_positions),
+                "resolved": False,
+                "agent_ids": _dedupe_strings(
+                    [str(position.get("agent_id")) for position in gap_positions if position.get("agent_id")]
+                ),
+                "evidence_ids": _dedupe_strings(
+                    [item for position in gap_positions for item in _string_values(position.get("evidence_ids"))]
+                ),
+                "positions": gap_positions,
+                "required_followups": ["Resolve open questions and risk flags before R2"],
+                "detection_rules": ["blocking_questions_or_material_red_flags_present"],
+            }
+        )
 
     if len(ordered_reports) < len(ic_policy.R1_AGENT_SEQUENCE):
         missing = [agent_id for agent_id in ic_policy.R1_AGENT_SEQUENCE if agent_id not in reports]
@@ -254,9 +333,7 @@ def _summarize_dispute(dispute: dict[str, Any], index: int) -> dict[str, Any]:
     positions = _as_list(dispute.get("positions"))
     ruling = _as_dict(dispute.get("chairman_ruling"))
     agent_ids = _canonical_agent_ids(
-        _string_values(dispute.get("agent_ids"))
-        + _string_values(dispute.get("agent_id"))
-        + _position_agents(positions)
+        _string_values(dispute.get("agent_ids")) + _string_values(dispute.get("agent_id")) + _position_agents(positions)
     )
     evidence_ids = _dedupe_strings(
         _string_values(dispute.get("evidence_ids"))
@@ -318,16 +395,16 @@ def _summarize_deal_disputes_raw(package_dir: Path, raw: Any) -> dict[str, Any]:
     raw = deal_store.redact_public_payload(raw)
     dispute_items = _raw_dispute_items(raw)
     disputes = [
-        _summarize_dispute(item, index)
-        for index, item in enumerate(dispute_items, start=1)
-        if isinstance(item, dict)
+        _summarize_dispute(item, index) for index, item in enumerate(dispute_items, start=1) if isinstance(item, dict)
     ]
     top_level_warnings = _dedupe_strings(_string_values(raw.get("warnings") if isinstance(raw, dict) else None))
     artifacts = {
         "json": _artifact(package_dir, DISPUTES_JSON_PATH),
         "markdown": _artifact(package_dir, DISPUTES_MARKDOWN_PATH),
     }
-    warnings = _dedupe_strings(top_level_warnings + _warnings(disputes, json_available=bool(artifacts["json"]["available"])))
+    warnings = _dedupe_strings(
+        top_level_warnings + _warnings(disputes, json_available=bool(artifacts["json"]["available"]))
+    )
     resolved = sum(1 for item in disputes if item.get("resolved"))
     position_count = sum(int(item.get("position_count") or 0) for item in disputes)
     ruling_count = sum(1 for item in disputes if item.get("chairman_ruling"))
@@ -383,21 +460,30 @@ def _markdown_for_disputes(payload: dict[str, Any]) -> str:
     ]
     disputes = _as_list(payload.get("disputes"))
     if not disputes:
-        lines.extend(["## No Explicit Disputes", "", "No deterministic R1.5 disputes were identified from current R1 reports.", ""])
+        lines.extend(
+            [
+                "## No Explicit Disputes",
+                "",
+                "No deterministic R1.5 disputes were identified from current R1 reports.",
+                "",
+            ]
+        )
     for dispute in disputes:
         if not isinstance(dispute, dict):
             continue
-        lines.extend([
-            f"## {dispute.get('dispute_id')} · {dispute.get('topic')}",
-            "",
-            f"- dimension: `{dispute.get('dimension')}`",
-            f"- severity: `{dispute.get('severity')}`",
-            f"- resolved: `{dispute.get('resolved')}`",
-            f"- agents: `{', '.join(_string_values(dispute.get('agent_ids')))}`",
-            "",
-            "### Required Follow-ups",
-            "",
-        ])
+        lines.extend(
+            [
+                f"## {dispute.get('dispute_id')} · {dispute.get('topic')}",
+                "",
+                f"- dimension: `{dispute.get('dimension')}`",
+                f"- severity: `{dispute.get('severity')}`",
+                f"- resolved: `{dispute.get('resolved')}`",
+                f"- agents: `{', '.join(_string_values(dispute.get('agent_ids')))}`",
+                "",
+                "### Required Follow-ups",
+                "",
+            ]
+        )
         followups = _string_values(dispute.get("required_followups"))
         if followups:
             lines.extend([f"- {item}" for item in followups])
@@ -406,13 +492,15 @@ def _markdown_for_disputes(payload: dict[str, Any]) -> str:
         lines.append("")
         ruling = _as_dict(dispute.get("chairman_ruling"))
         if ruling:
-            lines.extend([
-                "### Chairman Ruling",
-                "",
-                f"- decision: `{ruling.get('decision')}`",
-                f"- resolved: `{ruling.get('resolved')}`",
-                f"- ruled_at: `{ruling.get('ruled_at')}`",
-            ])
+            lines.extend(
+                [
+                    "### Chairman Ruling",
+                    "",
+                    f"- decision: `{ruling.get('decision')}`",
+                    f"- resolved: `{ruling.get('resolved')}`",
+                    f"- ruled_at: `{ruling.get('ruled_at')}`",
+                ]
+            )
             if ruling.get("rationale"):
                 lines.extend(["", str(ruling.get("rationale"))])
             ruling_followups = _string_values(ruling.get("required_followups"))
@@ -470,46 +558,48 @@ def build_chairman_ruling_task(
     blocking_reasons: list[str] = []
     if not task_disputes:
         blocking_reasons.append("no_unresolved_disputes" if only_unresolved else "no_disputes")
-    return deal_store.redact_public_payload({
-        "schema_version": DEAL_DISPUTE_CHAIRMAN_TASK_SCHEMA,
-        "deal_id": normalized_deal_id,
-        "phase": "R1.5",
-        "round_name": "R1.5",
-        "agent_id": "siq_ic_chairman",
-        "only_unresolved": bool(only_unresolved),
-        "allowed": not blocking_reasons,
-        "blocking_reasons": blocking_reasons,
-        "dispute_count": len(task_disputes),
-        "summary": summary,
-        "input_artifacts": {
-            "disputes": DISPUTES_JSON_PATH,
-            "r1_reports": "phases/r1_reports.json",
-            "workflow_state": "phases/workflow_state.json",
-            "evidence_items": "evidence/evidence_items.ndjson",
-        },
-        "output_contract": {
-            "endpoint": f"/api/deals/{normalized_deal_id}/workflow/disputes/chairman-rulings",
-            "json_path": DISPUTES_JSON_PATH,
-            "markdown_path": DISPUTES_MARKDOWN_PATH,
-            "required_fields": ["dispute_id", "decision", "rationale", "resolved"],
-            "optional_fields": ["required_followups", "evidence_ids", "ruling_value", "is_approved"],
-            "compatibility_aliases": {
-                "decision": ["ruling_text"],
-                "resolved": ["is_approved"],
+    return deal_store.redact_public_payload(
+        {
+            "schema_version": DEAL_DISPUTE_CHAIRMAN_TASK_SCHEMA,
+            "deal_id": normalized_deal_id,
+            "phase": "R1.5",
+            "round_name": "R1.5",
+            "agent_id": "siq_ic_chairman",
+            "only_unresolved": bool(only_unresolved),
+            "allowed": not blocking_reasons,
+            "blocking_reasons": blocking_reasons,
+            "dispute_count": len(task_disputes),
+            "summary": summary,
+            "input_artifacts": {
+                "disputes": DISPUTES_JSON_PATH,
+                "r1_reports": "phases/r1_reports.json",
+                "workflow_state": "phases/workflow_state.json",
+                "evidence_items": "evidence/evidence_items.ndjson",
             },
-        },
-        "hard_rules": [
-            "Chairman must rule only on listed dispute_id values.",
-            "Every ruling must include a decision and rationale.",
-            "Use evidence_ids from the dispute positions whenever possible.",
-            "If unresolved issues remain, set resolved=false and add required_followups.",
-            "API service writes JSON, Markdown, workflow state, and audit events.",
-        ],
-        "disputes": task_disputes,
-        "dry_run": True,
-        "hermes_called": False,
-        "workflow_advanced": False,
-    })
+            "output_contract": {
+                "endpoint": f"/api/deals/{normalized_deal_id}/workflow/disputes/chairman-rulings",
+                "json_path": DISPUTES_JSON_PATH,
+                "markdown_path": DISPUTES_MARKDOWN_PATH,
+                "required_fields": ["dispute_id", "decision", "rationale", "resolved"],
+                "optional_fields": ["required_followups", "evidence_ids", "ruling_value", "is_approved"],
+                "compatibility_aliases": {
+                    "decision": ["ruling_text"],
+                    "resolved": ["is_approved"],
+                },
+            },
+            "hard_rules": [
+                "Chairman must rule only on listed dispute_id values.",
+                "Every ruling must include a decision and rationale.",
+                "Use evidence_ids from the dispute positions whenever possible.",
+                "If unresolved issues remain, set resolved=false and add required_followups.",
+                "API service writes JSON, Markdown, workflow state, and audit events.",
+            ],
+            "disputes": task_disputes,
+            "dry_run": True,
+            "hermes_called": False,
+            "workflow_advanced": False,
+        }
+    )
 
 
 def _apply_dispute_ruling(
@@ -529,6 +619,8 @@ def _apply_dispute_ruling(
             raise ValueError(f"Dispute already has a chairman_ruling: {dispute_id}")
         updated_dispute = dict(dispute)
         updated_dispute["resolved"] = bool(ruling.get("resolved"))
+        if ruling.get("evidence_snapshot_hash"):
+            updated_dispute["evidence_snapshot_hash"] = ruling["evidence_snapshot_hash"]
         updated_dispute["chairman_ruling"] = ruling
         disputes[index] = updated_dispute
         payload["disputes"] = disputes
@@ -580,8 +672,28 @@ def _normalize_submitted_ruling(
         "ruled_by": created_by or {"agent_id": item.get("signed_by") or "siq_ic_chairman"},
         "submission_mode": "structured_chairman_rulings_v1",
     }
+    if item.get("schema_version") is not None:
+        ruling["submission_schema_version"] = deepcopy(item.get("schema_version"))
+    if item.get("created_at") is not None:
+        ruling["source_created_at"] = deepcopy(item.get("created_at"))
     if item.get("ruling_value") is not None:
         ruling["ruling_value"] = item.get("ruling_value")
+    for field in (
+        "ruling",
+        "accepted_claim_ids",
+        "rejected_claim_ids",
+        "counter_evidence_ids",
+        "decision_impact",
+        "generation_mode",
+        "task_id",
+        "workflow_run_id",
+        "evidence_snapshot_hash",
+        "input_digest",
+        "handoff_digest",
+        "hermes_run_id",
+    ):
+        if item.get(field) is not None:
+            ruling[field] = deepcopy(item.get(field))
     return ruling
 
 
@@ -621,11 +733,13 @@ def submit_chairman_rulings(
             ruling=ruling,
             overwrite=overwrite,
         )
-        applied.append({
-            "dispute_id": dispute_id,
-            "ruling": ruling,
-            "dispute": updated_dispute,
-        })
+        applied.append(
+            {
+                "dispute_id": dispute_id,
+                "ruling": ruling,
+                "dispute": updated_dispute,
+            }
+        )
 
     payload["schema_version"] = str(payload.get("schema_version") or DEAL_DISPUTES_SCHEMA)
     payload["deal_id"] = str(payload.get("deal_id") or normalized_deal_id)
@@ -743,15 +857,17 @@ def _update_workflow_after_ruling(
         r1_5_status = "blocked"
         workflow_status = "r1_5_blocked"
 
-    r1_5.update({
-        "status": r1_5_status,
-        "dispute_count": counts.get("disputes") or 0,
-        "resolved_count": counts.get("resolved") or 0,
-        "unresolved_count": unresolved,
-        "ruling_count": counts.get("rulings") or 0,
-        "warnings": warnings,
-        "updated_at": now,
-    })
+    r1_5.update(
+        {
+            "status": r1_5_status,
+            "dispute_count": counts.get("disputes") or 0,
+            "resolved_count": counts.get("resolved") or 0,
+            "unresolved_count": unresolved,
+            "ruling_count": counts.get("rulings") or 0,
+            "warnings": warnings,
+            "updated_at": now,
+        }
+    )
     r1_5.setdefault("started_at", now)
     if r1_5_status == "completed":
         r1_5["completed_at"] = now
@@ -790,8 +906,7 @@ def _ruling_decision_for_dispute(dispute: dict[str, Any], followups: list[str]) 
 
 def _ruling_followups_for_dispute(dispute: dict[str, Any]) -> list[str]:
     followups = _dedupe_strings(
-        _string_values(dispute.get("required_followups"))
-        + _string_values(dispute.get("required_followup"))
+        _string_values(dispute.get("required_followups")) + _string_values(dispute.get("required_followup"))
     )
     if followups:
         return followups
@@ -886,11 +1001,13 @@ def generate_deal_dispute_rulings(
             ruling=ruling,
             overwrite=True,
         )
-        generated.append({
-            "dispute_id": dispute_id,
-            "ruling": ruling,
-            "dispute": updated_dispute,
-        })
+        generated.append(
+            {
+                "dispute_id": dispute_id,
+                "ruling": ruling,
+                "dispute": updated_dispute,
+            }
+        )
 
     payload["schema_version"] = str(payload.get("schema_version") or DEAL_DISPUTES_SCHEMA)
     payload["deal_id"] = str(payload.get("deal_id") or normalized_deal_id)
@@ -1131,16 +1248,18 @@ def identify_deal_disputes(
     else:
         r1_5_status = "blocked"
         workflow_status = "r1_5_blocked"
-    r1_5.update({
-        "status": r1_5_status,
-        "dispute_count": len(disputes),
-        "resolved_count": counts.get("resolved") or 0,
-        "unresolved_count": unresolved,
-        "ruling_count": counts.get("rulings") or 0,
-        "preserved_ruling_count": preserved_ruling_count,
-        "warnings": warnings,
-        "updated_at": now,
-    })
+    r1_5.update(
+        {
+            "status": r1_5_status,
+            "dispute_count": len(disputes),
+            "resolved_count": counts.get("resolved") or 0,
+            "unresolved_count": unresolved,
+            "ruling_count": counts.get("rulings") or 0,
+            "preserved_ruling_count": preserved_ruling_count,
+            "warnings": warnings,
+            "updated_at": now,
+        }
+    )
     r1_5.setdefault("started_at", now)
     if r1_5_status == "completed":
         r1_5["completed_at"] = now

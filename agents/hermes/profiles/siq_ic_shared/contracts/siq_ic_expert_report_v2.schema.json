@@ -1,0 +1,766 @@
+{
+  "$id": "siq_ic_expert_report_v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_master_coordinator"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "readiness",
+          "due_diligence_plan",
+          "task_assignments",
+          "progress_summary",
+          "quality_summary",
+          "audit_summary"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_strategist"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "policy_assessment",
+          "cycle_position",
+          "capital_flow_signals",
+          "strategic_fit",
+          "scenario_matrix",
+          "exit_window"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_sector_expert"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "market_sizing",
+          "competitor_matrix",
+          "technology_routes",
+          "value_chain",
+          "market_share_evidence",
+          "industry_lifecycle"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_finance_auditor"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "historical_financials",
+          "financial_reconciliations",
+          "quality_of_earnings",
+          "cash_flow_assessment",
+          "forecast_scenarios",
+          "valuation_scenarios",
+          "sensitivity_analysis",
+          "calculation_trace_ids"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_legal_scanner"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "legal_issues",
+          "legal_basis",
+          "severity",
+          "remediation",
+          "closing_conditions",
+          "term_sheet_protections",
+          "unresolved_legal_questions"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_risk_controller"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "risk_register",
+          "counter_theses",
+          "stress_scenarios",
+          "risk_transmission",
+          "leading_indicators",
+          "warning_thresholds",
+          "stop_loss_thresholds",
+          "veto_flags"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "agent_id": {
+            "const": "siq_ic_chairman"
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "consensus",
+          "disputes",
+          "rulings",
+          "six_dimension_scorecard",
+          "weighted_agent_score",
+          "chairman_dimension_score",
+          "chairman_qualitative_decision",
+          "conditions",
+          "monitoring_metrics",
+          "decision"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "agent_id": {
+      "enum": [
+        "siq_ic_master_coordinator",
+        "siq_ic_chairman",
+        "siq_ic_strategist",
+        "siq_ic_sector_expert",
+        "siq_ic_finance_auditor",
+        "siq_ic_legal_scanner",
+        "siq_ic_risk_controller"
+      ],
+      "type": "string"
+    },
+    "background_knowledge_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "enum": [
+              "background",
+              "methodology",
+              "comparable_context"
+            ]
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "claims": {
+      "items": {
+        "$id": "siq_ic_claim_v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "verified"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "derived"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "calculation_trace_ids": {
+                  "minItems": 1
+                },
+                "evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "assumed"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "assumption",
+                "verification_method"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "contested"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "counter_evidence_ids": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "assumption": {
+            "maxLength": 4000,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "background_knowledge_ref_ids": {
+            "items": {
+              "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "calculation_trace_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "claim_id": {
+            "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "conclusion": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "counter_evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "currency": {
+            "maxLength": 16,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_impact": {
+            "enum": [
+              "critical",
+              "material",
+              "supporting"
+            ],
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "methodology_ref_ids": {
+            "items": {
+              "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "period": {
+            "maxLength": 80,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "verified",
+              "derived",
+              "assumed",
+              "contested",
+              "missing"
+            ],
+            "type": "string"
+          },
+          "topic": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 32,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": [
+              "number",
+              "string",
+              "null"
+            ]
+          },
+          "verification_method": {
+            "maxLength": 4000,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "claim_id",
+          "topic",
+          "conclusion",
+          "status",
+          "evidence_ids",
+          "counter_evidence_ids",
+          "calculation_trace_ids",
+          "background_knowledge_ref_ids",
+          "methodology_ref_ids",
+          "confidence",
+          "decision_impact",
+          "period",
+          "currency",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "deal_id": {
+      "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+      "type": "string"
+    },
+    "evidence_snapshot_hash": {
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "type": "string"
+    },
+    "executive_summary": {
+      "maxLength": 12000,
+      "minLength": 1,
+      "type": "string"
+    },
+    "generation_mode": {
+      "enum": [
+        "model",
+        "deterministic_preview",
+        "deterministic_recovery",
+        "human_authored"
+      ],
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "methodology": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "methodology_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "collection": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "locator": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref_id": {
+            "pattern": "^KBREF-[A-Z0-9][A-Z0-9-]{5,95}$",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "usage": {
+            "const": "methodology"
+          }
+        },
+        "required": [
+          "ref_id",
+          "collection",
+          "locator",
+          "title",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "parent_report_id": {
+      "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "R1A",
+        "R1B",
+        "R2"
+      ],
+      "type": "string"
+    },
+    "recommendation": {
+      "enum": [
+        "support",
+        "conditional_support",
+        "review",
+        "reject",
+        "insufficient_evidence"
+      ],
+      "type": "string"
+    },
+    "red_flags": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "report_id": {
+      "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    },
+    "required_followups": {
+      "items": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "type": "array"
+    },
+    "research_identity": {
+      "minProperties": 1,
+      "type": "object"
+    },
+    "revision": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "siq_ic_expert_report_v2"
+    },
+    "score": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "scorecard": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "claim_ids": {
+            "items": {
+              "pattern": "^CLM-[A-Z0-9][A-Z0-9-]{5,95}$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "dimension": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "pattern": "^EVID-[A-Za-z0-9][A-Za-z0-9:_-]{2,190}$",
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "rationale": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "score": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "number"
+          },
+          "weight": {
+            "exclusiveMinimum": 0,
+            "maximum": 100,
+            "type": "number"
+          }
+        },
+        "required": [
+          "dimension",
+          "score",
+          "weight",
+          "rationale",
+          "claim_ids",
+          "evidence_ids",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "startup_receipt_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "type": "string"
+    },
+    "startup_retrieval_gate": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_to_speak": {
+          "type": "boolean"
+        },
+        "blocking_reasons": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "private_background_ready": {
+          "type": "boolean"
+        },
+        "private_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_evidence_ready": {
+          "type": "boolean"
+        },
+        "receipt_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "type": "string"
+        },
+        "shared_collection": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt_id",
+        "allowed_to_speak",
+        "project_evidence_ready",
+        "private_background_ready",
+        "shared_collection",
+        "private_collection",
+        "blocking_reasons"
+      ],
+      "type": "object"
+    },
+    "workflow_run_id": {
+      "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "report_id",
+    "deal_id",
+    "phase",
+    "agent_id",
+    "research_identity",
+    "evidence_snapshot_hash",
+    "recommendation",
+    "score",
+    "confidence",
+    "claims",
+    "scorecard",
+    "red_flags",
+    "open_questions",
+    "required_followups",
+    "executive_summary",
+    "methodology",
+    "background_knowledge_refs",
+    "methodology_refs",
+    "startup_receipt_id",
+    "startup_retrieval_gate",
+    "limitations",
+    "generation_mode",
+    "revision",
+    "parent_report_id",
+    "created_at"
+  ],
+  "type": "object"
+}

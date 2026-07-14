@@ -97,25 +97,29 @@ else
     cp -R "$source_profile_dir/." "$profile_dir/"
 fi
 
-if [[ -d "$SOURCE_PROFILES_ROOT/shared" ]]; then
-    mkdir -p "$runtime_profiles_root/shared"
-    rsync -a --delete \
-        --exclude '__pycache__/' \
-        --exclude '.pytest_cache/' \
-        "$SOURCE_PROFILES_ROOT/shared/" "$runtime_profiles_root/shared/"
-fi
+mkdir -p "$runtime_profiles_root"
+(
+    flock -x 9
+    if [[ -d "$SOURCE_PROFILES_ROOT/shared" ]]; then
+        mkdir -p "$runtime_profiles_root/shared"
+        rsync -a --delete \
+            --exclude '__pycache__/' \
+            --exclude '.pytest_cache/' \
+            "$SOURCE_PROFILES_ROOT/shared/" "$runtime_profiles_root/shared/"
+    fi
 
-if [[ -d "$SOURCE_PROFILES_ROOT/siq_ic_shared" ]]; then
-    mkdir -p "$runtime_profiles_root/siq_ic_shared"
-    rsync -a --delete \
-        --exclude '__pycache__/' \
-        --exclude '.pytest_cache/' \
-        --exclude 'logs/' \
-        --exclude 'sessions/' \
-        --exclude 'state.db*' \
-        --exclude 'response_store.db*' \
-        "$SOURCE_PROFILES_ROOT/siq_ic_shared/" "$runtime_profiles_root/siq_ic_shared/"
-fi
+    if [[ -d "$SOURCE_PROFILES_ROOT/siq_ic_shared" ]]; then
+        mkdir -p "$runtime_profiles_root/siq_ic_shared"
+        rsync -a --delete \
+            --exclude '__pycache__/' \
+            --exclude '.pytest_cache/' \
+            --exclude 'logs/' \
+            --exclude 'sessions/' \
+            --exclude 'state.db*' \
+            --exclude 'response_store.db*' \
+            "$SOURCE_PROFILES_ROOT/siq_ic_shared/" "$runtime_profiles_root/siq_ic_shared/"
+    fi
+) 9>"$runtime_profiles_root/.shared-profile-sync.lock"
 
 if [[ "$canonical" == siq_ic_* ]]; then
     ic_shared_skills_dir="$SOURCE_PROFILES_ROOT/siq_ic_shared/skills"

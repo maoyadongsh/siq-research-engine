@@ -1,0 +1,167 @@
+{
+  "schema_version": "siq_deal_evidence_quality_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "status": "pass",
+  "build_mode": "deterministic_synthetic_evaluation_only_v1",
+  "llm_used": false,
+  "agent_used": false,
+  "milvus_written": false,
+  "built_at": "2026-07-14T00:00:00Z",
+  "policy_version": "2026-07-13",
+  "required_verified_items": 3,
+  "required_dimensions": [
+    "business",
+    "finance",
+    "legal",
+    "risk"
+  ],
+  "item_count": 40,
+  "verified_count": 40,
+  "dimensions": [
+    "business",
+    "finance",
+    "legal",
+    "risk"
+  ],
+  "missing_dimensions": [],
+  "critical_fact_status": "complete",
+  "known_critical_fact_gaps": [],
+  "coverage": {
+    "business": {
+      "status": "complete",
+      "item_count": 10,
+      "topics": [
+        "bottom_up_sam_som",
+        "bottom_up_tam",
+        "competitor_share",
+        "customers_and_retention",
+        "market_growth_sensitivity",
+        "orders_and_conversion",
+        "product_performance",
+        "product_revenue_identity",
+        "team_execution",
+        "unit_economics_and_delivery"
+      ]
+    },
+    "finance": {
+      "status": "complete",
+      "item_count": 10,
+      "topics": [
+        "accounts_receivable",
+        "audit_scope_and_identity",
+        "balance_sheet_identity",
+        "cash_flow_identity",
+        "forecast_driver_trace",
+        "forecast_scenarios_and_dcf",
+        "income_statement_identity",
+        "normalized_profitability",
+        "revenue_quality_and_cutoff",
+        "valuation_and_return_trace"
+      ]
+    },
+    "legal": {
+      "status": "complete",
+      "item_count": 10,
+      "topics": [
+        "data_and_export_compliance",
+        "freedom_to_operate",
+        "investment_terms_and_cp",
+        "ip_ownership",
+        "licenses_and_regulatory",
+        "litigation_labor_tax",
+        "material_contracts",
+        "ownership_and_control",
+        "related_party_fairness",
+        "transaction_approvals"
+      ]
+    },
+    "risk": {
+      "status": "complete",
+      "item_count": 10,
+      "topics": [
+        "capacity_expansion_tension",
+        "customer_and_order_stress",
+        "export_control_stress",
+        "fx_and_geography",
+        "integrated_downside_and_monitors",
+        "key_person_and_governance",
+        "liquidity_and_covenants",
+        "quality_and_continuity",
+        "subsidy_dependency",
+        "supplier_concentration"
+      ]
+    }
+  },
+  "counts": {
+    "documents_total": 1,
+    "documents_bound": 1,
+    "documents_indexed": 1,
+    "documents_skipped": 0,
+    "items": 40,
+    "verified_items": 40,
+    "invalid_metadata_files": 0,
+    "invalid_ndjson_lines": 0,
+    "by_dimension": {
+      "business": 10,
+      "finance": 10,
+      "legal": 10,
+      "risk": 10
+    }
+  },
+  "gates": [
+    {
+      "id": "document_bindings",
+      "status": "pass",
+      "message": "1/1 source bound"
+    },
+    {
+      "id": "source_artifacts",
+      "status": "pass",
+      "message": "40/40 quotes trace to source blocks"
+    },
+    {
+      "id": "verified_items",
+      "status": "pass",
+      "message": "40/3 verified Evidence items"
+    },
+    {
+      "id": "dimension_coverage",
+      "status": "pass",
+      "message": "10 verified items in each required dimension"
+    },
+    {
+      "id": "financial_identities",
+      "status": "pass",
+      "message": "income, balance-sheet and cash-flow identities recomputed"
+    },
+    {
+      "id": "numeric_invariants",
+      "status": "pass",
+      "message": "market, AR, forecast, valuation and stress traces recomputed"
+    },
+    {
+      "id": "critical_fact_completeness",
+      "status": "pass",
+      "message": "no known missing critical fact"
+    },
+    {
+      "id": "ndjson_valid",
+      "status": "pass",
+      "message": "evidence_items.ndjson is valid"
+    }
+  ],
+  "documents": [
+    {
+      "document_id": "DOC-PMICSTALE2026A1",
+      "parse_run_id": "PRUN-20260714-PMICSTALE001",
+      "status": "indexed",
+      "item_count": 40
+    }
+  ],
+  "warnings": [],
+  "errors": [],
+  "limitations": [
+    "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious.",
+    "This fixture validates workflow behavior and contract traceability, not real-world investment merit."
+  ]
+}

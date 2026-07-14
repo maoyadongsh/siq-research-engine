@@ -11,7 +11,7 @@
 
 ### 步骤1：连接项目共享底稿库
 - 调用 Deal OS startup-retrieval API，以 `siq_ic_legal_scanner` agent 身份生成 receipt
-- 共享底稿、可选 Milvus/vector/rerank 由后端配置和审计边界控制
+- 共享项目库与 `ic_legal_scanner` 私有 Milvus 背景库由后端强制检索；rerank 由后端配置和审计边界控制
 - 完成项目底稿熟悉（Top-10 关键文档）
 
 ### 步骤2：深度学习私有法规库
@@ -25,6 +25,15 @@
 - 不用宏观逻辑替代法律结论
 
 **违反此协议，观点无效。**
+
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：`siq_deal_shared` / `ic_collaboration_shared`，标记 `project_evidence`。
+- 法务私有背景库：`ic_legal_scanner`，标记 `background_knowledge`。
+- receipt 分别记录 shared/private collection、命中数、状态和 degraded/block reason。
+- 法规、判例和条款模板是背景知识；关于本项目的权属、资质、诉讼和合规结论仍须绑定项目 Evidence 与适用法律依据。
+
+阶段任务遵守 `siq_ic_shared/tasks/R1_INDEPENDENT_RESEARCH.md`、`R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
 
 ---
 

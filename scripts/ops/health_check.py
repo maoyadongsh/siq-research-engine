@@ -2,10 +2,11 @@
 """
 统一健康检查脚本 - 检查所有 SIQ 服务状态
 """
-import sys
 import os
+import sys
+from typing import Tuple
+
 import requests
-from typing import Dict, List, Tuple
 
 
 def env_port(name: str, default: int) -> int:
@@ -24,14 +25,15 @@ SERVICES = [
     ("前端", "http://localhost:15173", "GET"),
     ("后端API", "http://localhost:18081/health", "GET"),
     ("PDF下载服务", "http://localhost:18000/health", "GET"),
-    ("PDF解析服务", "http://localhost:15000/api/health", "GET"),
+    ("PDF解析服务", os.getenv("SIQ_PDF2MD_HEALTH_URL", "http://localhost:15000/api/ready"), "GET"),
+    ("文档解析服务", os.getenv("SIQ_DOCUMENT_PARSER_HEALTH_URL", "http://localhost:15010/api/ready"), "GET"),
     ("Hermes-助手", f"http://localhost:{env_port('SIQ_HERMES_ASSISTANT_PORT', 18642)}/health", "GET"),
     ("Hermes-分析", f"http://localhost:{env_port('SIQ_HERMES_ANALYSIS_PORT', 18651)}/health", "GET"),
     ("Hermes-核查", f"http://localhost:{env_port('SIQ_HERMES_FACTCHECKER_PORT', 18649)}/health", "GET"),
     ("Hermes-跟踪", f"http://localhost:{env_port('SIQ_HERMES_TRACKING_PORT', 18650)}/health", "GET"),
     ("Hermes-法务", f"http://localhost:{env_port('SIQ_HERMES_LEGAL_PORT', 18652)}/health", "GET"),
 ]
-if env_bool("SIQ_ENABLE_IC_HERMES", False):
+if env_bool("SIQ_ENABLE_IC_HERMES", True):
     SERVICES.extend(
         [
             ("Hermes-IC总协调", f"http://localhost:{env_port('SIQ_HERMES_IC_MASTER_PORT', 18660)}/health", "GET"),

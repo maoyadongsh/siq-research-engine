@@ -1,6 +1,18 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "contract_version": "siq_ic_profile_matrix_v2",
   "group": "ic",
+  "shared_collection": {
+    "logical": "siq_deal_shared",
+    "physical": "ic_collaboration_shared",
+    "source_class": "project_evidence",
+    "rule": "Project facts and formal claims must cite Deal-scoped Evidence from the shared collection."
+  },
+  "private_collection_rule": {
+    "required": true,
+    "source_class": "background_knowledge",
+    "rule": "Every profile must retrieve its own private background collection. Background knowledge may provide methods, comparables, and challenge hypotheses, but cannot prove a project fact without project Evidence."
+  },
   "profiles": [
     {
       "id": "siq_ic_master_coordinator",
@@ -9,11 +21,35 @@
       "port": 18660,
       "source_workspace": "ic_master_coordinator_workspace",
       "responsibilities": [
-        "workflow orchestration",
-        "evidence gate tracking",
-        "expert report collection",
-        "decision report assembly"
-      ]
+        "verify project identity, material scope, evidence snapshot, and workflow gates",
+        "orchestrate durable R0-R4 handoffs without replacing expert judgment",
+        "track evidence gaps, stale outputs, quality findings, and human confirmation",
+        "assemble accepted artifacts and audit identity"
+      ],
+      "boundaries": [
+        "does not write expert conclusions",
+        "does not convert background knowledge into project facts",
+        "does not silently accept deterministic fallback as model output"
+      ],
+      "phase_capabilities": {
+        "R0": ["readiness", "scope", "evidence_gap_plan"],
+        "R1A": ["dispatch", "lease_and_handoff_tracking"],
+        "R1B": ["handoff_tracking"],
+        "R1.5": ["followup_task_tracking"],
+        "R2": ["revision_tracking"],
+        "R3": ["debate_orchestration"],
+        "R4": ["report_assembly", "quality_gate", "human_confirmation_gate"]
+      },
+      "output_schemas": {
+        "R0": "contracts/siq_ic_r0_readiness_v1.schema.json",
+        "handoff": "contracts/siq_ic_agent_handoff_v2.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_master_coordinator"],
+        "physical_collections": ["ic_collaboration_shared", "ic_master_coordinator"],
+        "private_collection": "ic_master_coordinator"
+      }
     },
     {
       "id": "siq_ic_chairman",
@@ -22,11 +58,34 @@
       "port": 18661,
       "source_workspace": "ic_chairman_workspace",
       "responsibilities": [
-        "final synthesis",
-        "weighted scoring",
-        "dispute ruling",
-        "investment conditions"
-      ]
+        "synthesize R1A expert reports without erasing disagreement",
+        "rule R1.5 disputes and issue evidence followups",
+        "deliver R3 verdicts against explicit arguments and Evidence",
+        "produce R4 six-dimension decision, conditions, and score-change rationale"
+      ],
+      "boundaries": [
+        "does not replace specialist analysis",
+        "does not use weighted average as the sole decision",
+        "does not pass unresolved high or critical disputes"
+      ],
+      "phase_capabilities": {
+        "R1B": ["initial_synthesis", "dispute_candidates"],
+        "R1.5": ["chairman_ruling", "evidence_followup"],
+        "R3": ["debate_verdict"],
+        "R4": ["structured_decision", "six_dimension_scoring", "conditions"]
+      },
+      "output_schemas": {
+        "R1B": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R1.5": "contracts/siq_ic_r1_5_dispute_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json",
+        "R4": "contracts/siq_ic_r4_decision_v2.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_chairman"],
+        "physical_collections": ["ic_collaboration_shared", "ic_chairman"],
+        "private_collection": "ic_chairman"
+      }
     },
     {
       "id": "siq_ic_strategist",
@@ -35,10 +94,30 @@
       "port": 18662,
       "source_workspace": "ic_strategist_workspace",
       "responsibilities": [
-        "strategic fit",
-        "fund thesis alignment",
-        "timing and optionality"
-      ]
+        "analyze policy, macro cycle, capital flows, strategic fit, and exit window",
+        "state falsifiable strategic assumptions and downside triggers",
+        "revise conclusions in R2 against rulings and new Evidence"
+      ],
+      "boundaries": [
+        "does not perform legal opinion or detailed financial audit",
+        "does not claim company-specific facts from macro background knowledge"
+      ],
+      "phase_capabilities": {
+        "R1A": ["independent_strategy_report"],
+        "R2": ["strategy_revision", "score_delta"],
+        "R3": ["red_or_blue_argument_on_strategy_topics"]
+      },
+      "output_schemas": {
+        "R1": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R2": "contracts/siq_ic_r2_revision_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_strategist"],
+        "physical_collections": ["ic_collaboration_shared", "ic_strategist"],
+        "private_collection": "ic_strategist"
+      }
     },
     {
       "id": "siq_ic_sector_expert",
@@ -47,10 +126,30 @@
       "port": 18663,
       "source_workspace": "ic_sector_expert_workspace",
       "responsibilities": [
-        "market structure",
-        "competition",
-        "product and customer validation"
-      ]
+        "analyze TAM/SAM/SOM, competition, technology route, industry chain, customers, and suppliers",
+        "separate market facts from industry-method background knowledge",
+        "revise market and moat conclusions in R2"
+      ],
+      "boundaries": [
+        "does not certify financial statements or legal compliance",
+        "does not treat generic industry benchmarks as issuer facts"
+      ],
+      "phase_capabilities": {
+        "R1A": ["independent_sector_report"],
+        "R2": ["sector_revision", "score_delta"],
+        "R3": ["red_or_blue_argument_on_market_and_technology_topics"]
+      },
+      "output_schemas": {
+        "R1": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R2": "contracts/siq_ic_r2_revision_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_sector_expert"],
+        "physical_collections": ["ic_collaboration_shared", "ic_sector_expert"],
+        "private_collection": "ic_sector_expert"
+      }
     },
     {
       "id": "siq_ic_finance_auditor",
@@ -59,10 +158,30 @@
       "port": 18664,
       "source_workspace": "ic_finance_auditor_workspace",
       "responsibilities": [
-        "financial consistency",
-        "unit economics",
-        "valuation and forecast audit"
-      ]
+        "verify historical financials, revenue quality, statement reconciliation, forecasts, valuation, and sensitivities",
+        "preserve period, currency, unit, formula, and calculator trace",
+        "mark numbers insufficient when financial Evidence capability is restricted"
+      ],
+      "boundaries": [
+        "does not invent missing periods or normalize units without trace",
+        "does not mark background benchmarks as verified issuer numbers"
+      ],
+      "phase_capabilities": {
+        "R1A": ["independent_finance_report", "numeric_trace"],
+        "R2": ["finance_revision", "score_delta", "model_recalculation"],
+        "R3": ["red_or_blue_argument_on_finance_and_valuation_topics"]
+      },
+      "output_schemas": {
+        "R1": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R2": "contracts/siq_ic_r2_revision_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_finance_auditor"],
+        "physical_collections": ["ic_collaboration_shared", "ic_finance_auditor"],
+        "private_collection": "ic_finance_auditor"
+      }
     },
     {
       "id": "siq_ic_legal_scanner",
@@ -71,10 +190,30 @@
       "port": 18665,
       "source_workspace": "ic_legal_scanner_workspace",
       "responsibilities": [
-        "legal diligence",
-        "contract and compliance risk",
-        "IP and regulatory exposure"
-      ]
+        "analyze ownership, licenses, litigation, IP, related transactions, data compliance, and closing conditions",
+        "link each legal conclusion to authority and project Evidence",
+        "design remediation and transaction conditions"
+      ],
+      "boundaries": [
+        "does not infer legal status from generic regulation summaries",
+        "does not replace industry or financial analysis"
+      ],
+      "phase_capabilities": {
+        "R1A": ["independent_legal_report"],
+        "R2": ["legal_revision", "score_delta", "condition_update"],
+        "R3": ["red_or_blue_argument_on_legal_and_compliance_topics"]
+      },
+      "output_schemas": {
+        "R1": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R2": "contracts/siq_ic_r2_revision_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_legal_scanner"],
+        "physical_collections": ["ic_collaboration_shared", "ic_legal_scanner"],
+        "private_collection": "ic_legal_scanner"
+      }
     },
     {
       "id": "siq_ic_risk_controller",
@@ -83,10 +222,30 @@
       "port": 18666,
       "source_workspace": "ic_risk_controller_workspace",
       "responsibilities": [
-        "downside scenarios",
-        "risk controls",
-        "post-investment monitoring metrics"
-      ]
+        "read all independent reports and construct counter-evidence, stress scenarios, transmission paths, indicators, and stop-loss thresholds",
+        "identify veto items and challenge correlated assumptions",
+        "revise risk position after chairman rulings and new Evidence"
+      ],
+      "boundaries": [
+        "does not repeat specialist reports without stress testing",
+        "does not substitute generic risk cases for issuer Evidence"
+      ],
+      "phase_capabilities": {
+        "R1B": ["cross_report_stress_test", "counter_evidence", "veto_scan"],
+        "R2": ["risk_revision", "score_delta", "threshold_update"],
+        "R3": ["red_team_lead", "rebuttal"]
+      },
+      "output_schemas": {
+        "R1": "contracts/siq_ic_expert_report_v2.schema.json",
+        "R2": "contracts/siq_ic_r2_revision_v1.schema.json",
+        "R3": "contracts/siq_ic_r3_debate_v1.schema.json"
+      },
+      "retrieval": {
+        "required": true,
+        "logical_collections": ["siq_deal_shared", "siq_ic_risk_controller"],
+        "physical_collections": ["ic_collaboration_shared", "ic_risk_controller"],
+        "private_collection": "ic_risk_controller"
+      }
     }
   ]
 }

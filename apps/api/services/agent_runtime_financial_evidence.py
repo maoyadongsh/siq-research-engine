@@ -15,6 +15,7 @@ DATE_HEADER_RE = re.compile(r"(?P<year>20\d{2})\s*年\s*(?P<month>\d{1,2})\s*月
 YEAR_RE = re.compile(r"\b(20\d{2})\b")
 
 GOODWILL_TOTAL_LABELS = frozenset({"小计", "合计", "账面原值", "原值小计"})
+GOODWILL_GROSS_ALIASES = ("商誉原值", "账面原值", "原值小计", "商誉原值合计", "商誉总额")
 GOODWILL_OPENING_HEADER_TERMS = ("期初", "年初")
 GOODWILL_CLOSING_HEADER_TERMS = ("期末", "年末")
 GOODWILL_TRAILING_FOOTNOTE_RE = re.compile(
@@ -445,7 +446,7 @@ def _goodwill_note_evidence(
                 if compact_label in GOODWILL_TOTAL_LABELS:
                     metric = "goodwill_gross"
                     metric_name = "商誉账面原值"
-                    aliases = (label, "商誉原值", "账面原值", "原值小计")
+                    aliases = (label, *GOODWILL_GROSS_ALIASES)
                 elif label:
                     metric = f"goodwill_component_{hashlib.sha256(label.encode('utf-8')).hexdigest()[:12]}"
                     metric_name = label
@@ -463,11 +464,11 @@ def _goodwill_note_evidence(
             elif compact_label in GOODWILL_TOTAL_LABELS:
                 metric = "goodwill_gross"
                 metric_name = "商誉账面原值"
-                aliases = (label, "商誉原值", "账面原值", "原值小计")
+                aliases = (label, *GOODWILL_GROSS_ALIASES)
             elif impairment_index is not None and row_index == impairment_index - 1 and not label:
                 metric = "goodwill_gross"
                 metric_name = "商誉账面原值"
-                aliases = ("商誉原值", "账面原值", "原值小计")
+                aliases = GOODWILL_GROSS_ALIASES
             elif impairment_index is not None and row_index == impairment_index + 1 and not label:
                 metric = "goodwill_net_note"
                 metric_name = "商誉账面净值"

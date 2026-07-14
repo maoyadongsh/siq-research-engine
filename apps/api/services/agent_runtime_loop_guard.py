@@ -31,6 +31,14 @@ REPEATED_TOOL_CALL_STOP_MESSAGE = (
     "[已停止] 检测到智能体反复调用同一个工具且没有产生新回复，疑似进入工具调用循环。"
     "系统已停止本次 Hermes run；请缩小问题范围或新建会话后重试。"
 )
+EXTERNAL_TOOL_LOOP_GUARD_MARKERS = (
+    "same_tool_failure_halt",
+    "I stopped retrying terminal",
+    "[Tool loop hard stop:",
+)
+_EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER = tuple(
+    marker.lower() for marker in EXTERNAL_TOOL_LOOP_GUARD_MARKERS
+)
 RUN_FAILED_MESSAGE = "[失败] 后台 Hermes run 返回失败状态，系统已结束本次任务。"
 RUN_CANCELLED_MESSAGE = "[已取消] 后台 Hermes run 已取消，系统已结束本次任务。"
 CONSECUTIVE_TOOL_ERROR_LIMIT = 3
@@ -345,6 +353,62 @@ def _detect_stream_output_loop(profile: object, text: str) -> dict[str, Any] | N
     return _detect_output_loop(text)
 
 
+class ExternalToolLoopStreamFilter:
+    """Hold only text that could still form an external guard marker."""
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._released = False
+        self.blocked = False
+
+    @staticmethod
+    def _possible_marker_prefix_length(text: str) -> int:
+        maximum = min(len(text), max(map(len, _EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER)))
+        for length in range(maximum, 0, -1):
+            suffix = text[-length:]
+            if any(marker.startswith(suffix) for marker in _EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER):
+                return length
+        return 0
+
+    def feed(self, text: str, *, final: bool = False) -> str:
+        if self.blocked:
+            return ""
+        self._buffer += str(text or "")
+        lowered = self._buffer.lower()
+        if any(marker in lowered for marker in _EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER):
+            self._buffer = ""
+            self.blocked = True
+            return ""
+
+        candidate = lowered.lstrip()
+        if not self._released and candidate:
+            if any(marker.startswith(candidate) for marker in _EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER):
+                if final and len(candidate) >= 8:
+                    self._buffer = ""
+                    self.blocked = True
+                return ""
+            self._released = True
+        elif not self._released and not candidate:
+            return ""
+
+        if final:
+            prefix_length = self._possible_marker_prefix_length(lowered)
+            if prefix_length >= 8:
+                self._buffer = ""
+                self.blocked = True
+                return ""
+            output, self._buffer = self._buffer, ""
+            return output
+
+        prefix_length = self._possible_marker_prefix_length(lowered)
+        if prefix_length <= 0:
+            output, self._buffer = self._buffer, ""
+            return output
+        output = self._buffer[:-prefix_length]
+        self._buffer = self._buffer[-prefix_length:]
+        return output
+
+
 def _is_loop_polluted_assistant_message(content: str) -> bool:
     if not content:
         return False
@@ -354,6 +418,7 @@ def _is_loop_polluted_assistant_message(content: str) -> bool:
         or REPEATED_TOOL_CALL_STOP_MESSAGE in content
         or HISTORY_LOOP_SANITIZED_MESSAGE in content
         or LEGACY_HISTORY_LOOP_SANITIZED_PREFIX in content
+        or any(marker in content.lower() for marker in _EXTERNAL_TOOL_LOOP_GUARD_MARKERS_LOWER)
     ):
         return True
     if RUN_CANCELLED_MESSAGE in content or STOPPED_MESSAGE in content:
@@ -401,6 +466,8 @@ def _failed_run_reply_for_history(content: str | None) -> str:
 
 __all__ = [
     "CONSECUTIVE_TOOL_ERROR_LIMIT",
+    "EXTERNAL_TOOL_LOOP_GUARD_MARKERS",
+    "ExternalToolLoopStreamFilter",
     "HISTORY_LOOP_SANITIZED_MESSAGE",
     "IDLE_TIMEOUT_MESSAGE",
     "LEGACY_HISTORY_LOOP_SANITIZED_PREFIX",

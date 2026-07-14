@@ -1,0 +1,240 @@
+{
+  "schema_version": "siq_deal_evidence_index_v1",
+  "deal_id": "DEAL-PMIC-INSUFFICIENT-2026",
+  "build_mode": "deterministic_synthetic_evaluation_only_v1",
+  "llm_used": false,
+  "agent_used": false,
+  "milvus_written": false,
+  "built_at": "2026-07-14T00:00:00Z",
+  "paths": {
+    "items": "evidence/evidence_items.ndjson",
+    "quality": "evidence/evidence_quality_report.json"
+  },
+  "counts": {
+    "documents_total": 1,
+    "documents_bound": 1,
+    "documents_indexed": 1,
+    "documents_skipped": 0,
+    "items": 40,
+    "verified_items": 40,
+    "invalid_metadata_files": 0,
+    "invalid_ndjson_lines": 0,
+    "by_dimension": {
+      "business": 10,
+      "finance": 10,
+      "legal": 10,
+      "risk": 10
+    }
+  },
+  "documents": [
+    {
+      "document_id": "DOC-PMICINSUFF2026A1",
+      "parse_run_id": "PRUN-20260714-PMICINSUFF001",
+      "status": "indexed",
+      "item_count": 40
+    }
+  ],
+  "items": [
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-001",
+      "dimension": "business",
+      "topic": "product_revenue_identity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-002",
+      "dimension": "business",
+      "topic": "bottom_up_tam"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-003",
+      "dimension": "business",
+      "topic": "bottom_up_sam_som"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-004",
+      "dimension": "business",
+      "topic": "market_growth_sensitivity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-005",
+      "dimension": "business",
+      "topic": "competitor_share"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-006",
+      "dimension": "business",
+      "topic": "product_performance"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-007",
+      "dimension": "business",
+      "topic": "customers_and_retention"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-008",
+      "dimension": "business",
+      "topic": "orders_and_conversion"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-009",
+      "dimension": "business",
+      "topic": "unit_economics_and_delivery"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-BUS-010",
+      "dimension": "business",
+      "topic": "team_execution"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-001",
+      "dimension": "finance",
+      "topic": "audit_scope_and_identity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-002",
+      "dimension": "finance",
+      "topic": "income_statement_identity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-003",
+      "dimension": "finance",
+      "topic": "balance_sheet_identity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-004",
+      "dimension": "finance",
+      "topic": "cash_flow_identity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-005",
+      "dimension": "finance",
+      "topic": "accounts_receivable"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-006",
+      "dimension": "finance",
+      "topic": "revenue_quality_and_cutoff"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-007",
+      "dimension": "finance",
+      "topic": "normalized_profitability"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-008",
+      "dimension": "finance",
+      "topic": "forecast_driver_trace"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-009",
+      "dimension": "finance",
+      "topic": "forecast_scenarios_and_dcf"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-FIN-010",
+      "dimension": "finance",
+      "topic": "valuation_and_return_trace"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-001",
+      "dimension": "legal",
+      "topic": "ownership_and_control"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-002",
+      "dimension": "legal",
+      "topic": "transaction_approvals"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-003",
+      "dimension": "legal",
+      "topic": "licenses_and_regulatory"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-004",
+      "dimension": "legal",
+      "topic": "freedom_to_operate"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-005",
+      "dimension": "legal",
+      "topic": "ip_ownership"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-006",
+      "dimension": "legal",
+      "topic": "related_party_fairness"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-007",
+      "dimension": "legal",
+      "topic": "material_contracts"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-008",
+      "dimension": "legal",
+      "topic": "litigation_labor_tax"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-009",
+      "dimension": "legal",
+      "topic": "data_and_export_compliance"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-LEG-010",
+      "dimension": "legal",
+      "topic": "investment_terms_and_cp"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-001",
+      "dimension": "risk",
+      "topic": "supplier_concentration"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-002",
+      "dimension": "risk",
+      "topic": "export_control_stress"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-003",
+      "dimension": "risk",
+      "topic": "subsidy_dependency"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-004",
+      "dimension": "risk",
+      "topic": "capacity_expansion_tension"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-005",
+      "dimension": "risk",
+      "topic": "customer_and_order_stress"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-006",
+      "dimension": "risk",
+      "topic": "liquidity_and_covenants"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-007",
+      "dimension": "risk",
+      "topic": "fx_and_geography"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-008",
+      "dimension": "risk",
+      "topic": "quality_and_continuity"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-009",
+      "dimension": "risk",
+      "topic": "key_person_and_governance"
+    },
+    {
+      "evidence_id": "EVID-PMIC-INSUF-RSK-010",
+      "dimension": "risk",
+      "topic": "integrated_downside_and_monitors"
+    }
+  ],
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

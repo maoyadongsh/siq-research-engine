@@ -829,6 +829,37 @@ def test_primary_market_project_facade_lists_and_filters_projects(monkeypatch, t
     assert payload["deals"][0]["company_name"] == "Alpha Robotics"
 
 
+def test_primary_market_project_facade_paginates_without_hiding_total_or_statuses(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deals = [
+        {
+            "deal_id": f"DEAL-PAGE-{index:03d}",
+            "company_name": f"Company {index:03d}",
+            "status": "draft",
+        }
+        for index in range(55)
+    ]
+    monkeypatch.setattr(primary_market_meeting.deal_store, "list_deals", lambda: deals)
+    monkeypatch.setattr(primary_market_meeting.deal_store, "filter_deals_for_user", lambda items, _user: items)
+    monkeypatch.setattr(
+        primary_market_meeting.deal_status,
+        "summarize_deal_status",
+        lambda deal_id: {"deal_id": deal_id, "ready_for_next_action": True},
+    )
+
+    response = client.get(
+        "/api/primary-market/projects",
+        params={"page": 2, "page_size": 50, "include_status": "true"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["deal_id"] for item in payload["deals"]] == [f"DEAL-PAGE-{index:03d}" for index in range(50, 55)]
+    assert payload["stats"]["total"] == 55
+    assert payload["pagination"] == {"page": 2, "page_size": 50, "total": 55, "has_more": False}
+    assert sorted(payload["status_summaries"]) == [f"DEAL-PAGE-{index:03d}" for index in range(50, 55)]
+
+
 def test_primary_market_project_facade_requires_deal_access(monkeypatch, tmp_path):
     owner = _primary_market_user(user_id=7, username="owner", role=UserRole.ANALYST)
     other_analyst = _primary_market_user(user_id=8, username="other-analyst", role=UserRole.ANALYST)

@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
       args:
         SIQ_AUTH_COOKIE_MODE: ${SIQ_AUTH_COOKIE_MODE:-0}
+        SIQ_MEETINGS_ENABLED: ${SIQ_MEETINGS_ENABLED:-0}
+        SIQ_MEETING_IMPORT_ENABLED: ${SIQ_MEETING_IMPORT_ENABLED:-0}
     user: "1000:1000"
     read_only: true
     tmpfs:
@@ -16,6 +18,7 @@ services:
       - NODE_ENV=production
       - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_BACKEND_URL=http://api:18081
+      - SIQ_MEETING_STREAM_GATEWAY_URL=${SIQ_MEETING_STREAM_GATEWAY_URL:-http://api:18081}
       - SIQ_REPORT_FINDER_URL=http://report-finder:8000
       - SIQ_FRONTEND_PORT=15173
       - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
@@ -67,6 +70,8 @@ services:
       - REPORT_DOWNLOADS_ROOT=/state/data/market-report-finder/downloads
       - SIQ_DB_ROOT=/app/db
       - SIQ_APP_DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/siq_app
+      - SIQ_BACKGROUND_JOB_BACKEND=${SIQ_BACKGROUND_JOB_BACKEND:-file}
+      - SIQ_BACKGROUND_JOB_LEASE_SECONDS=${SIQ_BACKGROUND_JOB_LEASE_SECONDS:-120}
       - SIQ_DOCUMENT_PGDATABASE=siq_document_parser
       - SIQ_US_PGDATABASE=siq_us
       - SIQ_HK_PGDATABASE=siq_hk
@@ -108,6 +113,7 @@ services:
       - SIQ_HERMES_HOST_HOME=${SIQ_HERMES_HOST_HOME:?SIQ_HERMES_HOST_HOME is required}
       - SIQ_IC_TASK_LEASE_SECONDS=${SIQ_IC_TASK_LEASE_SECONDS:-120}
       - SIQ_IC_TASK_HEARTBEAT_SECONDS=${SIQ_IC_TASK_HEARTBEAT_SECONDS:-30}
+      - SIQ_IC_TASK_LEASE_BACKEND=${SIQ_IC_TASK_LEASE_BACKEND:-file}
       - NO_PROXY=${NO_PROXY:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - no_proxy=${no_proxy:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
@@ -133,8 +139,8 @@ services:
       - SIQ_MARKET_REPORT_FINDER_TOKEN=${SIQ_MARKET_REPORT_FINDER_TOKEN:?SIQ_MARKET_REPORT_FINDER_TOKEN is required}
       - SIQ_MARKET_REPORT_RULES_TOKEN=${SIQ_MARKET_REPORT_RULES_TOKEN:?SIQ_MARKET_REPORT_RULES_TOKEN is required}
       - SIQ_REPORT_FINDER_HEALTH_URL=http://report-finder:8000/health
-      - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/health
-      - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/health
+      - SIQ_PDF2MD_HEALTH_URL=http://pdf-parser:15000/api/ready
+      - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/ready
       - SIQ_MARKET_REPORT_RULES_HEALTH_URL=http://market-report-rules:8000/healthz
       - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
     volumes:
@@ -312,7 +318,7 @@ services:
     mem_limit: ${SIQ_PDF2MD_MEM_LIMIT:-2g}
     cpus: ${SIQ_PDF2MD_CPUS:-2.0}
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:15000/api/health', timeout=12).close()\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:15000/api/ready', timeout=12).close()\""]
       interval: 60s
       timeout: 15s
       retries: 5
@@ -358,7 +364,7 @@ services:
     mem_limit: ${SIQ_DOCUMENT_PARSER_MEM_LIMIT:-2g}
     cpus: ${SIQ_DOCUMENT_PARSER_CPUS:-2.0}
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:15010/api/health', timeout=5).close()\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:15010/api/ready', timeout=5).close()\""]
       interval: 30s
       timeout: 10s
       retries: 5

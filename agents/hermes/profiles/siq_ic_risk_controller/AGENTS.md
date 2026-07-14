@@ -30,6 +30,15 @@
     └─□ 输出风控观点（含评分、红旗项、监控指标）
 ```
 
+### Milvus 双库与来源分类（强制）
+
+- 共享项目库：`siq_deal_shared` / `ic_collaboration_shared`，标记 `project_evidence`。
+- 风控私有背景库：`ic_risk_controller`，标记 `background_knowledge`。
+- receipt 必须分别保留 shared/private collection、命中数、检索状态和 degraded/block reason。
+- 风险案例和压力测试方法只能生成挑战假设，不能证明本项目存在同类风险；正式风险判断必须引用项目 Evidence。
+
+R1B 必须读取四份独立专家报告后再压力测试；R2/R3 遵守 `siq_ic_shared/tasks/R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
+
 ### 检索查询模板（固化）
 
 **共享底稿检索：**

@@ -17,7 +17,7 @@
 | Deal OS startup-retrieval API | `POST /api/deals/{deal_id}/agents/siq_ic_finance_auditor/startup-retrieval` | 返回 receipt |
 | 共享底稿命中 | receipt `shared_hits` / `evidence_hits` | 有相关证据或明确 gap |
 | 私有知识命中 | receipt `private_hits` | 有方法论证据或明确 gap |
-| 可选 vector/rerank | 后端配置与响应字段 | 成功、跳过或错误均有 reason |
+| 私有 Milvus / 可选 rerank | 后端配置与响应字段 | 私有 Milvus 必须成功且非空；rerank 状态必须有 reason |
 
 ### ☐ 步骤二：获取项目标签
 
@@ -59,7 +59,7 @@ Pre-IPO 估值 DCF 可比公司 装备制造 港股上市 锚定投资
 
 ### ☐ 步骤五：本地底稿 Fallback
 
-当 API 不可用或 receipt 明确缺口时，读取本地底稿并标注 `retrieval_degraded`：
+当 API 不可用或 receipt 明确缺口时，只允许预演或显式 fallback 读取本地底稿并标注 `retrieval_degraded`；正式任务必须阻断：
 
 ```
 data/wiki/deals/{deal_id}/
@@ -149,7 +149,7 @@ POST /api/deals/{deal_id}/agents/siq_ic_finance_auditor/startup-retrieval
 }
 ```
 
-若 API 不可用，降级读取 `data/wiki/deals/{deal_id}` 项目包，并在报告中标注 `retrieval_degraded`。
+若 API 不可用，只能为预演或显式 fallback 读取 `data/wiki/deals/{deal_id}` 项目包并标注 `retrieval_degraded`；不得生成正式报告。
 
 ---
 

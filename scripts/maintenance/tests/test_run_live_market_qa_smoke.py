@@ -24,6 +24,7 @@ def row(statement_type: str, *, located: bool = True) -> dict:
 def result(rows: list[dict], *, identity: bool = True) -> dict:
     return {
         "market": "HK",
+        "company_dir": Path("data/wiki/hk/companies/00001-demo"),
         "company_id": "HK:00001" if identity else None,
         "report_id": "2025-annual",
         "filing_id": "HK:00001:2025-annual" if identity else None,
@@ -65,13 +66,17 @@ def test_metric_filter_does_not_fail_complete_three_statement_package():
         "parse_run_id",
     ]
     assert set(observed["package_statement_types"]) == MODULE.EXPECTED_STATEMENTS
+    assert observed["package_path"].endswith("reports/2025-annual")
     assert observed["metrics_file"].endswith("three_statements.json")
 
 
 def test_located_fulltext_fallback_can_satisfy_metric_evidence_only():
     fallback = {
+        "company_id": "HK:00001",
         "report_id": "2025-annual",
-        "rows": [{"task_id": "task-1", "md_line": 10, "source_type": "wiki_report_fulltext"}],
+        "filing_id": "HK:00001:2025-annual",
+        "parse_run_id": "run-1",
+        "rows": [{"task_id": "task-1", "md_line": 10, "source_type": "wiki_report_fulltext", "snippet": "Revenue 100 RMB million"}],
     }
     runtime = SimpleNamespace(
         _three_statement_core_result=lambda question, context=None: (
@@ -90,8 +95,11 @@ def test_located_fulltext_fallback_can_satisfy_metric_evidence_only():
 
 def test_fulltext_fallback_does_not_hide_incomplete_package():
     fallback = {
+        "company_id": "HK:00001",
         "report_id": "2025-annual",
-        "rows": [{"task_id": "task-1", "md_line": 10}],
+        "filing_id": "HK:00001:2025-annual",
+        "parse_run_id": "run-1",
+        "rows": [{"task_id": "task-1", "md_line": 10, "snippet": "Revenue 100 RMB million"}],
     }
     runtime = SimpleNamespace(
         _three_statement_core_result=lambda question, context=None: (
@@ -110,7 +118,7 @@ def test_fulltext_fallback_does_not_hide_incomplete_package():
 
 
 def test_unlocated_fulltext_fallback_is_not_evidence_pass():
-    fallback = {"report_id": "2025-annual", "rows": [{"snippet": "revenue"}]}
+    fallback = {"company_id": "HK:00001", "report_id": "2025-annual", "filing_id": "HK:00001:2025-annual", "parse_run_id": "run-1", "rows": [{"snippet": "revenue"}]}
     runtime = SimpleNamespace(
         _three_statement_core_result=lambda question, context=None: (
             None if question == CASE["metric_question"] else result(PACKAGE_ROWS)

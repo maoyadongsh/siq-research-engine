@@ -1,0 +1,68 @@
+{
+  "schema_version": "siq_ic_profile_vector_retrieval_cases_v1",
+  "cases": [
+    {
+      "case_id": "ic-master-readiness-methodology",
+      "profile_id": "siq_ic_master_coordinator",
+      "query": "project evidence readiness and workflow handoff",
+      "private_query": "phase readiness handoff leases audit continuity",
+      "expected_physical_collection": "ic_master_coordinator",
+      "expected_title_contains": "Master Coordinator Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-chairman-decision-methodology",
+      "profile_id": "siq_ic_chairman",
+      "query": "investment committee decision evidence",
+      "private_query": "dispute ruling adversarial review final decision conditions",
+      "expected_physical_collection": "ic_chairman",
+      "expected_title_contains": "Investment Committee Chairman Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-strategist-scenario-methodology",
+      "profile_id": "siq_ic_strategist",
+      "query": "investment strategy evidence",
+      "private_query": "policy exposure strategic scenarios exit timing falsification",
+      "expected_physical_collection": "ic_strategist",
+      "expected_title_contains": "Strategy Expert Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-sector-market-methodology",
+      "profile_id": "siq_ic_sector_expert",
+      "query": "sector diligence evidence",
+      "private_query": "TAM competition technology route customer validation",
+      "expected_physical_collection": "ic_sector_expert",
+      "expected_title_contains": "Sector Expert Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-finance-audit-methodology",
+      "profile_id": "siq_ic_finance_auditor",
+      "query": "financial diligence evidence",
+      "private_query": "reconcile cash flow revenue quality valuation sensitivity",
+      "expected_physical_collection": "ic_finance_auditor",
+      "expected_title_contains": "Finance Auditor Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-legal-review-methodology",
+      "profile_id": "siq_ic_legal_scanner",
+      "query": "legal diligence evidence",
+      "private_query": "material contract change of control license compliance remediation",
+      "expected_physical_collection": "ic_legal_scanner",
+      "expected_title_contains": "Legal Scanner Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    },
+    {
+      "case_id": "ic-risk-stress-methodology",
+      "profile_id": "siq_ic_risk_controller",
+      "query": "risk diligence evidence",
+      "private_query": "downside transmission stress indicators thresholds veto",
+      "expected_physical_collection": "ic_risk_controller",
+      "expected_title_contains": "Risk Controller Methodology",
+      "expected_project_tag": "siq-ic-profile-knowledge-2026-07-13-v1"
+    }
+  ]
+}

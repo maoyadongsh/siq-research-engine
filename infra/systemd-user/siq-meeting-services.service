@@ -1,0 +1,21 @@
+[Unit]
+Description=SIQ meeting transcription service group
+After=network-online.target siq-research-engine.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/siq-research-engine
+Environment=SIQ_PROJECT_ROOT=%h/siq-research-engine
+EnvironmentFile=-%h/siq-research-engine/infra/env/local.env
+ExecStart=/usr/bin/bash %h/siq-research-engine/scripts/meeting/run_meeting_services.sh
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

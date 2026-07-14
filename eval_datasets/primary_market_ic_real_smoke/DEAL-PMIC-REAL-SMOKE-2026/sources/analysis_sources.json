@@ -1,0 +1,35 @@
+{
+  "schema_version": "siq_primary_market_analysis_sources_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "sources": [
+    {
+      "schema_version": "siq_primary_market_analysis_source_v1",
+      "source_id": "PM:DEAL-PMIC-REAL-SMOKE-2026:DOC-PMICSMOKE2026A1:PRUN-20260713-PMICSMOKE001",
+      "domain": "primary_market",
+      "source_type": "primary_market_prospectus",
+      "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+      "market": "CN",
+      "company_id": "PRIMARY:DEAL-PMIC-REAL-SMOKE-2026",
+      "filing_id": "PROSPECTUS:DOC-PMICSMOKE2026A1",
+      "document_id": "DOC-PMICSMOKE2026A1",
+      "parse_run_id": "PRUN-20260713-PMICSMOKE001",
+      "artifact_manifest_path": "parsed_documents/DOC-PMICSMOKE2026A1/runs/PRUN-20260713-PMICSMOKE001/archive_manifest.json",
+      "archive_manifest_sha256": "7ef8240e385a6e147165fd3b5e8e7d72f93507161f198af9a189a463cdadf1eb",
+      "status": "ready",
+      "capabilities": {
+        "text_evidence": "ready",
+        "source_page_trace": "ready",
+        "financial_facts": "ready",
+        "semantic_index": "ready"
+      },
+      "quality_status": "pass",
+      "activated_by": {
+        "id": "primary-market-ic-real-smoke",
+        "username": "real-smoke-runner"
+      },
+      "activated_at": "2026-07-13T00:00:00Z",
+      "created_at": "2026-07-13T00:00:00Z",
+      "updated_at": "2026-07-13T00:00:00Z"
+    }
+  ]
+}

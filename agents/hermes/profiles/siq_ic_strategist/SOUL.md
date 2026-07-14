@@ -73,7 +73,7 @@
 | 步骤 | 动作 | 工具/目标 |
 |------|------|-----------|
 | **1. 生成 receipt** | 调用 Deal OS startup-retrieval API | `POST /api/deals/{deal_id}/agents/siq_ic_strategist/startup-retrieval` |
-| **2. 混合检索** | 由 Deal OS 后端执行 | 共享底稿 + 私有知识 + 可选 vector/rerank |
+| **2. 混合检索** | 由 Deal OS 后端执行 | 共享项目库 + 角色私有 Milvus 库（正式任务强制）+ 可选 rerank |
 | **3. 私有学习** | 阅读 receipt 中 private hits | 政策、周期、资本流向背景知识 |
 | **4. 深度学习** | 阅读返回的 Top-20 证据 | 优先看赛道、融资、客户、产业链事实 |
 | **5. 区分输出** | 标注 `verified` vs `assumed` | 明确数据来源，不跳过检索直接给结论 |

@@ -30,6 +30,7 @@ DOMAIN_COVERAGE_FIELDS = (
     "vector_count",
     "top_k",
     "hit_rate",
+    "recall_at_k",
     "mrr",
     "texts_per_second",
     "chars_per_second",
@@ -41,6 +42,7 @@ DEFAULT_P95_BUDGETS = {
     "postgres_agent_view_query_latency": 10.0,
     "agent_memory_embedding_throughput": 10.0,
     "agent_memory_milvus_retrieval_latency": 10.0,
+    "ic_profile_vector_retrieval_live": 10.0,
 }
 
 
@@ -152,6 +154,14 @@ def compare_performance_report(
     comparisons: list[dict[str, Any]] = []
     baseline_rows = _benchmarks(baseline)
     current_rows = _benchmarks(current)
+    if not baseline_rows:
+        failures.append("performance baseline has no benchmarks")
+    if not current_rows:
+        failures.append("performance current report has no benchmarks")
+    for name in sorted(current_rows.keys() - baseline_rows.keys()):
+        row_failure = "benchmark missing from baseline"
+        comparisons.append({"name": name, "passed": False, "failures": [row_failure]})
+        failures.append(f"performance {name}: {row_failure}")
     if baseline.get("mode") != current.get("mode"):
         failures.append(f"performance mode mismatch: {baseline.get('mode')!r} != {current.get('mode')!r}")
     baseline_settings = baseline.get("settings") if isinstance(baseline.get("settings"), dict) else {}
@@ -196,12 +206,32 @@ def compare_performance_report(
             row_failures.append(
                 f"p95 regression exceeds {budget_percent:g}% budget: {before_p95:.3f}ms -> {after_p95:.3f}ms"
             )
+        before_domain_p95 = _number((before_domain.get("latency_ms") or {}).get("p95"))
+        after_domain_p95 = _number((after_domain.get("latency_ms") or {}).get("p95"))
+        allowed_domain_p95 = (
+            before_domain_p95 * (1 + budget_percent / 100)
+            if before_domain_p95 is not None
+            else None
+        )
+        if before_domain_p95 is not None and after_domain_p95 is None:
+            row_failures.append("domain.latency_ms.p95 is missing")
+        elif (
+            before_domain_p95 is not None
+            and after_domain_p95 is not None
+            and after_domain_p95 > (allowed_domain_p95 or 0)
+        ):
+            row_failures.append(
+                "domain latency p95 regression exceeds "
+                f"{budget_percent:g}% budget: {before_domain_p95:.3f}ms -> {after_domain_p95:.3f}ms"
+            )
         comparison = {
             "name": name,
             "passed": not row_failures,
             "p95_budget_percent": budget_percent,
             "before_p95_ms": before_p95,
             "after_p95_ms": after_p95,
+            "before_domain_p95_ms": before_domain_p95,
+            "after_domain_p95_ms": after_domain_p95,
             "change_percent": round((after_p95 / before_p95 - 1) * 100, 3)
             if before_p95 and after_p95 is not None
             else None,

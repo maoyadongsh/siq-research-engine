@@ -1,0 +1,34 @@
+{
+  "schema_version": "siq_primary_market_materials_manifest_v1",
+  "deal_id": "DEAL-PMIC-SNAPSHOT-STALE-2026",
+  "status": "ready",
+  "document_count": 1,
+  "prospectus_count": 1,
+  "materials": [
+    {
+      "document_id": "DOC-PMICSTALE2026A1",
+      "parse_run_id": "PRUN-20260714-PMICSTALE001",
+      "document_type": "prospectus",
+      "document_profile": "cn_a_share_prospectus",
+      "market": "CN",
+      "status": "ready",
+      "quality_status": "pass",
+      "capabilities": {
+        "text_evidence": "ready",
+        "source_page_trace": "ready",
+        "financial_facts": "ready",
+        "semantic_index": "ready"
+      },
+      "synthetic_evaluation_only": true
+    }
+  ],
+  "completeness": {
+    "identity": "complete",
+    "business": "complete_for_r0_r4",
+    "finance": "complete_for_r0_r4",
+    "legal": "complete_for_r0_r4",
+    "risk": "complete_for_r0_r4"
+  },
+  "blocking_reasons": [],
+  "fixture_notice": "SYNTHETIC EVALUATION ONLY: every issuer, counterparty, figure, test, opinion, approval and transaction term in this package is fictitious."
+}

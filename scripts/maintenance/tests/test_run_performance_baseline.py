@@ -142,6 +142,7 @@ def test_contract_performance_baseline_uses_portable_fixtures_by_default():
         args.document_full_cases,
         args.production_sample_manifest,
         args.market_package,
+        args.ic_vector_retrieval_cases,
     ]
 
     assert all(str(path).startswith(str(module.REPO_ROOT / "eval_datasets")) for path in default_paths)
@@ -240,6 +241,8 @@ def test_nightly_performance_baseline_reports_real_sample_and_optional_postgres_
     assert by_name["agent_memory_embedding_throughput"]["skipped"] is True
     assert by_name["agent_memory_milvus_retrieval_latency"]["passed"] is True
     assert by_name["agent_memory_milvus_retrieval_latency"]["skipped"] is True
+    assert by_name["ic_profile_vector_retrieval_live"]["passed"] is True
+    assert by_name["ic_profile_vector_retrieval_live"]["skipped"] is True
     assert "SIQ Performance Baseline" in markdown.read_text(encoding="utf-8")
 
 
@@ -425,6 +428,120 @@ def test_agent_memory_milvus_retrieval_probe_reports_hit_rate_latency_and_restor
     assert result["latency_ms"]["p95"] == 9.0
     assert result["collection"] == "siq_agent_memory_perf"
     assert os.environ["SIQ_AGENT_MEMORY_VECTOR_BACKEND"] == "pgvector"
+
+
+def test_ic_vector_retrieval_probe_reports_alias_recall_mrr_and_latency(tmp_path, monkeypatch):
+    module = _load_module()
+    cases_path = tmp_path / "cases.json"
+    cases_path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "case_id": "legal",
+                        "profile_id": "siq_ic_legal_scanner",
+                        "query": "project",
+                        "private_query": "legal methodology",
+                        "expected_physical_collection": "ic_legal_scanner",
+                        "expected_title_contains": "Legal Scanner Methodology",
+                        "expected_project_tag": "tag-v1",
+                    },
+                    {
+                        "case_id": "finance",
+                        "profile_id": "siq_ic_finance_auditor",
+                        "query": "project",
+                        "private_query": "finance methodology",
+                        "expected_physical_collection": "ic_finance_auditor",
+                        "expected_title_contains": "Finance Auditor Methodology",
+                        "expected_project_tag": "tag-v1",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeRetrieval:
+        @staticmethod
+        def retrieve_vector_hits(*, profile_id, top_k, **_kwargs):
+            assert os.environ["SIQ_VECTOR_RETRIEVAL_ENABLED"] == "1"
+            assert os.environ["SIQ_EMBEDDING_BASE_URL"] == "http://embedding.internal"
+            assert top_k == 5
+            title = (
+                "Legal Scanner Methodology - Review Method"
+                if profile_id == "siq_ic_legal_scanner"
+                else "Finance Auditor Methodology - Historical Review"
+            )
+            expected_collection = profile_id.removeprefix("siq_ic_")
+            hits = [
+                {
+                    "title": title,
+                    "project_tag": "tag-v1",
+                    "metadata": {"profile_id": profile_id, "project_tag": "tag-v1"},
+                }
+            ]
+            if profile_id == "siq_ic_finance_auditor":
+                hits.insert(0, {"title": "unrelated", "metadata": {"profile_id": profile_id}})
+            return {
+                "status": "completed",
+                "milvus_used": True,
+                "physical_collections": {profile_id: f"ic_{expected_collection}"},
+                "methodology_hits": hits,
+            }
+
+    monkeypatch.setattr(module, "_ic_vector_retrieval_module", lambda: FakeRetrieval)
+    monkeypatch.setattr(module, "_module_available", lambda name: name == "pymilvus")
+    monkeypatch.setenv("SIQ_VECTOR_RETRIEVAL_ENABLED", "0")
+
+    result = module._ic_vector_retrieval_live_benchmark(
+        embedding_base_url="http://embedding.internal",
+        embedding_model="fake-model",
+        cases_path=cases_path,
+        top_k=5,
+        max_cases=7,
+        timeout_seconds=3.0,
+        required=True,
+    )
+
+    assert result["passed"] is True
+    assert result["cases"] == 2
+    assert result["passed_cases"] == 2
+    assert result["hit_rate"] == 1.0
+    assert result["recall_at_k"] == 1.0
+    assert result["mrr"] == 0.75
+    assert result["latency_ms"]["p95"] >= 0
+    assert [item["rank"] for item in result["results"]] == [1, 2]
+    assert os.environ["SIQ_VECTOR_RETRIEVAL_ENABLED"] == "0"
+
+
+def test_required_ic_vector_retrieval_probe_fails_without_embedding_endpoint(tmp_path, monkeypatch):
+    module = _load_module()
+    _clear_agent_memory_vector_env(monkeypatch)
+    output = tmp_path / "performance_baseline_nightly.json"
+
+    exit_code = module.main(
+        [
+            "--mode",
+            "nightly",
+            "--repeat",
+            "1",
+            "--skip-postgres-nightly",
+            "--skip-agent-memory-vector-probes",
+            "--require-ic-vector-retrieval-probe",
+            "--output",
+            str(output),
+            "--markdown",
+            str(tmp_path / "performance_baseline_nightly.md"),
+        ]
+    )
+
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    probe = next(item for item in payload["benchmarks"] if item["name"] == "ic_profile_vector_retrieval_live")
+    assert exit_code == 1
+    assert probe["required"] is True
+    assert probe["passed"] is False
+    assert probe["skipped"] is False
+    assert "embedding base URL is not configured" in probe["domain"]["reason"]
 
 
 def test_required_agent_memory_vector_probes_fail_without_embedding_endpoint(tmp_path, monkeypatch):

@@ -3,21 +3,37 @@ import { test } from 'node:test'
 
 import {
   deriveAgentReadinessChips,
+  deriveAgentHandoffRows,
   deriveAgentReadinessLine,
   buildMeetingEvents,
   buildSelectedAgentDryRunSummary,
   deriveCoordinatorNextActions,
   deriveMeetingAgentReadinessRows,
   deriveMeetingAgenda,
+  deriveMeetingPreparationPlan,
   deriveMeetingEventQualityChips,
   deriveMeetingReceiptRows,
   deriveMeetingScoreRows,
   deriveMeetingScoringSummary,
+  deriveR15DisputeBoard,
+  deriveR2DeltaRows,
+  deriveR3Timeline,
+  deriveR4QualityObservability,
+  deriveWorkflowPhaseObservability,
   deriveProjectMetrics,
   deriveProjectRow,
+  isMaterialPolling,
+  IC_EXPERT_AGENT_IDS,
+  materialCapabilities,
+  materialFromResponse,
+  materialStatusLabel,
+  materialStatusTone,
+  materialsFromResponse,
+  mergeMaterialParseStatus,
   R1_AGENT_SEQUENCE,
   validateHumanConfirmationDraft,
   validateR3Action,
+  withMaterialVersions,
 } from './primaryMarketViewModel'
 import type { DealStatusResponse, DealSummary, DealWorkflowResponse } from '@/lib/dealTypes'
 
@@ -443,23 +459,88 @@ test('coordinator closes the loop with human confirmation after R4 decision', ()
   assert.equal(actions[1]?.id, 'human_write')
 })
 
-test('meeting agenda treats approved human confirmation as closed', () => {
-  const agenda = deriveMeetingAgenda({
-    decision: {
-      decision: {},
-      report_path: 'decision.md',
-      contract: {
-        deal_id: 'DEAL-001',
-        decision: { value: 'pass' },
-        human_confirmation: { status: 'approved', confirmed: false },
-      },
+test('meeting preparation plan routes private-knowledge retrieval by upcoming phase', () => {
+  const startupReceipts = Object.fromEntries(R1_AGENT_SEQUENCE.map((agentId) => [
+    agentId,
+    { receipt: { receipt_id: `startup-${agentId}`, agent_id: agentId } },
+  ]))
+  const workflow = {
+    workflow: { deal_id: 'DEAL-001', current_phase: 'R1' },
+    agent_reports: R1_AGENT_SEQUENCE.map((agentId) => ({ agent_id: agentId, has_report: true })),
+  }
+  const resolvedDisputes = {
+    deal_id: 'DEAL-001',
+    status: 'pass',
+    counts: { disputes: 0, unresolved: 0 },
+    artifacts: { json: { available: true } },
+    disputes: [],
+  }
+  const base = {
+    preflight: { deal_id: 'DEAL-001', status: 'pass', checks: [] },
+    workflow,
+    startupReceipts,
+    disputes: resolvedDisputes,
+  }
+
+  const r0 = deriveMeetingPreparationPlan({
+    preflight: { deal_id: 'DEAL-001', status: 'fail', checks: [] },
+  })
+  const r1 = deriveMeetingPreparationPlan({
+    preflight: { deal_id: 'DEAL-001', status: 'pass', checks: [] },
+  })
+  const r15 = deriveMeetingPreparationPlan({
+    ...base,
+    disputes: {
+      ...resolvedDisputes,
+      status: 'warn',
+      counts: { disputes: 1, unresolved: 1 },
+      disputes: [{ dispute_id: 'DSP-1', resolved: false }],
+    },
+  })
+  const r2 = deriveMeetingPreparationPlan(base)
+  const r3 = deriveMeetingPreparationPlan({
+    ...base,
+    phaseArtifacts: { phases: [{ phase: 'R2', status: 'pass', artifacts: { json: { available: true } } }] },
+  })
+  const r4 = deriveMeetingPreparationPlan({
+    ...base,
+    phaseArtifacts: {
+      phases: [
+        { phase: 'R2', status: 'pass', artifacts: { json: { available: true } } },
+        { phase: 'R3', status: 'pass', artifacts: { json: { available: true } } },
+      ],
     },
   })
 
-  const human = agenda.find((item) => item.phase === 'HUMAN')
+  assert.deepEqual(r0.profileIds, ['siq_ic_master_coordinator'])
+  assert.equal(r1.roundName, 'R1')
+  assert.deepEqual(r1.profileIds, R1_AGENT_SEQUENCE)
+  assert.deepEqual(r15.profileIds, ['siq_ic_chairman'])
+  assert.deepEqual(r2.profileIds, IC_EXPERT_AGENT_IDS)
+  assert.deepEqual(r3.profileIds, [...IC_EXPERT_AGENT_IDS, 'siq_ic_chairman'])
+  assert.deepEqual(r4.profileIds, ['siq_ic_chairman'])
+  assert.deepEqual(r4.individualProfileIds, ['siq_ic_chairman', 'siq_ic_master_coordinator'])
+})
 
-  assert.equal(human?.tone, 'success')
-  assert.equal(human?.blocking, false)
+test('meeting agenda treats approved and overridden human decisions as closed', () => {
+  for (const status of ['approved', 'overridden']) {
+    const agenda = deriveMeetingAgenda({
+      decision: {
+        decision: {},
+        report_path: 'decision.md',
+        contract: {
+          deal_id: 'DEAL-001',
+          decision: { value: 'pass' },
+          human_confirmation: { status, confirmed: false },
+        },
+      },
+    })
+
+    const human = agenda.find((item) => item.phase === 'HUMAN')
+
+    assert.equal(human?.tone, status === 'approved' ? 'success' : 'warning')
+    assert.equal(human?.blocking, false)
+  }
 })
 
 test('meeting write validation guards R3 and final human actions', () => {
@@ -487,4 +568,344 @@ test('selected agent dry-run summary preserves committee order and gate messages
   assert.deepEqual(summary.warnings, ['财务审计委员: receipt hit is low'])
   assert.deepEqual(summary.blocking_reasons, ['风险管理委员: startup_receipt_missing'])
   assert.equal(summary.hermes_called, false)
+})
+
+test('prospectus material status separates parse and analysis-source states', () => {
+  const queued = {
+    document_id: 'DOC-001',
+    deal_id: 'DEAL-001',
+    filename: 'issuer.pdf',
+    document_type: 'prospectus',
+    document_status: 'active',
+    parse_status: 'queued',
+    analysis_source_status: 'pending',
+  }
+  const restricted = { ...queued, parse_status: 'succeeded', analysis_source_status: 'ready_with_restrictions' }
+  const superseded = { ...restricted, document_status: 'superseded' }
+
+  assert.equal(materialStatusLabel(queued), '排队中')
+  assert.equal(materialStatusTone(queued), 'warning')
+  assert.equal(isMaterialPolling(queued), true)
+  assert.equal(materialStatusLabel(restricted), '可用于文本分析，财务受限')
+  assert.equal(materialStatusTone(restricted), 'warning')
+  assert.equal(isMaterialPolling(restricted), false)
+  assert.equal(materialStatusLabel(superseded), '已被新版替代')
+  assert.equal(materialStatusTone(superseded), 'neutral')
+})
+
+test('prospectus capabilities normalize booleans, strings and detailed contracts', () => {
+  const rows = materialCapabilities({
+    document_id: 'DOC-001',
+    deal_id: 'DEAL-001',
+    filename: 'issuer.pdf',
+    capabilities: {
+      text_evidence: true,
+      source_page_trace: { status: 'ready', ready: true },
+      financial_facts: { status: 'blocked', reason: '三年报表不完整' },
+      semantic_index: 'indexing',
+    },
+  })
+
+  assert.deepEqual(rows.map((row) => [row.id, row.status]), [
+    ['text_evidence', 'ready'],
+    ['source_trace', 'ready'],
+    ['financial_facts', 'blocked'],
+    ['semantic_index', 'indexing'],
+  ])
+  assert.equal(rows[2]?.detail, '三年报表不完整')
+})
+
+test('material facade response helpers tolerate documented response variants', () => {
+  const materials = materialsFromResponse({
+    deal_id: 'DEAL-001',
+    materials: [
+      { document_id: 'DOC-OLD', deal_id: 'DEAL-001', filename: 'old.pdf', created_at: '2026-07-01T00:00:00Z' },
+      { document_id: 'DOC-NEW', deal_id: 'DEAL-001', filename: 'new.pdf', created_at: '2026-07-02T00:00:00Z' },
+    ],
+  })
+  const uploaded = materialFromResponse({
+    document: { document_id: 'DOC-NEW', deal_id: 'DEAL-001', filename: 'new.pdf', parse_status: 'queued' },
+    parse_run: { parse_run_id: 'PRUN-001', status: 'queued' },
+    status_url: '/status',
+    reused: false,
+    analysis_source: {
+      source_id: 'PM:DEAL-001:DOC-NEW:PRUN-001',
+      status: 'review_required',
+      parse_run_id: 'PRUN-001',
+      capabilities: { text_evidence: 'ready', financial_facts: 'review_required' },
+    },
+  })
+
+  assert.deepEqual(materials.map((item) => item.document_id), ['DOC-NEW', 'DOC-OLD'])
+  assert.equal(uploaded?.parse_run?.parse_run_id, 'PRUN-001')
+  assert.equal(uploaded?.status_url, '/status')
+  assert.equal(uploaded?.analysis_source_status, 'review_required')
+  assert.equal(uploaded?.capabilities?.text_evidence, 'ready')
+
+  const reconciled = mergeMaterialParseStatus(uploaded!, {
+    document_id: 'DOC-NEW',
+    parse_run: {
+      parse_run_id: 'PRUN-001',
+      status: 'succeeded',
+      capabilities: { text_evidence: 'ready', financial_facts: 'review_required' },
+    },
+    document: {
+      document_id: 'DOC-NEW',
+      deal_id: 'DEAL-001',
+      filename: 'new.pdf',
+      analysis_source_status: 'review_required',
+    },
+  })
+
+  assert.equal(reconciled.parse_status, 'succeeded')
+  assert.equal(reconciled.analysis_source_status, 'review_required')
+  assert.equal(materialStatusLabel(reconciled), '质量待确认')
+})
+
+test('prospectus version chain is derived without changing generic materials', () => {
+  const materials = withMaterialVersions([
+    { document_id: 'DOC-NEW', deal_id: 'DEAL-001', filename: 'new.pdf', document_type: 'prospectus', created_at: '2026-07-02T00:00:00Z', supersedes_document_id: 'DOC-OLD' },
+    { document_id: 'DOC-BP', deal_id: 'DEAL-001', filename: 'bp.pdf', document_type: 'bp', created_at: '2026-07-03T00:00:00Z' },
+    { document_id: 'DOC-OLD', deal_id: 'DEAL-001', filename: 'old.pdf', document_type: 'prospectus', created_at: '2026-07-01T00:00:00Z', superseded_by_document_id: 'DOC-NEW' },
+  ])
+
+  assert.equal(materials.find((item) => item.document_id === 'DOC-OLD')?.version, 1)
+  assert.equal(materials.find((item) => item.document_id === 'DOC-NEW')?.version, 2)
+  assert.equal(materials.find((item) => item.document_id === 'DOC-NEW')?.version_chain?.length, 2)
+  assert.equal(materials.find((item) => item.document_id === 'DOC-BP')?.version, undefined)
+})
+
+test('agent readiness separates project Evidence from private background retrieval', () => {
+  const rows = deriveMeetingAgentReadinessRows({
+    meetingReadiness: {
+      schemaVersion: 'siq_primary_market_meeting_readiness_v2',
+      dealId: 'DEAL-001',
+      profiles: [{
+        profileId: 'siq_ic_finance_auditor',
+        label: '财务审计委员',
+        role: 'finance',
+        runtime: { health: 'running', port: 18664 },
+        contract: { version: 'siq_ic_profile_v2', responsibilities: [], sourceFiles: [], outputs: [], boundaries: [] },
+        startupReceipt: {
+          present: true,
+          receiptId: 'receipt-finance',
+          sharedHits: 8,
+          privateHits: 3,
+          evidenceHits: 8,
+          gaps: [],
+          collections: ['siq_deal_shared', 'siq_ic_finance_auditor'],
+          physicalCollections: ['ic_collaboration_shared', 'ic_finance_auditor'],
+          sharedCollection: 'ic_collaboration_shared',
+          privateCollection: 'ic_finance_auditor',
+          retrievalStatus: 'degraded',
+          degradedReasons: ['rerank_unavailable'],
+          blockingReasons: [],
+          evidenceSnapshotHash: 'a'.repeat(64),
+          capabilityRestrictions: ['financial_facts:review_required'],
+          stale: false,
+        },
+        r1Report: { present: false, score: null, recommendation: '', artifactPath: '' },
+        quality: { readyForFormalTask: true, blockingReasons: [], warnings: ['rerank_unavailable'], status: 'warning' },
+        phaseTaskStatus: 'queued',
+      }],
+      summary: { runtimeRunning: 1, receiptPresent: 1, r1ReportsPresent: 0, blockingProfiles: [] },
+    },
+  })
+
+  const finance = rows.find((row) => row.agentId === 'siq_ic_finance_auditor')
+  assert.equal(finance?.projectEvidenceHits, 8)
+  assert.equal(finance?.backgroundKnowledgeHits, 3)
+  assert.equal(finance?.sharedCollection, 'ic_collaboration_shared')
+  assert.equal(finance?.privateCollection, 'ic_finance_auditor')
+  assert.equal(finance?.retrievalStatus, 'degraded')
+  assert.equal(finance?.retrievalTone, 'warning')
+  assert.equal(finance?.contractVersion, 'siq_ic_profile_v2')
+  assert.equal(finance?.phaseTaskStatus, 'queued')
+  assert.deepEqual(finance?.capabilityRestrictions, ['financial_facts:review_required'])
+})
+
+test('workflow observability exposes disputes, R2 delta, R3 timeline and R4 fallback quality', () => {
+  const bundle = {
+    preflight: { deal_id: 'DEAL-001', status: 'pass', checks: [] },
+    workflow: {
+      workflow: { deal_id: 'DEAL-001', current_phase: 'R4' },
+      agent_reports: R1_AGENT_SEQUENCE.map((agentId) => ({ agent_id: agentId, has_report: true })),
+    },
+    disputes: {
+      status: 'warn',
+      counts: { disputes: 1, unresolved: 1 },
+      generation_mode: 'chairman_model_v2',
+      disputes: [{
+        dispute_id: 'DSP-1',
+        topic: '收入确认口径',
+        severity: 'high',
+        resolved: false,
+        position_count: 2,
+        agent_ids: ['siq_ic_finance_auditor', 'siq_ic_risk_controller'],
+        evidence_ids: ['EVID-1'],
+        required_followups: ['补充验收单'],
+      }],
+    },
+    r2Reports: {
+      counts: { reports: 1, revisions: 2 },
+      agents: [{
+        agent_id: 'siq_ic_finance_auditor',
+        label: '财务审计委员',
+        status: 'pass',
+        has_report: true,
+        r1_score: 78,
+        r2_score: 72,
+        score_change: -6,
+        recommendation: 'review',
+        revision_count: 2,
+        summary: '新增回款证据后下调收入质量判断。',
+        artifact_available: true,
+      }],
+    },
+    r3Review: {
+      status: 'pass',
+      mode: 'full',
+      generation_mode: 'model_red_blue_v1',
+      counts: { reports: 1, challenges: 2 },
+      reports: [{
+        agent_id: 'siq_ic_risk_controller',
+        label: '风控委员',
+        status: 'pass',
+        stance: 'red_rebuttal',
+        summary: '回款集中仍未被充分回答。',
+        challenge_count: 2,
+        evidence_count: 1,
+      }],
+    },
+    decision: {
+      decision: {
+        generation_mode: 'deterministic_siq_r4_finalize_v1',
+        report_id: 'ICRPT-R4-OBS-001',
+        revision: 2,
+        workflow_run_id: 'ICRUN-R4-OBS-001',
+      },
+      quality: {
+        status: 'warn',
+        blocking_reasons: ['claim.evidence'],
+        checks: [{ id: 'claim.evidence', status: 'fail', message: 'critical claim unsupported' }],
+      },
+      factcheck: {
+        status: 'fail',
+        unsupported_claims: [{ claim_id: 'CLM-001', severity: 'critical' }],
+        required_repairs: [{ claim_id: 'CLM-001', action: 'add number trace' }],
+      },
+      report_path: 'decision/IC_DECISION_REPORT.md',
+      contract: {
+        status: 'warn',
+        missing_required_fields: ['conditions'],
+        missing_advisory_fields: ['monitoring_metrics'],
+        human_confirmation: { status: 'pending', confirmed: false },
+      },
+    },
+  }
+
+  const phases = deriveWorkflowPhaseObservability(bundle)
+  const disputes = deriveR15DisputeBoard(bundle)
+  const deltas = deriveR2DeltaRows(bundle)
+  const timeline = deriveR3Timeline(bundle)
+  const r4 = deriveR4QualityObservability(bundle)
+
+  assert.equal(phases.find((row) => row.phase === 'R1.5')?.blocking, true)
+  assert.equal(phases.find((row) => row.phase === 'R4')?.deterministicFallback, true)
+  assert.equal(disputes[0]?.ruling, '未裁决')
+  assert.deepEqual(disputes[0]?.evidenceIds, ['EVID-1'])
+  assert.equal(deltas[0]?.scoreChange, -6)
+  assert.equal(timeline[0]?.stance, 'red_rebuttal')
+  assert.equal(r4.fallback, true)
+  assert.equal(r4.factcheckStatus, 'fail')
+  assert.equal(r4.qualityStatus, 'warn')
+  assert.equal(r4.attestationStatus, 'pending')
+  assert.equal(r4.reportId, 'ICRPT-R4-OBS-001')
+  assert.equal(r4.reportRevision, 2)
+  assert.equal(r4.workflowRunId, 'ICRUN-R4-OBS-001')
+  assert.deepEqual(r4.findings, [
+    'claim.evidence',
+    'critical claim unsupported',
+    'CLM-001 · critical',
+    'CLM-001 · add number trace',
+  ])
+})
+
+test('R4 observability requires a complete canonical human attestation after confirmation', () => {
+  const snapshot = 'a'.repeat(64)
+  const base: Parameters<typeof deriveR4QualityObservability>[0] = {
+    decision: {
+      decision: {
+        report_id: 'ICRPT-R4-BOUND-001',
+        revision: 1,
+        workflow_run_id: 'ICRUN-R4-BOUND-001',
+        evidence_snapshot_hash: snapshot,
+      },
+      quality: {
+        report_id: 'ICRPT-R4-BOUND-001',
+        report_revision: 1,
+        evidence_snapshot_hash: snapshot,
+      },
+      factcheck: {
+        report_id: 'ICRPT-R4-BOUND-001',
+        report_revision: 1,
+        evidence_snapshot_hash: snapshot,
+      },
+      contract: {
+        human_confirmation: {
+          status: 'confirmed',
+          confirmed: true,
+          attestation_schema_version: 'siq_ic_human_confirmation_attestation_v1',
+          report_id: 'ICRPT-R4-BOUND-001',
+          report_revision: 1,
+          workflow_run_id: 'ICRUN-R4-BOUND-001',
+          evidence_snapshot_hash: snapshot,
+          decision_sha256: 'b'.repeat(64),
+          quality_sha256: 'c'.repeat(64),
+          factcheck_sha256: 'd'.repeat(64),
+        },
+      },
+    },
+  }
+
+  assert.equal(deriveR4QualityObservability(base).attestationStatus, 'bound')
+  const incomplete = structuredClone(base)
+  delete incomplete.decision!.contract!.human_confirmation!.factcheck_sha256
+  assert.equal(deriveR4QualityObservability(incomplete).attestationStatus, 'incomplete')
+
+  const mismatched = structuredClone(base)
+  mismatched.decision!.contract!.human_confirmation!.workflow_run_id = 'ICRUN-R4-OTHER-001'
+  assert.equal(deriveR4QualityObservability(mismatched).attestationStatus, 'incomplete')
+
+  const malformedDigest = structuredClone(base)
+  malformedDigest.decision!.contract!.human_confirmation!.quality_sha256 = 'not-a-sha256'
+  assert.equal(deriveR4QualityObservability(malformedDigest).attestationStatus, 'incomplete')
+})
+
+test('handoff observability derives validated agent transfers from the audit chain', () => {
+  const rows = deriveAgentHandoffRows({
+    audit: {
+      audit: {
+        events: [
+          { event_type: 'unrelated_event', created_at: '2026-07-13T08:00:00Z' },
+          {
+            event_type: 'ic_agent_handoff_persisted',
+            handoff_id: 'ICHANDOFF-001',
+            phase: 'R1B',
+            from_agent_id: 'siq_ic_finance_auditor',
+            to_agent_id: 'siq_ic_risk_controller',
+            workflow_run_id: 'ICRUN-001',
+            input_digest: 'abc123',
+            created_at: '2026-07-13T08:01:00Z',
+          },
+        ],
+      },
+    },
+  })
+
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]?.phase, 'R1B')
+  assert.equal(rows[0]?.fromLabel, '财务审计委员')
+  assert.equal(rows[0]?.toLabel, '风险管理委员')
+  assert.equal(rows[0]?.inputDigest, 'abc123')
 })

@@ -1,0 +1,30 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "panels": [
+    {"id": 1, "title": "Active meeting leases", "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}, "targets": [{"expr": "sum(meeting_active_leases)", "refId": "A"}]},
+    {"id": 2, "title": "Partial ASR P95", "type": "timeseries", "gridPos": {"h": 8, "w": 9, "x": 6, "y": 0}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(meeting_asr_partial_latency_seconds_bucket[5m])))", "refId": "A"}]},
+    {"id": 3, "title": "Stable ASR P95", "type": "timeseries", "gridPos": {"h": 8, "w": 9, "x": 15, "y": 0}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(meeting_asr_stable_latency_seconds_bucket[5m])))", "refId": "A"}]},
+    {"id": 4, "title": "Postprocess queue depth", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}, "targets": [{"expr": "sum by (kind) (meeting_postprocess_queue_depth)", "legendFormat": "{{kind}}", "refId": "A"}]},
+    {"id": 5, "title": "Meeting AI jobs", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}, "targets": [{"expr": "sum by (kind, status, locality) (meeting_ai_job_total)", "legendFormat": "{{kind}} {{status}} {{locality}}", "refId": "A"}]},
+    {"id": 6, "title": "Audio gaps and reconnects", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}, "targets": [{"expr": "sum by (reason) (rate(meeting_audio_gap_total[5m]))", "legendFormat": "gap {{reason}}", "refId": "A"}, {"expr": "sum by (reason) (rate(meeting_ws_reconnect_total[5m]))", "legendFormat": "reconnect {{reason}}", "refId": "B"}]},
+    {"id": 7, "title": "Voiceprint decisions", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}, "targets": [{"expr": "sum by (decision) (meeting_voice_match_total)", "legendFormat": "{{decision}}", "refId": "A"}]},
+    {"id": 8, "title": "Native capture operational", "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 0, "y": 24}, "targets": [{"expr": "max(meeting_native_capture_operational)", "refId": "A"}]},
+    {"id": 9, "title": "Native storage free", "type": "stat", "gridPos": {"h": 4, "w": 6, "x": 6, "y": 24}, "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}, "targets": [{"expr": "min(meeting_native_capture_storage_free_bytes)", "refId": "A"}]},
+    {"id": 10, "title": "Native batch outcomes", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}, "targets": [{"expr": "sum by (result) (rate(meeting_native_capture_batch_total[5m]))", "legendFormat": "{{result}}", "refId": "A"}, {"expr": "sum by (reason) (rate(meeting_native_capture_auth_failure_total[5m]))", "legendFormat": "auth {{reason}}", "refId": "B"}]},
+    {"id": 11, "title": "Native finalization backlog", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}, "targets": [{"expr": "max by (state) (meeting_native_capture_finalization_backlog)", "legendFormat": "{{state}}", "refId": "A"}, {"expr": "max(meeting_native_capture_finalization_failed)", "legendFormat": "failed", "refId": "B"}]},
+    {"id": 12, "title": "Native finalization oldest age", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"expr": "max by (state) (meeting_native_capture_finalization_oldest_age_seconds)", "legendFormat": "{{state}}", "refId": "A"}]},
+    {"id": 13, "title": "Native durable batches and gaps", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}, "targets": [{"expr": "max(meeting_native_capture_durable_batch_count)", "legendFormat": "batches", "refId": "A"}, {"expr": "max by (reason) (meeting_native_capture_gap_durable_total)", "legendFormat": "gap {{reason}}", "refId": "B"}]},
+    {"id": 14, "title": "Native accepted audio bytes", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}, "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []}, "targets": [{"expr": "sum by (result) (rate(meeting_native_capture_batch_bytes_total[5m]))", "legendFormat": "{{result}}", "refId": "A"}]},
+    {"id": 15, "title": "Final ASR window P95", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}, "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(meeting_final_asr_window_processing_seconds_bucket[15m])))", "refId": "A"}]},
+    {"id": 16, "title": "Final ASR window outcomes", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48}, "targets": [{"expr": "sum by (result) (rate(meeting_final_asr_window_total[5m]))", "legendFormat": "{{result}}", "refId": "A"}]}
+  ],
+  "schemaVersion": 39,
+  "tags": ["siq", "meetings"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "SIQ Meeting Transcription",
+  "uid": "siq-meeting-transcription",
+  "version": 1
+}

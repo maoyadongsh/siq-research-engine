@@ -1,0 +1,33 @@
+{
+  "schema_version": "siq_deal_manifest_v1",
+  "deal_id": "DEAL-PMIC-REAL-SMOKE-2026",
+  "legacy_project_id": null,
+  "company_name": "华澜精密科技股份有限公司（合成验收样本）",
+  "created_at": "2026-07-13T00:00:00Z",
+  "updated_at": "2026-07-13T00:00:00Z",
+  "documents": [
+    {
+      "document_id": "DOC-PMICSMOKE2026A1",
+      "parse_run_id": "PRUN-20260713-PMICSMOKE001",
+      "document_type": "prospectus",
+      "document_profile": "cn_a_share_prospectus",
+      "market": "CN",
+      "status": "ready",
+      "source_id": "PM:DEAL-PMIC-REAL-SMOKE-2026:DOC-PMICSMOKE2026A1:PRUN-20260713-PMICSMOKE001"
+    }
+  ],
+  "evidence": {
+    "index_path": "evidence/evidence_index.json",
+    "items_path": "evidence/evidence_items.ndjson",
+    "quality_path": "evidence/evidence_quality_report.json"
+  },
+  "workflow": {
+    "state_path": "phases/workflow_state.json",
+    "policy_version": "2026-07-13"
+  },
+  "decision": {
+    "markdown_path": "decision/IC_DECISION_REPORT.md",
+    "html_path": "decision/IC_DECISION_REPORT.html"
+  },
+  "hashes": {}
+}

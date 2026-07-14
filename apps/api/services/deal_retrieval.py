@@ -8,12 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from services import deal_store
-from services import external_research_clients
-from services import ic_policy
-from services import rerank_provider
-from services import vector_retrieval
-
+from services import deal_store, external_research_clients, ic_policy, rerank_provider, vector_retrieval
 
 DEAL_RETRIEVAL_SCHEMA = "siq_deal_retrieval_result_v1"
 LOCAL_RETRIEVAL_MODE = "local_dynamic_evidence_package_v1"
@@ -21,6 +16,10 @@ DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
 
 PROFILE_RULES: dict[str, dict[str, Any]] = {
+    "siq_ic_master_coordinator": {
+        "dimensions": ("business", "finance", "legal", "risk", "unknown"),
+        "focus_terms": ("readiness", "scope", "evidence gap", "workflow", "准入", "范围", "证据缺口", "流程"),
+    },
     "siq_ic_strategist": {
         "dimensions": ("business",),
         "focus_terms": ("strategy", "market", "policy", "growth", "exit", "战略", "市场", "政策", "增长", "退出"),
@@ -57,8 +56,6 @@ def normalize_profile_id(profile_id: str) -> str:
     canonical = ic_policy.canonical_ic_profile_id(profile_id)
     if canonical not in ic_policy.IC_PROFILE_IDS:
         raise ValueError(f"Unknown IC profile: {profile_id}")
-    if canonical == "siq_ic_master_coordinator":
-        raise ValueError("Deal retrieval is not required for siq_ic_master_coordinator")
     return canonical
 
 
@@ -129,6 +126,113 @@ def _project_context(package_dir: Path, deal_id: str, explicit_query: str | None
         "industry": industry,
         "stage": stage,
         "query": query[:300],
+    }
+
+
+def _private_background_query(
+    *,
+    context: dict[str, str],
+    focus_terms: list[str],
+    matched_evidence: list[tuple[dict[str, Any], float]],
+) -> str:
+    evidence_text = " ".join(
+        str(item.get("claim") or item.get("quote") or item.get("citation") or "").strip()
+        for item, _score in matched_evidence[:6]
+        if str(item.get("claim") or item.get("quote") or item.get("citation") or "").strip()
+    )
+    return " ".join(
+        part
+        for part in (
+            context.get("industry"),
+            context.get("stage"),
+            " ".join(focus_terms[:10]),
+            evidence_text[:600],
+        )
+        if str(part or "").strip()
+    )[:900]
+
+
+def _dedupe_background_hits(
+    hits: list[dict[str, Any]],
+    *,
+    methodology: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    selected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    dropped = 0
+    for item in hits:
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        if methodology:
+            key = str(
+                metadata.get("content_hash")
+                or metadata.get("knowledge_id")
+                or item.get("source_id")
+                or ""
+            )
+        else:
+            key = str(
+                metadata.get("source_path")
+                or metadata.get("source")
+                or item.get("title")
+                or item.get("source_id")
+                or ""
+            )
+        if not key or key in seen:
+            dropped += 1
+            continue
+        seen.add(key)
+        selected.append(dict(item))
+    return selected, dropped
+
+
+def _select_private_background_hits(
+    *,
+    methodology_hits: list[dict[str, Any]],
+    domain_hits: list[dict[str, Any]],
+    limit: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    methodology_unique, methodology_duplicates = _dedupe_background_hits(
+        methodology_hits,
+        methodology=True,
+    )
+    domain_unique, domain_duplicates = _dedupe_background_hits(
+        domain_hits,
+        methodology=False,
+    )
+    methodology_limit = min(2, limit)
+    selected_methodology = [
+        {
+            **item,
+            "source_class": "background_knowledge",
+            "knowledge_lane": "methodology",
+            "selection_reason": "managed_profile_methodology",
+        }
+        for item in methodology_unique[:methodology_limit]
+    ]
+    domain_limit = min(
+        2,
+        len(selected_methodology),
+        max(0, limit - len(selected_methodology)),
+    )
+    selected_domain = [
+        {
+            **item,
+            "source_class": "background_knowledge",
+            "knowledge_lane": "domain_background",
+            "selection_reason": "role_evidence_vector_relevance",
+        }
+        for item in domain_unique[:domain_limit]
+    ]
+    selected = [*selected_methodology, *selected_domain]
+    return selected, {
+        "methodology_candidates": len(methodology_hits),
+        "methodology_selected": len(selected_methodology),
+        "methodology_duplicates_dropped": methodology_duplicates,
+        "domain_candidates": len(domain_hits),
+        "domain_selected": len(selected_domain),
+        "domain_duplicates_dropped": domain_duplicates,
+        "selected_total": len(selected),
+        "limit": limit,
     }
 
 
@@ -267,7 +371,10 @@ def retrieve_for_agent(
     if not matched and canonical_profile == "siq_ic_chairman":
         matched = scored
     ranked = sorted(matched, key=lambda pair: pair[1], reverse=True)
-    hits = [evidence_hit(item, score=score) for item, score in ranked[:normalized_limit]]
+    hits = [
+        {**evidence_hit(item, score=score), "source_class": "project_evidence"}
+        for item, score in ranked[:normalized_limit]
+    ]
 
     gaps: list[str] = []
     if invalid_lines:
@@ -279,14 +386,54 @@ def retrieve_for_agent(
 
     context = _project_context(package_dir, normalized_deal_id, query)
     external_query = dynamic_queries[1]["query"] if dynamic_queries else context["query"]
+    private_background_query = _private_background_query(
+        context=context,
+        focus_terms=[str(item) for item in rules.get("focus_terms", ())],
+        matched_evidence=ranked,
+    )
     vector_payload = vector_retrieval.retrieve_vector_hits(
         query=external_query,
         profile_id=canonical_profile,
+        private_query=private_background_query,
         enabled=include_vector,
         collections=vector_collections,
         top_k=min(normalized_limit, 20),
     )
-    rerank_candidates = hits + [
+    vector_hits = [item for item in vector_payload.get("hits", []) if isinstance(item, dict)]
+    raw_domain_background_hits = [
+        {**item, "source_class": "background_knowledge"}
+        for item in vector_hits
+        if str(item.get("collection") or "") == canonical_profile
+        and str((item.get("metadata") or {}).get("managed_by") or "")
+        != vector_retrieval.MANAGED_KNOWLEDGE_WRITER
+    ]
+    raw_methodology_hits = [
+        item
+        for item in vector_payload.get("methodology_hits") or []
+        if isinstance(item, dict)
+    ]
+    background_knowledge_hits, background_selection = _select_private_background_hits(
+        methodology_hits=raw_methodology_hits,
+        domain_hits=raw_domain_background_hits,
+        limit=normalized_limit,
+    )
+    methodology_hits = [
+        item for item in background_knowledge_hits if item.get("knowledge_lane") == "methodology"
+    ]
+    domain_background_hits = [
+        item
+        for item in background_knowledge_hits
+        if item.get("knowledge_lane") == "domain_background"
+    ]
+    shared_vector_hits = [
+        {**item, "source_class": "project_evidence"}
+        for item in vector_hits
+        if str(item.get("collection") or "") == "siq_deal_shared"
+    ]
+    rerank_candidates = [
+        {**item, "source_class": "project_evidence"}
+        for item in hits
+    ] + [
         {
             "source_id": item.get("source_id"),
             "evidence_id": item.get("evidence_id"),
@@ -295,9 +442,14 @@ def retrieve_for_agent(
             "snippet": item.get("text"),
             "retrieval_score": item.get("score"),
             "source": "vector",
+            "collection": item.get("collection"),
+            "source_class": (
+                "background_knowledge"
+                if str(item.get("collection") or "") == canonical_profile
+                else "project_evidence"
+            ),
         }
-        for item in vector_payload.get("hits", [])
-        if isinstance(item, dict)
+        for item in [*shared_vector_hits, *background_knowledge_hits]
     ]
     rerank_payload = rerank_provider.rerank_candidates(
         query=external_query,
@@ -330,6 +482,15 @@ def retrieve_for_agent(
         "invalid_evidence_lines": invalid_lines,
         "gaps": gaps,
         "vector_retrieval": vector_payload,
+        "shared_vector_hits": shared_vector_hits,
+        "private_background_query": private_background_query,
+        "background_knowledge_hits": background_knowledge_hits,
+        "background_knowledge_hit_count": len(background_knowledge_hits),
+        "methodology_hits": methodology_hits,
+        "methodology_hit_count": len(methodology_hits),
+        "domain_background_hits": domain_background_hits,
+        "domain_background_hit_count": len(domain_background_hits),
+        "background_selection": background_selection,
         "rerank": rerank_payload,
         "external_research": external_research,
         "milvus_used": vector_payload.get("status") == "completed",

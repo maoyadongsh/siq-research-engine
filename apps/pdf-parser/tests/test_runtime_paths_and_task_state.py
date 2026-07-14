@@ -1305,6 +1305,162 @@ class ApiLayerTest(unittest.TestCase):
         self.assertTrue(payload["submit_ready"])
         self.assertEqual(payload["mineru_stats"], {"status": "healthy"})
 
+    def test_ready_endpoint_fails_closed_when_submit_or_worker_is_unavailable(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        readiness = {
+            "mineru": True,
+            "mineru_detail": "",
+            "mineru_payload": {"status": "healthy"},
+            "vlm": True,
+            "vlm_detail": "",
+            "submit_ready": True,
+            "warning": "",
+        }
+        with patch.object(app, "initialize_app"), patch.object(
+            app, "_mineru_submit_readiness", return_value=readiness
+        ), patch.object(app, "_queue_worker_ready", return_value=False):
+            response = app.app.test_client().get("/api/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.get_json()["ready"])
+        self.assertFalse(response.get_json()["queue_worker_ready"])
+
+    def test_ready_endpoint_is_available_without_internal_auth_when_dependencies_are_ready(self):
+        if not hasattr(app.app, "test_client"):
+            self.skipTest("Flask test client is unavailable in the lightweight import stub")
+        readiness = {
+            "mineru": True,
+            "mineru_detail": "",
+            "mineru_payload": {},
+            "vlm": True,
+            "vlm_detail": "",
+            "submit_ready": True,
+            "warning": "",
+        }
+        old_token = app.APP_ACCESS_TOKEN
+        old_utils_token = request_utils.APP_ACCESS_TOKEN
+        try:
+            app.APP_ACCESS_TOKEN = "ready-token"
+            request_utils.APP_ACCESS_TOKEN = "ready-token"
+            with patch.object(app, "initialize_app"), patch.object(
+                app, "_mineru_submit_readiness", return_value=readiness
+            ), patch.object(app, "_queue_worker_ready", return_value=True):
+                response = app.app.test_client().get("/api/ready")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.get_json()["ready"])
+        finally:
+            app.APP_ACCESS_TOKEN = old_token
+            request_utils.APP_ACCESS_TOKEN = old_utils_token
+
+    def test_queue_worker_readiness_tracks_poll_failure_and_recovery(self):
+        class OneIterationStop:
+            def __init__(self):
+                self.calls = 0
+
+            def is_set(self):
+                self.calls += 1
+                return self.calls > 1
+
+        class ImmediateWakeup:
+            def wait(self, _timeout):
+                return True
+
+            def clear(self):
+                return None
+
+        class AliveThread:
+            def is_alive(self):
+                return True
+
+        old_stop = app._queue_worker_stop
+        old_wakeup = app._queue_wakeup
+        old_thread = app._queue_worker_thread
+        old_started = app._queue_worker_started
+        old_poll_healthy = app._queue_worker_poll_healthy
+        old_last_poll_success_at = app._queue_worker_last_poll_success_at
+        try:
+            app._queue_worker_thread = AliveThread()
+            app._queue_worker_started = True
+            app._queue_worker_stop = OneIterationStop()
+            app._queue_wakeup = ImmediateWakeup()
+            with patch.object(app, "_recover_stale_submitting_tasks", side_effect=RuntimeError("db unavailable")):
+                app._queue_worker_loop()
+            self.assertFalse(app._queue_worker_ready())
+
+            app._queue_worker_stop = OneIterationStop()
+            with patch.object(app, "_recover_stale_submitting_tasks"), patch.object(
+                app, "_cleanup_old_data"
+            ), patch.object(app, "_refresh_recent_tasks"), patch.object(app, "_maybe_submit_next_queued_task"):
+                app._queue_worker_loop()
+            self.assertTrue(app._queue_worker_ready())
+        finally:
+            app._queue_worker_stop = old_stop
+            app._queue_wakeup = old_wakeup
+            app._queue_worker_thread = old_thread
+            app._queue_worker_started = old_started
+            with app._queue_worker_state_lock:
+                app._queue_worker_poll_healthy = old_poll_healthy
+                app._queue_worker_last_poll_success_at = old_last_poll_success_at
+
+    def test_queue_worker_readiness_expires_when_last_poll_is_stale(self):
+        class AliveThread:
+            def is_alive(self):
+                return True
+
+        old_thread = app._queue_worker_thread
+        old_started = app._queue_worker_started
+        old_poll_healthy = app._queue_worker_poll_healthy
+        old_last_poll_success_at = app._queue_worker_last_poll_success_at
+        try:
+            app._queue_worker_thread = AliveThread()
+            app._queue_worker_started = True
+            with app._queue_worker_state_lock:
+                app._queue_worker_poll_healthy = True
+                app._queue_worker_last_poll_success_at = 100.0
+
+            with patch.object(
+                app.time,
+                "monotonic",
+                return_value=100.0 + app.QUEUE_WORKER_READY_STALE_SECONDS + 0.01,
+            ):
+                self.assertFalse(app._queue_worker_ready())
+        finally:
+            app._queue_worker_thread = old_thread
+            app._queue_worker_started = old_started
+            with app._queue_worker_state_lock:
+                app._queue_worker_poll_healthy = old_poll_healthy
+                app._queue_worker_last_poll_success_at = old_last_poll_success_at
+
+    def test_stop_queue_worker_signals_and_releases_worker_reference(self):
+        class FakeThread:
+            alive = True
+
+            def is_alive(self):
+                return self.alive
+
+            def join(self, timeout=None):
+                self.alive = False
+
+        old_thread = app._queue_worker_thread
+        old_started = app._queue_worker_started
+        fake_thread = FakeThread()
+        try:
+            app._queue_worker_stop.clear()
+            app._queue_worker_thread = fake_thread
+            app._queue_worker_started = True
+
+            app.stop_queue_worker()
+
+            self.assertTrue(app._queue_worker_stop.is_set())
+            self.assertFalse(app._queue_worker_started)
+            self.assertIsNone(app._queue_worker_thread)
+        finally:
+            app._queue_worker_thread = old_thread
+            app._queue_worker_started = old_started
+            app._queue_worker_stop.clear()
+
     def test_health_endpoint_remains_available_when_internal_token_is_configured(self):
         if not hasattr(app.app, "test_client"):
             self.skipTest("Flask test client is unavailable in the lightweight import stub")
