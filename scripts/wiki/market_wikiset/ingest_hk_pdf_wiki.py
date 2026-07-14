@@ -1313,10 +1313,13 @@ def write_market_root(output_root: Path, company_results: list[dict[str, Any]], 
     (output_root / "derived").mkdir(exist_ok=True)
     (output_root / "_quarantine").mkdir(exist_ok=True)
     (output_root / "_trash").mkdir(exist_ok=True)
-    companies = []
-    reports = []
+    updated_company_ids = {str(item["company"].get("company_wiki_id") or "") for item in company_results}
+    existing_companies = read_json(output_root / "_meta" / "company_catalog.json", {}).get("companies") or []
+    existing_reports = read_json(output_root / "_meta" / "report_catalog.json", {}).get("reports") or []
+    companies = [item for item in existing_companies if str(item.get("company_wiki_id") or "") not in updated_company_ids]
+    reports = [item for item in existing_reports if str(item.get("company_wiki_id") or "") not in updated_company_ids]
     issues = []
-    latest = {}
+    latest = read_json(output_root / "derived" / "three_statements_latest.json", {}) or {}
     for result in company_results:
         company = result["company"]
         companies.append(

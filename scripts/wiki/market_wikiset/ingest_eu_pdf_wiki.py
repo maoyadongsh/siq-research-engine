@@ -1889,10 +1889,13 @@ def write_market_root(output_root: Path, company_results: list[dict[str, Any]], 
     output_root.mkdir(parents=True, exist_ok=True)
     for directory in ("_meta", "derived", "_quarantine", "_trash", "companies"):
         (output_root / directory).mkdir(exist_ok=True)
-    companies = []
-    reports = []
+    updated_company_ids = {str(item["company"].get("company_wiki_id") or "") for item in company_results}
+    existing_companies = read_json(output_root / "_meta" / "company_catalog.json", {}).get("companies") or []
+    existing_reports = read_json(output_root / "_meta" / "report_catalog.json", {}).get("reports") or []
+    companies = [item for item in existing_companies if str(item.get("company_wiki_id") or "") not in updated_company_ids]
+    reports = [item for item in existing_reports if str(item.get("company_wiki_id") or "") not in updated_company_ids]
     issues = []
-    latest = {}
+    latest = read_json(output_root / "derived" / "three_statements_latest.json", {}) or {}
     country_counts = Counter()
     for result in company_results:
         company = result["company"]
@@ -1936,10 +1939,12 @@ def write_market_root(output_root: Path, company_results: list[dict[str, Any]], 
     write_text(output_root / "README.md", eu_readme(len(companies), len(reports)))
 
 
-def build_plan(results_dir: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def build_plan(results_dir: Path, *, task_id: str = "") -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows = []
     for result_dir in sorted(results_dir.iterdir()):
         if not result_dir.is_dir():
+            continue
+        if task_id and result_dir.name != task_id:
             continue
         row = inspect_eu_result(result_dir)
         if row:
@@ -1950,7 +1955,7 @@ def build_plan(results_dir: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]
 def run(args: argparse.Namespace) -> dict[str, Any]:
     results_dir = args.results_dir.resolve()
     output_root = args.output_root.resolve()
-    active, selection = build_plan(results_dir)
+    active, selection = build_plan(results_dir, task_id=str(getattr(args, "task_id", "") or "").strip())
     if args.limit:
         active = active[: args.limit]
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1988,6 +1993,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest EU PDF parser results into an A-share-aligned company Wiki workspace.")
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--task-id", default="", help="Only ingest the selected parser task directory.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--apply", action="store_true", help="Write files. Omit for dry-run.")
