@@ -1397,10 +1397,13 @@ def build_plan(
     results_dir: Path,
     *,
     downloads_root: Path = DEFAULT_DOWNLOADS_ROOT,
+    task_id: str = "",
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows = []
     for result_dir in sorted(results_dir.iterdir()):
         if not result_dir.is_dir():
+            continue
+        if task_id and result_dir.name != task_id:
             continue
         row = inspect_hk_result(result_dir, downloads_root=downloads_root)
         if row:
@@ -1583,7 +1586,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "blocking_reason": "unsafe_hk_wiki_apply",
             "safety_errors": safety_errors,
         }
-    active, selection = build_plan(results_dir, downloads_root=downloads_root)
+    active, selection = build_plan(
+        results_dir,
+        downloads_root=downloads_root,
+        task_id=str(getattr(args, "task_id", "") or "").strip(),
+    )
     if args.limit:
         active = active[: args.limit]
     for row in active:
@@ -1683,6 +1690,7 @@ def main() -> int:
     started_at = time.monotonic()
     parser = argparse.ArgumentParser(description="Ingest HK PDF parser results into an A-share-aligned company Wiki workspace.")
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    parser.add_argument("--task-id", default="", help="Only ingest the selected parser task directory.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--downloads-root", type=Path, default=DEFAULT_DOWNLOADS_ROOT)
     parser.add_argument("--limit", type=int, default=0)

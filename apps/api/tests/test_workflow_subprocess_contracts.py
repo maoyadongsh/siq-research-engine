@@ -475,6 +475,8 @@ def test_import_generic_wiki_routes_pdf_market_to_market_script(monkeypatch, tmp
                 str(script_path),
                 "--results-dir",
                 str(result_dir.parent),
+                "--task-id",
+                "task-hk-market",
                 "--output-root",
                 str(wiki_root / "hk"),
                 "--require-canonical-identity",

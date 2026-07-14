@@ -520,6 +520,23 @@ def test_hk_apply_rejects_nonempty_staging_output(tmp_path):
     assert payload["safety_errors"] == ["staging_output_must_be_new_or_empty"]
 
 
+def test_hk_build_plan_can_scope_to_one_task(monkeypatch, tmp_path):
+    for task_id in ("task-a", "task-b"):
+        (tmp_path / task_id).mkdir()
+
+    monkeypatch.setattr(
+        hk_ingest,
+        "inspect_hk_result",
+        lambda result_dir, downloads_root: {"task_id": result_dir.name},
+    )
+    monkeypatch.setattr(hk_ingest, "select_active", lambda rows: (rows, {"selected": len(rows)}))
+
+    rows, selection = hk_ingest.build_plan(tmp_path, task_id="task-b")
+
+    assert rows == [{"task_id": "task-b"}]
+    assert selection == {"selected": 1}
+
+
 def test_hk_operational_update_keeps_canonical_identity_gate(tmp_path):
     base = {
         "results_dir": tmp_path / "results",
