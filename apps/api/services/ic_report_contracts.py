@@ -109,29 +109,6 @@ IC_CLAIM_JSON_SCHEMA: dict[str, Any] = {
         "assumption": {"type": ["string", "null"], "maxLength": 4000},
         "verification_method": {"type": ["string", "null"], "maxLength": 4000},
     },
-    "allOf": [
-        {
-            "if": {"properties": {"status": {"const": "verified"}}, "required": ["status"]},
-            "then": {"properties": {"evidence_ids": {"minItems": 1}}},
-        },
-        {
-            "if": {"properties": {"status": {"const": "derived"}}, "required": ["status"]},
-            "then": {
-                "properties": {
-                    "evidence_ids": {"minItems": 1},
-                    "calculation_trace_ids": {"minItems": 1},
-                }
-            },
-        },
-        {
-            "if": {"properties": {"status": {"const": "assumed"}}, "required": ["status"]},
-            "then": {"required": ["assumption", "verification_method"]},
-        },
-        {
-            "if": {"properties": {"status": {"const": "contested"}}, "required": ["status"]},
-            "then": {"properties": {"counter_evidence_ids": {"minItems": 1}}},
-        },
-    ],
 }
 
 SCORECARD_ITEM_SCHEMA = {
@@ -828,9 +805,25 @@ def validate_claim(
 ) -> dict[str, Any]:
     claim = validate_schema(payload, IC_CLAIM_JSON_SCHEMA, contract=IC_CLAIM_SCHEMA)
     errors: list[str] = []
+    claim_id = str(claim.get("claim_id") or "unknown")
+    status = claim["status"]
+    if status == "verified" and not claim["evidence_ids"]:
+        errors.append(f"verified_claim_requires_evidence:{claim_id}")
+    elif status == "derived":
+        if not claim["evidence_ids"]:
+            errors.append(f"derived_claim_requires_evidence:{claim_id}")
+        if not claim["calculation_trace_ids"]:
+            errors.append(f"derived_claim_requires_calculation_trace:{claim_id}")
+    elif status == "assumed":
+        if not str(claim.get("assumption") or "").strip():
+            errors.append(f"assumed_claim_requires_assumption:{claim_id}")
+        if not str(claim.get("verification_method") or "").strip():
+            errors.append(f"assumed_claim_requires_verification_method:{claim_id}")
+    elif status == "contested" and not claim["counter_evidence_ids"]:
+        errors.append(f"contested_claim_requires_counter_evidence:{claim_id}")
     if claim["decision_impact"] in {"critical", "material"} and claim["status"] != "missing":
         if not claim["evidence_ids"]:
-            errors.append("decision_relevant_claim_requires_evidence")
+            errors.append(f"decision_relevant_claim_requires_evidence:{claim_id}")
     if known_evidence_ids is not None:
         unknown = sorted(claim_evidence_ids(claim) - {str(item) for item in known_evidence_ids})
         if unknown:

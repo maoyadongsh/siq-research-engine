@@ -326,6 +326,117 @@ def test_renderer_prefers_latest_r2_revision_and_falls_back_to_r1():
     assert view["source_report_selection"]["siq_ic_strategist"]["source_phase"] == "R1"
 
 
+def test_renderer_uses_field_specific_claims_without_hiding_uncovered_project_fields():
+    decision = _decision()
+    decision.pop("term_sheet_protections")
+    decision["claims"] = [
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-COMPOSITE-001",
+            "topic": "company_product_competitive_position",
+            "conclusion": "市场份额和客户复购表现稳定。",
+        },
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-COMPANY-001",
+            "topic": "company_overview",
+            "status": "missing",
+            "evidence_ids": [],
+            "conclusion": "发行人概况仍待补证。",
+        },
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-PRODUCT-001",
+            "topic": "product_overview",
+            "conclusion": "核心产品已完成客户验收。",
+        },
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-BUSINESS-001",
+            "topic": "business_model",
+            "conclusion": "收入模式由设备销售与服务构成。",
+        },
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-DEAL-001",
+            "topic": "transaction_structure",
+            "conclusion": "本轮投资结构为增资入股。",
+        },
+        {
+            **_claim(numeric=False),
+            "claim_id": "CLM-QUALITY-TS-001",
+            "topic": "term_sheet_investor_protection",
+            "conclusion": "投资协议设置清算优先与反稀释保护。",
+        },
+    ]
+    bundle = _bundle(decision, _finance_report())
+    for field in ("investment_structure", "company_overview", "product_overview", "business_model"):
+        bundle["project"].pop(field)
+
+    rendered = renderer.render_r4_report(bundle)
+
+    for text in (
+        "核心产品已完成客户验收。",
+        "收入模式由设备销售与服务构成。",
+        "本轮投资结构为增资入股。",
+        "投资协议设置清算优先与反稀释保护。",
+        EVIDENCE_ID,
+    ):
+        assert text in rendered["markdown"]
+        assert text in rendered["html"]
+    assert "市场份额和客户复购表现稳定。" not in rendered["markdown"]
+    for placeholder in (
+        "证据不足：未提供拟投资结构",
+        "证据不足：未提供产品概况",
+        "证据不足：未提供商业模式概况",
+        "证据不足：未提供 TS 保护条款",
+    ):
+        assert placeholder not in rendered["markdown"]
+    assert "证据不足：未提供企业概况" in rendered["markdown"]
+    assert rendered["view_model"]["traceable_fallback_claim_ids"] == {
+        "investment_structure": ["CLM-QUALITY-DEAL-001"],
+        "company_overview": [],
+        "product_overview": ["CLM-QUALITY-PRODUCT-001"],
+        "business_model": ["CLM-QUALITY-BUSINESS-001"],
+        "term_sheet_protections": ["CLM-QUALITY-TS-001"],
+    }
+
+
+def test_renderer_keeps_missing_markers_when_fallback_claims_are_not_traceable():
+    decision = _decision()
+    decision.pop("term_sheet_protections")
+    decision["claims"] = [
+        {
+            **_claim(numeric=False),
+            "topic": "transaction_structure_and_term_sheet",
+            "status": "missing",
+            "evidence_ids": [],
+            "conclusion": "交易结构和投资人保护仍待补证。",
+        }
+    ]
+    bundle = _bundle(decision, _finance_report())
+    for field in ("investment_structure", "company_overview", "product_overview", "business_model"):
+        bundle["project"].pop(field)
+
+    rendered = renderer.render_r4_report(bundle)
+
+    for placeholder in (
+        "证据不足：未提供拟投资结构",
+        "证据不足：未提供企业概况",
+        "证据不足：未提供产品概况",
+        "证据不足：未提供商业模式概况",
+        "证据不足：未提供 TS 保护条款",
+    ):
+        assert placeholder in rendered["markdown"]
+    assert rendered["view_model"]["traceable_fallback_claim_ids"] == {
+        "investment_structure": [],
+        "company_overview": [],
+        "product_overview": [],
+        "business_model": [],
+        "term_sheet_protections": [],
+    }
+
+
 def test_renderer_includes_r0_material_and_evidence_restrictions():
     bundle = _bundle(_decision(), _finance_report())
     bundle["r0_readiness"].update(
@@ -475,6 +586,57 @@ def test_numeric_trace_distinguishes_verified_derived_monetary_and_missing_claim
     assert quality._numeric_trace_missing_fields(verified_money) == ["currency"]
     assert quality._numeric_trace_missing_fields(derived) == ["calculation_trace_ids"]
     assert quality._numeric_trace_missing_fields(missing) == []
+
+
+def test_factcheck_authoring_contract_excludes_server_fields_and_unbounded_objects():
+    schema = quality.factcheck_authoring_schema()
+    assert schema["x-projection"] == "server_managed_fields_omitted"
+    for field in quality.FACTCHECK_SERVER_MANAGED_FIELDS:
+        assert field not in schema["properties"]
+
+    authored = _factcheck("warn")
+    for field in quality.FACTCHECK_SERVER_MANAGED_FIELDS:
+        authored.pop(field, None)
+    authored["claim_checks"] = [
+        {
+            "claim_id": CLAIM_ID,
+            "status": "warn",
+            "message": "The report needs a narrower caveat.",
+            "evidence_ids": [EVIDENCE_ID],
+        }
+    ]
+    assert quality.validate_factcheck_authoring_result(authored) == authored
+
+    with pytest.raises(ValueError, match="model-authoring-payload contract invalid"):
+        quality.validate_factcheck_authoring_result({**authored, "report_id": "ICRPT-ILLEGAL"})
+    with pytest.raises(ValueError, match="model-authoring-payload contract invalid"):
+        quality.validate_factcheck_authoring_result(
+            {**authored, "claim_checks": [{"claim_id": CLAIM_ID, "calc": "1+1"}]}
+        )
+
+
+def test_factcheck_authoring_allows_report_wide_evidence_refs_with_a_finite_bound():
+    authored = _factcheck("warn")
+    for field in quality.FACTCHECK_SERVER_MANAGED_FIELDS:
+        authored.pop(field, None)
+    evidence_ids = [f"EVID-DEAL-QUALITY-001-{index:06d}" for index in range(22)]
+    authored["numeric_checks"] = [
+        {
+            "check_id": "CC-NUM-WEIGHT",
+            "status": "verified",
+            "message": "The report-wide weighted score was recomputed.",
+            "evidence_ids": evidence_ids,
+        }
+    ]
+
+    assert quality.validate_factcheck_authoring_result(authored) == authored
+
+    authored["numeric_checks"][0]["evidence_ids"] = [
+        f"EVID-DEAL-QUALITY-001-{index:06d}"
+        for index in range(quality.FACTCHECK_MAX_EVIDENCE_IDS_PER_FINDING + 1)
+    ]
+    with pytest.raises(ValueError, match="model-authoring-payload contract invalid"):
+        quality.validate_factcheck_authoring_result(authored)
 
 
 def test_factcheck_critical_unsupported_claim_blocks_and_cannot_silently_repair():

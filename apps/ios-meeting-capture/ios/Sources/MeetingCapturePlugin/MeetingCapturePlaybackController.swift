@@ -9,8 +9,12 @@ final class MeetingCapturePlaybackController {
     private var pendingObservation: NSKeyValueObservation?
     private var source = "none"
     private var fallbackDurationMs: Int64 = 0
+    private var switchGeneration = UUID()
 
     func playLocal(store: MeetingCaptureStore, handle requestedHandle: String) throws -> MeetingPlaybackStatus {
+        switchGeneration = UUID()
+        pendingObservation = nil
+        pendingServerPlayer = nil
         if handle != requestedHandle || localPlayer == nil {
             let url = try store.playbackURL(for: requestedHandle)
             let player = try AVAudioPlayer(contentsOf: url)
@@ -66,18 +70,22 @@ final class MeetingCapturePlaybackController {
             let shouldResume = isPlaying()
             let item = AVPlayerItem(asset: AVURLAsset(url: serverURL))
             let candidate = AVPlayer(playerItem: item)
+            let generation = UUID()
+            switchGeneration = generation
             pendingServerPlayer = candidate
             pendingObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 guard let self else { return }
                 switch item.status {
                 case .readyToPlay:
                     DispatchQueue.meetingCapture.async {
-                        guard self.pendingServerPlayer === candidate else { return }
+                        guard self.switchGeneration == generation,
+                              self.pendingServerPlayer === candidate else { return }
                         self.pendingObservation = nil
                         self.pendingServerPlayer = nil
                         let switchAtSeconds = self.currentSeconds()
                         candidate.seek(to: CMTime(seconds: switchAtSeconds, preferredTimescale: 1_000)) { _ in
                             DispatchQueue.meetingCapture.async {
+                                guard self.switchGeneration == generation else { return }
                                 self.serverPlayer = candidate
                                 self.source = "server"
                                 self.handle = requestedHandle
@@ -89,7 +97,8 @@ final class MeetingCapturePlaybackController {
                     }
                 case .failed:
                     DispatchQueue.meetingCapture.async {
-                        guard self.pendingServerPlayer === candidate else { return }
+                        guard self.switchGeneration == generation,
+                              self.pendingServerPlayer === candidate else { return }
                         self.pendingObservation = nil
                         self.pendingServerPlayer = nil
                         completion(.failure(.transportUnavailable))

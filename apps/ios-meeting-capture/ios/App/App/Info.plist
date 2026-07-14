@@ -26,6 +26,8 @@
 	<string>Record meeting audio only after you explicitly tap Start, so the app can create a transcript and meeting record.</string>
 	<key>SIQMeetingAPIOrigin</key>
 	<string>$(SIQ_MEETING_API_ORIGIN)</string>
+	<key>SIQAuthCSRFCookieName</key>
+	<string>$(SIQ_AUTH_CSRF_COOKIE_NAME)</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

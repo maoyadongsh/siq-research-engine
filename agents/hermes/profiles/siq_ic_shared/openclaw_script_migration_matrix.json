@@ -148,7 +148,7 @@
       "acceptance_tests": [
         "apps/api/tests/test_ic_phase_orchestrator_model.py"
       ],
-      "golden_cases": ["GOLDEN-PMIC-CROSS-EXPERT-CONFLICT"],
+      "golden_cases": ["GOLDEN-PMIC-FULL-R3"],
       "known_gaps": [
         "The complete R1A handoff has not yet been quality-tested for risk stress testing and chairman synthesis."
       ],
@@ -173,7 +173,7 @@
         "apps/api/tests/test_ic_phase_orchestrator_model.py",
         "apps/api/tests/test_ic_v2_contracts.py"
       ],
-      "golden_cases": ["GOLDEN-PMIC-CROSS-EXPERT-CONFLICT"],
+      "golden_cases": ["GOLDEN-PMIC-FULL-R3"],
       "known_gaps": [
         "Deterministic dispute extraction exists, but model-assisted dispute completeness is not behavior-accepted."
       ],
@@ -199,7 +199,7 @@
         "apps/api/tests/test_ic_phase_orchestrator_model.py",
         "apps/api/tests/test_ic_v2_contracts.py"
       ],
-      "golden_cases": ["GOLDEN-PMIC-CROSS-EXPERT-CONFLICT"],
+      "golden_cases": ["GOLDEN-PMIC-MATERIAL-RISK"],
       "known_gaps": [
         "Deterministic ruling drafts and manual writes must not be presented as chairman Hermes behavior.",
         "Evidence-gap return loops need end-to-end verification."
@@ -227,7 +227,7 @@
         "apps/api/tests/test_ic_phase_orchestrator_model.py",
         "apps/api/tests/test_ic_v2_contracts.py"
       ],
-      "golden_cases": ["GOLDEN-PMIC-CROSS-EXPERT-CONFLICT"],
+      "golden_cases": ["GOLDEN-PMIC-FULL-R3"],
       "known_gaps": [
         "Existing deterministic R2 is a fallback and is not evidence of expert revision behavior.",
         "Viewpoint and score deltas have not passed golden evaluation."

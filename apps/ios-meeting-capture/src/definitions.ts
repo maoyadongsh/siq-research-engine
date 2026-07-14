@@ -23,6 +23,8 @@ export interface CaptureStatus {
   lastSealedSequence: number
   manifestRevision: number
   pendingUploadCount: number
+  gapCount: number
+  materializedGapSamples: number
   localPlaybackReady: boolean
   interruptionReason: string | null
   errorCode: string | null
@@ -32,6 +34,8 @@ export interface PrepareOptions {
   meetingId: string
   captureId: string
   captureToken: string
+  /** Foreground user-session bearer. Held in memory only; never persisted by native code. */
+  userBearerToken?: string
   deviceInstallationId: string
   apiBaseUrl: string
   streamEpoch: number
@@ -51,6 +55,8 @@ export interface CaptureCheckpoints {
     recordedThroughSample: number
     lastSealedSequence: number
     manifestRevision: number
+    gapCount: number
+    materializedGapSamples: number
   }
   ingest: {
     highestUploadedSequence: number
@@ -63,7 +69,7 @@ export interface CaptureCheckpoints {
     lastAckedSequence: number
     consumedThroughSample: number | null
     stableOrdinal: number
-    eventCursor: number | null
+    eventCursor: number
   }
   finalization: {
     sealedThroughSample: number | null
@@ -116,6 +122,14 @@ export interface MeetingCaptureEventMap {
     pendingUploadCount: number
   }
   'capture.interrupted': { reason: string; startSample: number }
+  'capture.gap.materialized': {
+    reason: string
+    startSample: number
+    endSample: number
+    streamEpoch: number
+    fromSequence: number
+    toSequence: number
+  }
   'capture.resumed': CaptureStatus
   'batch.sealed': {
     streamEpoch: number

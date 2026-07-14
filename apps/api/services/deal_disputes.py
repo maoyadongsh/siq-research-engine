@@ -848,14 +848,17 @@ def _update_workflow_after_ruling(
     warnings = summary.get("warnings") if isinstance(summary.get("warnings"), list) else []
     unresolved = int(counts.get("unresolved") or 0)
     if unresolved > 0:
-        r1_5_status = "in_progress"
-        workflow_status = "r1_5_ruling_recorded"
+        r1_5_status = "blocked"
+        workflow_status = "r1_5_blocked"
+        terminal_reason = "needs_more_evidence"
     elif str(summary.get("status") or "") == "pass":
         r1_5_status = "completed"
         workflow_status = "r1_5_disputes_resolved"
+        terminal_reason = None
     else:
         r1_5_status = "blocked"
         workflow_status = "r1_5_blocked"
+        terminal_reason = "r1_5_validation_failed"
 
     r1_5.update(
         {
@@ -865,6 +868,8 @@ def _update_workflow_after_ruling(
             "unresolved_count": unresolved,
             "ruling_count": counts.get("rulings") or 0,
             "warnings": warnings,
+            "resume_allowed": r1_5_status == "blocked",
+            "terminal_reason": terminal_reason,
             "updated_at": now,
         }
     )

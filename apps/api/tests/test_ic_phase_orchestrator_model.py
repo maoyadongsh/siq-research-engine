@@ -600,6 +600,79 @@ def test_expert_prompts_include_current_role_required_fields_and_non_empty_rule(
         assert "Claims may cite task-envelope KBREF values" in prompt
 
 
+def test_repair_prompt_projects_only_minimal_trusted_context_and_bounds_invalid_output():
+    task = {
+        "task_id": "ICTASK-PROMPT-STRATEGIST",
+        "workflow_run_id": "ICRUN-PROMPT-STRATEGIST",
+        "deal_id": DEAL_ID,
+        "phase": "R1A",
+        "round_name": "R1",
+        "agent_id": AGENT_ID,
+        "evidence_snapshot_hash": SNAPSHOT,
+        "input_digest": "b" * 64,
+        "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
+        "prompt_contract_version": "siq_ic_phase_prompt_v5",
+        "role_objectives": ["TASK-SENSITIVE-REDUNDANCY"],
+        "background_knowledge_refs": [{"ref_id": KBREF_ID, "secret": "TASK-SECRET"}],
+        "methodology_refs": [{"ref_id": "KBREF-METHOD-0001", "secret": "METHOD-SECRET"}],
+    }
+    handoff = {
+        "contract": {
+            "handoff_id": "ICHANDOFF-PROMPT-STRATEGIST",
+            "workflow_run_id": "ICRUN-PROMPT-STRATEGIST",
+            "deal_id": DEAL_ID,
+            "phase": "R1A",
+            "from_agent_id": "siq_ic_master_coordinator",
+            "to_agent_id": AGENT_ID,
+            "evidence_snapshot_hash": SNAPSHOT,
+            "input_digest": "c" * 64,
+            "payload": {"sensitive": "HANDOFF-SENSITIVE-REDUNDANCY"},
+        },
+        "content": {
+            "project_evidence_hits": [{"evidence_id": EVIDENCE_ID}],
+            "sensitive": "HANDOFF-CONTENT-SENSITIVE-REDUNDANCY",
+        },
+    }
+    invalid_output = json.dumps(
+        {
+            "claims": [
+                {
+                    "claim_id": "CLM-STRAT-EXIT-005",
+                    "conclusion": "x" * 25_000 + "INVALID-OUTPUT-TAIL-SENTINEL",
+                }
+            ]
+        }
+    )
+
+    prompt = ic_phase_orchestrator._repair_prompt(
+        task=task,
+        handoff=handoff,
+        invalid_output=invalid_output,
+        error=ValueError(
+            "decision_relevant_claim_requires_evidence:CLM-STRAT-EXIT-005"
+        ),
+    )
+
+    assert len(prompt) < 38_000
+    assert "TASK-SENSITIVE-REDUNDANCY" not in prompt
+    assert "TASK-SECRET" not in prompt
+    assert "METHOD-SECRET" not in prompt
+    assert "HANDOFF-SENSITIVE-REDUNDANCY" not in prompt
+    assert "HANDOFF-CONTENT-SENSITIVE-REDUNDANCY" not in prompt
+    assert "task envelope:\n" not in prompt
+    assert "validated handoff:\n" not in prompt
+    assert '"task_id": "ICTASK-PROMPT-STRATEGIST"' in prompt
+    assert '"handoff_id": "ICHANDOFF-PROMPT-STRATEGIST"' in prompt
+    assert EVIDENCE_ID in prompt
+    assert KBREF_ID in prompt
+    assert "KBREF-METHOD-0001" in prompt
+    assert '"included_char_count":16000' in prompt
+    assert '"truncated":true' in prompt
+    assert "INVALID-OUTPUT-TAIL-SENTINEL" not in prompt
+    assert "禁止调用任何工具" in prompt
+    assert "最终输出仍会经过完整正式 validator" in prompt
+
+
 def test_expert_model_authoring_schema_omits_server_managed_fields():
     task = {
         "task_id": "ICTASK-PROMPT-STRATEGIST",
@@ -772,6 +845,85 @@ def test_prompts_fail_closed_for_unknown_output_schema():
         )
 
 
+def test_contract_repair_non_escalation_accepts_projection_and_safe_missing_downgrade():
+    original = _model_output()
+    original["claims"][0].update(
+        {
+            "status": "assumed",
+            "evidence_ids": [],
+            "assumption": "Exit timing remains assumed.",
+            "verification_method": "Obtain current project Evidence.",
+            "model_only_note": "remove during schema projection",
+        }
+    )
+    repaired = deepcopy(original)
+    repaired["claims"][0]["status"] = "missing"
+    repaired["claims"][0].pop("model_only_note")
+
+    ic_phase_orchestrator._verify_contract_repair_non_escalation(original, repaired)
+
+
+def test_contract_repair_non_escalation_rejects_semantic_and_reference_changes():
+    original = _model_output()
+
+    changed = deepcopy(original)
+    changed["recommendation"] = "support"
+    with pytest.raises(ValueError, match="top_level_recommendation_changed"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    changed = deepcopy(original)
+    changed["claims"].pop()
+    with pytest.raises(ValueError, match="claim_identity_changed"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    changed = deepcopy(original)
+    changed["claims"][0]["conclusion"] = "A stronger unsupported conclusion."
+    with pytest.raises(ValueError, match="conclusion_changed"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    changed = deepcopy(original)
+    changed["claims"][0]["evidence_ids"].append("EVID-DEAL-IC-MODEL-001-999999")
+    with pytest.raises(ValueError, match="references_added:EVID-DEAL-IC-MODEL-001-999999"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+    missing = deepcopy(original)
+    missing["claims"][0]["status"] = "missing"
+    upgraded = deepcopy(missing)
+    upgraded["claims"][0]["status"] = "verified"
+    with pytest.raises(ValueError, match="status_escalated"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(missing, upgraded)
+
+    changed = deepcopy(original)
+    changed["scorecard"][0]["claim_ids"] = ["CLM-STRATEGY-999"]
+    with pytest.raises(ValueError, match="scorecard_claim_references_changed"):
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(original, changed)
+
+
+def test_factcheck_repair_non_escalation_rejects_fail_to_pass_and_finding_deletion():
+    original = {
+        "schema_version": "siq_ic_report_factcheck_v1",
+        "status": "fail",
+        "claim_checks": [],
+        "numeric_checks": [],
+        "citation_checks": [],
+        "contradictions": [],
+        "unsupported_claims": [],
+        "required_repairs": [
+            {"id": "REPAIR-001", "message": "Remove the unsupported claim."}
+        ],
+    }
+    repaired = {**deepcopy(original), "status": "pass", "required_repairs": []}
+
+    with pytest.raises(ValueError) as exc:
+        ic_phase_orchestrator._verify_contract_repair_non_escalation(
+            original,
+            repaired,
+            factcheck=True,
+        )
+    assert "top_level_status_changed" in str(exc.value)
+    assert "required_repairs:count_changed" in str(exc.value)
+
+
 def test_r1_model_task_uses_v2_contract_private_kb_and_server_renderer(monkeypatch, tmp_path):
     package_dir = _package(tmp_path)
     calls: list[tuple[str, str]] = []
@@ -892,14 +1044,30 @@ def test_r0_coordinator_uses_private_kb_and_writes_readiness_plan(monkeypatch, t
 def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     package_dir = _package(tmp_path)
     run_ids = iter(["run-invalid", "run-repair"])
+    prompts: list[str] = []
+    invalid_output = deepcopy(_model_output())
+    invalid_output["claims"][0].update(
+        {
+            "claim_id": "CLM-STRAT-EXIT-005",
+            "status": "assumed",
+            "evidence_ids": [],
+            "assumption": "Exit timing is assumed.",
+            "verification_method": "Obtain current exit-market Evidence.",
+        }
+    )
+    invalid_output["scorecard"][0]["claim_ids"] = ["CLM-STRAT-EXIT-005"]
 
     async def fake_create_run(prompt, history, *, profile, session_id=None):
+        prompts.append(prompt)
         return next(run_ids)
+
+    repaired_output = deepcopy(invalid_output)
+    repaired_output["claims"][0]["status"] = "missing"
 
     async def fake_collect(run_id, *, profile, timeout=None):
         if run_id == "run-invalid":
-            return json.dumps({"score": 76})
-        return json.dumps(_model_output(), ensure_ascii=False)
+            return json.dumps(invalid_output, ensure_ascii=False)
+        return json.dumps(repaired_output, ensure_ascii=False)
 
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
@@ -912,7 +1080,16 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     )
 
     assert result["execution"]["repair_attempted"] is True
+    assert result["report"]["claims"][0]["status"] == "missing"
     assert result["report"]["hermes_run_ids"] == ["run-invalid", "run-repair"]
+    assert len(prompts) == 2
+    assert (
+        "decision_relevant_claim_requires_evidence:CLM-STRAT-EXIT-005"
+        in prompts[1]
+    )
+    assert EVIDENCE_ID in prompts[1]
+    assert KBREF_ID in prompts[1]
+    assert "validated handoff:\n" not in prompts[1]
     task = result["execution"]["task"]
     assert set(task["output_artifact_hashes"]) == set(task["output_artifact_paths"])
     for relative_path, expected_hash in task["output_artifact_hashes"].items():
@@ -931,6 +1108,75 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     assert completion["handoff_digest"] == task["handoff_digest"]
     assert completion["output_artifact_hashes"] == task["output_artifact_hashes"]
     assert completion["contract_validation"]["passed"] is True
+
+
+def test_r1_model_task_does_not_repair_unparseable_output(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    create_calls = 0
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None):
+        nonlocal create_calls
+        create_calls += 1
+        return "run-unparseable"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        return 'preface\n{"recommendation":"reject"}\nsuffix'
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(ValueError, match="response_must_be_single_json_object"):
+        asyncio.run(
+            ic_phase_orchestrator.run_r1_model_task(
+                package_dir,
+                agent_id=AGENT_ID,
+                receipt=_receipt(),
+            )
+        )
+    assert create_calls == 1
+
+
+def test_r1_model_task_revalidates_and_rejects_invalid_repair_output(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    run_ids = iter(["run-invalid", "run-still-invalid-repair"])
+    invalid_output = deepcopy(_model_output())
+    invalid_output["claims"][0].update(
+        {
+            "claim_id": "CLM-STRAT-EXIT-005",
+            "status": "assumed",
+            "evidence_ids": [],
+            "assumption": "Exit timing is assumed.",
+            "verification_method": "Obtain current exit-market Evidence.",
+        }
+    )
+    invalid_output["scorecard"][0]["claim_ids"] = ["CLM-STRAT-EXIT-005"]
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None):
+        return next(run_ids)
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        return json.dumps(invalid_output, ensure_ascii=False)
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(
+        ValueError,
+        match="decision_relevant_claim_requires_evidence:CLM-STRAT-EXIT-005",
+    ):
+        asyncio.run(
+            ic_phase_orchestrator.run_r1_model_task(
+                package_dir,
+                agent_id=AGENT_ID,
+                receipt=_receipt(),
+            )
+        )
+
+    task_store = deal_store.read_json(package_dir / "phases" / "ic_agent_tasks.json", {})
+    persisted = next(item for item in task_store["tasks"] if item["agent_id"] == AGENT_ID)
+    assert persisted["status"] == "failed"
+    assert persisted["hermes_run_ids"] == ["run-invalid", "run-still-invalid-repair"]
+    assert persisted["contract_validation"]["passed"] is False
 
 
 def test_r1_model_task_wall_clock_timeout_stops_remote_run_and_persists_timeout(monkeypatch, tmp_path):
@@ -2017,6 +2263,118 @@ def _prepare_r4_inputs(package_dir) -> None:
     )
 
 
+def _install_interrupted_r4_factcheck_runtime(monkeypatch) -> dict:
+    state = {
+        "chairman_create_calls": 0,
+        "factcheck_create_calls": 0,
+        "factcheck_prompts": [],
+    }
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
+        if profile == "siq_ic_chairman":
+            state["chairman_create_calls"] += 1
+            return "run-r4-resume-chairman"
+        assert profile == "siq_factchecker"
+        state["factcheck_create_calls"] += 1
+        state["factcheck_prompts"].append(prompt)
+        if state["factcheck_create_calls"] == 1:
+            raise RuntimeError("injected factcheck startup failure")
+        return "run-r4-resume-factcheck"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        if profile == "siq_ic_chairman":
+            return json.dumps(_r4_model_output(), ensure_ascii=False)
+        assert profile == "siq_factchecker"
+        return json.dumps(
+            {
+                "schema_version": "siq_ic_report_factcheck_v1",
+                "status": "pass",
+                "claim_checks": [],
+                "numeric_checks": [],
+                "citation_checks": [],
+                "contradictions": [],
+                "unsupported_claims": [],
+                "required_repairs": [],
+            }
+        )
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+    return state
+
+
+def test_r4_model_resume_reuses_bound_draft_identity_without_rerunning_chairman(
+    monkeypatch, tmp_path
+):
+    package_dir = _package(tmp_path)
+    _prepare_r4_inputs(package_dir)
+    state = _install_interrupted_r4_factcheck_runtime(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="injected factcheck startup failure"):
+        asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    draft_path = package_dir / "decision" / "decision_draft.json"
+    first_draft = deal_store.read_json(draft_path, {})
+    task = ic_phase_orchestrator._stored_task(package_dir, first_draft["task_id"])
+    task = ic_phase_orchestrator.ic_task_contracts.validate_agent_task(task)
+    identity = task["r4_decision_identity"]
+    assert identity["decision_sha256"] == ic_phase_orchestrator.payload_digest(first_draft)
+    assert identity["created_at"] == first_draft["created_at"]
+    assert identity["updated_at"] == first_draft["updated_at"]
+
+    result = asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    assert result["status"] == "completed"
+    assert state["chairman_create_calls"] == 1
+    assert state["factcheck_create_calls"] == 2
+    assert state["factcheck_prompts"][0] == state["factcheck_prompts"][1]
+    assert result["decision"] == first_draft
+    assert result["decision"]["created_at"] == first_draft["created_at"]
+    assert result["decision"]["updated_at"] == first_draft["updated_at"]
+
+
+def test_r4_model_resume_rejects_tampered_bound_draft(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    _prepare_r4_inputs(package_dir)
+    state = _install_interrupted_r4_factcheck_runtime(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="injected factcheck startup failure"):
+        asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    draft_path = package_dir / "decision" / "decision_draft.json"
+    draft = deal_store.read_json(draft_path, {})
+    draft["executive_summary"] = "tampered summary"
+    deal_store.write_json(draft_path, draft)
+
+    with pytest.raises(ValueError, match="draft failed resume verification: sha256_mismatch"):
+        asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    assert state["chairman_create_calls"] == 1
+    assert state["factcheck_create_calls"] == 1
+
+
+def test_r4_model_resume_rejects_persisted_decision_identity_mismatch(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    _prepare_r4_inputs(package_dir)
+    state = _install_interrupted_r4_factcheck_runtime(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="injected factcheck startup failure"):
+        asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    draft = deal_store.read_json(package_dir / "decision" / "decision_draft.json", {})
+    store_path = package_dir / ic_phase_orchestrator.TASK_STORE_PATH
+    task_store = deal_store.read_json(store_path, {})
+    task = next(item for item in task_store["tasks"] if item["task_id"] == draft["task_id"])
+    task["r4_decision_identity"]["report_id"] = "ICRPT-TAMPERED-IDENTITY"
+    deal_store.write_json(store_path, task_store)
+
+    with pytest.raises(ValueError, match="persisted decision identity mismatch: report_id"):
+        asyncio.run(ic_phase_orchestrator.run_r4_model(package_dir))
+
+    assert state["chairman_create_calls"] == 1
+    assert state["factcheck_create_calls"] == 1
+
+
 def test_r4_model_factchecks_r1_and_r2_then_allows_human_confirmation(monkeypatch, tmp_path):
     package_dir = _package(tmp_path)
     chairman = "siq_ic_chairman"
@@ -2087,11 +2445,18 @@ def test_r4_model_factchecks_r1_and_r2_then_allows_human_confirmation(monkeypatc
         render_bundles.append(deepcopy(bundle))
         return original_render(bundle)
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
         if profile == "siq_factchecker":
+            assert "fenced SIQ primary-market IC factcheck task" in instructions
+            assert "not itself an unsupported factual assertion" in instructions
+            assert "do not turn future due-diligence evidence collection" in instructions
             assert "Evidence envelope 是唯一正式输入" in prompt
             assert "不得调用 terminal" in prompt
-            assert "只允许一次 code execution" in prompt
+            assert "不得调用 code_execution 或任何其他工具" in prompt
+            assert "Do not call code_execution or any other tool" in instructions
+            assert "该披露本身不是 unsupported_claim" in prompt
+            assert "pass 表示当前报告事实完整性通过" in prompt
+            assert "自创 calculation_trace_id" in prompt
         calls.append(profile)
         return f"run-r4-{profile}"
 
@@ -2210,7 +2575,9 @@ def test_r4_factcheck_contract_failure_persists_raw_output_and_failure_audit(mon
         "background_knowledge_refs": [],
     }
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
+    monkeypatch.setenv("SIQ_IC_FACTCHECK_REPAIR_ATTEMPTS", "0")
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
         return "run-r4-factcheck-invalid"
 
     async def fake_collect(run_id, *, profile, timeout=None):
@@ -2224,7 +2591,7 @@ def test_r4_factcheck_contract_failure_persists_raw_output_and_failure_audit(mon
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
     monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
 
-    with pytest.raises(ValueError, match="siq_ic_report_factcheck_v1 contract invalid"):
+    with pytest.raises(ValueError, match="siq_ic_report_factcheck_v1.*contract invalid"):
         asyncio.run(
             ic_phase_orchestrator._run_r4_factcheck(
                 package_dir,
@@ -2272,6 +2639,234 @@ def test_r4_factcheck_contract_failure_persists_raw_output_and_failure_audit(mon
     assert failure["failure_reason"] == "ICContractValidationError"
 
 
+def test_r4_factcheck_retry_preserves_prior_attempt_lineage(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    workflow_run = ic_phase_orchestrator.ensure_workflow_run(package_dir)
+    decision = {
+        "report_id": "ICRPT-FACTCHECK-RETRY-001",
+        "revision": 1,
+        "deal_id": DEAL_ID,
+        "evidence_snapshot_hash": SNAPSHOT,
+        "decision": "review",
+        "claims": [],
+        "background_knowledge_refs": [],
+    }
+    sessions: list[str] = []
+    run_ids = iter(("run-r4-factcheck-invalid-1", "run-r4-factcheck-valid-2"))
+
+    monkeypatch.setenv("SIQ_IC_FACTCHECK_REPAIR_ATTEMPTS", "0")
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
+        sessions.append(session_id)
+        return next(run_ids)
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        if run_id.endswith("invalid-1"):
+            return '{"schema_version":"siq_ic_report_factcheck_v1","status":"pass"}'
+        return json.dumps(
+            {
+                "schema_version": "siq_ic_report_factcheck_v1",
+                "status": "pass",
+                "claim_checks": [],
+                "numeric_checks": [],
+                "citation_checks": [],
+                "contradictions": [],
+                "unsupported_claims": [],
+                "required_repairs": [],
+            }
+        )
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(ValueError, match="siq_ic_report_factcheck_v1.*contract invalid"):
+        asyncio.run(
+            ic_phase_orchestrator._run_r4_factcheck(
+                package_dir,
+                workflow_run=workflow_run,
+                decision=decision,
+                rendered_markdown="# R4 draft",
+                evidence={},
+                created_by=None,
+                timeout=None,
+            )
+        )
+    first_task = deal_store.read_json(package_dir / "decision" / "factcheck_task.json", {})
+    first_created_at = first_task["created_at"]
+    first_raw_path = first_task["output_artifact_path"]
+    first_raw_hash = first_task["output_artifact_hash"]
+
+    factcheck, task = asyncio.run(
+        ic_phase_orchestrator._run_r4_factcheck(
+            package_dir,
+            workflow_run=workflow_run,
+            decision=decision,
+            rendered_markdown="# R4 draft",
+            evidence={},
+            created_by=None,
+            timeout=None,
+        )
+    )
+
+    assert factcheck["status"] == "pass"
+    assert sessions == [
+        f"{workflow_run['workflow_run_id']}-{task['task_id']}-attempt-1",
+        f"{workflow_run['workflow_run_id']}-{task['task_id']}-attempt-2",
+    ]
+    assert task["created_at"] == first_created_at
+    assert task["task_claim"]["attempt"] == 2
+    assert len(task["attempt_history"]) == 1
+    prior = task["attempt_history"][0]
+    assert prior["lease_attempt"] == 1
+    assert prior["terminal_status"] == "failed"
+    assert prior["hermes_run_ids"] == ["run-r4-factcheck-invalid-1"]
+    assert prior["output_artifact_path"] == first_raw_path
+    assert prior["output_artifact_hash"] == first_raw_hash
+    assert hashlib.sha256((package_dir / first_raw_path).read_bytes()).hexdigest() == first_raw_hash
+
+
+def test_r4_factcheck_allows_one_audited_contract_repair(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    workflow_run = ic_phase_orchestrator.ensure_workflow_run(package_dir)
+    decision = {
+        "report_id": "ICRPT-FACTCHECK-REPAIR-001",
+        "revision": 1,
+        "deal_id": DEAL_ID,
+        "evidence_snapshot_hash": SNAPSHOT,
+        "decision": "review",
+        "claims": [],
+        "background_knowledge_refs": [],
+    }
+    create_calls: list[tuple[str, str]] = []
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
+        create_calls.append((prompt, session_id))
+        return f"run-r4-factcheck-repair-{len(create_calls)}"
+
+    authored = {
+        "schema_version": "siq_ic_report_factcheck_v1",
+        "status": "warn",
+        "claim_checks": [],
+        "numeric_checks": [],
+        "citation_checks": [],
+        "contradictions": [],
+        "unsupported_claims": [],
+        "required_repairs": [],
+    }
+    invalid_with_server_fields = {
+        **authored,
+        "report_id": decision["report_id"],
+        "report_revision": decision["revision"],
+        "checked_at": "2026-07-14T20:30:00+08:00",
+        "evidence_snapshot_hash": SNAPSHOT,
+    }
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        payload = invalid_with_server_fields if run_id.endswith("-1") else authored
+        return json.dumps(payload)
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    factcheck, task = asyncio.run(
+        ic_phase_orchestrator._run_r4_factcheck(
+            package_dir,
+            workflow_run=workflow_run,
+            decision=decision,
+            rendered_markdown="# R4 draft",
+            evidence={},
+            created_by=None,
+            timeout=None,
+        )
+    )
+
+    assert factcheck["status"] == "warn"
+    assert len(create_calls) == 2
+    assert create_calls[1][1].endswith("-attempt-1-repair-1")
+    assert "不得重新核查、改变 status" in create_calls[1][0]
+    assert task["hermes_run_ids"] == [
+        "run-r4-factcheck-repair-1",
+        "run-r4-factcheck-repair-2",
+    ]
+    assert task["model_execution_audit"]["attempt_count"] == 2
+    assert [
+        item["purpose"] for item in task["model_execution_audit"]["attempts"]
+    ] == ["generation", "contract_repair"]
+    assert len(task["output_artifact_paths"]) == 2
+    audit = deal_store.read_json(package_dir / "audit" / "audit_log.json", {})
+    repair_event = next(
+        event
+        for event in audit["events"]
+        if event["event_type"] == "ic_r4_factcheck_contract_repair_attempted"
+    )
+    assert repair_event["original_hermes_run_id"] == "run-r4-factcheck-repair-1"
+    assert repair_event["repair_hermes_run_id"] == "run-r4-factcheck-repair-2"
+
+
+def test_r4_factcheck_repair_rejects_status_upgrade_and_finding_deletion(monkeypatch, tmp_path):
+    package_dir = _package(tmp_path)
+    workflow_run = ic_phase_orchestrator.ensure_workflow_run(package_dir)
+    decision = {
+        "report_id": "ICRPT-FACTCHECK-NONESCALATION-001",
+        "revision": 1,
+        "deal_id": DEAL_ID,
+        "evidence_snapshot_hash": SNAPSHOT,
+        "decision": "review",
+        "claims": [],
+        "background_knowledge_refs": [],
+    }
+    create_calls = 0
+    original = {
+        "schema_version": "siq_ic_report_factcheck_v1",
+        "status": "fail",
+        "claim_checks": [],
+        "numeric_checks": [],
+        "citation_checks": [],
+        "contradictions": [],
+        "unsupported_claims": [],
+        "required_repairs": [
+            {"id": "REPAIR-001", "message": "Remove the unsupported claim."}
+        ],
+        "report_id": decision["report_id"],
+    }
+    escalated = {
+        "schema_version": "siq_ic_report_factcheck_v1",
+        "status": "pass",
+        "claim_checks": [],
+        "numeric_checks": [],
+        "citation_checks": [],
+        "contradictions": [],
+        "unsupported_claims": [],
+        "required_repairs": [],
+    }
+
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
+        nonlocal create_calls
+        create_calls += 1
+        return f"run-factcheck-nonescalation-{create_calls}"
+
+    async def fake_collect(run_id, *, profile, timeout=None):
+        payload = original if run_id.endswith("-1") else escalated
+        return json.dumps(payload)
+
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "create_run", fake_create_run)
+    monkeypatch.setattr(ic_phase_orchestrator.hermes_client, "collect_run_result", fake_collect)
+
+    with pytest.raises(ValueError, match="contract_repair_non_escalation"):
+        asyncio.run(
+            ic_phase_orchestrator._run_r4_factcheck(
+                package_dir,
+                workflow_run=workflow_run,
+                decision=decision,
+                rendered_markdown="# R4 draft",
+                evidence={},
+                created_by=None,
+                timeout=None,
+            )
+        )
+    assert create_calls == 2
+
+
 def test_r4_factcheck_snapshot_change_retains_stale_terminal_state(monkeypatch, tmp_path):
     package_dir = _package(tmp_path)
     workflow_run = ic_phase_orchestrator.ensure_workflow_run(package_dir)
@@ -2285,7 +2880,7 @@ def test_r4_factcheck_snapshot_change_retains_stale_terminal_state(monkeypatch, 
         "background_knowledge_refs": [],
     }
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
         return "run-r4-factcheck-stale"
 
     async def fake_collect(run_id, *, profile, timeout=None):
@@ -2344,7 +2939,7 @@ def test_r4_factcheck_failure_creates_audited_revision_and_revalidates(monkeypat
     calls: list[str] = []
     factcheck_count = 0
 
-    async def fake_create_run(prompt, history, *, profile, session_id=None):
+    async def fake_create_run(prompt, history, *, profile, session_id=None, instructions=None):
         calls.append(profile)
         return f"run-r4-repair-{len(calls)}-{profile}"
 
@@ -2391,5 +2986,18 @@ def test_r4_factcheck_failure_creates_audited_revision_and_revalidates(monkeypat
     assert result["repair_execution"]["accepted"] is True
     revision_files = list((package_dir / "decision" / "revisions").glob("ICRPT-*.json"))
     assert len(revision_files) == 2
+    archived_factcheck_tasks = list(
+        (package_dir / "decision" / "revisions").glob("factcheck-task-*.json")
+    )
+    assert len(archived_factcheck_tasks) == 1
+    archived_factcheck_task = deal_store.read_json(archived_factcheck_tasks[0], {})
+    current_factcheck_task = deal_store.read_json(
+        package_dir / "decision" / "factcheck_task.json", {}
+    )
+    assert archived_factcheck_task["report_revision"] == 1
+    assert archived_factcheck_task["validated_output"]["status"] == "fail"
+    assert current_factcheck_task["report_revision"] == 2
+    assert current_factcheck_task["attempt_history"] == []
     audit = deal_store.read_json(package_dir / "audit" / "audit_log.json", {})
     assert any(event["event_type"] == "ic_r4_repair_revision_generated" for event in audit["events"])
+    assert any(event["event_type"] == "ic_r4_factcheck_task_archived" for event in audit["events"])

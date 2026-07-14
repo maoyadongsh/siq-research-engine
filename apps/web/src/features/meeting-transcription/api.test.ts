@@ -17,6 +17,7 @@ const {
   listMeetings,
   pauseMeeting,
   regenerateMeetingArtifact,
+  renameMeetingSegmentSpeaker,
   renameMeetingSpeaker,
   updateMeetingModelSelection,
 } = await import('./api.ts')
@@ -117,6 +118,58 @@ test('speaker rename and correction use object-scoped optimistic locks', async (
   assert.equal(calls[1].url, '/api/meetings/v1/sessions/meeting%2Falpha/segments/segment%2Fone')
   assert.equal((calls[1].body as Record<string, unknown>).expected_revision, 2)
   assert.equal(calls[1].headers.get('Idempotency-Key'), 'idem-correction')
+})
+
+test('segment speaker rename sends explicit single-or-all scope and normalizes the returned segment', async () => {
+  const calls = installFetch({
+    operation: 'rename_segment',
+    scope: 'segment',
+    affected_segment_count: 1,
+    event_id: 'event-1',
+    event_cursor: 9,
+    tracks: [{
+      id: 'track/new',
+      meeting_id: 'meeting/alpha',
+      anonymous_label: '发言人 3',
+      display_name: '王敏',
+      label_source: 'manual',
+      version: 1,
+    }],
+    segment: {
+      id: 'segment/one',
+      meeting_id: 'meeting/alpha',
+      ordinal: 1,
+      utterance_id: 'utt-1',
+      start_ms: 0,
+      end_ms: 1000,
+      speaker_track_id: 'track/new',
+      speaker_label: '王敏',
+      raw_text: '原始文字',
+      asr_final_text: '原始文字',
+      display_text: '显示文字',
+      current_revision_no: 2,
+      display_layer: 'human_verified',
+      human_locked: true,
+    },
+  })
+
+  const result = await renameMeetingSegmentSpeaker('meeting/alpha', 'segment/one', {
+    display_name: '王敏',
+    scope: 'segment',
+    expected_speaker_version: 4,
+  }, 'idem-segment-speaker')
+
+  assert.equal(calls[0].url, '/api/meetings/v1/sessions/meeting%2Falpha/segments/segment%2Fone/speaker')
+  assert.equal(calls[0].method, 'PATCH')
+  assert.equal(calls[0].headers.get('Idempotency-Key'), 'idem-segment-speaker')
+  assert.deepEqual(calls[0].body, {
+    display_name: '王敏',
+    scope: 'segment',
+    expected_speaker_version: 4,
+  })
+  assert.equal(result.segment.speaker_display_name, '王敏')
+  assert.equal(result.segment.revision_no, 2)
+  assert.equal(result.segment.text_state, 'human_verified')
 })
 
 test('websocket URL never embeds a long-lived auth token', () => {

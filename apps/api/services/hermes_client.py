@@ -499,6 +499,7 @@ def _build_run_payload(
     conversation_history: list[dict[str, Any]],
     *,
     session_id: str | None = None,
+    instructions: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
@@ -506,6 +507,8 @@ def _build_run_payload(
     }
     if session_id:
         payload["session_id"] = session_id
+    if instructions:
+        payload["instructions"] = instructions
     if conversation_history:
         payload["conversation_history"] = conversation_history
     return payload
@@ -517,6 +520,7 @@ async def create_run(
     *,
     profile: HermesProfile | str = "siq_assistant",
     session_id: str | None = None,
+    instructions: str | None = None,
 ) -> str:
     """POST /v1/runs, return run_id."""
     cfg = _get_profile(profile)
@@ -529,6 +533,7 @@ async def create_run(
         input,
         conversation_history,
         session_id=session_id,
+        instructions=instructions,
     )
 
     async with httpx.AsyncClient(timeout=30.0) as client:

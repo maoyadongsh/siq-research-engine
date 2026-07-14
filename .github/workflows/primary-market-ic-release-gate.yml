@@ -56,21 +56,30 @@ jobs:
         run: |
           uv run --project apps/api python -m pytest -q \
             scripts/maintenance/tests/test_export_ic_contract_schemas.py \
+            scripts/maintenance/tests/test_activate_primary_market_ic_stale_fixture.py \
             scripts/maintenance/tests/test_primary_market_ic_release_workflow.py \
+            scripts/maintenance/tests/test_run_primary_market_ic_golden_evaluator.py \
             scripts/maintenance/tests/test_run_primary_market_ic_release_gate.py \
             scripts/hermes/tests/test_primary_market_ic_evidence_complete_fixture.py \
+            scripts/hermes/tests/test_primary_market_ic_golden_suite_fixtures.py \
             scripts/hermes/tests/test_run_primary_market_ic_real_smoke.py
 
       - name: Lint PMIC gate tools
         run: |
           uv run --project apps/api ruff check \
+            eval_datasets/primary_market_ic_real_smoke/generate_golden_suite_fixtures.py \
+            scripts/maintenance/activate_primary_market_ic_stale_fixture.py \
             scripts/maintenance/export_ic_contract_schemas.py \
+            scripts/maintenance/run_primary_market_ic_golden_evaluator.py \
             scripts/maintenance/run_primary_market_ic_release_gate.py \
+            scripts/maintenance/tests/test_activate_primary_market_ic_stale_fixture.py \
             scripts/maintenance/tests/test_export_ic_contract_schemas.py \
             scripts/maintenance/tests/test_primary_market_ic_release_workflow.py \
+            scripts/maintenance/tests/test_run_primary_market_ic_golden_evaluator.py \
             scripts/maintenance/tests/test_run_primary_market_ic_release_gate.py \
             scripts/hermes/run_primary_market_ic_real_smoke.py \
             scripts/hermes/tests/test_primary_market_ic_evidence_complete_fixture.py \
+            scripts/hermes/tests/test_primary_market_ic_golden_suite_fixtures.py \
             scripts/hermes/tests/test_run_primary_market_ic_real_smoke.py
 
   behavior-release:

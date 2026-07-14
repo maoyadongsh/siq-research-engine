@@ -50,8 +50,61 @@ REQUIRED_EXPERT_AGENT_IDS = (
 )
 
 
-def _string_array_schema() -> dict[str, Any]:
-    return {"type": "array", "items": {"type": ["object", "string"]}}
+FACTCHECK_SERVER_MANAGED_FIELDS = (
+    "report_id",
+    "report_revision",
+    "checked_at",
+    "evidence_snapshot_hash",
+)
+FACTCHECK_MAX_FINDINGS_PER_CATEGORY = 20
+FACTCHECK_MAX_EVIDENCE_IDS_PER_FINDING = 50
+
+
+def _finding_array_schema() -> dict[str, Any]:
+    short_text = {"type": "string", "minLength": 1, "maxLength": 1200}
+    return {
+        "type": "array",
+        "maxItems": FACTCHECK_MAX_FINDINGS_PER_CATEGORY,
+        "items": {
+            "oneOf": [
+                short_text,
+                {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 10,
+                    "additionalProperties": False,
+                    "properties": {
+                        "id": short_text,
+                        "check_id": short_text,
+                        "claim_id": short_text,
+                        "status": {
+                            "enum": [
+                                "pass",
+                                "warn",
+                                "fail",
+                                "verified",
+                                "unsupported",
+                                "missing",
+                            ]
+                        },
+                        "severity": {
+                            "enum": ["info", "low", "medium", "high", "critical"]
+                        },
+                        "message": short_text,
+                        "finding": short_text,
+                        "action": short_text,
+                        "repair": short_text,
+                        "rationale": short_text,
+                        "evidence_ids": {
+                            "type": "array",
+                            "maxItems": FACTCHECK_MAX_EVIDENCE_IDS_PER_FINDING,
+                            "items": {"type": "string", "maxLength": 128},
+                        },
+                    },
+                },
+            ]
+        },
+    }
 
 
 FACTCHECK_JSON_SCHEMA: dict[str, Any] = {
@@ -72,18 +125,35 @@ FACTCHECK_JSON_SCHEMA: dict[str, Any] = {
     "properties": {
         "schema_version": {"const": IC_REPORT_FACTCHECK_SCHEMA},
         "status": {"enum": ["pass", "warn", "fail"]},
-        "claim_checks": _string_array_schema(),
-        "numeric_checks": _string_array_schema(),
-        "citation_checks": _string_array_schema(),
-        "contradictions": _string_array_schema(),
-        "unsupported_claims": _string_array_schema(),
-        "required_repairs": _string_array_schema(),
+        "claim_checks": _finding_array_schema(),
+        "numeric_checks": _finding_array_schema(),
+        "citation_checks": _finding_array_schema(),
+        "contradictions": _finding_array_schema(),
+        "unsupported_claims": _finding_array_schema(),
+        "required_repairs": _finding_array_schema(),
         "report_id": {"type": "string", "pattern": r"^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$"},
         "report_revision": {"type": "integer", "minimum": 1},
         "checked_at": {"type": "string", "format": "date-time"},
         "evidence_snapshot_hash": {"type": "string", "pattern": r"^[a-fA-F0-9]{64}$"},
     },
 }
+
+
+def factcheck_authoring_schema() -> dict[str, Any]:
+    schema = deepcopy(FACTCHECK_JSON_SCHEMA)
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for field in FACTCHECK_SERVER_MANAGED_FIELDS:
+            properties.pop(field, None)
+    required = schema.get("required")
+    if isinstance(required, list):
+        schema["required"] = [
+            field for field in required if field not in FACTCHECK_SERVER_MANAGED_FIELDS
+        ]
+    schema["$id"] = f"{IC_REPORT_FACTCHECK_SCHEMA}#model-authoring-payload"
+    schema["x-persisted-final-contract"] = IC_REPORT_FACTCHECK_SCHEMA
+    schema["x-projection"] = "server_managed_fields_omitted"
+    return schema
 
 
 def _check(check_id: str, status: str, message: str, **details: Any) -> dict[str, Any]:
@@ -202,6 +272,14 @@ def validate_factcheck_result(payload: Mapping[str, Any]) -> dict[str, Any]:
             ["factcheck_pass_contains_unresolved_findings"],
         )
     return factcheck
+
+
+def validate_factcheck_authoring_result(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return validate_schema(
+        payload,
+        factcheck_authoring_schema(),
+        contract=f"{IC_REPORT_FACTCHECK_SCHEMA}#model-authoring-payload",
+    )
 
 
 def build_factcheck_input(

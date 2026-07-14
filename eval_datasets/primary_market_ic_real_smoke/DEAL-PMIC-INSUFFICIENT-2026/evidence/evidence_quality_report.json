@@ -145,8 +145,8 @@
     },
     {
       "id": "critical_fact_completeness",
-      "status": "pass",
-      "message": "no known missing critical fact"
+      "status": "warn",
+      "message": "3 known critical facts are missing"
     },
     {
       "id": "ndjson_valid",

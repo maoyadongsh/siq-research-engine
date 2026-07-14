@@ -165,6 +165,20 @@ def test_capture_is_byte_stable_for_the_same_committed_contract(tmp_path):
     assert json.loads(first.read_text(encoding="utf-8"))["source"]["kind"] == "git-ref"
 
 
+def test_exec_start_normalization_is_independent_of_materialization_root(tmp_path):
+    module = _load_module()
+    source_root = Path("/srv/siq-research-engine")
+    value = f"/usr/bin/bash {source_root}/scripts/start.sh --serve"
+
+    worktree = module._safe_exec_start(value, source_root)
+    git_archive = module._safe_exec_start(value, tmp_path / "git-archive")
+
+    assert worktree == git_archive == [
+        "/usr/bin/bash",
+        "/srv/siq-research-engine/scripts/start.sh",
+    ]
+
+
 def test_profile_contract_ignores_generated_dist_directories(tmp_path):
     module = _load_module()
     root = _repo(tmp_path)

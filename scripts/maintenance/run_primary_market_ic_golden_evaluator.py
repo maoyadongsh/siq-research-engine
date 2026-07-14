@@ -518,19 +518,6 @@ def _path_r4_non_pass(ctx: EvaluationContext) -> list[dict[str, Any]]:
     ]
 
 
-def _path_r0_blocked(ctx: EvaluationContext) -> list[dict[str, Any]]:
-    readiness = _as_dict(ctx.json("phases/r0_readiness.json"))
-    workflow = _as_dict(ctx.json("phases/workflow_state.json"))
-    return [
-        _assertion("R0.blocked_schema", readiness.get("schema_version"), "siq_ic_r0_readiness_v1"),
-        _assertion("R0.blocked_snapshot", readiness.get("evidence_snapshot_hash"), ctx.snapshot_hash),
-        _assertion("R0.blocked_outcome", readiness.get("readiness") in {"blocked", "needs_more_evidence"}),
-        _assertion("R0.blocking_reasons", len(_as_list(readiness.get("blocking_reasons"))) > 0),
-        _assertion("R0.workflow_blocked", "blocked" in _text(workflow.get("status")).lower()),
-        *_task_role_assertions(ctx, "R0", {"siq_ic_master_coordinator"}),
-    ]
-
-
 def _evidence_ids(ctx: EvaluationContext) -> set[str]:
     index = _as_dict(ctx.json("evidence/evidence_index.json"))
     return {
@@ -550,6 +537,270 @@ def _all_reports(ctx: EvaluationContext) -> list[dict[str, Any]]:
     return rows
 
 
+def _known_critical_gaps(ctx: EvaluationContext) -> list[str]:
+    quality = _as_dict(ctx.json("evidence/evidence_quality_report.json"))
+    if _text(quality.get("critical_fact_status")).lower() != "incomplete":
+        return []
+    return sorted(_ids(quality.get("known_critical_fact_gaps")))
+
+
+def _workflow_phase(workflow: Mapping[str, Any], phase: str) -> dict[str, Any]:
+    return _as_dict(_as_dict(workflow.get("phases")).get(phase))
+
+
+def _needs_more_evidence_disputes(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    disputes = _as_list(_as_dict(ctx.json("phases/r1_5_disputes.json")).get("disputes"))
+    result: list[dict[str, Any]] = []
+    for item in disputes:
+        if not isinstance(item, dict) or _text(item.get("severity")).lower() not in {"high", "critical"}:
+            continue
+        ruling = _text(item.get("ruling") or _as_dict(item.get("chairman_ruling")).get("decision")).lower()
+        status = _text(item.get("status")).lower()
+        if item.get("resolved") is False and (
+            ruling in {"needs_more_evidence", "unresolved", "insufficient_evidence"}
+            or status in {"open", "unresolved", "needs_more_evidence", "blocked"}
+        ):
+            result.append(item)
+    return result
+
+
+def _r1_5_terminal_lineage_errors(ctx: EvaluationContext) -> list[str]:
+    tasks = _valid_tasks(ctx, "R1.5")
+    unresolved = _needs_more_evidence_disputes(ctx)
+    errors: list[str] = []
+    if len(tasks) != 1:
+        errors.append("r1_5_task_cardinality_invalid")
+        return errors
+    task = tasks[0]
+    expected = {
+        "task_id": task.get("task_id"),
+        "workflow_run_id": task.get("workflow_run_id"),
+        "hermes_run_id": task.get("hermes_run_id"),
+        "evidence_snapshot_hash": ctx.snapshot_hash,
+    }
+    for dispute in unresolved:
+        dispute_id = _text(dispute.get("dispute_id")) or "<missing>"
+        ruling = _as_dict(dispute.get("chairman_ruling"))
+        if ruling.get("schema_version") != "siq_deal_r1_5_dispute_ruling_v1":
+            errors.append(f"{dispute_id}:ruling_schema_invalid")
+        if ruling.get("deal_id") != ctx.deal_id or ruling.get("dispute_id") != dispute_id:
+            errors.append(f"{dispute_id}:ruling_identity_mismatch")
+        if ruling.get("agent_id") != "siq_ic_chairman" or ruling.get("generation_mode") != "model":
+            errors.append(f"{dispute_id}:ruling_authority_invalid")
+        for identity_field, value in expected.items():
+            if ruling.get(identity_field) != value:
+                errors.append(f"{dispute_id}:ruling_{identity_field}_mismatch")
+        if dispute.get("evidence_snapshot_hash") != ctx.snapshot_hash:
+            errors.append(f"{dispute_id}:dispute_snapshot_mismatch")
+        matches = [
+            candidate
+            for candidate in tasks
+            if candidate.get("task_id") == ruling.get("task_id")
+            and candidate.get("workflow_run_id") == ruling.get("workflow_run_id")
+            and candidate.get("hermes_run_id") == ruling.get("hermes_run_id")
+            and candidate.get("evidence_snapshot_hash") == ruling.get("evidence_snapshot_hash")
+        ]
+        if len(matches) != 1:
+            errors.append(f"{dispute_id}:ruling_task_binding_invalid")
+    return sorted(set(errors))
+
+
+def _current_report_roles(ctx: EvaluationContext, *, phase: str, roles: set[str]) -> set[str]:
+    relative = "phases/r1_reports.json" if phase in {"R1A", "R1B"} else "phases/r2_reports.json"
+    reports = _as_dict(ctx.json(relative))
+    return {
+        role
+        for role in roles
+        if isinstance(reports.get(role), dict) and _report_is_current(reports[role], ctx, phase=phase, role=role)
+    }
+
+
+def _early_insufficient_terminal_route(ctx: EvaluationContext) -> str:
+    readiness = _as_dict(ctx.json("phases/r0_readiness.json"))
+    workflow = _as_dict(ctx.json("phases/workflow_state.json"))
+    smoke = _as_dict(ctx.json("release/real_smoke.json"))
+    r1_5_payload = _as_dict(ctx.json("phases/r1_5_disputes.json"))
+    smoke_phases = _as_dict(smoke.get("phase_runs"))
+    r0_phase = _workflow_phase(workflow, "R0")
+    smoke_r0 = _as_dict(smoke_phases.get("R0"))
+    r0_blocked = (
+        readiness.get("generation_mode") == "model"
+        and readiness.get("readiness") in {"blocked", "needs_more_evidence"}
+        and bool(_as_list(readiness.get("blocking_reasons")))
+        and r0_phase.get("status") == "blocked"
+        and smoke.get("status") == "blocked"
+        and smoke_r0.get("status") == "blocked"
+        and smoke_r0.get("task_validated") is True
+        and smoke_r0.get("workflow_advanced") is False
+        and len(_valid_tasks(ctx, "R0")) == 1
+    )
+    if r0_blocked:
+        return "r0_blocked"
+
+    r1_5_phase = _workflow_phase(workflow, "R1.5")
+    smoke_r1_5 = _as_dict(smoke_phases.get("R1.5"))
+    r1a_tasks = _valid_tasks(ctx, "R1A")
+    r1b_tasks = _valid_tasks(ctx, "R1B")
+    r1_5_tasks = _valid_tasks(ctx, "R1.5")
+    r1_5_lineage_errors = _r1_5_terminal_lineage_errors(ctx)
+    r1_5_blocked = (
+        readiness.get("generation_mode") == "model"
+        and readiness.get("readiness") == "ready"
+        and _workflow_phase(workflow, "R0").get("status") == "completed"
+        and _current_report_roles(ctx, phase="R1A", roles=R1A_ROLES) == R1A_ROLES
+        and _current_report_roles(ctx, phase="R1B", roles=R1B_ROLES) == R1B_ROLES
+        and len(r1a_tasks) == len(R1A_ROLES)
+        and {_text(task.get("agent_id")) for task in r1a_tasks} == R1A_ROLES
+        and len(r1b_tasks) == len(R1B_ROLES)
+        and {_text(task.get("agent_id")) for task in r1b_tasks} == R1B_ROLES
+        and r1_5_payload.get("schema_version") == "siq_ic_disputes_v1"
+        and r1_5_payload.get("deal_id") == ctx.deal_id
+        and bool(_needs_more_evidence_disputes(ctx))
+        and not r1_5_lineage_errors
+        and r1_5_phase.get("status") == "blocked"
+        and smoke.get("status") == "blocked"
+        and smoke_r1_5.get("status") == "blocked"
+        and smoke_r1_5.get("task_validated") is True
+        and smoke_r1_5.get("workflow_advanced") is False
+        and len(r1_5_tasks) == 1
+        and {_text(task.get("agent_id")) for task in r1_5_tasks} == {"siq_ic_chairman"}
+    )
+    return "r1_5_blocked" if r1_5_blocked else ""
+
+
+def _files_under(ctx: EvaluationContext, relative: str) -> list[str]:
+    root = _contained_path(ctx.bundle, relative)
+    if root is None or not root.exists():
+        ctx.file(relative)
+        return []
+    if not root.is_dir():
+        ctx.file(relative)
+        return [relative]
+    result: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        child = path.relative_to(ctx.bundle).as_posix()
+        ctx.file(child)
+        result.append(child)
+    return result
+
+
+def _unexpected_downstream_outputs(ctx: EvaluationContext, route: str) -> tuple[list[str], list[str]]:
+    r1_artifacts = (
+        "discussion/01_R1_尽调汇总.md",
+        "discussion/01_R1_strategist_report.md",
+        "discussion/01_R1_sector_expert_report.md",
+        "discussion/01_R1_finance_auditor_report.md",
+        "discussion/01_R1_legal_scanner_report.md",
+        "discussion/01_R1_risk_controller_report.md",
+        "discussion/01_R1_chairman_report.md",
+        "discussion/02_R1.5_裁决记录.md",
+    )
+    r2_r4_artifacts = (
+        "discussion/03_R2_观点完善汇总.md",
+        "discussion/03_R2_观点完善.md",
+        "discussion/04_R3_红蓝对抗.md",
+    )
+    if route == "r0_blocked":
+        allowed_phases = {"R0"}
+        relatives = (
+            "phases/r1_reports.json",
+            "phases/r1_5_disputes.json",
+            "phases/r2_reports.json",
+            "phases/r3_reports.json",
+            "phases/r4_decision.json",
+            *r1_artifacts,
+            *r2_r4_artifacts,
+        )
+        allowed_discussion_prefixes = ("00_",)
+    else:
+        allowed_phases = {"R0", "R1A", "R1B", "R1.5"}
+        relatives = (
+            "phases/r2_reports.json",
+            "phases/r3_reports.json",
+            "phases/r4_decision.json",
+            *r2_r4_artifacts,
+        )
+        allowed_discussion_prefixes = ("00_", "01_", "02_")
+    artifacts = [relative for relative in relatives if ctx.file(relative) is not None]
+    for root in ("decision", "factcheck"):
+        root_path = _contained_path(ctx.bundle, root)
+        if root_path is not None and root_path.exists():
+            artifacts.append(root)
+        artifacts.extend(_files_under(ctx, root))
+    for relative in _files_under(ctx, "discussion"):
+        if not Path(relative).name.startswith(allowed_discussion_prefixes):
+            artifacts.append(relative)
+
+    task_store = _task_store(ctx)
+    tasks = [
+        _text(task.get("task_id")) or "<missing>"
+        for task in task_store
+        if _text(task.get("phase")) not in allowed_phases
+    ]
+    task_ids = {_text(task.get("task_id")) for task in task_store if _text(task.get("task_id"))}
+    lease_store = _as_dict(ctx.json("phases/ic_task_leases.json"))
+    for claim in _as_list(lease_store.get("claims")):
+        task_key = _text(_as_dict(claim).get("task_key"))
+        if not task_key or not any(f":{task_id}:" in task_key for task_id in task_ids):
+            tasks.append(f"lease:{task_key or '<missing>'}")
+
+    handoff_store = ctx.json("phases/ic_agent_handoffs.json")
+    if handoff_store is not None:
+        handoff_store = _as_dict(handoff_store)
+        handoffs = [item for item in _as_list(handoff_store.get("handoffs")) if isinstance(item, dict)]
+        handoff_ids = {_text(item.get("handoff_id")) for item in handoffs if _text(item.get("handoff_id"))}
+        if handoff_store.get("schema_version") != "siq_ic_agent_handoffs_v1":
+            artifacts.append("phases/ic_agent_handoffs.json#invalid-schema")
+        artifacts.extend(
+            f"phases/ic_agent_handoffs.json#{_text(item.get('handoff_id')) or '<missing>'}"
+            for item in handoffs
+            if _text(item.get("phase")) not in allowed_phases
+        )
+        payloads = handoff_store.get("payloads")
+        if not isinstance(payloads, dict):
+            artifacts.append("phases/ic_agent_handoffs.json#invalid-payloads")
+        else:
+            artifacts.extend(
+                f"phases/ic_agent_handoffs.json#orphan-payload:{handoff_id}"
+                for handoff_id in payloads
+                if _text(handoff_id) not in handoff_ids
+            )
+    return sorted(set(artifacts)), sorted(set(tasks))
+
+
+def _path_r0_blocked(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    readiness = _as_dict(ctx.json("phases/r0_readiness.json"))
+    workflow = _as_dict(ctx.json("phases/workflow_state.json"))
+    smoke = _as_dict(ctx.json("release/real_smoke.json"))
+    gaps = _known_critical_gaps(ctx)
+    route = _early_insufficient_terminal_route(ctx)
+    r0_phase = _workflow_phase(workflow, "R0")
+    smoke_r0 = _as_dict(_as_dict(smoke.get("phase_runs")).get("R0"))
+    admitted_with_limits = (
+        readiness.get("readiness") == "ready"
+        and not _as_list(readiness.get("blocking_reasons"))
+        and bool(_as_list(readiness.get("evidence_gaps")))
+        and bool(gaps)
+        and r0_phase.get("status") == "completed"
+        and smoke_r0.get("status") == "passed"
+        and smoke_r0.get("workflow_advanced") is True
+    )
+    return [
+        _assertion("R0.limited_schema", readiness.get("schema_version"), "siq_ic_r0_readiness_v1"),
+        _assertion("R0.limited_snapshot", readiness.get("evidence_snapshot_hash"), ctx.snapshot_hash),
+        _assertion("R0.limited_model", readiness.get("generation_mode"), "model"),
+        _assertion(
+            "R0.limited_task_binding",
+            _artifact_is_bound_to_task(ctx, readiness, phase="R0", role="siq_ic_master_coordinator"),
+        ),
+        _assertion("R0.explicit_critical_gaps", bool(gaps)),
+        _assertion("R0.blocked_or_admitted_with_limits", route == "r0_blocked" or admitted_with_limits),
+        *_task_role_assertions(ctx, "R0", {"siq_ic_master_coordinator"}),
+    ]
+
+
 def _path_claim_restriction(ctx: EvaluationContext) -> list[dict[str, Any]]:
     known = _evidence_ids(ctx)
     reports = _all_reports(ctx)
@@ -567,19 +818,45 @@ def _path_claim_restriction(ctx: EvaluationContext) -> list[dict[str, Any]]:
         if status in {"missing", "assumed"}:
             restricted.append(claim_id)
     recommendations = {_text(report.get("recommendation")) for report in reports}
+    early_route = _early_insufficient_terminal_route(ctx)
+    r1_5_lineage_errors = _r1_5_terminal_lineage_errors(ctx) if _needs_more_evidence_disputes(ctx) else []
+    readiness = _as_dict(ctx.json("phases/r0_readiness.json"))
+    explicit_restriction = bool(restricted) or (
+        early_route == "r0_blocked" and bool(_as_list(readiness.get("evidence_gaps")))
+    )
+    unexpected_artifacts, unexpected_tasks = _unexpected_downstream_outputs(ctx, early_route) if early_route else ([], [])
     return [
         _assertion("claim_restriction.no_unbound_material_claims", sorted(set(invalid)), []),
-        _assertion("claim_restriction.explicit_restricted_claim", bool(restricted)),
-        _assertion("claim_restriction.insufficient_outcome", "insufficient_evidence" in recommendations),
+        _assertion("claim_restriction.explicit_restriction", explicit_restriction),
+        _assertion("claim_restriction.r1_5_terminal_lineage", r1_5_lineage_errors, []),
+        _assertion(
+            "claim_restriction.insufficient_terminal",
+            "insufficient_evidence" in recommendations or early_route in {"r0_blocked", "r1_5_blocked"},
+        ),
+        _assertion("claim_restriction.no_illegal_downstream_artifacts", unexpected_artifacts, []),
+        _assertion("claim_restriction.no_illegal_downstream_tasks", unexpected_tasks, []),
     ]
 
 
 def _path_r4_insufficient(ctx: EvaluationContext) -> list[dict[str, Any]]:
+    # Keep the published path id, but never manufacture R4 after R0/R1.5 has
+    # lawfully returned the workflow to the Evidence loop.
     r4 = _r4(ctx)
+    if r4:
+        return [
+            *_path_r2(ctx),
+            *_path_r3_short_or_full(ctx),
+            *_path_r4(ctx),
+            _assertion("R4.insufficient_recommendation", r4.get("recommendation"), "insufficient_evidence"),
+            _assertion("R4.insufficient_decision", r4.get("decision"), "insufficient_evidence"),
+        ]
+    early_route = _early_insufficient_terminal_route(ctx)
+    unexpected_artifacts, unexpected_tasks = _unexpected_downstream_outputs(ctx, early_route) if early_route else ([], [])
     return [
-        *_path_r4(ctx),
-        _assertion("R4.insufficient_recommendation", r4.get("recommendation"), "insufficient_evidence"),
-        _assertion("R4.insufficient_decision", r4.get("decision"), "insufficient_evidence"),
+        _assertion("R4.early_terminal_route", early_route in {"r0_blocked", "r1_5_blocked"}),
+        _assertion("R4.absent_after_early_terminal", bool(r4), False),
+        _assertion("R4.no_illegal_downstream_artifacts", unexpected_artifacts, []),
+        _assertion("R4.no_illegal_downstream_tasks", unexpected_tasks, []),
     ]
 
 
@@ -593,7 +870,8 @@ def _unresolved_disputes(ctx: EvaluationContext) -> list[dict[str, Any]]:
         and (
             item.get("resolved") is False
             or _text(item.get("status")).lower() in {"open", "unresolved", "needs_more_evidence", "blocked"}
-            or _text(_as_dict(item.get("chairman_ruling")).get("decision")).lower() == "insufficient_evidence"
+            or _text(item.get("ruling") or _as_dict(item.get("chairman_ruling")).get("decision")).lower()
+            in {"needs_more_evidence", "unresolved", "insufficient_evidence"}
         )
     ]
 

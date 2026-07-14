@@ -47,6 +47,7 @@ test('Capacitor bridge freezes the complete native capture lifecycle', () => {
 
 test('recorder uses native audio input and handles iOS interruption surfaces', () => {
   const source = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureRecorder.swift')
+  const controller = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureController.swift')
   assert.match(source, /AVAudioSession\.sharedInstance\(\)/)
   assert.match(source, /AVAudioEngine\(\)/)
   assert.match(source, /installTap\(onBus:/)
@@ -56,6 +57,19 @@ test('recorder uses native audio input and handles iOS interruption surfaces', (
   assert.match(source, /routeChangeNotification/)
   assert.match(source, /mediaServicesWereResetNotification/)
   assert.match(source, /requestRecordPermission/)
+  assert.match(source, /stopForReconfigurationAndDrain/)
+  assert.match(source, /func pauseAndDrain[\s\S]*conversionQueue\.async/)
+  assert.match(source, /stopInput\(\)[\s\S]*conversionQueue\.async/)
+  assert.match(source, /conversionQueue\.async[\s\S]*self\?\.converter = nil/)
+  assert.match(source, /conversionQueue\.async[\s\S]*onInterrupted/)
+  assert.match(source, /conversionQueue\.async[\s\S]*onInterruptionEnded/)
+  assert.match(controller, /recorder\.stopForReconfigurationAndDrain/)
+  assert.match(controller, /recorder\.pauseAndDrain[\s\S]*try store\.pause/)
+  assert.doesNotMatch(controller, /recorder\.pause\(\)[\s\S]{0,120}try store\.pause/)
+  assert.match(
+    controller,
+    /try store\.startWriting\(\)[\s\S]*try recorder\.start\(\)/,
+  )
 })
 
 test('local durability uses protected non-backed-up files and atomic fsynced metadata', () => {
@@ -74,6 +88,11 @@ test('local durability uses protected non-backed-up files and atomic fsynced met
   assert.match(source, /trustedAPIOrigin/)
   assert.match(allSwift(), /siq\.meeting\.native_capture\.manifest\.v1/)
   assert.match(source, /withoutEscapingSlashes/)
+  assert.match(source, /clearOpenBatchMemory\(\)/)
+  assert.match(
+    source,
+    /guard batchPartialURL == nil,[\s\S]*openBatchJournalURL\.path[\s\S]*throw MeetingCaptureError\.corruptManifest/,
+  )
 })
 
 test('capture token is Keychain-only and background uploads use file tasks', () => {
@@ -101,7 +120,20 @@ test('capture token is Keychain-only and background uploads use file tasks', () 
   assert.match(uploader, /localBatch\.sha256/)
   assert.match(uploader, /completionHandler\(nil\)/)
   assert.doesNotMatch(manifestBlock, /token|authorization/i)
+  assert.doesNotMatch(keychain, /userBearerToken|foregroundBearerToken/)
+  assert.match(allSwift(), /foregroundBearerToken/)
+  assert.match(allSwift(), /applyUserAuthorization/)
   assert.doesNotMatch(allSwift(), /[?&](?:token|authorization)=/i)
+  const controller = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureController.swift')
+  const finishStop = controller.slice(
+    controller.indexOf('private func finishStop'),
+    controller.indexOf('private func resolveStopCompletions'),
+  )
+  assert.match(finishStop, /clearForegroundAuthorization\(\)/)
+  assert.match(
+    controller,
+    /private func clearForegroundAuthorization\(\)[\s\S]*foregroundBearerToken = nil[\s\S]*uploader\?\.setForegroundBearerToken\(nil\)/,
+  )
 })
 
 test('playback stays behind an opaque handle and never crosses the bridge as a file path', () => {
@@ -129,6 +161,7 @@ test('host declares honest microphone and background audio capabilities', () => 
   const privacy = read('ios/App/App/PrivacyInfo.xcprivacy')
   assert.match(info, /<key>NSMicrophoneUsageDescription<\/key>/)
   assert.match(info, /<key>SIQMeetingAPIOrigin<\/key>/)
+  assert.match(info, /<key>SIQAuthCSRFCookieName<\/key>/)
   assert.match(info, /<key>UIBackgroundModes<\/key>[\s\S]*<string>audio<\/string>/)
   assert.match(appDelegate, /handleEventsForBackgroundURLSession/)
   assert.match(appDelegate, /MeetingCaptureBackgroundEvents\.shared/)
@@ -188,6 +221,12 @@ test('cold-start recovery restores durable sessions without starting the recorde
   assert.match(store, /MeetingCaptureOpenBatchJournal/)
   assert.match(store, /let recoveredSamples = min\(/)
   assert.match(store, /_ = try sealOpenBatch\(\)/)
+  assert.match(store, /MeetingCapturePendingGap/)
+  assert.match(store, /Data\(repeating: 0, count:/)
+  assert.match(store, /manifestEntries: entries/)
+  assert.match(store, /pendingServerGaps/)
+  assert.match(store, /flatMap \{ \$0\.manifestEntries \?\? \[\] \}/)
+  assert.match(store, /current\.pendingGap = nil/)
 })
 
 test('authenticated checkpoint reconciliation drives strict ordered retransmission and seal', () => {
@@ -205,6 +244,11 @@ test('authenticated checkpoint reconciliation drives strict ordered retransmissi
   assert.match(uploader, /requestSealWhenSynchronized/)
   assert.match(client, /func seal\(/)
   assert.match(client, /BoundaryPayload\(boundary\)/)
+  assert.match(client, /func declareGap\(/)
+  assert.match(client, /suffix: "gaps"/)
+  assert.match(client, /reason: "system_interruption"/)
+  assert.match(uploader, /declareNextGap\(after:/)
+  assert.match(uploader, /markGapServerDeclared/)
 })
 
 test('rollover is foreground-authenticated, replayable, and fences the next local epoch', () => {
@@ -212,6 +256,8 @@ test('rollover is foreground-authenticated, replayable, and fences the next loca
   const controller = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureController.swift')
   const store = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureStore.swift')
   assert.match(client, /synchronizeWebSessionCookies/)
+  assert.match(client, /forHTTPHeaderField: "X-CSRF-Token"/)
+  assert.match(client, /SIQAuthCSRFCookieName/)
   assert.match(client, /suffix: "rollover"/)
   assert.match(client, /token: nil/)
   assert.match(client, /pending\.idempotencyKey/)
@@ -220,16 +266,20 @@ test('rollover is foreground-authenticated, replayable, and fences the next loca
   assert.match(store, /current\.streamEpoch = pending\.nextEpoch/)
   assert.match(store, /response\.streamEpoch == pending\.nextEpoch/)
   assert.match(store, /current\.pendingRollover = nil/)
+  assert.match(store, /try freezeGaps\(epoch:/)
 })
 
 test('getStatus and getCheckpoints use persisted and authenticated authorities', () => {
   const controller = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureController.swift')
   const plugin = read('ios/Sources/MeetingCapturePlugin/MeetingCapturePlugin.swift')
+  const store = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureStore.swift')
   assert.match(controller, /MeetingCaptureStatus\(manifest: try store\.currentManifest\(\)\)/)
   assert.match(controller, /refreshCheckpointAndSchedule/)
   assert.match(controller, /checkpointDictionary\(server: checkpoint\)/)
   assert.match(plugin, /controller\.bootstrapRecovery/)
   assert.match(plugin, /try self\.controller\.checkpoints \{ result in/)
+  assert.match(allSwift(), /case eventCursor = "event_cursor"/)
+  assert.match(store, /"eventCursor": server\.realtimeCheckpoint\.eventCursor/)
 })
 
 test('web adapter fails closed and uses backend start/end missing ranges', () => {

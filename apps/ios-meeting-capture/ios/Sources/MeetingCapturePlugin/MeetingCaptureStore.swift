@@ -93,6 +93,7 @@ final class MeetingCaptureStore {
         }
         manifest = try mergeDurableBatchSidecars(into: recovered)
         try recoverOpenBatchIfNeeded()
+        _ = try materializePendingGapIfNeeded()
         try recoverFinalizedPlaybackIfNeeded()
         recovered = manifest!
         if recovered.state == .recording || recovered.state == .stopping {
@@ -148,6 +149,7 @@ final class MeetingCaptureStore {
             }
             manifest = try mergeDurableBatchSidecars(into: recovered)
             try recoverOpenBatchIfNeeded()
+            _ = try materializePendingGapIfNeeded()
             try recoverFinalizedPlaybackIfNeeded()
             if manifest?.state == .recording || manifest?.state == .stopping {
                 manifest?.state = .interrupted
@@ -219,10 +221,7 @@ final class MeetingCaptureStore {
 
         var sealed: [MeetingCaptureBatch] = []
         var cursor = data.startIndex
-        let targetBatchBytes = min(
-            current.limits.maxBatchBytes,
-            max(32_000, current.audio.batchDurationMs * current.audio.sampleRate * current.audio.channels * 2 / 1_000)
-        ) / 32 * 32
+        let targetBatchBytes = targetBatchBytes(current)
         while cursor < data.endIndex {
             if batchHandle == nil {
                 try openBatch(firstSample: current.recordedThroughSample, capturedMonotonicNs: capturedMonotonicNs)
@@ -266,27 +265,42 @@ final class MeetingCaptureStore {
         try persistManifest()
     }
 
-    func recordGap(durationNs: UInt64, reason: String) throws {
-        guard durationNs > 0, var current = manifest else { return }
+    func recordGap(
+        durationNs: UInt64,
+        reason: String
+    ) throws -> MeetingCaptureGapMaterialization? {
+        guard durationNs > 0, var current = manifest else { return nil }
+        guard current.pendingGap == nil,
+              [.paused, .interrupted].contains(current.state),
+              ["audio_session_interruption", "media_services_reset", "route_change"]
+                .contains(reason) else {
+            throw MeetingCaptureError.invalidState("capture gap cannot be materialized")
+        }
         let rawMissingSamples = Int64((Double(durationNs) / 1_000_000_000) * Double(current.audio.sampleRate))
         let missingSamples = (rawMissingSamples + 15) / 16 * 16
-        guard missingSamples > 0 else { return }
-        guard current.recordedThroughSample + missingSamples <=
-                Int64(current.limits.maxDurationSeconds * current.audio.sampleRate) else {
+        guard missingSamples > 0 else { return nil }
+        let maxDurationSamples = Int64(current.limits.maxDurationSeconds * current.audio.sampleRate)
+        guard current.recordedThroughSample + missingSamples <= maxDurationSamples,
+              current.recordedAudioSamples + missingSamples <= maxDurationSamples,
+              (current.recordedAudioSamples + missingSamples) * 2 <= Int64(current.limits.maxTotalBytes) else {
             throw MeetingCaptureError.storageQuotaExceeded
         }
+        try assertAvailableCapacity(requiredBytes: max(Int(missingSamples * 2), 64 * 1_024 * 1_024))
         let start = current.recordedThroughSample
-        current.recordedThroughSample += missingSamples
-        current.gaps.append(MeetingCaptureGap(
+        current.pendingGap = MeetingCapturePendingGap(
+            streamEpoch: current.streamEpoch,
+            fromSequence: current.nextSequence,
             startSample: start,
-            endSample: current.recordedThroughSample,
+            endSample: start + missingSamples,
             reason: reason,
-            detectedMonotonicNs: DispatchTime.now().uptimeNanoseconds
-        ))
+            detectedMonotonicNs: DispatchTime.now().uptimeNanoseconds,
+            returnState: current.state
+        )
         current.manifestRevision += 1
         current.updatedAt = Date()
         manifest = current
         try persistManifest()
+        return try materializePendingGapIfNeeded()
     }
 
     func stop() throws -> (MeetingCaptureManifest, MeetingLocalPlaybackAsset) {
@@ -453,6 +467,8 @@ final class MeetingCaptureStore {
         _ = try sealOpenBatch()
         current = try currentManifest()
         let boundary = try canonicalBoundary()
+        try freezeGaps(epoch: current.streamEpoch, manifestRevision: boundary.manifestRevision)
+        current = try currentManifest()
         let pending = MeetingCapturePendingRollover(
             expectedEpoch: current.streamEpoch,
             nextEpoch: current.streamEpoch + 1,
@@ -496,6 +512,64 @@ final class MeetingCaptureStore {
         try reconcile(response.checkpoint)
     }
 
+    func beginFinalSealBoundary() throws -> MeetingCaptureBoundary {
+        guard var current = manifest, current.state == .stopped else {
+            throw MeetingCaptureError.invalidState("capture is not stopped")
+        }
+        if let boundary = current.finalSealBoundary { return boundary }
+        let boundary = try canonicalBoundary()
+        try freezeGaps(epoch: current.streamEpoch, manifestRevision: boundary.manifestRevision)
+        current = try currentManifest()
+        current.finalSealBoundary = boundary
+        current.updatedAt = Date()
+        manifest = current
+        try persistManifest()
+        return boundary
+    }
+
+    func pendingServerGaps() throws -> [MeetingCaptureGap] {
+        try currentManifest().gaps.filter { gap in
+            gap.serverDeclared != true && gap.streamEpoch != nil &&
+                gap.fromSequence != nil && gap.toSequence != nil &&
+                gap.idempotencyKey?.isEmpty == false && gap.sealedManifestRevision != nil
+        }.sorted {
+            ($0.streamEpoch ?? 0, $0.fromSequence ?? 0) <
+                ($1.streamEpoch ?? 0, $1.fromSequence ?? 0)
+        }
+    }
+
+    func markGapServerDeclared(idempotencyKey: String) throws {
+        guard var current = manifest,
+              let index = current.gaps.firstIndex(where: {
+                  $0.idempotencyKey == idempotencyKey
+              }) else {
+            throw MeetingCaptureError.serverResponseInvalid
+        }
+        current.gaps[index].serverDeclared = true
+        current.updatedAt = Date()
+        manifest = current
+        try persistManifest()
+    }
+
+    private func freezeGaps(epoch: Int, manifestRevision: Int) throws {
+        guard var current = manifest else { throw MeetingCaptureError.invalidState("prepare required") }
+        var changed = false
+        for index in current.gaps.indices where current.gaps[index].streamEpoch == epoch {
+            if let existing = current.gaps[index].sealedManifestRevision, existing != manifestRevision {
+                throw MeetingCaptureError.corruptManifest
+            }
+            if current.gaps[index].sealedManifestRevision == nil {
+                current.gaps[index].sealedManifestRevision = manifestRevision
+                changed = true
+            }
+        }
+        if changed {
+            current.updatedAt = Date()
+            manifest = current
+            try persistManifest()
+        }
+    }
+
     private func validRolloverWebsocketURL(
         _ response: MeetingServerRolloverResponse,
         meetingId: String
@@ -530,7 +604,7 @@ final class MeetingCaptureStore {
         let batches = current.batches
             .filter { $0.streamEpoch == current.streamEpoch }
             .sorted { $0.sequence < $1.sequence }
-        let entries = try batches.map { batch -> MeetingCaptureCanonicalEntry in
+        var entries = try batches.map { batch -> MeetingCaptureCanonicalEntry in
             guard batch.capturedMonotonicNs <= UInt64(Int64.max) else {
                 throw MeetingCaptureError.corruptManifest
             }
@@ -545,9 +619,15 @@ final class MeetingCaptureStore {
                 sha256: batch.sha256
             )
         }
+        entries.append(contentsOf: current.gaps
+            .filter { $0.streamEpoch == current.streamEpoch }
+            .flatMap { $0.manifestEntries ?? [] })
+        entries.sort { $0.sequence < $1.sequence }
         let finalSequence = entries.last?.sequence ?? -1
         if !entries.isEmpty {
-            guard entries.map(\.sequence) == Array(0...finalSequence) else {
+            guard entries.enumerated().allSatisfy({ offset, entry in
+                entry.sequence == offset
+            }) else {
                 throw MeetingCaptureError.corruptManifest
             }
             var cursor = current.streamEpochStartSample ?? entries[0].first_sample
@@ -592,7 +672,11 @@ final class MeetingCaptureStore {
             "capture": [
                 "recordedThroughSample": current.recordedThroughSample,
                 "lastSealedSequence": current.lastSealedSequence,
-                "manifestRevision": current.manifestRevision
+                "manifestRevision": current.manifestRevision,
+                "gapCount": current.gaps.count,
+                "materializedGapSamples": current.gaps.reduce(0) {
+                    $0 + ($1.endSample - $1.startSample)
+                }
             ],
             "ingest": [
                 "highestUploadedSequence": epoch.highestReceivedSequence,
@@ -605,7 +689,7 @@ final class MeetingCaptureStore {
                 "lastAckedSequence": server.realtimeCheckpoint.lastAckedSequence,
                 "consumedThroughSample": NSNull(),
                 "stableOrdinal": server.realtimeCheckpoint.stableOrdinal,
-                "eventCursor": NSNull()
+                "eventCursor": server.realtimeCheckpoint.eventCursor
             ],
             "finalization": [
                 "sealedThroughSample": server.captureCheckpoint.recordedThroughSample.map { $0 as Any } ?? NSNull(),
@@ -639,6 +723,9 @@ final class MeetingCaptureStore {
         guard let manifest, let captureURL else { throw MeetingCaptureError.invalidState("prepare required") }
         let fileName = "batch-e\(manifest.streamEpoch)-s\(manifest.nextSequence)-f\(firstSample).partial"
         let url = captureURL.appendingPathComponent(fileName)
+        guard !fileManager.fileExists(atPath: openBatchJournalURL.path) else {
+            throw MeetingCaptureError.corruptManifest
+        }
         guard !fileManager.fileExists(atPath: url.path),
               fileManager.createFile(atPath: url.path, contents: nil) else {
             throw MeetingCaptureError.storageUnavailable
@@ -669,14 +756,33 @@ final class MeetingCaptureStore {
     }
 
     private func sealOpenBatch() throws -> MeetingCaptureBatch? {
-        guard let handle = batchHandle, let partialURL = batchPartialURL, batchByteCount > 0,
-              var current = manifest, let captureURL else { return nil }
+        guard let handle = batchHandle else {
+            guard batchPartialURL == nil,
+                  !fileManager.fileExists(atPath: openBatchJournalURL.path) else {
+                throw MeetingCaptureError.corruptManifest
+            }
+            return nil
+        }
+        guard let partialURL = batchPartialURL, batchByteCount > 0,
+              var current = manifest, let captureURL else {
+            throw MeetingCaptureError.corruptManifest
+        }
         try padOpenBatchToMillisecond()
         current = manifest!
-        try handle.synchronize()
-        try handle.close()
+        let sealedByteCount = batchByteCount
+        let sealedFirstSample = batchFirstSample
+        let sealedCapturedMonotonicNs = batchCapturedMonotonicNs
+        do {
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            clearOpenBatchMemory()
+            throw error
+        }
+        clearOpenBatchMemory()
         let sequence = current.nextSequence
-        let finalName = "batch-e\(current.streamEpoch)-s\(sequence)-f\(batchFirstSample).pcm"
+        let finalName = "batch-e\(current.streamEpoch)-s\(sequence)-f\(sealedFirstSample).pcm"
         let finalURL = captureURL.appendingPathComponent(finalName)
         try fileManager.moveItem(at: partialURL, to: finalURL)
         try protectFile(finalURL)
@@ -686,10 +792,10 @@ final class MeetingCaptureStore {
         let batch = MeetingCaptureBatch(
             streamEpoch: current.streamEpoch,
             sequence: sequence,
-            firstSample: batchFirstSample,
-            sampleCount: Int64(batchByteCount / 2),
-            capturedMonotonicNs: batchCapturedMonotonicNs,
-            byteSize: batchByteCount,
+            firstSample: sealedFirstSample,
+            sampleCount: Int64(sealedByteCount / 2),
+            capturedMonotonicNs: sealedCapturedMonotonicNs,
+            byteSize: sealedByteCount,
             sha256: digest,
             manifestRevision: current.manifestRevision,
             idempotencyKey: UUID().uuidString.lowercased(),
@@ -707,10 +813,15 @@ final class MeetingCaptureStore {
             try rejectSymbolicLink(openBatchJournalURL)
             try fileManager.removeItem(at: openBatchJournalURL)
         }
+        return batch
+    }
+
+    private func clearOpenBatchMemory() {
         batchHandle = nil
         batchPartialURL = nil
         batchByteCount = 0
-        return batch
+        batchFirstSample = 0
+        batchCapturedMonotonicNs = 0
     }
 
     private func padOpenBatchToMillisecond() throws {
@@ -877,6 +988,144 @@ final class MeetingCaptureStore {
         manifest = output
         try persistManifest()
         return output
+    }
+
+    private func materializePendingGapIfNeeded() throws -> MeetingCaptureGapMaterialization? {
+        guard var current = manifest, let pending = current.pendingGap else { return nil }
+        guard current.streamEpoch == pending.streamEpoch,
+              current.recordedThroughSample >= pending.startSample,
+              current.recordedThroughSample <= pending.endSample,
+              pending.startSample.isMultiple(of: 16),
+              pending.endSample.isMultiple(of: 16),
+              pending.endSample > pending.startSample,
+              current.nextSequence >= pending.fromSequence,
+              batchHandle == nil else {
+            throw MeetingCaptureError.corruptManifest
+        }
+        try createPlaybackFileIfNeeded()
+        guard let playbackHandle else { throw MeetingCaptureError.storageUnavailable }
+        let persistedEntries = pending.manifestEntries ?? []
+        var entryCursor = pending.startSample
+        let maximumGapEntrySamples = Int64(targetBatchBytes(current) / 2)
+        guard pending.fromSequence >= 0,
+              pending.fromSequence <= Int.max - persistedEntries.count,
+              persistedEntries.enumerated().allSatisfy({ offset, entry in
+            guard entry.sequence == pending.fromSequence + offset,
+                  entry.first_sample == entryCursor,
+                  entry.sample_count > 0,
+                  entry.sample_count <= maximumGapEntrySamples,
+                  entry.first_sample <= pending.endSample - entry.sample_count else {
+                return false
+            }
+            entryCursor += entry.sample_count
+            let zeroBytes = Data(repeating: 0, count: Int(entry.sample_count * 2))
+            let digest = SHA256.hash(data: zeroBytes).map { String(format: "%02x", $0) }.joined()
+            return entry.captured_monotonic_ns == pending.detectedMonotonicNs &&
+                entry.encoding == current.audio.encoding && entry.sample_rate == current.audio.sampleRate &&
+                entry.channels == current.audio.channels && entry.sha256 == digest
+        }) else {
+            throw MeetingCaptureError.corruptManifest
+        }
+        let persistedGapSamples = persistedEntries.reduce(Int64(0)) { $0 + $1.sample_count }
+        let expectedRecorded = pending.startSample + persistedGapSamples
+        guard current.recordedThroughSample == expectedRecorded,
+              current.nextSequence == pending.fromSequence + persistedEntries.count,
+              current.recordedAudioSamples >= persistedGapSamples else {
+            throw MeetingCaptureError.corruptManifest
+        }
+        let expectedPlaybackBytes = UInt64(44 + current.recordedAudioSamples * 2)
+        let durablePlaybackBytes = try playbackHandle.seekToEnd()
+        guard durablePlaybackBytes >= expectedPlaybackBytes else {
+            throw MeetingCaptureError.corruptManifest
+        }
+        try playbackHandle.truncate(atOffset: expectedPlaybackBytes)
+        try playbackHandle.seekToEnd()
+        var remaining = pending.endSample - current.recordedThroughSample
+        let chunkSamples = Int64(targetBatchBytes(current) / 2)
+        while remaining > 0 {
+            let samples = min(remaining, chunkSamples)
+            guard samples > 0, samples.isMultiple(of: 16), samples <= Int64(Int.max / 2) else {
+                throw MeetingCaptureError.corruptManifest
+            }
+            let silenceByteCount = Int(samples * 2)
+            let playbackEnd = UInt64(44 + (current.recordedAudioSamples + samples) * 2)
+            try playbackHandle.truncate(atOffset: playbackEnd)
+            try playbackHandle.seekToEnd()
+            try playbackHandle.synchronize()
+            let silence = Data(repeating: 0, count: silenceByteCount)
+            let digest = SHA256.hash(data: silence).map { String(format: "%02x", $0) }.joined()
+            let entry = MeetingCaptureCanonicalEntry(
+                sequence: current.nextSequence,
+                first_sample: current.recordedThroughSample,
+                sample_count: samples,
+                captured_monotonic_ns: pending.detectedMonotonicNs,
+                encoding: current.audio.encoding,
+                sample_rate: current.audio.sampleRate,
+                channels: current.audio.channels,
+                sha256: digest
+            )
+            current.recordedAudioSamples += samples
+            current.recordedThroughSample += samples
+            current.nextSequence += 1
+            current.lastSealedSequence = entry.sequence
+            current.manifestRevision += 1
+            guard var persistedGap = current.pendingGap else {
+                throw MeetingCaptureError.corruptManifest
+            }
+            var persistedEntries = persistedGap.manifestEntries ?? []
+            persistedEntries.append(entry)
+            persistedGap.manifestEntries = persistedEntries
+            current.pendingGap = persistedGap
+            current.updatedAt = Date()
+            manifest = current
+            try persistManifest()
+            remaining -= samples
+        }
+        current = try currentManifest()
+        let entries = current.pendingGap?.manifestEntries ?? []
+        let toSequence = current.nextSequence - 1
+        guard current.recordedThroughSample == pending.endSample,
+              toSequence >= pending.fromSequence,
+              entries.count == toSequence - pending.fromSequence + 1,
+              entries.enumerated().allSatisfy({ offset, entry in
+                  entry.sequence == pending.fromSequence + offset
+              }) else {
+            throw MeetingCaptureError.corruptManifest
+        }
+        let gap = MeetingCaptureGap(
+            startSample: pending.startSample,
+            endSample: pending.endSample,
+            reason: pending.reason,
+            detectedMonotonicNs: pending.detectedMonotonicNs,
+            streamEpoch: pending.streamEpoch,
+            fromSequence: pending.fromSequence,
+            toSequence: toSequence,
+            manifestEntries: entries,
+            idempotencyKey: UUID().uuidString.lowercased(),
+            sealedManifestRevision: nil,
+            serverDeclared: false
+        )
+        if !current.gaps.contains(gap) { current.gaps.append(gap) }
+        current.pendingGap = nil
+        current.state = pending.returnState
+        current.interruptionReason = pending.reason
+        current.errorCode = nil
+        current.manifestRevision += 1
+        current.updatedAt = Date()
+        manifest = current
+        try persistManifest()
+        return MeetingCaptureGapMaterialization(gap: gap, entries: entries)
+    }
+
+    private func targetBatchBytes(_ manifest: MeetingCaptureManifest) -> Int {
+        min(
+            manifest.limits.maxBatchBytes,
+            max(
+                32_000,
+                manifest.audio.batchDurationMs * manifest.audio.sampleRate *
+                    manifest.audio.channels * 2 / 1_000
+            )
+        ) / 32 * 32
     }
 
     private func recoverOpenBatchIfNeeded() throws {

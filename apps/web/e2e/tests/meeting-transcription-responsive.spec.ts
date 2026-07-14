@@ -166,7 +166,11 @@ async function mockMeetingApis(page: Page, options: MeetingMockOptions = {}) {
   const lastSegmentOrdinal = options.lastSegmentOrdinal ?? Number(transcriptSegments.at(-1)?.ordinal || 0)
   const reviewMeeting = { ...meeting, last_segment_ordinal: lastSegmentOrdinal }
   const currentLiveMeeting = { ...liveMeeting, last_segment_ordinal: lastSegmentOrdinal }
-  const requestCounts = { capabilities: 0, transcriptAfterOrdinals: [] as number[] }
+  const requestCounts = {
+    capabilities: 0,
+    transcriptAfterOrdinals: [] as number[],
+    speakerRenameBodies: [] as Array<Record<string, unknown>>,
+  }
   await page.addInitScript((user) => {
     window.localStorage.setItem('access_token', 'playwright-token')
     window.localStorage.setItem('user', JSON.stringify(user))
@@ -210,6 +214,48 @@ async function mockMeetingApis(page: Page, options: MeetingMockOptions = {}) {
     }
     if (path === `/api/meetings/v1/sessions/${meeting.id}`) return route.fulfill(json(reviewMeeting))
     if (path === `/api/meetings/v1/sessions/${liveMeeting.id}`) return route.fulfill(json(currentLiveMeeting))
+    if (request.method() === 'PATCH' && new RegExp('/segments/[^/]+/speaker$').test(path)) {
+      const body = request.postDataJSON() as { display_name: string; scope: 'segment' | 'speaker'; expected_speaker_version: number }
+      requestCounts.speakerRenameBodies.push(body)
+      const segmentId = decodeURIComponent(path.split('/').at(-2) || '')
+      const currentSegment = transcriptSegments.find((item) => item.id === segmentId) || transcriptSegments[0]
+      const source = speakers.find((item) => item.id === currentSegment?.speaker_track_id) || speakers[0]
+      const sourceSegmentCount = transcriptSegments.filter((item) => item.speaker_track_id === source.id).length
+      const updatedSource = { ...source, version: source.version + 1 }
+      if (body.scope === 'speaker') {
+        const renamed = { ...updatedSource, display_name: body.display_name, label_source: 'manual' }
+        return route.fulfill(json({
+          operation: 'rename_speaker',
+          scope: 'speaker',
+          affected_segment_count: sourceSegmentCount,
+          event_id: 'speaker-rename-all',
+          event_cursor: 9,
+          tracks: [renamed],
+          segment: { ...currentSegment, speaker_label: body.display_name },
+        }))
+      }
+      const target = {
+        ...source,
+        id: `manual-${segmentId}`,
+        anonymous_label: '发言人 3',
+        display_name: body.display_name,
+        label_source: 'manual',
+        version: 1,
+      }
+      return route.fulfill(json({
+        operation: 'rename_segment',
+        scope: 'segment',
+        affected_segment_count: 1,
+        event_id: 'speaker-rename-one',
+        event_cursor: 10,
+        tracks: [updatedSource, target],
+        segment: {
+          ...currentSegment,
+          speaker_track_id: target.id,
+          speaker_label: body.display_name,
+        },
+      }))
+    }
     if (path.endsWith('/transcript')) {
       const afterOrdinal = Number(requestUrl.searchParams.get('after_ordinal') || 0)
       const limit = Number(requestUrl.searchParams.get('limit') || 200)
@@ -317,6 +363,60 @@ test('mobile recording import is visible and has no horizontal overflow', async 
   await expect(page.getByRole('button', { name: '开始导入' })).toBeDisabled()
   await expectNoHorizontalOverflow(page)
   await capture(page, testInfo, 'meeting-import-mobile')
+})
+
+test('review transcript renames one segment or every segment from the same speaker', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const transcriptSegments = [
+    segments[0],
+    segments[1],
+    {
+      ...segments[0],
+      id: 'segment-3',
+      ordinal: 3,
+      utterance_id: 'utterance-3',
+      start_ms: 32_000,
+      end_ms: 38_000,
+      raw_text: '第二段属于张明的发言。',
+      asr_final_text: '第二段属于张明的发言。',
+      display_text: '第二段属于张明的发言。',
+    },
+  ]
+  const requestCounts = await mockMeetingApis(page, { transcriptSegments })
+
+  await page.goto(`/meetings/${meeting.id}`)
+  await page.getByRole('tab', { name: '逐字稿', exact: true }).click()
+  const firstSpeaker = page.getByRole('button', { name: '修改发言人：张明' }).first()
+  await expect(firstSpeaker).toBeVisible()
+  await firstSpeaker.click()
+
+  const dialog = page.getByRole('dialog', { name: '修改发言人' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('radio', { name: /仅修改这一段/ })).toBeChecked()
+  await dialog.getByLabel('发言人名称').fill('王敏')
+  await dialog.getByRole('radio', { name: /修改此发言人的全部发言/ }).check()
+  await dialog.getByRole('button', { name: '应用到全部' }).click()
+
+  await expect.poll(() => requestCounts.speakerRenameBodies).toEqual([{
+    display_name: '王敏',
+    scope: 'speaker',
+    expected_speaker_version: 2,
+  }])
+  await expect(page.getByRole('button', { name: '修改发言人：王敏' })).toHaveCount(2)
+  await expect(page.getByText('本场共 2 段发言已统一显示为“王敏”。')).toBeVisible()
+
+  const secondSpeaker = page.getByRole('button', { name: '修改发言人：李然' })
+  await secondSpeaker.click()
+  await dialog.getByLabel('发言人名称').fill('陈晓')
+  await dialog.getByRole('button', { name: '保存此段' }).click()
+  await expect.poll(() => requestCounts.speakerRenameBodies.at(-1)).toEqual({
+    display_name: '陈晓',
+    scope: 'segment',
+    expected_speaker_version: 1,
+  })
+  await expect(page.getByRole('button', { name: '修改发言人：陈晓' })).toHaveCount(1)
+  await expectNoHorizontalOverflow(page)
+  await capture(page, testInfo, 'meeting-speaker-rename-mobile')
 })
 
 for (const viewport of viewports) {

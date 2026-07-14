@@ -941,8 +941,10 @@ def test_rule_deal_dispute_dry_run_write_and_completion(tmp_path):
     assert by_id["DISP-002"]["resolved"] is False
     workflow = json.loads((package_dir / "phases" / "workflow_state.json").read_text(encoding="utf-8"))
     assert workflow["current_phase"] == "R1.5"
-    assert workflow["status"] == "r1_5_ruling_recorded"
-    assert workflow["phases"]["R1.5"]["status"] == "in_progress"
+    assert workflow["status"] == "r1_5_blocked"
+    assert workflow["phases"]["R1.5"]["status"] == "blocked"
+    assert workflow["phases"]["R1.5"]["resume_allowed"] is True
+    assert workflow["phases"]["R1.5"]["terminal_reason"] == "needs_more_evidence"
     assert workflow["phases"].get("R2", {}).get("status") != "in_progress"
     audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
     assert audit["events"][-1]["event_type"] == "deal_r1_5_dispute_ruling_applied"
@@ -977,6 +979,8 @@ def test_rule_deal_dispute_dry_run_write_and_completion(tmp_path):
     assert workflow["status"] == "r1_5_disputes_resolved"
     assert workflow["phases"]["R1.5"]["status"] == "completed"
     assert workflow["phases"]["R1.5"]["ruling_count"] == 2
+    assert workflow["phases"]["R1.5"]["resume_allowed"] is False
+    assert workflow["phases"]["R1.5"]["terminal_reason"] is None
     status = deal_status.summarize_deal_status("DEAL-YUSHU-2026-001", wiki_root=tmp_path)
     by_component = {item["id"]: item for item in status["components"]}
     assert by_component["r1_5_disputes"]["blocking"] is False
@@ -3823,15 +3827,15 @@ def test_workflow_r1_agent_run_rejects_invalid_hermes_contract_without_phase_sid
     assert workflow["current_phase"] == "R0"
     assert workflow["phases"]["R1"]["status"] == "pending"
     audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
-    repair_event = next(
-        event for event in audit["events"] if event["event_type"] == "ic_phase_hermes_contract_repair_attempted"
+    assert not any(
+        event["event_type"] == "ic_phase_hermes_contract_repair_attempted"
+        for event in audit["events"]
     )
-    assert "response_must_be_single_json_object" in repair_event["validation_error"]
     assert audit["events"][-1]["event_type"] == "ic_phase_hermes_task_failed"
     assert audit["events"][-1]["contract_validation"]["passed"] is False
     tasks = json.loads((package_dir / "phases" / "ic_agent_tasks.json").read_text(encoding="utf-8"))
     assert tasks["tasks"][-1]["status"] == "failed"
-    assert len(tasks["tasks"][-1]["hermes_run_ids"]) == 2
+    assert len(tasks["tasks"][-1]["hermes_run_ids"]) == 1
 
 
 def test_workflow_r1_agent_run_rejects_invalid_v2_contract_types(tmp_path, monkeypatch):

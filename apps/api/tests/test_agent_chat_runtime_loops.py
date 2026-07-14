@@ -156,10 +156,12 @@ def test_hermes_run_payload_includes_session_id_and_history():
         "继续分析",
         [{"role": "user", "content": "上一轮问题"}],
         session_id="siq:siq_assistant:siq-assistant-test",
+        instructions="Only use the supplied contract.",
     )
 
     assert payload["session_id"] == "siq:siq_assistant:siq-assistant-test"
     assert payload["conversation_history"] == [{"role": "user", "content": "上一轮问题"}]
+    assert payload["instructions"] == "Only use the supplied contract."
 
 
 def test_local_memory_is_scoped_to_current_profile_session_prefix():

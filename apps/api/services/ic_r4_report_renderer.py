@@ -32,6 +32,42 @@ R4_SECTION_TITLES = (
 
 INTERNAL_PATH_RE = re.compile(r"/(?:home|Users|var/lib|srv)/[^\s`<]+|[A-Za-z]:\\[^\s`<]+")
 CONTROL_TEXT_RE = re.compile(r"(?:system prompt|gateway_url|HERMES_GATEWAY|内部提示词)", re.IGNORECASE)
+TRACEABLE_DECISION_STATUSES = frozenset({"verified", "derived"})
+INVESTMENT_STRUCTURE_TERMS = (
+    "investment_structure",
+    "transaction_structure",
+    "deal_structure",
+    "deal结构",
+    "拟投资",
+    "本轮投资",
+    "每股",
+    "投前估值",
+    "投后估值",
+    "股权比例",
+)
+PROJECT_OVERVIEW_FIELD_TERMS = (
+    (
+        "company_overview",
+        ("company_overview", "company_profile", "企业概况", "公司概况", "发行人概况"),
+    ),
+    (
+        "product_overview",
+        ("product_overview", "core_product", "product_portfolio", "产品概况", "核心产品", "产品组合"),
+    ),
+    (
+        "business_model",
+        ("business_model", "revenue_model", "monetization_model", "商业模式", "收入模式", "盈利模式"),
+    ),
+)
+TERM_SHEET_TERMS = (
+    "term_sheet",
+    "ts_terms",
+    "investor_protection",
+    "ts条款",
+    "清算优先",
+    "反稀释",
+    "投资人保护",
+)
 
 
 def _sanitize_text(value: Any) -> str:
@@ -128,6 +164,72 @@ def _claim_lines(report: Mapping[str, Any], *, limit: int = 8) -> list[str]:
         )
         if len(lines) >= limit:
             break
+    return lines
+
+
+def _traceable_decision_claims(
+    decision: Mapping[str, Any],
+    *,
+    terms: Sequence[str],
+    limit: int,
+) -> list[Mapping[str, Any]]:
+    normalized_terms = tuple(term.casefold() for term in terms)
+    matches: list[tuple[int, int, int, Mapping[str, Any]]] = []
+    for order, claim in enumerate(_items(decision.get("claims"))):
+        if not isinstance(claim, Mapping):
+            continue
+        if str(claim.get("status") or "").lower() not in TRACEABLE_DECISION_STATUSES:
+            continue
+        evidence_ids = [
+            str(item).strip()
+            for item in _items(claim.get("evidence_ids"))
+            if str(item).strip()
+        ]
+        if not evidence_ids:
+            continue
+        topic = str(claim.get("topic") or "").casefold()
+        conclusion = str(claim.get("conclusion") or "").casefold()
+        topic_matches = sum(term in topic for term in normalized_terms)
+        conclusion_matches = sum(term in conclusion for term in normalized_terms)
+        if not topic_matches and not conclusion_matches:
+            continue
+        matches.append((topic_matches, conclusion_matches, -order, claim))
+    matches.sort(key=lambda item: item[:3], reverse=True)
+    return [item[3] for item in matches[:limit]]
+
+
+def _traceable_claim_lines(
+    claims: Sequence[Mapping[str, Any]],
+    *,
+    label: str,
+) -> list[str]:
+    lines: list[str] = []
+    for claim in claims:
+        evidence = ", ".join(f"[{item}]" for item in claim.get("evidence_ids", []))
+        lines.append(
+            f"{label}（R4 Claim {claim.get('claim_id')} / {claim.get('status')}）："
+            f"{_sanitize_text(claim.get('conclusion'))}；项目证据 {evidence}"
+        )
+    return lines
+
+
+def _project_overview_lines(
+    project: Mapping[str, Any],
+    fallback_claims: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> list[str]:
+    lines: list[str] = []
+    for label, field in (
+        ("企业概况", "company_overview"),
+        ("产品概况", "product_overview"),
+        ("商业模式概况", "business_model"),
+    ):
+        value = _sanitize_text(project.get(field))
+        if value:
+            lines.append(f"{label}：{value}")
+        elif field_claims := fallback_claims.get(field):
+            lines.extend(_traceable_claim_lines(field_claims, label=f"{label}补充"))
+        else:
+            lines.append(f"证据不足：未提供{label}")
     return lines
 
 
@@ -322,6 +424,34 @@ def build_r4_report_view_model(bundle: Mapping[str, Any]) -> dict[str, Any]:
     finance = selected_reports.get("siq_ic_finance_auditor")
     legal = selected_reports.get("siq_ic_legal_scanner")
     risk = selected_reports.get("siq_ic_risk_controller")
+    investment_structure = _sanitize_text(project.get("investment_structure"))
+    investment_claims = (
+        []
+        if investment_structure
+        else _traceable_decision_claims(
+            decision,
+            terms=INVESTMENT_STRUCTURE_TERMS,
+            limit=1,
+        )
+    )
+    project_overview_claims = {
+        field: (
+            []
+            if _sanitize_text(project.get(field))
+            else _traceable_decision_claims(decision, terms=terms, limit=2)
+        )
+        for field, terms in PROJECT_OVERVIEW_FIELD_TERMS
+    }
+    explicit_term_sheet_protections = _clean_lines(decision.get("term_sheet_protections"))
+    term_sheet_claims = (
+        []
+        if explicit_term_sheet_protections
+        else _traceable_decision_claims(
+            decision,
+            terms=TERM_SHEET_TERMS,
+            limit=1,
+        )
+    )
     report_selection = {
         agent_id: {
             "source_phase": "R2" if agent_id in r2_reports else "R1",
@@ -352,7 +482,12 @@ def build_r4_report_view_model(bundle: Mapping[str, Any]) -> dict[str, Any]:
             [
                 f"项目：{_sanitize_text(project.get('company_name') or project.get('name'))}",
                 f"轮次：{_sanitize_text(project.get('round') or project.get('stage'))}",
-                f"拟投资结构：{_sanitize_text(project.get('investment_structure')) or '证据不足：未提供拟投资结构'}",
+                *(
+                    [f"拟投资结构：{investment_structure}"]
+                    if investment_structure
+                    else _traceable_claim_lines(investment_claims, label="拟投资结构")
+                    or ["拟投资结构：证据不足：未提供拟投资结构"]
+                ),
                 f"Deal ID：{decision.get('deal_id')}",
                 f"Evidence Snapshot：{decision.get('evidence_snapshot_hash')}",
             ],
@@ -420,11 +555,7 @@ def build_r4_report_view_model(bundle: Mapping[str, Any]) -> dict[str, Any]:
         ),
         _section(
             R4_SECTION_TITLES[3],
-            [
-                _sanitize_text(project.get("company_overview")) or "证据不足：未提供企业概况",
-                _sanitize_text(project.get("product_overview")) or "证据不足：未提供产品概况",
-                _sanitize_text(project.get("business_model")) or "证据不足：未提供商业模式概况",
-            ],
+            _project_overview_lines(project, project_overview_claims),
         ),
         _section(R4_SECTION_TITLES[4], _report_lines(strategist, label="战略委员")),
         _section(R4_SECTION_TITLES[5], _report_lines(sector, label="行业委员")),
@@ -438,9 +569,24 @@ def build_r4_report_view_model(bundle: Mapping[str, Any]) -> dict[str, Any]:
         _section(
             R4_SECTION_TITLES[13],
             [
-                *_meaningful_lines(decision.get("conditions"), empty_reason="未提供投资前置条件"),
-                *_meaningful_lines(decision.get("term_sheet_protections"), empty_reason="未提供 TS 保护条款"),
-                *_meaningful_lines(decision.get("monitoring_metrics"), empty_reason="未提供投后监控指标"),
+                *[
+                    f"投资前置条件：{item}"
+                    for item in _meaningful_lines(
+                        decision.get("conditions"), empty_reason="未提供投资前置条件"
+                    )
+                ],
+                *(
+                    [f"TS 保护条款：{item}" for item in explicit_term_sheet_protections]
+                    if explicit_term_sheet_protections
+                    else _traceable_claim_lines(term_sheet_claims, label="TS 保护条款")
+                    or ["证据不足：未提供 TS 保护条款"]
+                ),
+                *[
+                    f"投后监控指标：{item}"
+                    for item in _meaningful_lines(
+                        decision.get("monitoring_metrics"), empty_reason="未提供投后监控指标"
+                    )
+                ],
             ],
         ),
         _section(
@@ -464,6 +610,22 @@ def build_r4_report_view_model(bundle: Mapping[str, Any]) -> dict[str, Any]:
         "chairman_dimension_score": decision.get("chairman_dimension_score"),
         "r0_context": r0,
         "source_report_selection": report_selection,
+        "traceable_fallback_claim_ids": {
+            "investment_structure": [str(item.get("claim_id")) for item in investment_claims],
+            "company_overview": [
+                str(item.get("claim_id"))
+                for item in project_overview_claims["company_overview"]
+            ],
+            "product_overview": [
+                str(item.get("claim_id"))
+                for item in project_overview_claims["product_overview"]
+            ],
+            "business_model": [
+                str(item.get("claim_id"))
+                for item in project_overview_claims["business_model"]
+            ],
+            "term_sheet_protections": [str(item.get("claim_id")) for item in term_sheet_claims],
+        },
         "sections": sections,
     }
 

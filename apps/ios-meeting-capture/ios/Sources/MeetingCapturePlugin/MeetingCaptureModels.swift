@@ -25,6 +25,7 @@ enum MeetingCaptureError: Error {
     case transportUnavailable
     case serverConflict
     case serverResponseInvalid
+    case userSessionUnavailable
 
     var code: String {
         switch self {
@@ -38,6 +39,7 @@ enum MeetingCaptureError: Error {
         case .transportUnavailable: return "native_capture.transport_unavailable"
         case .serverConflict: return "native_capture.server_conflict"
         case .serverResponseInvalid: return "native_capture.server_response_invalid"
+        case .userSessionUnavailable: return "native_capture.user_session_unavailable"
         }
     }
 
@@ -130,6 +132,29 @@ struct MeetingCaptureGap: Codable, Equatable {
     var endSample: Int64
     var reason: String
     var detectedMonotonicNs: UInt64
+    var streamEpoch: Int? = nil
+    var fromSequence: Int? = nil
+    var toSequence: Int? = nil
+    var manifestEntries: [MeetingCaptureCanonicalEntry]? = nil
+    var idempotencyKey: String? = nil
+    var sealedManifestRevision: Int? = nil
+    var serverDeclared: Bool? = nil
+}
+
+struct MeetingCapturePendingGap: Codable, Equatable {
+    var streamEpoch: Int
+    var fromSequence: Int
+    var startSample: Int64
+    var endSample: Int64
+    var reason: String
+    var detectedMonotonicNs: UInt64
+    var returnState: MeetingCaptureLifecycle
+    var manifestEntries: [MeetingCaptureCanonicalEntry]? = nil
+}
+
+struct MeetingCaptureGapMaterialization {
+    let gap: MeetingCaptureGap
+    let entries: [MeetingCaptureCanonicalEntry]
 }
 
 struct MeetingCaptureManifest: Codable, Equatable {
@@ -153,7 +178,9 @@ struct MeetingCaptureManifest: Codable, Equatable {
     var errorCode: String? = nil
     var batches: [MeetingCaptureBatch]
     var gaps: [MeetingCaptureGap]
+    var pendingGap: MeetingCapturePendingGap? = nil
     var pendingRollover: MeetingCapturePendingRollover? = nil
+    var finalSealBoundary: MeetingCaptureBoundary? = nil
     var createdAt: Date
     var updatedAt: Date
 }
@@ -220,11 +247,13 @@ struct MeetingServerRealtimeCheckpoint: Codable, Equatable {
     let streamEpoch: Int
     let lastAckedSequence: Int
     let stableOrdinal: Int
+    let eventCursor: Int
 
     enum CodingKeys: String, CodingKey {
         case streamEpoch = "stream_epoch"
         case lastAckedSequence = "last_acked_sequence"
         case stableOrdinal = "stable_ordinal"
+        case eventCursor = "event_cursor"
     }
 }
 
@@ -310,6 +339,22 @@ struct MeetingServerSealResponse: Codable, Equatable {
     }
 }
 
+struct MeetingServerGapResponse: Codable, Equatable {
+    let schemaVersion: String
+    let captureId: String
+    let gapId: String
+    let replayed: Bool
+    let checkpoint: MeetingServerCheckpoint
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case captureId = "capture_id"
+        case gapId = "gap_id"
+        case replayed
+        case checkpoint
+    }
+}
+
 struct MeetingServerRolloverResponse: Codable, Equatable {
     let schemaVersion: String
     let captureId: String
@@ -364,6 +409,8 @@ struct MeetingCaptureStatus {
     var lastSealedSequence = -1
     var manifestRevision = 0
     var pendingUploadCount = 0
+    var gapCount = 0
+    var materializedGapSamples: Int64 = 0
     var localPlaybackReady = false
     var interruptionReason: String?
     var errorCode: String?
@@ -379,6 +426,8 @@ struct MeetingCaptureStatus {
         lastSealedSequence = manifest.lastSealedSequence
         manifestRevision = manifest.manifestRevision
         pendingUploadCount = manifest.batches.filter { !$0.uploaded }.count
+        gapCount = manifest.gaps.count
+        materializedGapSamples = manifest.gaps.reduce(0) { $0 + ($1.endSample - $1.startSample) }
         localPlaybackReady = manifest.localPlaybackReady
         interruptionReason = manifest.interruptionReason
         errorCode = manifest.errorCode
@@ -396,6 +445,8 @@ struct MeetingCaptureStatus {
             "lastSealedSequence": lastSealedSequence,
             "manifestRevision": manifestRevision,
             "pendingUploadCount": pendingUploadCount,
+            "gapCount": gapCount,
+            "materializedGapSamples": materializedGapSamples,
             "localPlaybackReady": localPlaybackReady,
             "interruptionReason": interruptionReason.map { $0 as Any } ?? NSNull(),
             "errorCode": errorCode.map { $0 as Any } ?? NSNull()

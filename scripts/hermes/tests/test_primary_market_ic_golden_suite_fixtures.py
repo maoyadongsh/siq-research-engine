@@ -120,6 +120,9 @@ def test_golden_input_manifest_binds_five_distinct_not_run_candidates():
 
 def test_golden_scenarios_encode_missing_risk_debate_and_stale_inputs_without_outputs():
     insufficient = _read_json(SUITE_ROOT / "DEAL-PMIC-INSUFFICIENT-2026" / "fixture_contract.json")
+    insufficient_quality = _read_json(
+        SUITE_ROOT / "DEAL-PMIC-INSUFFICIENT-2026" / "evidence/evidence_quality_report.json"
+    )
     material_risk_items = (SUITE_ROOT / "DEAL-PMIC-MATERIAL-RISK-2026" / "evidence/evidence_items.ndjson").read_text(
         encoding="utf-8"
     )
@@ -135,6 +138,15 @@ def test_golden_scenarios_encode_missing_risk_debate_and_stale_inputs_without_ou
         "audited_financial_statements_missing",
         "freedom_to_operate_opinion_missing",
     ]
+    critical_gate = next(
+        gate for gate in insufficient_quality["gates"] if gate["id"] == "critical_fact_completeness"
+    )
+    assert critical_gate == {
+        "id": "critical_fact_completeness",
+        "status": "warn",
+        "message": "3 known critical facts are missing",
+    }
+    assert "never synthesize R4 after an early terminal" in insufficient["expected_semantics"]["r4"]
     assert "排污许可已经到期" in material_risk_items
     assert "full_red_blue" not in full_r3_items
     assert "支持投资" in full_r3_items and "下行回报不足" in full_r3_items

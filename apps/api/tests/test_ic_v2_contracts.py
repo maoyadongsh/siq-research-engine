@@ -595,12 +595,19 @@ def test_expert_report_validates_role_fields_project_evidence_and_private_backgr
         reports.validate_expert_report(missing_trace, known_evidence=known)
 
 
-def test_verified_critical_claim_cannot_use_background_knowledge_instead_of_deal_evidence():
+def test_assumed_critical_claim_cannot_use_background_knowledge_instead_of_deal_evidence():
     claim = _claim()
+    claim["status"] = "assumed"
     claim["evidence_ids"] = []
+    claim["assumption"] = "The conclusion remains an assumption."
+    claim["verification_method"] = "Obtain current project Evidence."
 
-    with pytest.raises(ICContractValidationError):
+    with pytest.raises(ICContractValidationError) as exc:
         reports.validate_claim(claim, known_evidence_ids={EVIDENCE_ID})
+    assert (
+        f"decision_relevant_claim_requires_evidence:{claim['claim_id']}"
+        in exc.value.errors
+    )
 
 
 def test_all_seven_profiles_map_to_versioned_output_contracts_and_matrix_capabilities():

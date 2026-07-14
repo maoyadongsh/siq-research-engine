@@ -232,6 +232,87 @@ final class MeetingCaptureStoreTests: XCTestCase {
         XCTAssertEqual(try store.pendingBatches().count, 1)
     }
 
+    func testInterruptionGapIsMaterializedAsPlaybackSilenceAndVirtualManifestEntry() throws {
+        let captureId = "88888888-8888-4888-8888-888888888888"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try MeetingCaptureStore(rootURL: root)
+        _ = try store.prepare(
+            meetingId: "meeting-8",
+            captureId: captureId,
+            apiBaseURL: "https://example.test/api/meetings/v1",
+            trustedAPIOrigin: "https://example.test",
+            streamEpoch: 1,
+            audio: MeetingCaptureAudioConfiguration(batchDurationMs: 1_000),
+            limits: MeetingCaptureLimits(maxBatchBytes: 64_000, maxTotalBytes: 1_000_000, maxDurationSeconds: 60)
+        )
+        try store.startWriting()
+        _ = try store.appendPCM(Data(repeating: 6, count: 32_000), capturedMonotonicNs: 6)
+        try store.pause(reason: "audio_session_interruption", interrupted: true)
+
+        let result = try XCTUnwrap(try store.recordGap(
+            durationNs: 1_000_000_000,
+            reason: "audio_session_interruption"
+        ))
+        let manifest = try store.currentManifest()
+        let gapDirectory = root.appendingPathComponent(captureId)
+
+        XCTAssertEqual(result.gap.startSample, 16_000)
+        XCTAssertEqual(result.gap.endSample, 32_000)
+        XCTAssertEqual(result.gap.fromSequence, 1)
+        XCTAssertEqual(result.gap.toSequence, 1)
+        XCTAssertEqual(manifest.recordedThroughSample, 32_000)
+        XCTAssertEqual(manifest.recordedAudioSamples, 32_000)
+        XCTAssertEqual(manifest.state, .interrupted)
+        XCTAssertNil(manifest.pendingGap)
+        XCTAssertEqual(manifest.batches.count, 1)
+        XCTAssertEqual(result.entries.count, 1)
+        XCTAssertEqual(result.entries[0].sequence, 1)
+        XCTAssertEqual(result.entries[0].first_sample, 16_000)
+        XCTAssertEqual(result.entries[0].sample_count, 16_000)
+        XCTAssertFalse(result.gap.serverDeclared ?? true)
+        let playback = try Data(contentsOf: gapDirectory.appendingPathComponent("capture.partial.wav"))
+        let silence = playback.suffix(32_000)
+        XCTAssertTrue(silence.allSatisfy { $0 == 0 })
+        let boundary = try store.canonicalBoundary()
+        XCTAssertEqual(boundary.finalSequence, 1)
+        XCTAssertEqual(boundary.entries.map(\.sequence), [0, 1])
+    }
+
+    func testSealPersistenceFailureLeavesJournalAndFailsClosedInProcess() throws {
+        let captureId = "99999999-9999-4999-8999-999999999999"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try MeetingCaptureStore(rootURL: root)
+        _ = try store.prepare(
+            meetingId: "meeting-9",
+            captureId: captureId,
+            apiBaseURL: "https://example.test/api/meetings/v1",
+            trustedAPIOrigin: "https://example.test",
+            streamEpoch: 1,
+            audio: MeetingCaptureAudioConfiguration(batchDurationMs: 1_000),
+            limits: MeetingCaptureLimits(maxBatchBytes: 32_000, maxTotalBytes: 1_000_000, maxDurationSeconds: 60)
+        )
+        try store.startWriting()
+        let captureDirectory = root.appendingPathComponent(captureId)
+        let sidecar = captureDirectory.appendingPathComponent("batch-e1-s0-f0.pcm.json")
+        try FileManager.default.createSymbolicLink(
+            at: sidecar,
+            withDestinationURL: captureDirectory.appendingPathComponent("capture.partial.wav")
+        )
+
+        XCTAssertThrowsError(try store.appendPCM(
+            Data(repeating: 7, count: 32_000),
+            capturedMonotonicNs: 7
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: captureDirectory.appendingPathComponent("open-batch.json").path
+        ))
+        XCTAssertThrowsError(try store.pause(reason: "user", interrupted: false))
+    }
+
     private func serverCheckpoint(
         captureId: String,
         meetingId: String,
@@ -261,7 +342,8 @@ final class MeetingCaptureStoreTests: XCTestCase {
             realtimeCheckpoint: MeetingServerRealtimeCheckpoint(
                 streamEpoch: 1,
                 lastAckedSequence: -1,
-                stableOrdinal: 0
+                stableOrdinal: 0,
+                eventCursor: 7
             ),
             finalizationCheckpoint: MeetingServerFinalizationCheckpoint(
                 captureSealed: false,

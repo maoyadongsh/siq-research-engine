@@ -34,6 +34,7 @@ import {
   getMeetingTranscript,
   listMeetingExports,
   regenerateMeetingArtifact,
+  renameMeetingSegmentSpeaker,
   renameMeetingSpeaker,
   retryMeetingJob,
   revertMeetingSegment,
@@ -71,6 +72,7 @@ import type {
   MeetingJob,
   MeetingSession,
   MeetingSpeakerTrack,
+  MeetingSpeakerRenameScope,
   MeetingTranscriptSegment,
   SegmentCorrectionRequest,
 } from '@/features/meeting-transcription/types'
@@ -303,6 +305,33 @@ export default function MeetingDetail() {
     }
   }
 
+  async function renameTranscriptSpeaker(
+    segment: MeetingTranscriptSegment,
+    displayName: string,
+    scope: MeetingSpeakerRenameScope,
+  ) {
+    const speaker = speakers.find((item) => item.id === segment.speaker_track_id)
+    if (!speaker) throw new Error('当前发言人信息已更新，请刷新后重试。')
+    const result = await renameMeetingSegmentSpeaker(meetingId, segment.id, {
+      display_name: displayName,
+      scope,
+      expected_speaker_version: speaker.version,
+    })
+    setSpeakers((current) => {
+      const updates = new Map(result.tracks.map((item) => [item.id, item]))
+      const next = current.map((item) => updates.get(item.id) || item)
+      const known = new Set(current.map((item) => item.id))
+      return [...next, ...result.tracks.filter((item) => !known.has(item.id))]
+    })
+    setSegments((current) => mergeTranscriptSegments(current, [result.segment]))
+    invalidateMinutes()
+    toast({
+      title: scope === 'segment' ? '当前段发言人已更新' : '同一发言人的名称已批量更新',
+      description: scope === 'speaker' ? `本场共 ${result.affected_segment_count} 段发言已统一显示为“${displayName}”。` : undefined,
+      type: 'success',
+    })
+  }
+
   async function regenerate(artifact: MeetingArtifact) {
     if (!session) return
     setBusyKey(`regenerate:${artifact.id}`)
@@ -465,7 +494,7 @@ export default function MeetingDetail() {
               regenerating={busyKey.startsWith('regenerate:')}
             />
           </TabsContent>
-          <TabsContent value="transcript" className="p-4 sm:p-5"><TranscriptTimeline segments={segments} speakers={speakers} editable correctionLearningEnabled={correctionLearningEnabled} hasEarlierSegments={hasEarlierSegments} hasLaterSegments={nextTranscriptOrdinal != null} loadingPage={transcriptPageBusy} onLoadEarlier={loadEarlierSegments} onLoadLater={loadLaterSegments} scrollToSegmentId={scrollToSegmentId} onSeek={setSeekToMs} onCorrect={correct} onRevert={revert} /></TabsContent>
+          <TabsContent value="transcript" className="p-4 sm:p-5"><TranscriptTimeline segments={segments} speakers={speakers} editable correctionLearningEnabled={correctionLearningEnabled} hasEarlierSegments={hasEarlierSegments} hasLaterSegments={nextTranscriptOrdinal != null} loadingPage={transcriptPageBusy} onLoadEarlier={loadEarlierSegments} onLoadLater={loadLaterSegments} scrollToSegmentId={scrollToSegmentId} onSeek={setSeekToMs} onCorrect={correct} onRevert={revert} onRenameSpeaker={renameTranscriptSpeaker} /></TabsContent>
           <TabsContent value="viewpoints" className="p-4 sm:p-5">
             <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
               <div><h3 className="mb-3 text-sm font-semibold text-text">发言人</h3><SpeakerPanel speakers={speakers} editable voiceprintEnabled onRename={rename} /></div>

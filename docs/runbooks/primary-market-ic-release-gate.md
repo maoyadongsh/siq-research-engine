@@ -30,12 +30,14 @@ uv run --project apps/api python eval_datasets/primary_market_ic_real_smoke/gene
 uv run --project apps/api python eval_datasets/primary_market_ic_real_smoke/generate_golden_suite_fixtures.py --check
 ```
 
-`eval_datasets/primary_market_ic_real_smoke/golden_suite_manifest.json` is an input inventory only. Its per-case `input_identity` binds the deterministic input bundle digest, fixture contract digest, initial Evidence snapshot, and file count; the generator's `--check` validates those bindings as well as every fixture byte. Every case remains `result_status: not_run` and `quality_accepted: false` until an isolated real run is evaluated. Use a different run root for each fixture:
+`eval_datasets/primary_market_ic_real_smoke/golden_suite_manifest.json` is an input inventory only. Its per-case `input_identity` binds the deterministic input bundle digest, fixture contract digest, initial Evidence snapshot, and file count; the generator's `--check` validates those bindings as well as every fixture byte. Every case remains `result_status: not_run` and `quality_accepted: false` until an isolated real run is evaluated. Use one dedicated suite run root for the five fixtures. The runner still isolates each case under `wiki/deals/$DEAL_ID`; the shared parent is required so the binding evaluator can prove that all five Deal packages belong to the same reviewed suite:
 
 ```bash
+export GOLDEN_SUITE_RUN_ROOT="artifacts/eval-runs/primary-market-ic/golden-suite-$(date +%Y%m%d)"
+
 uv run --project apps/api python scripts/hermes/run_primary_market_ic_real_smoke.py \
   --fixture "eval_datasets/primary_market_ic_real_smoke/$DEAL_ID" \
-  --run-root "artifacts/eval-runs/primary-market-ic/golden/$DEAL_ID" \
+  --run-root "$GOLDEN_SUITE_RUN_ROOT" \
   --phase R0 --phase R1 --phase R1.5 --phase R2 --phase R3 --phase R4 \
   --timeout 2400 --real
 ```

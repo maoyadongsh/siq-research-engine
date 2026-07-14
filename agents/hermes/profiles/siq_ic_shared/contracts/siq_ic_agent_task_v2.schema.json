@@ -732,6 +732,78 @@
       "minLength": 1,
       "type": "string"
     },
+    "r4_decision_identity": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "deal_id": {
+          "pattern": "^[A-Z0-9][A-Z0-9_-]{2,96}$",
+          "type": "string"
+        },
+        "decision_sha256": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        "evidence_snapshot_hash": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        "handoff_digest": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        "hermes_run_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "input_digest": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        },
+        "report_id": {
+          "pattern": "^ICRPT-[A-Z0-9][A-Z0-9-]{7,95}$",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": "siq_ic_r4_decision_identity_v1"
+        },
+        "task_id": {
+          "pattern": "^ICTASK-[A-Za-z0-9_.-]{8,160}$",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "workflow_run_id": {
+          "pattern": "^ICRUN-[A-Z0-9][A-Z0-9-]{7,95}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "task_id",
+        "workflow_run_id",
+        "deal_id",
+        "evidence_snapshot_hash",
+        "report_id",
+        "revision",
+        "input_digest",
+        "handoff_digest",
+        "hermes_run_id",
+        "created_at",
+        "updated_at",
+        "decision_sha256"
+      ],
+      "type": "object"
+    },
     "required_questions": {
       "items": {
         "minLength": 1,

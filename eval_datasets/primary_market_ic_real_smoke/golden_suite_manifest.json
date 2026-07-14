@@ -69,15 +69,15 @@
       "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
       "fixture": "DEAL-PMIC-INSUFFICIENT-2026",
       "deal_id": "DEAL-PMIC-INSUFFICIENT-2026",
-      "execution": "R0-R4 real Hermes run; preserve explicit missing/assumed claims",
-      "expected_outcome": "insufficient_evidence",
+      "execution": "Real Hermes run until an audited R0/R1.5 fail-closed terminal, or through R4 when the workflow lawfully advances",
+      "expected_outcome": "fail_closed_insufficient_evidence",
       "input_only": true,
       "quality_accepted": false,
       "input_status": "ready",
       "result_status": "not_run",
       "input_identity": {
-        "input_bundle_sha256": "8e1f27bbbe9d773b54065f902df2321c2ebb54d2be4bd1eecbfb32ee200e75e8",
-        "fixture_contract_sha256": "fb64cb5535ebefd5732898e4083d95048d80292ff1b20d28d5d1f5e253b970ec",
+        "input_bundle_sha256": "6933daed46a3542af488adcc8f32777e94c2bd9843e3c33f12e4b87daf2a54ec",
+        "fixture_contract_sha256": "4348245c5695a305bf92edb4fd06e1dde358ecc7394184500488d0162cd3b974",
         "evidence_snapshot_hash": "ec78cef647a267b49b546c33dd7e8ade816adb8757509e2ecbb1081a060d452d",
         "file_count": 14
       }

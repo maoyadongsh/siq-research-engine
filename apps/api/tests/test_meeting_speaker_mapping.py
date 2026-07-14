@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import anyio
 import pytest
 from fastapi import FastAPI
@@ -12,9 +14,11 @@ from services.auth_service import User, UserRole
 from services.meeting_contracts import (
     MEETING_TABLES,
     MeetingEvent,
+    MeetingIdempotencyRecord,
     MeetingSession,
     MeetingSpeakerTrack,
     MeetingTranscriptSegment,
+    SegmentSpeakerRenameRequest,
     SpeakerMergeRequest,
     SpeakerSplitRequest,
 )
@@ -183,6 +187,110 @@ def test_repository_speaker_mapping_requires_owner_and_post_meeting_state():
     anyio.run(scenario)
 
 
+def test_repository_renames_one_segment_without_rewriting_same_speaker_segments():
+    async def scenario():
+        engine, factory = await _database()
+        async with factory() as session:
+            meeting, _, source, segments = await _seed(session)
+            result = await MeetingRepository(session).rename_segment_speaker(
+                meeting.id,
+                segments[1].id,
+                7,
+                SegmentSpeakerRenameRequest(
+                    display_name="王敏",
+                    scope="segment",
+                    expected_speaker_version=1,
+                ),
+            )
+
+            assert result.operation == "rename_segment"
+            assert result.scope == "segment"
+            assert result.affected_segment_count == 1
+            assert result.segment.id == segments[1].id
+            assert result.segment.speaker_label == "王敏"
+            assert result.segment.speaker_track_id != source.id
+            assert len(result.tracks) == 2
+            assert result.tracks[0].id == source.id
+            assert result.tracks[0].display_name == "原人工姓名"
+            assert result.tracks[0].version == 2
+            assert result.tracks[1].display_name == "王敏"
+
+            persisted = list(
+                (
+                    await session.exec(
+                        select(MeetingTranscriptSegment)
+                        .where(MeetingTranscriptSegment.meeting_id == meeting.id)
+                        .order_by(MeetingTranscriptSegment.ordinal)
+                    )
+                ).all()
+            )
+            assert persisted[1].speaker_track_id == result.tracks[1].id
+            assert persisted[2].speaker_track_id == source.id
+            event = (
+                await session.exec(
+                    select(MeetingEvent).where(MeetingEvent.event_id == result.event_id)
+                )
+            ).one()
+            payload = decode_json(event.payload_json, {})
+            assert payload["reason"] == "manual_segment_speaker_rename"
+            assert "敏感正文" not in event.payload_json
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_repository_renames_all_segments_and_collapses_single_segment_scope_safely():
+    async def scenario():
+        engine, factory = await _database()
+        async with factory() as session:
+            meeting, target, source, segments = await _seed(session)
+            repository = MeetingRepository(session)
+            all_result = await repository.rename_segment_speaker(
+                meeting.id,
+                segments[1].id,
+                7,
+                SegmentSpeakerRenameRequest(
+                    display_name="李然",
+                    scope="speaker",
+                    expected_speaker_version=1,
+                ),
+            )
+            assert all_result.operation == "rename_speaker"
+            assert all_result.affected_segment_count == 2
+            assert all_result.segment.speaker_track_id == source.id
+            assert all_result.segment.speaker_label == "李然"
+            assert all_result.tracks[0].version == 2
+
+            single_result = await repository.rename_segment_speaker(
+                meeting.id,
+                segments[0].id,
+                7,
+                SegmentSpeakerRenameRequest(
+                    display_name="周宁",
+                    scope="segment",
+                    expected_speaker_version=1,
+                ),
+            )
+            assert single_result.operation == "rename_segment"
+            assert single_result.affected_segment_count == 1
+            assert single_result.segment.speaker_track_id == target.id
+            assert single_result.tracks[0].id == target.id
+            assert single_result.tracks[0].display_name == "周宁"
+            tracks = list(
+                (
+                    await session.exec(
+                        select(MeetingSpeakerTrack).where(
+                            MeetingSpeakerTrack.meeting_id == meeting.id
+                        )
+                    )
+                ).all()
+            )
+            assert len(tracks) == 2
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
 def test_router_merge_split_enforce_bola_permission_and_conflict(monkeypatch):
     async def scenario():
         engine, factory = await _database()
@@ -246,4 +354,148 @@ def test_router_merge_split_enforce_bola_permission_and_conflict(monkeypatch):
     assert split.status_code == 200
     assert split.json()["operation"] == "split"
     assert split.json()["event_cursor"] > merged.json()["event_cursor"]
+    anyio.run(engine.dispose)
+
+
+def test_router_speaker_rename_replays_exact_snapshots_after_later_changes(monkeypatch):
+    async def scenario():
+        engine, factory = await _database()
+        async with factory() as session:
+            meeting, target, source, segments = await _seed(session)
+        return engine, factory, meeting, target, source, segments
+
+    engine, factory, meeting, target, source, segments = anyio.run(scenario)
+    active_user = {"value": _user(8)}
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+
+    async def current_user():
+        return active_user["value"]
+
+    async def session_dependency():
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_current_user] = current_user
+    app.dependency_overrides[get_async_session] = session_dependency
+    monkeypatch.setenv("SIQ_MEETINGS_ENABLED", "true")
+    monkeypatch.setenv("SIQ_MEETINGS_ASR_ENABLED", "false")
+    client = TestClient(app)
+    url = f"/api/meetings/v1/sessions/{meeting.id}/segments/{segments[1].id}/speaker"
+    body = {
+        "display_name": "陈晓",
+        "scope": "segment",
+        "expected_speaker_version": source.version,
+    }
+
+    hidden = client.patch(url, json=body)
+    assert hidden.status_code == 404
+    assert hidden.json()["detail"]["code"] == "MEETING_RESOURCE_NOT_FOUND"
+
+    active_user["value"] = _user(7, UserRole.VIEWER)
+    denied = client.patch(url, json=body)
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "MEETING_PERMISSION_DENIED"
+
+    active_user["value"] = _user(7)
+    stale = client.patch(url, json={**body, "expected_speaker_version": 9})
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "MEETING_VERSION_CONFLICT"
+
+    speaker_url = f"/api/meetings/v1/sessions/{meeting.id}/speakers/{target.id}"
+    speaker_body = {"display_name": "首次全局姓名", "expected_version": target.version}
+    first_speaker_rename = client.patch(
+        speaker_url,
+        json=speaker_body,
+        headers={"Idempotency-Key": "speaker-rename-snapshot-1"},
+    )
+    assert first_speaker_rename.status_code == 200
+    first_speaker_payload = first_speaker_rename.json()
+    later_speaker_rename = client.patch(
+        speaker_url,
+        json={
+            "display_name": "后续全局姓名",
+            "expected_version": first_speaker_payload["version"],
+        },
+        headers={"Idempotency-Key": "speaker-rename-snapshot-2"},
+    )
+    assert later_speaker_rename.status_code == 200
+    assert later_speaker_rename.json()["display_name"] == "后续全局姓名"
+    replayed_speaker_rename = client.patch(
+        speaker_url,
+        json=speaker_body,
+        headers={"Idempotency-Key": "speaker-rename-snapshot-1"},
+    )
+    assert replayed_speaker_rename.status_code == 200
+    assert replayed_speaker_rename.json() == first_speaker_payload
+
+    renamed = client.patch(url, json=body, headers={"Idempotency-Key": "segment-speaker-rename-1"})
+    assert renamed.status_code == 200
+    payload = renamed.json()
+    assert payload["operation"] == "rename_segment"
+    assert payload["scope"] == "segment"
+    assert payload["affected_segment_count"] == 1
+    assert payload["segment"]["speaker_label"] == "陈晓"
+    assert payload["segment"]["speaker_track_id"] != source.id
+    assert payload["event_cursor"] > 0
+
+    later_segment_rename = client.patch(
+        url,
+        json={
+            "display_name": "后续单段姓名",
+            "scope": "speaker",
+            "expected_speaker_version": payload["tracks"][-1]["version"],
+        },
+        headers={"Idempotency-Key": "segment-speaker-rename-2"},
+    )
+    assert later_segment_rename.status_code == 200
+    assert later_segment_rename.json()["segment"]["speaker_label"] == "后续单段姓名"
+
+    replayed = client.patch(
+        url,
+        json=body,
+        headers={"Idempotency-Key": "segment-speaker-rename-1"},
+    )
+    assert replayed.status_code == 200
+    assert replayed.json() == payload
+
+    reused = client.patch(
+        url,
+        json={**body, "display_name": "另一个姓名"},
+        headers={"Idempotency-Key": "segment-speaker-rename-1"},
+    )
+    assert reused.status_code == 409
+    assert reused.json()["detail"]["code"] == "MEETING_IDEMPOTENCY_CONFLICT"
+
+    async def corrupt_snapshot():
+        async with factory() as session:
+            record = (
+                await session.exec(
+                    select(MeetingIdempotencyRecord).where(
+                        MeetingIdempotencyRecord.owner_user_id == 7,
+                        MeetingIdempotencyRecord.idempotency_key == "segment-speaker-rename-1",
+                    )
+                )
+            ).one()
+            assert record.resource_id == meeting.id
+            stored = decode_json(record.response_json, {})
+            stored["response"] = {"operation": "rename_segment"}
+            record.response_json = json.dumps(stored)
+            session.add(record)
+            await session.commit()
+
+    anyio.run(corrupt_snapshot)
+    corrupted_replay = client.patch(
+        url,
+        json=body,
+        headers={"Idempotency-Key": "segment-speaker-rename-1"},
+    )
+    assert corrupted_replay.status_code == 409
+    assert corrupted_replay.json()["detail"]["code"] == "MEETING_IDEMPOTENCY_CONFLICT"
+
+    blank = client.patch(
+        f"/api/meetings/v1/sessions/{meeting.id}/segments/{segments[2].id}/speaker",
+        json={**body, "display_name": "   ", "expected_speaker_version": 2},
+    )
+    assert blank.status_code == 422
     anyio.run(engine.dispose)

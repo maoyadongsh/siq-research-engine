@@ -110,6 +110,93 @@ def _bundle(
     return bundle
 
 
+def _insufficient_manifest(path: Path) -> Path:
+    _write_json(
+        path,
+        {
+            "schema_version": "siq_ic_golden_case_manifest_v1",
+            "acceptance_status": "candidates_only",
+            "quality_accepted": False,
+            "cases": [
+                {
+                    "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
+                    "scenario": "fail-closed insufficient Evidence",
+                    "status": "candidate",
+                    "quality_accepted": False,
+                    "required_paths": [
+                        "R0-block-or-degraded",
+                        "claim-restriction",
+                        "R4-insufficient-evidence",
+                    ],
+                    "known_gap": "Candidate still requires methodology approval.",
+                }
+            ],
+        },
+    )
+    return path
+
+
+def _append_real_task(
+    bundle: Path,
+    *,
+    deal_id: str,
+    snapshot_hash: str,
+    phase: str,
+    role: str,
+) -> dict[str, object]:
+    suffix = f"{phase}-{role}".replace(".", "_")
+    task_id = f"ICTASK-{suffix}"
+    run_id = f"run-{suffix}"
+    raw_relative = f"audit/ic_agent_outputs/{task_id}/{run_id}.txt"
+    raw_path = bundle / raw_relative
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text(json.dumps({"phase": phase, "role": role}) + "\n", encoding="utf-8")
+    task = {
+        "task_id": task_id,
+        "agent_id": role,
+        "phase": phase,
+        "deal_id": deal_id,
+        "status": "succeeded",
+        "hermes_called": True,
+        "prompt_contract_version": "siq_ic_phase_prompt_v5",
+        "evidence_snapshot_hash": snapshot_hash,
+        "workflow_run_id": "ICRUN-INSUFFICIENT-001",
+        "hermes_run_id": run_id,
+        "hermes_run_ids": [run_id],
+        "contract_validation": {"passed": True},
+        "methodology_refs": [{"ref_id": f"KBREF-{suffix}"}],
+        "output_artifact_paths": [raw_relative],
+        "output_artifact_hashes": {raw_relative: _sha256(raw_path)},
+    }
+    store_path = bundle / "phases/ic_agent_tasks.json"
+    store = json.loads(store_path.read_text(encoding="utf-8")) if store_path.is_file() else {
+        "schema_version": "siq_ic_agent_tasks_v1",
+        "tasks": [],
+    }
+    store["tasks"].append(task)
+    _write_json(store_path, store)
+    return task
+
+
+def _write_insufficient_input_identity(bundle: Path, *, deal_id: str) -> None:
+    _write_json(
+        bundle / "evidence/evidence_index.json",
+        {"schema_version": "siq_deal_evidence_index_v1", "deal_id": deal_id, "items": []},
+    )
+    _write_json(
+        bundle / "evidence/evidence_quality_report.json",
+        {
+            "schema_version": "siq_deal_evidence_quality_v1",
+            "deal_id": deal_id,
+            "critical_fact_status": "incomplete",
+            "known_critical_fact_gaps": [
+                "audited_financial_statements_missing",
+                "freedom_to_operate_opinion_missing",
+            ],
+        },
+    )
+
+
 def test_default_manifest_paths_are_supported_without_an_invented_policy_contract():
     module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_manifest_test")
     manifest = json.loads(module.DEFAULT_MANIFEST.read_text(encoding="utf-8"))
@@ -271,6 +358,388 @@ def test_phase_artifact_must_bind_the_digest_verified_real_task(tmp_path):
     _write_json(readiness_path, readiness)
     bound = module.evaluate_case(bundle, case_id, manifest_path=manifest_path)
     assert bound["passed"] is True
+
+
+def test_insufficient_case_accepts_audited_r0_terminal_without_synthesizing_r4(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_r0_terminal_test")
+    case_id = "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE"
+    deal_id = "DEAL-GOLDEN-INSUFFICIENT-R0"
+    snapshot_hash = "b" * 64
+    manifest = _insufficient_manifest(tmp_path / "golden_manifest.json")
+    bundle = _bundle(
+        tmp_path,
+        deal_id=deal_id,
+        run_id="SMOKE-GOLDEN-INSUFFICIENT-R0",
+        snapshot_hash=snapshot_hash,
+    )
+    _write_insufficient_input_identity(bundle, deal_id=deal_id)
+    task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R0",
+        role="siq_ic_master_coordinator",
+    )
+    _write_json(
+        bundle / "phases/r0_readiness.json",
+        {
+            "schema_version": "siq_ic_r0_readiness_v1",
+            "deal_id": deal_id,
+            "evidence_snapshot_hash": snapshot_hash,
+            "generation_mode": "model",
+            "readiness": "needs_more_evidence",
+            "evidence_gaps": ["audited_financial_statements_missing"],
+            "blocking_reasons": ["critical_fact_incomplete"],
+            "task_id": task["task_id"],
+            "hermes_run_id": task["hermes_run_id"],
+            "workflow_run_id": task["workflow_run_id"],
+        },
+    )
+    _write_json(
+        bundle / "phases/workflow_state.json",
+        {
+            "schema_version": "siq_deal_workflow_state_v1",
+            "deal_id": deal_id,
+            "status": "r0_blocked",
+            "phases": {"R0": {"status": "blocked"}},
+        },
+    )
+    smoke_path = bundle / "release/real_smoke.json"
+    smoke = json.loads(smoke_path.read_text(encoding="utf-8"))
+    smoke.update(
+        {
+            "status": "blocked",
+            "workflow_blocked": True,
+            "phase_runs": {
+                "R0": {
+                    "status": "blocked",
+                    "task_validated": True,
+                    "workflow_advanced": False,
+                    "workflow_blocked": True,
+                }
+            },
+        }
+    )
+    _write_json(smoke_path, smoke)
+
+    result = module.evaluate_case(bundle, case_id, manifest_path=manifest)
+
+    assert result["passed"] is True
+    terminal = result["path_payloads"]["R4-insufficient-evidence"]
+    assert terminal["status"] == "passed"
+    assert any(
+        row["name"] == "R4.absent_after_early_terminal" and row["passed"] is True
+        for row in terminal["assertions"]
+    )
+    assert not (bundle / "phases/r4_decision.json").exists()
+
+    _write_json(
+        bundle / "decision/report_quality.json",
+        {"schema_version": "siq_ic_report_quality_v1", "status": "pass"},
+    )
+    _write_json(
+        bundle / "decision/factcheck_task.json",
+        {"schema_version": "siq_ic_factcheck_task_v1", "phase": "R4", "status": "succeeded"},
+    )
+    final_report = bundle / "decision/IC_DECISION_REPORT.md"
+    final_report.parent.mkdir(parents=True, exist_ok=True)
+    final_report.write_text("# stale downstream decision\n", encoding="utf-8")
+    _write_json(
+        bundle / "factcheck/factcheck.json",
+        {"schema_version": "siq_ic_report_factcheck_v1", "status": "pass"},
+    )
+    downstream_discussion = bundle / "discussion/04_R3_红蓝对抗.md"
+    downstream_discussion.parent.mkdir(parents=True, exist_ok=True)
+    downstream_discussion.write_text("# stale R3 output\n", encoding="utf-8")
+    _write_json(
+        bundle / "phases/ic_agent_handoffs.json",
+        {
+            "schema_version": "siq_ic_agent_handoffs_v1",
+            "handoffs": [{"handoff_id": "ICHANDOFF-R4-STALE", "phase": "R4"}],
+            "payloads": {"ICHANDOFF-R4-STALE": {"payload": {}}},
+        },
+    )
+    downstream_task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R4",
+        role="siq_ic_chairman",
+    )
+    _write_json(
+        bundle / "phases/ic_task_leases.json",
+        {
+            "schema_version": "siq_ic_task_leases_v1",
+            "claims": [{"task_key": "ICRUN-STALE:ICFACT-STALE:deadbeef", "status": "succeeded"}],
+        },
+    )
+
+    contaminated = module.evaluate_case(bundle, case_id, manifest_path=manifest, write=False)
+
+    assert contaminated["passed"] is False
+    claim_assertions = {
+        row["name"]: row
+        for row in contaminated["path_payloads"]["claim-restriction"]["assertions"]
+    }
+    unexpected_artifacts = claim_assertions["claim_restriction.no_illegal_downstream_artifacts"]
+    assert unexpected_artifacts["passed"] is False
+    assert {
+        "decision/report_quality.json",
+        "decision/factcheck_task.json",
+        "decision/IC_DECISION_REPORT.md",
+        "factcheck/factcheck.json",
+        "discussion/04_R3_红蓝对抗.md",
+        "phases/ic_agent_handoffs.json#ICHANDOFF-R4-STALE",
+    } <= set(unexpected_artifacts["actual"])
+    unexpected_tasks = claim_assertions["claim_restriction.no_illegal_downstream_tasks"]
+    assert unexpected_tasks["passed"] is False
+    assert downstream_task["task_id"] in unexpected_tasks["actual"]
+    assert "lease:ICRUN-STALE:ICFACT-STALE:deadbeef" in unexpected_tasks["actual"]
+
+
+def test_insufficient_case_rejects_fallback_r4_after_audited_r0_terminal(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_no_fallback_r4_test")
+    case_id = "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE"
+    deal_id = "DEAL-GOLDEN-INSUFFICIENT-FALLBACK"
+    snapshot_hash = "c" * 64
+    manifest = _insufficient_manifest(tmp_path / "golden_manifest.json")
+    bundle = _bundle(
+        tmp_path,
+        deal_id=deal_id,
+        run_id="SMOKE-GOLDEN-INSUFFICIENT-FALLBACK",
+        snapshot_hash=snapshot_hash,
+    )
+    _write_insufficient_input_identity(bundle, deal_id=deal_id)
+    task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R0",
+        role="siq_ic_master_coordinator",
+    )
+    _write_json(
+        bundle / "phases/r0_readiness.json",
+        {
+            "schema_version": "siq_ic_r0_readiness_v1",
+            "deal_id": deal_id,
+            "evidence_snapshot_hash": snapshot_hash,
+            "generation_mode": "model",
+            "readiness": "blocked",
+            "evidence_gaps": ["freedom_to_operate_opinion_missing"],
+            "blocking_reasons": ["critical_fact_incomplete"],
+            "task_id": task["task_id"],
+            "hermes_run_id": task["hermes_run_id"],
+            "workflow_run_id": task["workflow_run_id"],
+        },
+    )
+    _write_json(
+        bundle / "phases/workflow_state.json",
+        {
+            "schema_version": "siq_deal_workflow_state_v1",
+            "deal_id": deal_id,
+            "status": "r0_blocked",
+            "phases": {"R0": {"status": "blocked"}},
+        },
+    )
+    smoke_path = bundle / "release/real_smoke.json"
+    smoke = json.loads(smoke_path.read_text(encoding="utf-8"))
+    smoke.update(
+        {
+            "status": "blocked",
+            "phase_runs": {
+                "R0": {"status": "blocked", "task_validated": True, "workflow_advanced": False}
+            },
+        }
+    )
+    _write_json(smoke_path, smoke)
+    _write_json(
+        bundle / "phases/r4_decision.json",
+        {
+            "schema_version": "siq_ic_r4_decision_v2",
+            "deal_id": deal_id,
+            "evidence_snapshot_hash": snapshot_hash,
+            "generation_mode": "deterministic_fallback",
+            "recommendation": "insufficient_evidence",
+            "decision": "insufficient_evidence",
+        },
+    )
+
+    result = module.evaluate_case(bundle, case_id, manifest_path=manifest)
+
+    assert result["passed"] is False
+    assert "path_failed:R4-insufficient-evidence" in result["errors"]
+    assertions = result["path_payloads"]["R4-insufficient-evidence"]["assertions"]
+    assert any(row["name"] == "R2.current_model_reports" and row["passed"] is False for row in assertions)
+    assert any(row["name"] == "R3.real_model" and row["passed"] is False for row in assertions)
+    assert any(row["name"] == "R4.current_model_decision" and row["passed"] is False for row in assertions)
+
+
+def test_insufficient_case_accepts_audited_r1_5_return_to_evidence_loop(tmp_path):
+    module = _load_module(EVALUATOR_PATH, "pmic_golden_evaluator_r15_terminal_test")
+    case_id = "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE"
+    deal_id = "DEAL-GOLDEN-INSUFFICIENT-R15"
+    snapshot_hash = "d" * 64
+    manifest = _insufficient_manifest(tmp_path / "golden_manifest.json")
+    bundle = _bundle(
+        tmp_path,
+        deal_id=deal_id,
+        run_id="SMOKE-GOLDEN-INSUFFICIENT-R15",
+        snapshot_hash=snapshot_hash,
+    )
+    _write_insufficient_input_identity(bundle, deal_id=deal_id)
+    r0_task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R0",
+        role="siq_ic_master_coordinator",
+    )
+    _write_json(
+        bundle / "phases/r0_readiness.json",
+        {
+            "schema_version": "siq_ic_r0_readiness_v1",
+            "deal_id": deal_id,
+            "evidence_snapshot_hash": snapshot_hash,
+            "generation_mode": "model",
+            "readiness": "ready",
+            "evidence_gaps": [
+                "audited_financial_statements_missing",
+                "freedom_to_operate_opinion_missing",
+            ],
+            "blocking_reasons": [],
+            "task_id": r0_task["task_id"],
+            "hermes_run_id": r0_task["hermes_run_id"],
+            "workflow_run_id": r0_task["workflow_run_id"],
+        },
+    )
+    reports: dict[str, object] = {}
+    for phase, roles in (("R1A", module.R1A_ROLES), ("R1B", module.R1B_ROLES)):
+        for role in sorted(roles):
+            task = _append_real_task(
+                bundle,
+                deal_id=deal_id,
+                snapshot_hash=snapshot_hash,
+                phase=phase,
+                role=role,
+            )
+            reports[role] = {
+                "schema_version": "siq_ic_expert_report_v2",
+                "deal_id": deal_id,
+                "agent_id": role,
+                "phase": phase,
+                "evidence_snapshot_hash": snapshot_hash,
+                "generation_mode": "model",
+                "task_id": task["task_id"],
+                "hermes_run_id": task["hermes_run_id"],
+                "workflow_run_id": task["workflow_run_id"],
+                "methodology_refs": task["methodology_refs"],
+                "recommendation": "insufficient_evidence",
+                "claims": [
+                    {
+                        "claim_id": f"CLM-MISSING-{phase}-{role}",
+                        "status": "missing",
+                        "evidence_ids": [],
+                    }
+                ],
+            }
+    _write_json(bundle / "phases/r1_reports.json", reports)
+    r1_5_task = _append_real_task(
+        bundle,
+        deal_id=deal_id,
+        snapshot_hash=snapshot_hash,
+        phase="R1.5",
+        role="siq_ic_chairman",
+    )
+    _write_json(
+        bundle / "phases/r1_5_disputes.json",
+        {
+            "schema_version": "siq_ic_disputes_v1",
+            "deal_id": deal_id,
+            "disputes": [
+                {
+                    "dispute_id": "DSP-MISSING-FTO",
+                    "severity": "critical",
+                    "status": "needs_more_evidence",
+                    "resolved": False,
+                    "evidence_snapshot_hash": snapshot_hash,
+                    "chairman_ruling": {
+                        "schema_version": "siq_deal_r1_5_dispute_ruling_v1",
+                        "deal_id": deal_id,
+                        "dispute_id": "DSP-MISSING-FTO",
+                        "agent_id": "siq_ic_chairman",
+                        "decision": "needs_more_evidence",
+                        "ruling": "needs_more_evidence",
+                        "resolved": False,
+                        "required_followups": ["obtain_external_freedom_to_operate_opinion"],
+                        "generation_mode": "model",
+                        "task_id": r1_5_task["task_id"],
+                        "workflow_run_id": r1_5_task["workflow_run_id"],
+                        "hermes_run_id": r1_5_task["hermes_run_id"],
+                        "evidence_snapshot_hash": snapshot_hash,
+                    },
+                }
+            ],
+        },
+    )
+    _write_json(
+        bundle / "phases/workflow_state.json",
+        {
+            "schema_version": "siq_deal_workflow_state_v1",
+            "deal_id": deal_id,
+            "status": "r1_5_blocked",
+            "phases": {
+                "R0": {"status": "completed"},
+                "R1": {"status": "completed"},
+                "R1.5": {"status": "blocked"},
+            },
+        },
+    )
+    smoke_path = bundle / "release/real_smoke.json"
+    smoke = json.loads(smoke_path.read_text(encoding="utf-8"))
+    smoke.update(
+        {
+            "status": "blocked",
+            "workflow_blocked": True,
+            "phase_runs": {
+                "R0": {"status": "passed", "task_validated": True, "workflow_advanced": True},
+                "R1": {"status": "passed", "task_validated": True, "workflow_advanced": True},
+                "R1.5": {
+                    "status": "blocked",
+                    "result_status": "needs_more_evidence",
+                    "task_validated": True,
+                    "workflow_advanced": False,
+                    "workflow_blocked": True,
+                },
+            },
+        }
+    )
+    _write_json(smoke_path, smoke)
+
+    result = module.evaluate_case(bundle, case_id, manifest_path=manifest)
+
+    assert result["passed"] is True
+    assert result["path_payloads"]["R0-block-or-degraded"]["status"] == "passed"
+    assert result["path_payloads"]["claim-restriction"]["status"] == "passed"
+    assert result["path_payloads"]["R4-insufficient-evidence"]["status"] == "passed"
+    assert not (bundle / "phases/r2_reports.json").exists()
+    assert not (bundle / "phases/r3_reports.json").exists()
+    assert not (bundle / "phases/r4_decision.json").exists()
+
+    disputes_path = bundle / "phases/r1_5_disputes.json"
+    disputes = json.loads(disputes_path.read_text(encoding="utf-8"))
+    del disputes["disputes"][0]["chairman_ruling"]["task_id"]
+    _write_json(disputes_path, disputes)
+
+    forged = module.evaluate_case(bundle, case_id, manifest_path=manifest, write=False)
+
+    assert forged["passed"] is False
+    claim_assertions = {
+        row["name"]: row
+        for row in forged["path_payloads"]["claim-restriction"]["assertions"]
+    }
+    lineage = claim_assertions["claim_restriction.r1_5_terminal_lineage"]
+    assert lineage["passed"] is False
+    assert "DSP-MISSING-FTO:ruling_task_id_mismatch" in lineage["actual"]
 
 
 def test_recompute_rejects_deleted_path_artifact_and_changed_source(tmp_path):

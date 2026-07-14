@@ -20,7 +20,22 @@ final class MeetingCaptureServerClient: NSObject, URLSessionTaskDelegate {
         }
     }
 
+    private struct GapPayload: Encodable {
+        let stream_epoch: Int
+        let from_sequence: Int
+        let to_sequence: Int
+        let start_sample: Int64
+        let end_sample: Int64
+        let reason: String
+        let manifest_revision: Int
+    }
+
     private static let maxResponseBytes = 262_144
+    private let csrfCookieName: String = {
+        let configured = (Bundle.main.object(forInfoDictionaryKey: "SIQAuthCSRFCookieName") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return configured.isEmpty || configured.contains("$(") ? "siq_csrf_token" : configured
+    }()
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = true
@@ -81,11 +96,17 @@ final class MeetingCaptureServerClient: NSObject, URLSessionTaskDelegate {
     func rollover(
         manifest: MeetingCaptureManifest,
         pending: MeetingCapturePendingRollover,
+        userBearerToken: String?,
         completion: @escaping (Result<MeetingServerRolloverResponse, MeetingCaptureError>) -> Void
     ) {
-        synchronizeWebSessionCookies(for: manifest) { [weak self] in
+        synchronizeWebSessionCookies(for: manifest) { [weak self] csrfToken in
             guard let self else { return }
             do {
+                let bearer = self.safeHeaderCredential(userBearerToken, minimumLength: 16, maximumLength: 8_192)
+                let csrf = self.safeHeaderCredential(csrfToken, minimumLength: 16, maximumLength: 4_096)
+                guard bearer != nil || csrf != nil else {
+                    throw MeetingCaptureError.userSessionUnavailable
+                }
                 var request = try self.captureRequest(
                     manifest: manifest,
                     suffix: "rollover",
@@ -95,9 +116,62 @@ final class MeetingCaptureServerClient: NSObject, URLSessionTaskDelegate {
                 )
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.setValue(pending.idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+                self.applyUserAuthorization(bearer: bearer, csrfToken: csrf, to: &request)
                 request.setValue(try self.origin(for: manifest.apiBaseURL), forHTTPHeaderField: "Origin")
                 request.httpBody = try JSONEncoder().encode(BoundaryPayload(pending.boundary))
                 self.perform(request, as: MeetingServerRolloverResponse.self, completion: completion)
+            } catch let error as MeetingCaptureError {
+                completion(.failure(error))
+            } catch {
+                completion(.failure(.transportUnavailable))
+            }
+        }
+    }
+
+    func declareGap(
+        manifest: MeetingCaptureManifest,
+        gap: MeetingCaptureGap,
+        userBearerToken: String?,
+        completion: @escaping (Result<MeetingServerGapResponse, MeetingCaptureError>) -> Void
+    ) {
+        guard let streamEpoch = gap.streamEpoch,
+              let fromSequence = gap.fromSequence,
+              let toSequence = gap.toSequence,
+              let manifestRevision = gap.sealedManifestRevision,
+              let idempotencyKey = gap.idempotencyKey,
+              !idempotencyKey.isEmpty else {
+            completion(.failure(.corruptManifest))
+            return
+        }
+        synchronizeWebSessionCookies(for: manifest) { [weak self] csrfToken in
+            guard let self else { return }
+            do {
+                let bearer = self.safeHeaderCredential(userBearerToken, minimumLength: 16, maximumLength: 8_192)
+                let csrf = self.safeHeaderCredential(csrfToken, minimumLength: 16, maximumLength: 4_096)
+                guard bearer != nil || csrf != nil else {
+                    throw MeetingCaptureError.userSessionUnavailable
+                }
+                var request = try self.captureRequest(
+                    manifest: manifest,
+                    suffix: "gaps",
+                    method: "POST",
+                    token: nil,
+                    deviceInstallationId: nil
+                )
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+                self.applyUserAuthorization(bearer: bearer, csrfToken: csrf, to: &request)
+                request.setValue(try self.origin(for: manifest.apiBaseURL), forHTTPHeaderField: "Origin")
+                request.httpBody = try JSONEncoder().encode(GapPayload(
+                    stream_epoch: streamEpoch,
+                    from_sequence: fromSequence,
+                    to_sequence: toSequence,
+                    start_sample: gap.startSample,
+                    end_sample: gap.endSample,
+                    reason: "system_interruption",
+                    manifest_revision: manifestRevision
+                ))
+                self.perform(request, as: MeetingServerGapResponse.self, completion: completion)
             } catch let error as MeetingCaptureError {
                 completion(.failure(error))
             } catch {
@@ -173,21 +247,50 @@ final class MeetingCaptureServerClient: NSObject, URLSessionTaskDelegate {
 
     private func synchronizeWebSessionCookies(
         for manifest: MeetingCaptureManifest,
-        completion: @escaping () -> Void
+        completion: @escaping (String?) -> Void
     ) {
         guard let host = URL(string: manifest.apiBaseURL)?.host?.lowercased() else {
-            completion()
+            completion(nil)
             return
         }
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+            var csrfToken: String?
             for cookie in cookies {
                 let domain = cookie.domain.lowercased()
                     .trimmingCharacters(in: CharacterSet(charactersIn: "."))
                 guard host == domain || host.hasSuffix(".\(domain)") else { continue }
                 HTTPCookieStorage.shared.setCookie(cookie)
+                if cookie.name == self.csrfCookieName, !cookie.value.isEmpty {
+                    csrfToken = cookie.value
+                }
             }
-            completion()
+            completion(csrfToken)
         }
+    }
+
+    private func applyUserAuthorization(
+        bearer: String?,
+        csrfToken: String?,
+        to request: inout URLRequest
+    ) {
+        if let bearer, !bearer.isEmpty {
+            request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        } else if let csrfToken, !csrfToken.isEmpty {
+            request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token")
+        }
+    }
+
+    private func safeHeaderCredential(
+        _ value: String?,
+        minimumLength: Int,
+        maximumLength: Int
+    ) -> String? {
+        let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard cleaned.count >= minimumLength, cleaned.count <= maximumLength,
+              cleaned.unicodeScalars.allSatisfy({ $0.value >= 0x21 && $0.value <= 0x7e }) else {
+            return nil
+        }
+        return cleaned
     }
 
     private func origin(for value: String) throws -> String {

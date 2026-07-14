@@ -674,6 +674,63 @@ def test_r2_profile_filter_fails_before_any_execution():
         module._phase_selected_profiles("R2", ["siq_ic_strategist"])
 
 
+def test_validated_r0_insufficient_evidence_is_a_blocked_terminal_not_execution_failure(
+    monkeypatch,
+    tmp_path,
+):
+    module = _load_module()
+    fixture = _fixture(tmp_path)
+    wiki_root = tmp_path / "wiki"
+    package = wiki_root / "deals" / fixture.name
+    package.parent.mkdir(parents=True)
+    shutil.copytree(fixture, package)
+    coordinator = module.ic_phase_orchestrator.COORDINATOR_AGENT_ID
+    state = module._empty_state(
+        run_id="SMOKE-BLOCKED-R0",
+        deal_id=fixture.name,
+        phases=["R0", "R1"],
+        profiles=list(module.ic_policy.IC_PROFILE_IDS),
+    )
+    monkeypatch.setattr(
+        module,
+        "_prepare_receipt",
+        lambda **_kwargs: module.sanitize_receipt(_receipt(module, coordinator, "R0")),
+    )
+
+    async def fake_r0(*_args, **_kwargs):
+        return {
+            "status": "blocked",
+            "hermes_called": True,
+            "workflow_advanced": False,
+            "task": _task(coordinator, "R0"),
+        }
+
+    monkeypatch.setattr(module.ic_agent_runtime, "run_workflow_r0_model", fake_r0)
+
+    asyncio.run(
+        module._execute_phase(
+            "R0",
+            deal_id=fixture.name,
+            profiles=[coordinator],
+            wiki_root=wiki_root,
+            timeout=30,
+            state=state,
+            package_dir=package,
+            retrieval_limit=5,
+        )
+    )
+    report = module.build_report(state, execution_mode="real")
+
+    assert state["phase_runs"]["R0"]["status"] == "blocked"
+    assert state["phase_runs"]["R0"]["task_validated"] is True
+    assert state["phase_runs"]["R0"]["workflow_advanced"] is False
+    assert state["phase_runs"]["R0"]["workflow_blocked"] is True
+    assert report["status"] == "blocked"
+    assert report["workflow_blocked"] is True
+    assert report["errors"] == []
+    assert "phase:R0:blocked" in report["contract_validation"]["errors"]
+
+
 def test_validated_phase_task_is_reported_blocked_when_workflow_does_not_advance(
     monkeypatch,
     tmp_path,
@@ -776,3 +833,105 @@ def test_report_fail_closes_legacy_passed_state_when_workflow_did_not_advance():
     assert report["phase_runs"]["R1.5"]["status"] == "blocked"
     assert report["phase_runs"]["R1.5"]["workflow_advanced"] is False
     assert report["phase_runs"]["R1.5"]["workflow_blocked"] is True
+
+
+@pytest.mark.parametrize("result_status", ["quality_blocked", "factcheck_blocked"])
+def test_r4_validated_quality_gate_result_is_workflow_blocked(
+    monkeypatch,
+    tmp_path,
+    result_status,
+):
+    module = _load_module()
+    fixture = _fixture(tmp_path)
+    wiki_root = tmp_path / "wiki"
+    package = wiki_root / "deals" / fixture.name
+    package.parent.mkdir(parents=True)
+    shutil.copytree(fixture, package)
+    chairman = module.ic_phase_orchestrator.CHAIRMAN_AGENT_ID
+    state = module._empty_state(
+        run_id=f"SMOKE-BLOCKED-R4-{result_status}",
+        deal_id=fixture.name,
+        phases=["R4"],
+        profiles=list(module.ic_policy.IC_PROFILE_IDS),
+    )
+    monkeypatch.setattr(
+        module,
+        "_prepare_receipt",
+        lambda **_kwargs: module.sanitize_receipt(_receipt(module, chairman, "R4")),
+    )
+
+    async def fake_r4(*_args, **_kwargs):
+        return {
+            "status": result_status,
+            "hermes_called": True,
+            "workflow_advanced": False,
+            "task": _task(chairman, "R4"),
+        }
+
+    monkeypatch.setattr(module.ic_agent_runtime, "finalize_workflow_r4_async", fake_r4)
+
+    asyncio.run(
+        module._execute_phase(
+            "R4",
+            deal_id=fixture.name,
+            profiles=[chairman],
+            wiki_root=wiki_root,
+            timeout=30,
+            state=state,
+            package_dir=package,
+            retrieval_limit=5,
+        )
+    )
+
+    phase = state["phase_runs"]["R4"]
+    assert phase["status"] == "blocked"
+    assert phase["task_validated"] is True
+    assert phase["result_status"] == result_status
+    assert phase["workflow_advanced"] is False
+    assert phase["workflow_blocked"] is True
+    assert state["profile_tasks"][chairman][0]["phase"] == "R4"
+
+
+def test_r4_stale_completion_remains_execution_failure(monkeypatch, tmp_path):
+    module = _load_module()
+    fixture = _fixture(tmp_path)
+    wiki_root = tmp_path / "wiki"
+    package = wiki_root / "deals" / fixture.name
+    package.parent.mkdir(parents=True)
+    shutil.copytree(fixture, package)
+    chairman = module.ic_phase_orchestrator.CHAIRMAN_AGENT_ID
+    state = module._empty_state(
+        run_id="SMOKE-STALE-R4",
+        deal_id=fixture.name,
+        phases=["R4"],
+        profiles=list(module.ic_policy.IC_PROFILE_IDS),
+    )
+    monkeypatch.setattr(
+        module,
+        "_prepare_receipt",
+        lambda **_kwargs: module.sanitize_receipt(_receipt(module, chairman, "R4")),
+    )
+
+    async def stale_r4(*_args, **_kwargs):
+        return {
+            "status": "stale_on_completion",
+            "hermes_called": True,
+            "workflow_advanced": False,
+            "task": _task(chairman, "R4"),
+        }
+
+    monkeypatch.setattr(module.ic_agent_runtime, "finalize_workflow_r4_async", stale_r4)
+
+    with pytest.raises(RuntimeError, match="R4 returned stale_on_completion"):
+        asyncio.run(
+            module._execute_phase(
+                "R4",
+                deal_id=fixture.name,
+                profiles=[chairman],
+                wiki_root=wiki_root,
+                timeout=30,
+                state=state,
+                package_dir=package,
+                retrieval_limit=5,
+            )
+        )

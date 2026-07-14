@@ -27,11 +27,11 @@
     },
     {
       "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
-      "scenario": "insufficient materials produce explicit insufficient_evidence",
+      "scenario": "insufficient materials terminate fail closed at R0/R1.5 or produce explicit insufficient_evidence after a lawful full chain",
       "status": "candidate",
       "quality_accepted": false,
       "required_paths": ["R0-block-or-degraded", "claim-restriction", "R4-insufficient-evidence"],
-      "known_gap": "Negative fixture and expected Evidence gaps are not yet curated."
+      "known_gap": "The curated input still needs an independent real run proving either an audited early terminal with no downstream artifacts or a complete R2/R3/R4 insufficient_evidence decision."
     },
     {
       "case_id": "GOLDEN-PMIC-FULL-R3",

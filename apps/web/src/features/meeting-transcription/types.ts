@@ -162,7 +162,7 @@ export interface MeetingSpeakerTrack {
   meeting_id: string
   track_key?: string
   anonymous_label: string
-  display_name: string
+  display_name: string | null
   label_source: 'anonymous' | 'manual' | 'voiceprint_confirmed' | 'voiceprint_auto'
   voice_profile_id?: string | null
   match_confidence?: number | null
@@ -214,6 +214,18 @@ export interface MeetingTranscriptSegment {
 export interface MeetingTranscriptResponse {
   items: MeetingTranscriptSegment[]
   next_ordinal?: number | null
+}
+
+export type MeetingSpeakerRenameScope = 'segment' | 'speaker'
+
+export interface SegmentSpeakerRenameResponse {
+  operation: 'rename_segment' | 'rename_speaker'
+  scope: MeetingSpeakerRenameScope
+  segment: MeetingTranscriptSegment
+  tracks: MeetingSpeakerTrack[]
+  affected_segment_count: number
+  event_id: string
+  event_cursor: number
 }
 
 export interface MeetingPartialTranscript {

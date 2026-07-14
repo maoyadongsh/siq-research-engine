@@ -9,6 +9,7 @@ final class MeetingCaptureRecorder {
     private var targetFormat: AVAudioFormat?
     private var tapInstalled = false
     private var interruptionStartedNs: UInt64?
+    private var suppressConfigurationUntilNs: UInt64 = 0
 
     var onPCM: ((Data, UInt64) -> Void)?
     var onInterrupted: ((String, UInt64) -> Void)?
@@ -71,8 +72,9 @@ final class MeetingCaptureRecorder {
         try engine.start()
     }
 
-    func pause() {
+    func pauseAndDrain(completion: @escaping () -> Void) {
         engine.pause()
+        conversionQueue.async(execute: completion)
     }
 
     func resume() throws {
@@ -83,19 +85,41 @@ final class MeetingCaptureRecorder {
     }
 
     func stop() {
+        stopInput()
+        converter = nil
+        targetFormat = nil
+    }
+
+    private func stopInput() {
         if tapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
         engine.stop()
-        converter = nil
-        targetFormat = nil
         try? audioSession.setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
+    func stopForReconfiguration() {
+        suppressConfigurationUntilNs = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        stopInput()
+    }
+
+    func stopForReconfigurationAndDrain(completion: @escaping () -> Void) {
+        stopForReconfiguration()
+        conversionQueue.async { [weak self] in
+            self?.converter = nil
+            self?.targetFormat = nil
+            completion()
+        }
+    }
+
     func stopAndDrain(completion: @escaping () -> Void) {
-        stop()
-        conversionQueue.async(execute: completion)
+        stopInput()
+        conversionQueue.async { [weak self] in
+            self?.converter = nil
+            self?.targetFormat = nil
+            completion()
+        }
     }
 
     private func configureSession() throws {
@@ -193,33 +217,50 @@ final class MeetingCaptureRecorder {
             let started = DispatchTime.now().uptimeNanoseconds
             interruptionStartedNs = started
             engine.pause()
-            onInterrupted?("audio_session_interruption", started)
+            conversionQueue.async { [weak self] in
+                self?.onInterrupted?("audio_session_interruption", started)
+            }
         case .ended:
             let now = DispatchTime.now().uptimeNanoseconds
             let duration = now - (interruptionStartedNs ?? now)
             interruptionStartedNs = nil
             let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
-            onInterruptionEnded?(duration, shouldResume)
+            conversionQueue.async { [weak self] in
+                self?.onInterruptionEnded?(duration, shouldResume)
+            }
         @unknown default:
             break
         }
     }
 
     @objc private func handleRouteChange(_ notification: Notification) {
+        guard DispatchTime.now().uptimeNanoseconds >= suppressConfigurationUntilNs else { return }
         let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
         let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason)?.rawValue ?? 0
         onConfigurationChanged?("route_change_\(reason)")
     }
 
     @objc private func handleMediaServicesReset(_ notification: Notification) {
-        stop()
+        stopForReconfiguration()
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .AVAudioEngineConfigurationChange,
+            object: engine
+        )
         engine = AVAudioEngine()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEngineConfigurationChange(_:)),
+            name: .AVAudioEngineConfigurationChange,
+            object: engine
+        )
         tapInstalled = false
         onConfigurationChanged?("media_services_reset")
     }
 
     @objc private func handleEngineConfigurationChange(_ notification: Notification) {
+        guard DispatchTime.now().uptimeNanoseconds >= suppressConfigurationUntilNs else { return }
         onConfigurationChanged?("engine_configuration_change")
     }
 }

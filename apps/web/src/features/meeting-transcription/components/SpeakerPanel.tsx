@@ -72,7 +72,7 @@ export function SpeakerPanel({
                       <label className="sr-only" htmlFor={`speaker-${speaker.id}`}>发言人姓名</label>
                       <Input id={`speaker-${speaker.id}`} value={draft} onChange={(event) => setDraft(event.target.value)} autoFocus />
                       <div className="flex flex-wrap gap-2">
-                        <Button type="button" size="sm" className="max-sm:h-11" onClick={() => void rename(speaker, false)} disabled={busy || !draft.trim()}><Check />仅本次</Button>
+                        <Button type="button" size="sm" className="max-sm:h-11" onClick={() => void rename(speaker, false)} disabled={busy || !draft.trim()}><Check />本场全部</Button>
                         {voiceprintEnabled ? (
                           <Button type="button" size="sm" variant="secondary" className="max-sm:h-11" onClick={() => setConsentSpeaker(speaker)} disabled={busy || !draft.trim()}><Fingerprint />保存声纹</Button>
                         ) : null}

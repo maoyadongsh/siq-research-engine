@@ -71,6 +71,7 @@ public final class MeetingCapturePlugin: CAPPlugin, CAPBridgedPlugin {
             meetingId: meetingId,
             captureId: captureId,
             captureToken: captureToken,
+            userBearerToken: nonEmpty(call.getString("userBearerToken")),
             deviceInstallationId: deviceInstallationId,
             apiBaseURL: apiBaseURL,
             trustedAPIOrigin: trustedAPIOrigin,
@@ -92,7 +93,17 @@ public final class MeetingCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func pause(_ call: CAPPluginCall) {
-        resolveStatus(call) { try controller.pause(reason: nonEmpty(call.getString("reason")) ?? "user") }
+        let reason = nonEmpty(call.getString("reason")) ?? "user"
+        DispatchQueue.meetingCapture.async {
+            self.controller.pause(reason: reason) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let status): call.resolve(["status": status.dictionary])
+                    case .failure(let error): self.reject(call, error)
+                    }
+                }
+            }
+        }
     }
 
     @objc func resume(_ call: CAPPluginCall) {

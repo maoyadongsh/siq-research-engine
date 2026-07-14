@@ -20,12 +20,14 @@ import type {
   MeetingModelSetting,
   MeetingSession,
   MeetingSpeakerTrack,
+  MeetingSpeakerRenameScope,
   MeetingStreamTicket,
   MeetingTermCandidate,
   MeetingTranscriptResponse,
   MeetingVoiceProfile,
   MeetingVoiceprintEnrollmentRequest,
   SegmentCorrectionRequest,
+  SegmentSpeakerRenameResponse,
 } from './types'
 
 export const MEETING_API_BASE = '/api/meetings/v1'
@@ -228,6 +230,27 @@ export function renameMeetingSpeaker(
     headers: mutationHeaders(idempotencyKey),
     body: { display_name: displayName, expected_version: expectedVersion },
   })
+}
+
+export async function renameMeetingSegmentSpeaker(
+  meetingId: string,
+  segmentId: string,
+  payload: {
+    display_name: string
+    scope: MeetingSpeakerRenameScope
+    expected_speaker_version: number
+  },
+  idempotencyKey?: string,
+) {
+  const response = await apiJson<Omit<SegmentSpeakerRenameResponse, 'segment'> & { segment: Record<string, unknown> }>(
+    meetingPath(meetingId, `/segments/${encodeURIComponent(segmentId)}/speaker`),
+    {
+      method: 'PATCH',
+      headers: mutationHeaders(idempotencyKey),
+      body: payload,
+    },
+  )
+  return { ...response, segment: normalizeTranscriptSegment(response.segment) }
 }
 
 export function enrollMeetingVoiceprint(

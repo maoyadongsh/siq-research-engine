@@ -381,7 +381,7 @@ def _parse_startup_defaults(path: Path) -> dict[str, Any]:
     }
 
 
-def _safe_exec_start(value: str, repo_root: Path) -> list[str]:
+def _safe_exec_start(value: str, _repo_root: Path) -> list[str]:
     try:
         parts = shlex.split(value)
     except ValueError:
@@ -391,8 +391,7 @@ def _safe_exec_start(value: str, repo_root: Path) -> list[str]:
         if _is_sensitive_name(part) or "://" in part:
             safe.append("<redacted-argument>")
             continue
-        text = part.replace(str(repo_root), "<repo>")
-        safe.append(text)
+        safe.append(part)
     return safe
 
 

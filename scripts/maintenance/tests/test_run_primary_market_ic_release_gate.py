@@ -826,6 +826,12 @@ def _write_v3_provenance(bundle: Path, module) -> None:
         "status": "succeeded",
         "generation_mode": "hermes_model",
         "hermes_called": True,
+        "task_claim": {
+            "status": "succeeded",
+            "attempt": 1,
+            "owner": "fixture-factcheck-owner",
+        },
+        "attempt_history": [],
         "hermes_run_id": factcheck_run_id,
         "hermes_run_ids": [factcheck_run_id],
         "output_artifact_path": factcheck_raw_path,
@@ -1510,6 +1516,84 @@ def _append_historical_terminal_task(
     return task
 
 
+def _append_factcheck_prior_attempt(bundle: Path) -> tuple[dict, dict]:
+    task_path = bundle / "decision/factcheck_task.json"
+    task = json.loads(task_path.read_text(encoding="utf-8"))
+    prior_run_id = "run_gate_factcheck_prior_001"
+    prior_raw_path = f"audit/ic_agent_outputs/{task['task_id']}/{prior_run_id}.txt"
+    prior_raw_file = bundle / prior_raw_path
+    prior_raw_file.parent.mkdir(parents=True, exist_ok=True)
+    prior_raw_file.write_text("invalid prior factcheck output\n", encoding="utf-8")
+    prior_runtime = deepcopy(task["model_execution_audit"]["final_runtime"])
+    prior_prompt_sha256 = _digest(f"prompt:{task['task_id']}:{prior_run_id}")
+    prior_model_audit = {
+        "schema_version": "siq_ic_model_execution_audit_v1",
+        "runtime_metadata_status": "verified",
+        "attempt_count": 1,
+        "attempts": [
+            {
+                "hermes_run_id": prior_run_id,
+                "purpose": "generation",
+                "prompt_sha256": prior_prompt_sha256,
+                "terminal_status": "succeeded",
+                "runtime_metadata_status": "verified",
+                "runtime": prior_runtime,
+            }
+        ],
+        "final_hermes_run_id": prior_run_id,
+        "final_prompt_sha256": prior_prompt_sha256,
+        "final_runtime": prior_runtime,
+    }
+    prior_contract = {
+        "passed": False,
+        "output_schema": task["output_schema"],
+        "error_type": "ValueError",
+    }
+    prior = {
+        "lease_attempt": 1,
+        "terminal_status": "failed",
+        "started_at": "2026-07-13T09:40:00Z",
+        "terminal_at": "2026-07-13T09:45:00Z",
+        "hermes_run_id": prior_run_id,
+        "hermes_run_ids": [prior_run_id],
+        "output_artifact_path": prior_raw_path,
+        "output_artifact_paths": [prior_raw_path],
+        "output_artifact_hash": _sha256(prior_raw_file),
+        "output_artifact_hashes": {prior_raw_path: _sha256(prior_raw_file)},
+        "contract_validation": prior_contract,
+        "model_execution_audit": prior_model_audit,
+        "error": "factcheck output contract invalid",
+    }
+    task["task_claim"]["attempt"] = 2
+    task["attempt_history"] = [prior]
+    _write_json(task_path, task)
+    prior_event = {
+        "event_type": "ic_r4_factcheck_failed",
+        "workflow_run_id": task["workflow_run_id"],
+        "task_id": task["task_id"],
+        "phase": "R4",
+        "agent_id": "siq_factchecker",
+        "report_id": task["report_id"],
+        "report_revision": task["report_revision"],
+        "input_digest": task["input_digest"],
+        "hermes_run_id": prior_run_id,
+        "evidence_snapshot_hash": task["evidence_snapshot_hash"],
+        "prompt_contract_version": task["prompt_contract_version"],
+        "profile_contract_version": task["profile_contract_version"],
+        "output_schema": task["output_schema"],
+        "output_artifact_hashes": deepcopy(prior["output_artifact_hashes"]),
+        "contract_validation": deepcopy(prior_contract),
+        "model_execution_audit": deepcopy(prior_model_audit),
+        "status": "failed",
+        "failure_reason": "ValueError",
+    }
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        audit["events"].append(deepcopy(prior_event))
+        _write_json(audit_path, audit)
+    return task, prior
+
+
 def test_default_manifest_covers_all_required_candidate_scenarios_without_accepting_them():
     module = _load_module()
     manifest = json.loads(module.DEFAULT_MANIFEST.read_text(encoding="utf-8"))
@@ -2015,6 +2099,120 @@ def test_gate_validates_retry_attempt_lineage_and_failed_attempt_audit(tmp_path)
     assert "attempt_history_sequence_invalid" in errors
 
 
+def test_gate_maps_task_retry_raw_output_to_each_model_terminal_status(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(tmp_path, module)
+    tasks_path = bundle / "phases/ic_agent_tasks.json"
+    task_store = json.loads(tasks_path.read_text(encoding="utf-8"))
+    task = task_store["tasks"][0]
+    generation_run_id = "run_prior_generation_succeeded"
+    repair_run_id = "run_prior_repair_failed"
+    generation_raw_path = (
+        f"audit/ic_agent_outputs/{task['task_id']}/{generation_run_id}.txt"
+    )
+    generation_raw_file = bundle / generation_raw_path
+    generation_raw_file.parent.mkdir(parents=True, exist_ok=True)
+    generation_raw_file.write_text("invalid generation output\n", encoding="utf-8")
+    runtime = deepcopy(task["model_execution_audit"]["final_runtime"])
+    attempts = [
+        {
+            "hermes_run_id": generation_run_id,
+            "purpose": "generation",
+            "prompt_sha256": _digest(f"prompt:{generation_run_id}"),
+            "terminal_status": "succeeded",
+            "runtime_metadata_status": "verified",
+            "runtime": deepcopy(runtime),
+        },
+        {
+            "hermes_run_id": repair_run_id,
+            "purpose": "contract_repair",
+            "prompt_sha256": _digest(f"prompt:{repair_run_id}"),
+            "terminal_status": "failed",
+            "runtime_metadata_status": "verified",
+            "runtime": deepcopy(runtime),
+        },
+    ]
+    model_audit = {
+        "schema_version": "siq_ic_model_execution_audit_v1",
+        "runtime_metadata_status": "verified",
+        "attempt_count": 2,
+        "attempts": attempts,
+        "final_hermes_run_id": repair_run_id,
+        "final_prompt_sha256": attempts[-1]["prompt_sha256"],
+        "final_runtime": deepcopy(runtime),
+    }
+    contract_validation = {
+        "passed": False,
+        "output_schema": task["output_schema"],
+        "error_type": "RunTerminalError",
+    }
+    prior = {
+        "lease_attempt": 1,
+        "terminal_status": "failed",
+        "started_at": "2026-07-13T09:00:00Z",
+        "terminal_at": "2026-07-13T09:05:00Z",
+        "hermes_run_id": repair_run_id,
+        "hermes_run_ids": [generation_run_id, repair_run_id],
+        "output_artifact_path": generation_raw_path,
+        "output_artifact_paths": [generation_raw_path],
+        "output_artifact_hash": _sha256(generation_raw_file),
+        "output_artifact_hashes": {generation_raw_path: _sha256(generation_raw_file)},
+        "contract_validation": contract_validation,
+        "model_execution_audit": model_audit,
+        "error": "repair run failed before producing output",
+    }
+    task["task_claim"]["attempt"] = 2
+    task["attempt_history"] = [prior]
+    _write_json(tasks_path, task_store)
+    terminal_event = {
+        "event_type": "ic_phase_hermes_task_failed",
+        "workflow_run_id": task["workflow_run_id"],
+        "task_id": task["task_id"],
+        "phase": task["phase"],
+        "agent_id": task["agent_id"],
+        "input_digest": task["input_digest"],
+        "handoff_digest": task["handoff_digest"],
+        "hermes_run_id": repair_run_id,
+        "evidence_snapshot_hash": task["evidence_snapshot_hash"],
+        "prompt_contract_version": task["prompt_contract_version"],
+        "profile_contract_version": task["profile_contract_version"],
+        "output_schema": task["output_schema"],
+        "output_artifact_hashes": deepcopy(prior["output_artifact_hashes"]),
+        "contract_validation": deepcopy(contract_validation),
+        "model_execution_audit": deepcopy(model_audit),
+        "status": "failed",
+        "failure_reason": "RunTerminalError",
+    }
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        audit["events"].append(deepcopy(terminal_event))
+        _write_json(audit_path, audit)
+
+    assert module.build_report(bundle=bundle)["passed"] is True
+
+    prior["output_artifact_path"] = None
+    prior["output_artifact_paths"] = []
+    prior["output_artifact_hash"] = None
+    prior["output_artifact_hashes"] = {}
+    _write_json(tasks_path, task_store)
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        event = next(
+            item
+            for item in audit["events"]
+            if item.get("task_id") == task["task_id"] and item.get("status") == "failed"
+        )
+        event["output_artifact_hashes"] = {}
+        _write_json(audit_path, audit)
+
+    report = module.build_report(bundle=bundle)
+
+    errors = "\n".join(report["bundle"]["metrics"]["execution_chain"]["errors"])
+    assert report["passed"] is False
+    assert f"attempt_history_raw_output_cardinality_invalid:{generation_run_id}" in errors
+    assert f"attempt_history_raw_output_cardinality_invalid:{repair_run_id}" not in errors
+
+
 def test_gate_counts_only_artifact_bound_tasks_and_audits_superseded_terminal_tasks(tmp_path):
     module = _load_module()
     bundle = _make_complete_bundle(tmp_path, module)
@@ -2145,6 +2343,116 @@ def test_gate_recomputes_factchecker_runtime_and_binds_completion_audit(tmp_path
     assert execution["factcheck_runtime_verified"] is False
     assert "factcheck:model_execution_attempt:0:runtime_effective_fields_invalid" in errors
     assert "factcheck:model_execution_identity_unverified" in errors
+
+
+def test_gate_validates_factchecker_retry_history_and_rejects_lineage_tampering(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(tmp_path, module)
+    task, prior = _append_factcheck_prior_attempt(bundle)
+
+    report = module.build_report(bundle=bundle)
+
+    execution = report["bundle"]["metrics"]["execution_chain"]
+    assert report["passed"] is True
+    assert execution["factcheck_prior_attempt_count"] == 1
+
+    phase_tasks = json.loads((bundle / "phases/ic_agent_tasks.json").read_text(encoding="utf-8"))
+    reused_run_id = phase_tasks["tasks"][0]["hermes_run_id"]
+    prior["lease_attempt"] = 7
+    prior["hermes_run_ids"].append(reused_run_id)
+    prior_model_audit = prior["model_execution_audit"]
+    prior_model_audit["attempt_count"] = 7
+    prior_model_audit["attempts"][0]["prompt_sha256"] = "not-a-sha256"
+    prior_model_audit["attempts"][0]["runtime"] = None
+    prior_raw_path = bundle / prior["output_artifact_paths"][0]
+    prior_raw_path.write_text("tampered prior raw output\n", encoding="utf-8")
+    _write_json(bundle / "decision/factcheck_task.json", task)
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        prior_event = next(
+            event
+            for event in audit["events"]
+            if event.get("event_type") == "ic_r4_factcheck_failed"
+        )
+        prior_event["workflow_run_id"] = "ICRUN-FORGED-SESSION"
+        prior_event["model_execution_audit"] = deepcopy(prior_model_audit)
+        _write_json(audit_path, audit)
+
+    report = module.build_report(bundle=bundle)
+
+    errors = "\n".join(report["bundle"]["metrics"]["execution_chain"]["errors"])
+    assert report["passed"] is False
+    assert "factcheck:attempt_history_sequence_invalid" in errors
+    assert f"factcheck:attempt_history_run_id_not_unique:{reused_run_id}" in errors
+    assert "factcheck:attempt_history_raw_output_invalid:" in errors
+    assert "factcheck:attempt_history_model_execution:7:model_execution_attempt_count_mismatch" in errors
+    assert "factcheck:attempt_history_model_execution:7:model_execution_prompt_sha256_invalid:0" in errors
+    assert "factcheck:attempt_history_model_execution:7:model_execution_identity_unverified" in errors
+    assert "factcheck:attempt_history_terminal_audit_missing" in errors
+
+
+def test_gate_maps_factcheck_retry_raw_output_to_each_model_terminal_status(tmp_path):
+    module = _load_module()
+    bundle = _make_complete_bundle(tmp_path, module)
+    task, prior = _append_factcheck_prior_attempt(bundle)
+    repair_run_id = "run_gate_factcheck_prior_repair_failed"
+    runtime = deepcopy(prior["model_execution_audit"]["final_runtime"])
+    repair_attempt = {
+        "hermes_run_id": repair_run_id,
+        "purpose": "contract_repair",
+        "prompt_sha256": _digest(f"prompt:{task['task_id']}:{repair_run_id}"),
+        "terminal_status": "failed",
+        "runtime_metadata_status": "verified",
+        "runtime": deepcopy(runtime),
+    }
+    prior["hermes_run_id"] = repair_run_id
+    prior["hermes_run_ids"].append(repair_run_id)
+    prior_model_audit = prior["model_execution_audit"]
+    prior_model_audit["attempt_count"] = 2
+    prior_model_audit["attempts"].append(repair_attempt)
+    prior_model_audit["final_hermes_run_id"] = repair_run_id
+    prior_model_audit["final_prompt_sha256"] = repair_attempt["prompt_sha256"]
+    prior_model_audit["final_runtime"] = deepcopy(runtime)
+    _write_json(bundle / "decision/factcheck_task.json", task)
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        event = next(
+            item
+            for item in audit["events"]
+            if item.get("event_type") == "ic_r4_factcheck_failed"
+        )
+        event["hermes_run_id"] = repair_run_id
+        event["model_execution_audit"] = deepcopy(prior_model_audit)
+        _write_json(audit_path, audit)
+
+    assert module.build_report(bundle=bundle)["passed"] is True
+
+    repair_raw_path = (
+        f"audit/ic_agent_outputs/{task['task_id']}/{repair_run_id}-repair-1.txt"
+    )
+    repair_raw_file = bundle / repair_raw_path
+    repair_raw_file.write_text("unexpected output for failed repair\n", encoding="utf-8")
+    prior["output_artifact_paths"].append(repair_raw_path)
+    prior["output_artifact_hashes"][repair_raw_path] = _sha256(repair_raw_file)
+    _write_json(bundle / "decision/factcheck_task.json", task)
+    for audit_path in (bundle / "phases/audit_log.json", bundle / "audit/audit_log.json"):
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        event = next(
+            item
+            for item in audit["events"]
+            if item.get("event_type") == "ic_r4_factcheck_failed"
+        )
+        event["output_artifact_hashes"] = deepcopy(prior["output_artifact_hashes"])
+        _write_json(audit_path, audit)
+
+    report = module.build_report(bundle=bundle)
+
+    errors = "\n".join(report["bundle"]["metrics"]["execution_chain"]["errors"])
+    assert report["passed"] is False
+    assert (
+        f"factcheck:attempt_history_raw_output_cardinality_invalid:{repair_run_id}"
+        in errors
+    )
 
 
 def test_gate_binds_human_approval_to_exact_report_confirmation_and_audit(tmp_path):

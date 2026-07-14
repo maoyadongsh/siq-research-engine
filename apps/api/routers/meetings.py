@@ -36,6 +36,8 @@ from services.meeting_contracts import (
     SegmentCorrectionRequest,
     SegmentCorrectionResponse,
     SegmentRevertRequest,
+    SegmentSpeakerRenameRequest,
+    SegmentSpeakerRenameResponse,
     SpeakerMappingResponse,
     SpeakerMergeRequest,
     SpeakerRenameRequest,
@@ -467,18 +469,20 @@ async def rename_speaker(
     request: SpeakerRenameRequest,
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
 ) -> SpeakerTrackResponse:
     _require_enabled()
     owner_id = _authorize(current_user, MEETING_UPDATE)
-    value, _ = await _repo_call(
+    response, _ = await _repo_call(
         MeetingRepository(async_session).rename_speaker(
             meeting_id,
             track_id,
             owner_id,
             request,
+            idempotency_key=idempotency_key,
         )
     )
-    return speaker_response(value)
+    return response
 
 
 @router.post(
@@ -523,6 +527,31 @@ async def split_speaker(
             track_id,
             owner_id,
             request,
+        )
+    )
+
+
+@router.patch(
+    "/sessions/{meeting_id}/segments/{segment_id}/speaker",
+    response_model=SegmentSpeakerRenameResponse,
+)
+async def rename_segment_speaker(
+    meeting_id: str,
+    segment_id: str,
+    request: SegmentSpeakerRenameRequest,
+    current_user: User = Depends(get_current_user),
+    async_session: AsyncSession = Depends(get_async_session),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
+) -> SegmentSpeakerRenameResponse:
+    _require_enabled()
+    owner_id = _authorize(current_user, MEETING_UPDATE)
+    return await _repo_call(
+        MeetingRepository(async_session).rename_segment_speaker(
+            meeting_id,
+            segment_id,
+            owner_id,
+            request,
+            idempotency_key=idempotency_key,
         )
     )
 

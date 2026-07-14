@@ -12,9 +12,11 @@ final class MeetingCaptureController {
     private var recoveredStores: [String: MeetingCaptureStore] = [:]
     private var recoveredUploaders: [String: MeetingCaptureUploader] = [:]
     private var serverCheckpoints: [String: MeetingServerCheckpoint] = [:]
+    private var foregroundBearerToken: String?
     private var recoveryBootstrapped = false
     private var userStopped = false
     private var stopRequested = false
+    private var reconfigurationPending = false
     private var stopCompletions: [(Result<StopResult, MeetingCaptureError>) -> Void] = []
 
     var onEvent: ((String, [String: Any]) -> Void)?
@@ -74,6 +76,7 @@ final class MeetingCaptureController {
         meetingId: String,
         captureId: String,
         captureToken: String,
+        userBearerToken: String?,
         deviceInstallationId: String,
         apiBaseURL: String,
         trustedAPIOrigin: String,
@@ -115,6 +118,8 @@ final class MeetingCaptureController {
                                 deviceInstallationId: deviceInstallationId,
                                 captureId: captureId
                             )
+                            self.clearForegroundAuthorization()
+                            self.foregroundBearerToken = userBearerToken
                             self.store = existingStore
                             self.userStopped = existing.state == .stopped
                             if let existingUploader = self.recoveredUploaders[captureId] {
@@ -128,8 +133,12 @@ final class MeetingCaptureController {
                                 self.recoveredUploaders[captureId] = existingUploader
                                 self.uploader = existingUploader
                             }
+                            self.uploader?.setForegroundBearerToken(userBearerToken)
                             completion(.success(MeetingCaptureStatus(manifest: existing)))
                             try? self.uploader?.refreshCheckpointAndSchedule()
+                            if existing.state == .stopped {
+                                try? self.uploader?.requestSealWhenSynchronized()
+                            }
                             return
                         }
                         let store = try MeetingCaptureStore()
@@ -149,6 +158,9 @@ final class MeetingCaptureController {
                         )
                         let uploader = try MeetingCaptureUploader(store: store, keychain: self.keychain)
                         self.configure(uploader, store: store)
+                        self.clearForegroundAuthorization()
+                        self.foregroundBearerToken = userBearerToken
+                        uploader.setForegroundBearerToken(userBearerToken)
                         self.store = store
                         self.uploader = uploader
                         self.recoveredStores[captureId] = store
@@ -177,6 +189,7 @@ final class MeetingCaptureController {
             try recorder.start()
         } catch {
             try? store.updateState(.error, errorCode: "native_capture.audio_start_failed")
+            clearForegroundAuthorization()
             throw MeetingCaptureError.invalidState("audio start failed")
         }
         let status = MeetingCaptureStatus(manifest: try store.currentManifest())
@@ -184,19 +197,45 @@ final class MeetingCaptureController {
         return status
     }
 
-    func pause(reason: String) throws -> MeetingCaptureStatus {
-        guard let store else { throw MeetingCaptureError.invalidState("prepare required") }
-        guard !stopRequested else { throw MeetingCaptureError.invalidState("stop is pending") }
-        recorder.pause()
-        try store.pause(reason: reason, interrupted: reason != "user")
-        let status = MeetingCaptureStatus(manifest: try store.currentManifest())
-        if reason != "user" {
-            emit("capture.interrupted", [
-                "reason": reason,
-                "startSample": status.recordedThroughSample
-            ])
+    func pause(
+        reason: String,
+        completion: @escaping (Result<MeetingCaptureStatus, MeetingCaptureError>) -> Void
+    ) {
+        guard let store else {
+            completion(.failure(.invalidState("prepare required")))
+            return
         }
-        return status
+        guard !stopRequested else {
+            completion(.failure(.invalidState("stop is pending")))
+            return
+        }
+        recorder.pauseAndDrain { [weak self, weak store] in
+            DispatchQueue.meetingCapture.async {
+                guard let self, let store, self.store === store else {
+                    completion(.failure(.invalidState("capture changed while pause was pending")))
+                    return
+                }
+                guard !self.stopRequested else {
+                    completion(.failure(.invalidState("stop is pending")))
+                    return
+                }
+                do {
+                    try store.pause(reason: reason, interrupted: reason != "user")
+                    let status = MeetingCaptureStatus(manifest: try store.currentManifest())
+                    if reason != "user" {
+                        self.emit("capture.interrupted", [
+                            "reason": reason,
+                            "startSample": status.recordedThroughSample
+                        ])
+                    }
+                    completion(.success(status))
+                } catch let error as MeetingCaptureError {
+                    completion(.failure(error))
+                } catch {
+                    completion(.failure(.storageUnavailable))
+                }
+            }
+        }
     }
 
     func resume() throws -> MeetingCaptureStatus {
@@ -208,6 +247,7 @@ final class MeetingCaptureController {
             try recorder.resume()
         } catch {
             try? store.updateState(.error, errorCode: "native_capture.audio_resume_failed")
+            clearForegroundAuthorization()
             throw MeetingCaptureError.invalidState("audio resume failed")
         }
         let status = MeetingCaptureStatus(manifest: try store.currentManifest())
@@ -224,6 +264,7 @@ final class MeetingCaptureController {
             do {
                 let result = try store.stop()
                 try? uploader?.requestSealWhenSynchronized()
+                clearForegroundAuthorization()
                 completion(.success((MeetingCaptureStatus(manifest: result.0), result.1)))
             } catch let error as MeetingCaptureError {
                 completion(.failure(error))
@@ -268,8 +309,13 @@ final class MeetingCaptureController {
     }
 
     func retryPendingUploads() throws -> MeetingCaptureStatus {
-        guard let uploader else { throw MeetingCaptureError.invalidState("prepare required") }
+        guard let store, let uploader else {
+            throw MeetingCaptureError.invalidState("prepare required")
+        }
         try uploader.refreshCheckpointAndSchedule()
+        if try store.currentManifest().state == .stopped {
+            try uploader.requestSealWhenSynchronized()
+        }
         return try status()
     }
 
@@ -387,7 +433,24 @@ final class MeetingCaptureController {
     private func interruptionEnded(durationNs: UInt64, shouldResume: Bool) {
         guard !userStopped, !stopRequested, let store else { return }
         do {
-            try store.recordGap(durationNs: durationNs, reason: "audio_session_interruption")
+            if let materialized = try store.recordGap(
+                durationNs: durationNs,
+                reason: "audio_session_interruption"
+            ) {
+                guard let streamEpoch = materialized.gap.streamEpoch,
+                      let fromSequence = materialized.gap.fromSequence,
+                      let toSequence = materialized.gap.toSequence else {
+                    throw MeetingCaptureError.corruptManifest
+                }
+                emit("capture.gap.materialized", [
+                    "reason": materialized.gap.reason,
+                    "startSample": materialized.gap.startSample,
+                    "endSample": materialized.gap.endSample,
+                    "streamEpoch": streamEpoch,
+                    "fromSequence": fromSequence,
+                    "toSequence": toSequence
+                ])
+            }
             guard shouldResume else { return }
             _ = try resume()
         } catch let error as MeetingCaptureError {
@@ -399,18 +462,64 @@ final class MeetingCaptureController {
 
     private func configurationChanged(reason: String) {
         guard !userStopped, !stopRequested, let store,
+              (try? store.currentManifest().state) == .recording,
+              !reconfigurationPending else { return }
+        reconfigurationPending = true
+        let recoveryStartedNs = DispatchTime.now().uptimeNanoseconds
+        recorder.stopForReconfigurationAndDrain { [weak self, weak store] in
+            DispatchQueue.meetingCapture.async {
+                guard let self, let store else { return }
+                self.finishConfigurationChange(
+                    reason: reason,
+                    recoveryStartedNs: recoveryStartedNs,
+                    store: store
+                )
+            }
+        }
+    }
+
+    private func finishConfigurationChange(
+        reason: String,
+        recoveryStartedNs: UInt64,
+        store: MeetingCaptureStore
+    ) {
+        defer { reconfigurationPending = false }
+        guard !userStopped, !stopRequested, self.store === store,
               (try? store.currentManifest().state) == .recording else { return }
         do {
-            recorder.stop()
             try store.pause(reason: reason, interrupted: true)
             let status = MeetingCaptureStatus(manifest: try store.currentManifest())
             emit("capture.interrupted", [
                 "reason": reason,
                 "startSample": status.recordedThroughSample
             ])
+            let durationNs = DispatchTime.now().uptimeNanoseconds - recoveryStartedNs
+            let gapReason = reason == "media_services_reset" ? "media_services_reset" : "route_change"
+            if let materialized = try store.recordGap(durationNs: durationNs, reason: gapReason) {
+                guard let streamEpoch = materialized.gap.streamEpoch,
+                      let fromSequence = materialized.gap.fromSequence,
+                      let toSequence = materialized.gap.toSequence else {
+                    throw MeetingCaptureError.corruptManifest
+                }
+                emit("capture.gap.materialized", [
+                    "reason": materialized.gap.reason,
+                    "startSample": materialized.gap.startSample,
+                    "endSample": materialized.gap.endSample,
+                    "streamEpoch": streamEpoch,
+                    "fromSequence": fromSequence,
+                    "toSequence": toSequence
+                ])
+            }
             try store.startWriting()
-            try recorder.start()
+            do {
+                try recorder.start()
+            } catch {
+                try? store.pause(reason: reason, interrupted: true)
+                throw MeetingCaptureError.invalidState("audio configuration restart failed")
+            }
             emit("capture.resumed", MeetingCaptureStatus(manifest: try store.currentManifest()).dictionary)
+        } catch let error as MeetingCaptureError {
+            captureFailed(error)
         } catch {
             captureFailed(.invalidState("audio configuration recovery failed"))
         }
@@ -420,6 +529,7 @@ final class MeetingCaptureController {
         if !error.recoverable {
             recorder.stop()
             try? store?.updateState(.error, errorCode: error.code)
+            clearForegroundAuthorization()
         }
         emit("capture.error", ["code": error.code, "recoverable": error.recoverable])
     }
@@ -438,6 +548,7 @@ final class MeetingCaptureController {
             emit("local.playback.ready", asset.dictionary)
             try? uploader?.schedulePendingUploads()
             try? uploader?.requestSealWhenSynchronized()
+            clearForegroundAuthorization()
             resolveStopCompletions(.success((status, asset)))
         } catch let error as MeetingCaptureError {
             stopRequested = false
@@ -452,6 +563,11 @@ final class MeetingCaptureController {
         let completions = stopCompletions
         stopCompletions.removeAll()
         for completion in completions { completion(result) }
+    }
+
+    private func clearForegroundAuthorization() {
+        foregroundBearerToken = nil
+        uploader?.setForegroundBearerToken(nil)
     }
 
     private func configure(_ uploader: MeetingCaptureUploader, store: MeetingCaptureStore) {
@@ -471,13 +587,14 @@ final class MeetingCaptureController {
                 }
             }
         }
-        uploader.onSealed = { [weak self, weak store] response in
+        uploader.onSealed = { [weak self, weak store] checkpoint in
             DispatchQueue.meetingCapture.async {
                 guard let self, let store, self.store === store else { return }
+                guard let manifest = try? store.currentManifest() else { return }
                 self.emit("capture.synced", [
-                    "captureId": response.capture.id,
-                    "ingestComplete": response.capture.ingestComplete,
-                    "serverPlaybackState": response.capture.serverPlaybackState
+                    "captureId": manifest.captureId,
+                    "ingestComplete": checkpoint.finalizationCheckpoint.ingestComplete,
+                    "serverPlaybackState": checkpoint.finalizationCheckpoint.serverPlaybackState
                 ])
             }
         }
@@ -497,7 +614,11 @@ final class MeetingCaptureController {
     ) {
         do {
             let manifest = try store.currentManifest()
-            serverClient.rollover(manifest: manifest, pending: pending) { [weak self] result in
+            serverClient.rollover(
+                manifest: manifest,
+                pending: pending,
+                userBearerToken: foregroundBearerToken
+            ) { [weak self] result in
                 DispatchQueue.meetingCapture.async {
                     guard let self else { return }
                     switch result {

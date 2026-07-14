@@ -1986,10 +1986,15 @@ def _model_execution_audit_errors(
         if derived_runtime_status != "verified":
             all_runtime_verified = False
 
-        if expected_purpose == "contract_repair":
+        if expected_purpose == "contract_repair" and terminal_status == "succeeded":
+            repair_event_type = (
+                "ic_r4_factcheck_contract_repair_attempted"
+                if task.get("agent_id") == "siq_factchecker"
+                else "ic_phase_hermes_contract_repair_attempted"
+            )
             repair_events = _matching_audit_events(
                 events,
-                event_type="ic_phase_hermes_contract_repair_attempted",
+                event_type=repair_event_type,
                 expected={
                     "workflow_run_id": task.get("workflow_run_id"),
                     "task_id": task.get("task_id"),
@@ -2023,6 +2028,48 @@ def _model_execution_audit_errors(
         errors.append("model_execution_final_prompt_sha256_mismatch")
     if _canonical_digest(audit.get("final_runtime")) != _canonical_digest(final.get("runtime")):
         errors.append("model_execution_final_runtime_mismatch")
+    return errors
+
+
+def _attempt_raw_output_cardinality_errors(
+    bundle: Path,
+    *,
+    task_id: str,
+    run_ids: Sequence[str],
+    model_execution_audit: Any,
+    output_paths: Sequence[str],
+) -> list[str]:
+    """Bind each raw artifact to the terminal status of its exact Hermes run."""
+    if not isinstance(model_execution_audit, Mapping):
+        return []
+    attempts = model_execution_audit.get("attempts")
+    if not isinstance(attempts, list):
+        return []
+
+    errors: list[str] = []
+    for run_id in run_ids:
+        matching_attempts = [
+            attempt
+            for attempt in attempts
+            if isinstance(attempt, Mapping) and attempt.get("hermes_run_id") == run_id
+        ]
+        if len(matching_attempts) != 1:
+            # The model-execution validator reports the authoritative mapping error.
+            continue
+        matching_paths = [
+            relative
+            for relative in output_paths
+            if _raw_output_path(
+                bundle,
+                task_id=task_id,
+                hermes_run_id=run_id,
+                relative=relative,
+            )
+            is not None
+        ]
+        expected_count = 1 if matching_attempts[0].get("terminal_status") == "succeeded" else 0
+        if len(matching_paths) != expected_count:
+            errors.append(f"raw_output_cardinality_invalid:{run_id}")
     return errors
 
 
@@ -2189,23 +2236,18 @@ def _execution_chain_metric(
                 task_errors.append("attempt_history_output_hashes_invalid")
                 prior_hashes = {}
             prior_paths = _strings(prior.get("output_artifact_paths"))
-            if prior_paths or prior_hashes:
-                if len(prior_paths) != len(set(prior_paths)) or set(prior_paths) != set(prior_hashes):
-                    task_errors.append("attempt_history_raw_output_manifest_mismatch")
-                for observed_run_id in prior_run_ids:
-                    matches = [
-                        relative
-                        for relative in prior_paths
-                        if _raw_output_path(
-                            bundle,
-                            task_id=task_id,
-                            hermes_run_id=observed_run_id,
-                            relative=relative,
-                        )
-                        is not None
-                    ]
-                    if len(matches) != 1:
-                        task_errors.append(f"attempt_history_raw_output_cardinality_invalid:{observed_run_id}")
+            if len(prior_paths) != len(set(prior_paths)) or set(prior_paths) != set(prior_hashes):
+                task_errors.append("attempt_history_raw_output_manifest_mismatch")
+            task_errors.extend(
+                f"attempt_history_{error}"
+                for error in _attempt_raw_output_cardinality_errors(
+                    bundle,
+                    task_id=task_id,
+                    run_ids=prior_run_ids,
+                    model_execution_audit=prior.get("model_execution_audit"),
+                    output_paths=prior_paths,
+                )
+            )
             for relative in prior_paths:
                 path = _contained_path(bundle, relative)
                 expected_hash = str(prior_hashes.get(relative) or "").lower()
@@ -2466,6 +2508,7 @@ def _execution_chain_metric(
 
     factcheck_errors: list[str] = []
     factcheck_runtime_verified = False
+    factcheck_prior_attempt_count = 0
     if not isinstance(factcheck_task, dict):
         factcheck_errors.append("task_missing")
     else:
@@ -2492,6 +2535,132 @@ def _execution_chain_metric(
                 factcheck_errors.append(f"{key}_mismatch")
         if not DIGEST_RE.fullmatch(fact_digest) or fact_task_id != f"ICFACT-{fact_digest[:24].upper()}":
             factcheck_errors.append("task_id_digest_mismatch")
+        fact_claim = factcheck_task.get("task_claim")
+        if not isinstance(fact_claim, Mapping):
+            factcheck_errors.append("task_claim_missing")
+            fact_lease_attempt = 0
+        else:
+            try:
+                fact_lease_attempt = int(fact_claim.get("attempt") or 0)
+            except (TypeError, ValueError):
+                fact_lease_attempt = 0
+            if fact_lease_attempt < 1 or fact_claim.get("status") != "succeeded":
+                factcheck_errors.append("task_claim_terminal_identity_invalid")
+        fact_attempt_history = _as_list(factcheck_task.get("attempt_history"))
+        factcheck_prior_attempt_count = len(fact_attempt_history)
+        if fact_lease_attempt > 1 and len(fact_attempt_history) != fact_lease_attempt - 1:
+            factcheck_errors.append("attempt_history_count_mismatch")
+        elif fact_lease_attempt == 1 and fact_attempt_history:
+            factcheck_errors.append("attempt_history_unexpected_for_first_attempt")
+        for expected_attempt, prior in enumerate(fact_attempt_history, start=1):
+            if not isinstance(prior, Mapping):
+                factcheck_errors.append("attempt_history_entry_invalid")
+                continue
+            try:
+                prior_attempt = int(prior.get("lease_attempt") or 0)
+            except (TypeError, ValueError):
+                prior_attempt = 0
+            if prior_attempt != expected_attempt:
+                factcheck_errors.append("attempt_history_sequence_invalid")
+            prior_status = str(prior.get("terminal_status") or "")
+            if prior_status not in {
+                "succeeded",
+                "failed",
+                "cancelled",
+                "interrupted",
+                "timed_out",
+                "stale_on_completion",
+            }:
+                factcheck_errors.append("attempt_history_terminal_status_invalid")
+            prior_run_id = str(prior.get("hermes_run_id") or "")
+            prior_run_ids = _strings(prior.get("hermes_run_ids"))
+            if prior_run_id and prior_run_id not in prior_run_ids:
+                factcheck_errors.append("attempt_history_run_identity_invalid")
+            for observed_run_id in prior_run_ids:
+                if observed_run_id in claimed_hermes_run_ids:
+                    factcheck_errors.append(f"attempt_history_run_id_not_unique:{observed_run_id}")
+                claimed_hermes_run_ids.add(observed_run_id)
+
+            prior_hashes = prior.get("output_artifact_hashes")
+            if not isinstance(prior_hashes, Mapping):
+                factcheck_errors.append("attempt_history_output_hashes_invalid")
+                prior_hashes = {}
+            else:
+                prior_hashes = dict(prior_hashes)
+            prior_paths = _strings(prior.get("output_artifact_paths"))
+            if len(prior_paths) != len(set(prior_paths)) or set(prior_paths) != set(prior_hashes):
+                factcheck_errors.append("attempt_history_raw_output_manifest_mismatch")
+            factcheck_errors.extend(
+                f"attempt_history_{error}"
+                for error in _attempt_raw_output_cardinality_errors(
+                    bundle,
+                    task_id=fact_task_id,
+                    run_ids=prior_run_ids,
+                    model_execution_audit=prior.get("model_execution_audit"),
+                    output_paths=prior_paths,
+                )
+            )
+            for relative in prior_paths:
+                if relative in claimed_raw_paths:
+                    factcheck_errors.append(f"attempt_history_raw_output_path_not_unique:{relative}")
+                claimed_raw_paths.add(relative)
+                path = _contained_path(bundle, relative)
+                expected_hash = str(prior_hashes.get(relative) or "").lower()
+                if (
+                    path is None
+                    or f"/{fact_task_id}/" not in path.as_posix()
+                    or not path.is_file()
+                    or not DIGEST_RE.fullmatch(expected_hash)
+                    or _file_digest(path) != expected_hash
+                ):
+                    factcheck_errors.append(f"attempt_history_raw_output_invalid:{relative}")
+
+            prior_model_context = {
+                **factcheck_task,
+                "hermes_run_id": prior_run_id or None,
+                "hermes_run_ids": prior_run_ids,
+                "model_execution_audit": prior.get("model_execution_audit"),
+            }
+            prior_model_errors = _model_execution_audit_errors(
+                prior_model_context,
+                events,
+                require_succeeded_terminal=False,
+            )
+            factcheck_errors.extend(
+                f"attempt_history_model_execution:{prior_attempt}:{error}"
+                for error in prior_model_errors
+            )
+            prior_event_type = (
+                "ic_r4_factcheck_completed"
+                if prior_status in {"succeeded", "stale_on_completion"}
+                else "ic_r4_factcheck_failed"
+            )
+            prior_events = _matching_audit_events(
+                events,
+                event_type=prior_event_type,
+                expected={
+                    "workflow_run_id": factcheck_task.get("workflow_run_id"),
+                    "task_id": fact_task_id,
+                    "phase": "R4",
+                    "agent_id": "siq_factchecker",
+                    "report_id": factcheck_task.get("report_id"),
+                    "report_revision": factcheck_task.get("report_revision"),
+                    "input_digest": fact_digest,
+                    "hermes_run_id": prior_run_id or None,
+                    "evidence_snapshot_hash": expected_snapshot_hash,
+                    "prompt_contract_version": "siq_ic_phase_prompt_v5",
+                    "profile_contract_version": "hermes_profile_authority_v1",
+                    "output_schema": FACTCHECK_SCHEMA,
+                    "output_artifact_hashes": prior_hashes,
+                    "contract_validation": prior.get("contract_validation"),
+                    "model_execution_audit": prior.get("model_execution_audit"),
+                    "status": prior_status,
+                },
+            )
+            if not prior_events:
+                factcheck_errors.append("attempt_history_terminal_audit_missing")
+            elif len(prior_events) != 1:
+                factcheck_errors.append("attempt_history_terminal_audit_cardinality_invalid")
         fact_run_ids = _strings(factcheck_task.get("hermes_run_ids") or [fact_run_id])
         if not fact_run_id or fact_run_id not in fact_run_ids:
             factcheck_errors.append("hermes_run_identity_invalid")
@@ -2682,6 +2851,7 @@ def _execution_chain_metric(
         "prior_attempt_count": prior_attempt_count,
         "factcheck_task_validated": not factcheck_errors,
         "factcheck_runtime_verified": factcheck_runtime_verified,
+        "factcheck_prior_attempt_count": factcheck_prior_attempt_count,
         "errors": errors,
     }
 
@@ -2885,7 +3055,7 @@ def _golden_case_binding_metric(
                                     or _file_digest(source_path) != source_digest
                                 ):
                                     case_errors.append(f"path_source_artifact_digest_mismatch:{required_path}")
-                            elif source_path.is_file() or source.get("sha256") not in {None, ""}:
+                            elif source_path.exists() or source.get("sha256") not in {None, ""}:
                                 case_errors.append(f"path_source_artifact_absence_mismatch:{required_path}")
                         assertions = _as_list(path_payload.get("assertions"))
                         if not assertions or any(

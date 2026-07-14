@@ -27,6 +27,26 @@ def test_release_workflow_pins_contract_count_and_v3_gate():
     assert "smoke_r1_agent_workflow.py" not in workflow
 
 
+def test_contract_job_covers_offline_golden_evaluation_and_stale_activation():
+    contract_job = _workflow_text().split("\n  behavior-release:", maxsplit=1)[0]
+
+    tested_paths = (
+        "scripts/maintenance/tests/test_activate_primary_market_ic_stale_fixture.py",
+        "scripts/maintenance/tests/test_run_primary_market_ic_golden_evaluator.py",
+        "scripts/hermes/tests/test_primary_market_ic_golden_suite_fixtures.py",
+    )
+    linted_implementations = (
+        "eval_datasets/primary_market_ic_real_smoke/generate_golden_suite_fixtures.py",
+        "scripts/maintenance/activate_primary_market_ic_stale_fixture.py",
+        "scripts/maintenance/run_primary_market_ic_golden_evaluator.py",
+    )
+    for path in tested_paths:
+        assert contract_job.count(path) == 2
+    for path in linted_implementations:
+        assert contract_job.count(path) == 1
+    assert "--real" not in contract_job
+
+
 def test_release_workflow_requires_real_evidence_bindings_and_fails_closed():
     workflow = _workflow_text()
 

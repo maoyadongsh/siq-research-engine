@@ -70,10 +70,13 @@ from services.meeting_contracts import (
     SegmentCorrectionRequest,
     SegmentCorrectionResponse,
     SegmentRevisionResponse,
+    SegmentSpeakerRenameRequest,
+    SegmentSpeakerRenameResponse,
     SpeakerLabelSource,
     SpeakerMappingResponse,
     SpeakerMergeRequest,
     SpeakerRenameRequest,
+    SpeakerRenameScope,
     SpeakerSplitRequest,
     SpeakerTrackResponse,
     StableSegmentInput,
@@ -138,6 +141,34 @@ class MeetingInvalidOperation(MeetingRepositoryError):
 
 class MeetingIdempotencyConflict(MeetingRepositoryError):
     code = "MEETING_IDEMPOTENCY_CONFLICT"
+
+
+_SPEAKER_RENAME_REPLAY_SCHEMA = "siq.meeting.speaker_rename_replay.v1"
+_SEGMENT_SPEAKER_RENAME_REPLAY_SCHEMA = "siq.meeting.segment_speaker_rename_replay.v1"
+
+
+def _idempotency_response_snapshot(schema_version: str, response: Any) -> dict[str, Any]:
+    return {
+        "schema_version": schema_version,
+        "response": response.model_dump(mode="json"),
+    }
+
+
+def _validated_idempotency_response(
+    record: MeetingIdempotencyRecord,
+    *,
+    schema_version: str,
+) -> dict[str, Any]:
+    payload = decode_json(record.response_json, None)
+    if (
+        record.response_status != 200
+        or not isinstance(payload, dict)
+        or set(payload) != {"schema_version", "response"}
+        or payload.get("schema_version") != schema_version
+        or not isinstance(payload.get("response"), dict)
+    ):
+        raise MeetingIdempotencyConflict("stored idempotency response snapshot is invalid")
+    return payload["response"]
 
 
 def _request_hash(value: Any) -> str:
@@ -659,6 +690,22 @@ class MeetingRepository:
         operation: str,
         request: Any,
     ) -> str | None:
+        existing = await self._idempotency_record(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation=operation,
+            request=request,
+        )
+        return existing.resource_id if existing is not None else None
+
+    async def _idempotency_record(
+        self,
+        *,
+        owner_user_id: int,
+        idempotency_key: str | None,
+        operation: str,
+        request: Any,
+    ) -> MeetingIdempotencyRecord | None:
         if not idempotency_key:
             return None
         existing = (
@@ -673,7 +720,7 @@ class MeetingRepository:
             return None
         if existing.operation != operation or existing.request_hash != _request_hash(request):
             raise MeetingIdempotencyConflict("idempotency key was already used for a different request")
-        return existing.resource_id
+        return existing
 
     def _remember_idempotency(
         self,
@@ -684,6 +731,7 @@ class MeetingRepository:
         request: Any,
         resource_id: str,
         response_status: int,
+        response_payload: dict[str, Any] | None = None,
     ) -> None:
         if not idempotency_key:
             return
@@ -695,7 +743,11 @@ class MeetingRepository:
                 request_hash=_request_hash(request),
                 resource_id=resource_id,
                 response_status=response_status,
-                response_json=encode_json({"resource_id": resource_id}),
+                response_json=encode_json(
+                    {"resource_id": resource_id}
+                    if response_payload is None
+                    else response_payload
+                ),
             )
         )
 
@@ -1350,7 +1402,43 @@ class MeetingRepository:
         track_id: str,
         owner_user_id: int,
         request: SpeakerRenameRequest,
-    ) -> tuple[MeetingSpeakerTrack, MeetingEvent]:
+        *,
+        idempotency_key: str | None = None,
+    ) -> tuple[SpeakerTrackResponse, MeetingEvent | None]:
+        await self._owned_session(meeting_id, owner_user_id, lock=True)
+        idempotency_request = {
+            "meeting_id": meeting_id,
+            "track_id": track_id,
+            "request": request.model_dump(mode="json"),
+        }
+        replay = await self._idempotency_record(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="speakers.rename",
+            request=idempotency_request,
+        )
+        if replay is not None:
+            try:
+                response = SpeakerTrackResponse.model_validate(
+                    _validated_idempotency_response(
+                        replay,
+                        schema_version=_SPEAKER_RENAME_REPLAY_SCHEMA,
+                    )
+                )
+            except ValueError as exc:
+                raise MeetingIdempotencyConflict(
+                    "stored speaker rename response snapshot is invalid"
+                ) from exc
+            if (
+                replay.resource_id != meeting_id
+                or response.id != track_id
+                or response.meeting_id != meeting_id
+                or response.version < 1
+            ):
+                raise MeetingIdempotencyConflict(
+                    "stored speaker rename response snapshot identity is invalid"
+                )
+            return response, None
         track = await self._owned_track(meeting_id, track_id, owner_user_id, lock=True)
         if track.version != request.expected_version:
             raise MeetingVersionConflict(
@@ -1366,13 +1454,235 @@ class MeetingRepository:
             meeting_id,
             reason="speaker_rename",
         )
+        response = speaker_response(track)
         event = await self.events.append(
             meeting_id,
             "speaker.label.changed",
-            {"speaker": speaker_response(track).model_dump(mode="json")},
+            {"speaker": response.model_dump(mode="json")},
+        )
+        self._remember_idempotency(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="speakers.rename",
+            request=idempotency_request,
+            resource_id=meeting_id,
+            response_status=200,
+            response_payload=_idempotency_response_snapshot(
+                _SPEAKER_RENAME_REPLAY_SCHEMA,
+                response,
+            ),
         )
         await self._commit()
-        return track, event
+        return response, event
+
+    async def rename_segment_speaker(
+        self,
+        meeting_id: str,
+        segment_id: str,
+        owner_user_id: int,
+        request: SegmentSpeakerRenameRequest,
+        *,
+        idempotency_key: str | None = None,
+    ) -> SegmentSpeakerRenameResponse:
+        """Rename one utterance or every utterance on its current speaker track.
+
+        A segment-scoped edit creates a new manual track when the source has
+        other utterances. If it is the source's only utterance, updating the
+        existing alias is equivalent and avoids an empty orphan track.
+        """
+
+        meeting = await self._owned_session(meeting_id, owner_user_id, lock=True)
+        self._require_post_meeting_speaker_edit(meeting)
+        idempotency_request = {
+            "meeting_id": meeting_id,
+            "segment_id": segment_id,
+            "request": request.model_dump(mode="json"),
+        }
+        replay = await self._idempotency_record(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="segments.speaker.rename",
+            request=idempotency_request,
+        )
+        if replay is not None:
+            try:
+                response = SegmentSpeakerRenameResponse.model_validate(
+                    _validated_idempotency_response(
+                        replay,
+                        schema_version=_SEGMENT_SPEAKER_RENAME_REPLAY_SCHEMA,
+                    )
+                )
+            except ValueError as exc:
+                raise MeetingIdempotencyConflict(
+                    "stored segment speaker rename response snapshot is invalid"
+                ) from exc
+            expected_operation = (
+                "rename_speaker"
+                if request.scope == SpeakerRenameScope.SPEAKER
+                else "rename_segment"
+            )
+            track_ids = {track.id for track in response.tracks}
+            if (
+                replay.resource_id != meeting_id
+                or response.operation != expected_operation
+                or response.scope != _value(request.scope)
+                or response.segment.id != segment_id
+                or response.segment.meeting_id != meeting_id
+                or not response.event_id
+                or response.event_cursor < 1
+                or not track_ids
+                or response.segment.speaker_track_id not in track_ids
+                or any(track.meeting_id != meeting_id for track in response.tracks)
+            ):
+                raise MeetingIdempotencyConflict(
+                    "stored segment speaker rename response snapshot identity is invalid"
+                )
+            return response
+        segment = await self._owned_segment(meeting_id, segment_id, owner_user_id, lock=True)
+        if not segment.speaker_track_id:
+            raise MeetingInvalidOperation("transcript segment does not have a speaker track")
+        source = await self._owned_track(
+            meeting_id,
+            segment.speaker_track_id,
+            owner_user_id,
+            lock=True,
+        )
+        if source.version != request.expected_speaker_version:
+            raise MeetingVersionConflict(
+                "speaker track version does not match",
+                current={
+                    "track_id": source.id,
+                    "version": source.version,
+                    "display_name": source.display_name,
+                },
+            )
+
+        source_segment_count = int(
+            (
+                await self.session.exec(
+                    select(func.count())
+                    .select_from(MeetingTranscriptSegment)
+                    .where(
+                        MeetingTranscriptSegment.meeting_id == meeting_id,
+                        MeetingTranscriptSegment.speaker_track_id == source.id,
+                    )
+                )
+            ).one()
+        )
+        if source_segment_count < 1:
+            raise MeetingInvalidOperation("speaker track does not contain transcript segments")
+
+        now = utcnow()
+        display_name = request.display_name.strip()
+        tracks: list[MeetingSpeakerTrack]
+        affected_segment_count: int
+        if request.scope == SpeakerRenameScope.SPEAKER:
+            source.display_name = display_name
+            source.label_source = SpeakerLabelSource.MANUAL.value
+            source.version += 1
+            source.updated_at = now
+            self.session.add(source)
+            tracks = [source]
+            affected_segment_count = source_segment_count
+            operation = "rename_speaker"
+            event_type = "speaker.label.changed"
+            event_payload = {
+                "schema_version": "siq.meeting.speaker_rename.v1",
+                "operation": operation,
+                "scope": SpeakerRenameScope.SPEAKER.value,
+                "speaker": speaker_response(source).model_dump(mode="json"),
+                "affected_segment_count": affected_segment_count,
+                "changed_by": str(owner_user_id),
+            }
+        elif source_segment_count == 1:
+            source.display_name = display_name
+            source.label_source = SpeakerLabelSource.MANUAL.value
+            source.version += 1
+            source.updated_at = now
+            self.session.add(source)
+            tracks = [source]
+            affected_segment_count = 1
+            operation = "rename_segment"
+            event_type = "speaker.label.changed"
+            event_payload = {
+                "schema_version": "siq.meeting.speaker_rename.v1",
+                "operation": operation,
+                "scope": SpeakerRenameScope.SEGMENT.value,
+                "segment_id": segment.id,
+                "speaker": speaker_response(source).model_dump(mode="json"),
+                "affected_segment_count": 1,
+                "changed_by": str(owner_user_id),
+            }
+        else:
+            track_count = int(
+                (
+                    await self.session.exec(
+                        select(func.count())
+                        .select_from(MeetingSpeakerTrack)
+                        .where(MeetingSpeakerTrack.meeting_id == meeting_id)
+                    )
+                ).one()
+            )
+            target = MeetingSpeakerTrack(
+                meeting_id=meeting_id,
+                track_key=f"manual-segment-{uuid4().hex}",
+                anonymous_label=f"发言人 {track_count + 1}",
+                display_name=display_name,
+                label_source=SpeakerLabelSource.MANUAL.value,
+            )
+            self.session.add(target)
+            await self.session.flush()
+            segment.speaker_track_id = target.id
+            segment.updated_at = now
+            self.session.add(segment)
+            source.version += 1
+            source.updated_at = now
+            self.session.add(source)
+            tracks = [source, target]
+            affected_segment_count = 1
+            operation = "rename_segment"
+            event_type = "speaker.track.split"
+            event_payload = {
+                "schema_version": "siq.meeting.speaker_mapping.v1",
+                "operation": "split",
+                "reason": "manual_segment_speaker_rename",
+                "automatic": False,
+                "source_track_id": source.id,
+                "target_track_ids": [target.id],
+                "segment_ids": [segment.id],
+                "changed_by": str(owner_user_id),
+            }
+
+        await self._mark_minutes_artifacts_stale(
+            meeting_id,
+            reason="speaker_rename",
+        )
+        event = await self.events.append(meeting_id, event_type, event_payload)
+        revisions = await self._latest_revisions([segment.id])
+        response_segment = self._segment_response(segment, revisions.get(segment.id), tracks[-1])
+        response = SegmentSpeakerRenameResponse(
+            operation=operation,
+            scope=request.scope,
+            segment=response_segment,
+            tracks=[speaker_response(track) for track in tracks],
+            affected_segment_count=affected_segment_count,
+            event_id=event.event_id,
+            event_cursor=event.cursor,
+        )
+        self._remember_idempotency(
+            owner_user_id=owner_user_id,
+            idempotency_key=idempotency_key,
+            operation="segments.speaker.rename",
+            request=idempotency_request,
+            resource_id=meeting_id,
+            response_status=200,
+            response_payload=_idempotency_response_snapshot(
+                _SEGMENT_SPEAKER_RENAME_REPLAY_SCHEMA,
+                response,
+            ),
+        )
+        await self._commit()
+        return response
 
     async def merge_speakers(
         self,

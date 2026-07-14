@@ -57,6 +57,22 @@ def test_behavior_migration_matrix_acceptance_test_paths_exist() -> None:
             )
 
 
+def test_behavior_migration_matrix_golden_cases_exist_in_registry() -> None:
+    matrix = _json("openclaw_script_migration_matrix.json")
+    registry_path = Path(matrix["golden_case_registry"])
+    assert not registry_path.is_absolute()
+    assert (REPO_ROOT / registry_path).is_file()
+
+    registry = json.loads((REPO_ROOT / registry_path).read_text(encoding="utf-8"))
+    case_ids = [item["case_id"] for item in registry["cases"]]
+    assert len(case_ids) == len(set(case_ids)), "golden case registry contains duplicate case IDs"
+    known_case_ids = set(case_ids)
+
+    for entry in matrix["behavior_entries"]:
+        unknown = sorted(set(entry.get("golden_cases", [])) - known_case_ids)
+        assert not unknown, f"unknown golden cases for {entry['behavior_id']}: {unknown}"
+
+
 def test_all_ic_profiles_require_distinct_private_background_collections() -> None:
     matrix = _json("ic_profile_matrix.json")
     assert matrix["schema_version"] == 2

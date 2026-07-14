@@ -4,6 +4,14 @@ import { useVirtualizer, type Range } from '@tanstack/react-virtual'
 import { BookOpenText, Check, ChevronDown, ChevronUp, CornerDownLeft, Loader2, Pencil, RotateCcw, Save, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -20,6 +28,7 @@ import type {
   MeetingEditIntent,
   MeetingPartialTranscript,
   MeetingSpeakerTrack,
+  MeetingSpeakerRenameScope,
   MeetingTranscriptSegment,
   SegmentCorrectionRequest,
 } from '../types'
@@ -40,6 +49,11 @@ interface TranscriptTimelineProps {
   onSeek?: (offsetMs: number) => void
   onCorrect?: (segment: MeetingTranscriptSegment, request: SegmentCorrectionRequest) => Promise<void>
   onRevert?: (segment: MeetingTranscriptSegment) => Promise<void>
+  onRenameSpeaker?: (
+    segment: MeetingTranscriptSegment,
+    displayName: string,
+    scope: MeetingSpeakerRenameScope,
+  ) => Promise<void>
 }
 
 function DiffPreview({ segment }: { segment: MeetingTranscriptSegment }) {
@@ -88,6 +102,7 @@ export function TranscriptTimeline({
   onSeek,
   onCorrect,
   onRevert,
+  onRenameSpeaker,
 }: TranscriptTimelineProps) {
   const [editingId, setEditingId] = useState('')
   const [draft, setDraft] = useState('')
@@ -98,12 +113,22 @@ export function TranscriptTimeline({
   const [misrecognition, setMisrecognition] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [speakerEditingId, setSpeakerEditingId] = useState('')
+  const [speakerDraft, setSpeakerDraft] = useState('')
+  const [speakerOriginalLabel, setSpeakerOriginalLabel] = useState('')
+  const [speakerScope, setSpeakerScope] = useState<MeetingSpeakerRenameScope>('segment')
+  const [speakerBusy, setSpeakerBusy] = useState(false)
+  const [speakerError, setSpeakerError] = useState('')
   const [following, setFollowing] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
   const speakerById = useMemo(() => new Map(speakers.map((speaker) => [speaker.id, speaker])), [speakers])
   const partialList = useMemo(() => Object.values(partials), [partials])
   const announcement = latestStableAnnouncement(segments)
   const editingIndex = useMemo(() => segments.findIndex((segment) => segment.id === editingId), [editingId, segments])
+  const speakerEditingSegment = useMemo(
+    () => segments.find((segment) => segment.id === speakerEditingId) || null,
+    [segments, speakerEditingId],
+  )
   const rangeExtractor = useCallback((range: Range) => transcriptRangeExtractor(range, editingIndex), [editingIndex])
   const getItemKey = useCallback((index: number) => segments[index]?.id ?? index, [segments])
   // TanStack Virtual intentionally exposes mutable measurement methods.
@@ -145,6 +170,44 @@ export function TranscriptTimeline({
     setAddTerm(false)
     setTerm('')
     setError('')
+  }
+
+  function beginSpeakerEdit(segment: MeetingTranscriptSegment, label: string) {
+    setSpeakerEditingId(segment.id)
+    setSpeakerDraft(label)
+    setSpeakerOriginalLabel(label)
+    setSpeakerScope('segment')
+    setSpeakerError('')
+  }
+
+  function closeSpeakerEdit() {
+    if (speakerBusy) return
+    setSpeakerEditingId('')
+    setSpeakerError('')
+  }
+
+  async function saveSpeaker() {
+    const segment = speakerEditingSegment
+    const displayName = speakerDraft.trim()
+    if (!segment || !onRenameSpeaker) return
+    if (!displayName) {
+      setSpeakerError('发言人名称不能为空')
+      return
+    }
+    if (displayName === speakerOriginalLabel.trim()) {
+      setSpeakerError('发言人名称没有变化')
+      return
+    }
+    setSpeakerBusy(true)
+    setSpeakerError('')
+    try {
+      await onRenameSpeaker(segment, displayName, speakerScope)
+      setSpeakerEditingId('')
+    } catch (renameError) {
+      setSpeakerError(renameError instanceof Error ? renameError.message : '发言人名称保存失败，请重试')
+    } finally {
+      setSpeakerBusy(false)
+    }
   }
 
   async function save(segment: MeetingTranscriptSegment) {
@@ -218,7 +281,7 @@ export function TranscriptTimeline({
           const segment = segments[virtualRow.index]
           if (!segment) return null
           const speaker = segment.speaker_track_id ? speakerById.get(segment.speaker_track_id) : undefined
-          const label = segment.speaker_display_name || speaker?.display_name || speaker?.anonymous_label || '发言人'
+          const label = speaker?.display_name || speaker?.anonymous_label || segment.speaker_display_name || '发言人'
           const status = stateLabel(segment)
           const editing = editingId === segment.id
           return (
@@ -243,7 +306,18 @@ export function TranscriptTimeline({
               </div>
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-text">{label}</span>
+                  {editable && onRenameSpeaker && segment.speaker_track_id ? (
+                    <button
+                      type="button"
+                      className="-ml-2 inline-flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-left text-sm font-semibold text-text transition-colors hover:bg-primary/5 hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/50"
+                      onClick={() => beginSpeakerEdit(segment, label)}
+                      aria-label={`修改发言人：${label}`}
+                    >
+                      <span className="truncate">{label}</span><Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <span className="truncate text-sm font-semibold text-text">{label}</span>
+                  )}
                   {status ? (
                     <span className={cn(
                       'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium',
@@ -360,6 +434,51 @@ export function TranscriptTimeline({
           <CornerDownLeft />回到实时
         </Button>
       ) : null}
+
+      <Dialog open={Boolean(speakerEditingSegment)} onOpenChange={(open) => { if (!open) closeSpeakerEdit() }}>
+        <DialogContent className="bg-card text-text sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>修改发言人</DialogTitle>
+            <DialogDescription className="leading-6">
+              选择只修改当前这一段，或统一修改本场中属于同一发言人的全部发言。转写文字不会被改写。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-text" htmlFor="meeting-speaker-name">发言人名称</label>
+              <Input
+                id="meeting-speaker-name"
+                className="mt-2 min-h-11"
+                value={speakerDraft}
+                onChange={(event) => { setSpeakerDraft(event.target.value); setSpeakerError('') }}
+                onBlur={() => { if (!speakerDraft.trim()) setSpeakerError('发言人名称不能为空') }}
+                maxLength={100}
+                autoFocus
+                disabled={speakerBusy}
+              />
+              {speakerError ? <p role="alert" className="mt-2 text-sm text-error">{speakerError}</p> : null}
+            </div>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-text">应用范围</legend>
+              <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-md border border-border p-3 transition-colors has-[:checked]:border-primary/60 has-[:checked]:bg-primary/5">
+                <input type="radio" name="speaker-rename-scope" value="segment" checked={speakerScope === 'segment'} onChange={() => setSpeakerScope('segment')} className="mt-1" disabled={speakerBusy} />
+                <span><span className="block text-sm font-medium text-text">仅修改这一段</span><span className="mt-0.5 block text-xs leading-5 text-text-muted">其他由“{speakerOriginalLabel}”发言的段落保持不变。</span></span>
+              </label>
+              <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-md border border-border p-3 transition-colors has-[:checked]:border-primary/60 has-[:checked]:bg-primary/5">
+                <input type="radio" name="speaker-rename-scope" value="speaker" checked={speakerScope === 'speaker'} onChange={() => setSpeakerScope('speaker')} className="mt-1" disabled={speakerBusy} />
+                <span><span className="block text-sm font-medium text-text">修改此发言人的全部发言</span><span className="mt-0.5 block text-xs leading-5 text-text-muted">本场所有属于“{speakerOriginalLabel}”的段落会统一显示新名称。</span></span>
+              </label>
+            </fieldset>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" className="max-sm:min-h-11" onClick={closeSpeakerEdit} disabled={speakerBusy}>取消</Button>
+            <Button type="button" className="max-sm:min-h-11" onClick={() => void saveSpeaker()} disabled={speakerBusy || !speakerDraft.trim()}>
+              {speakerBusy ? <Loader2 className="animate-spin" /> : <Save />}
+              {speakerBusy ? '保存中' : speakerScope === 'segment' ? '保存此段' : '应用到全部'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

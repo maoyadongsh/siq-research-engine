@@ -67,13 +67,13 @@ export interface MeetingIngestCheckpoint {
 
 export interface MeetingRealtimeCheckpoint {
   streamEpoch: number
-  consumedThroughSample: number
+  consumedThroughSample: number | null
   stableOrdinal: number
-  eventCursor: number
+  eventCursor: number | null
 }
 
 export interface MeetingFinalizationCheckpoint {
-  sealedThroughSample: number
+  sealedThroughSample: number | null
   ingestComplete: boolean
   localPlaybackReady: boolean
   serverPlaybackState: 'not_ready' | 'pending_upload' | 'pending_packaging' | 'packaging' | 'ready' | 'failed'

@@ -94,6 +94,11 @@ class SpeakerLabelSource(StrEnum):
     VOICEPRINT_AUTO = "voiceprint_auto"
 
 
+class SpeakerRenameScope(StrEnum):
+    SEGMENT = "segment"
+    SPEAKER = "speaker"
+
+
 class SegmentRevisionType(StrEnum):
     LLM_CORRECTION = "llm_correction"
     MANUAL = "manual"
@@ -733,7 +738,12 @@ class MeetingStreamTicket(SQLModel, table=True):
 
 
 class MeetingIdempotencyRecord(SQLModel, table=True):
-    """Replay record for HTTP writes; it contains no transcript or audio data."""
+    """Replay record for HTTP writes.
+
+    A bounded response snapshot may contain meeting text. Such records bind
+    ``resource_id`` to the meeting aggregate so retention deletes them with the
+    meeting; audio bytes are never stored here.
+    """
 
     __tablename__ = "meeting_idempotency_records"
     __table_args__ = (
@@ -979,6 +989,34 @@ class SpeakerTrackResponse(APIModel):
 class SpeakerRenameRequest(APIModel):
     display_name: str = PydanticField(min_length=1, max_length=100)
     expected_version: int = PydanticField(ge=1)
+
+    @model_validator(mode="after")
+    def validate_display_name(self) -> "SpeakerRenameRequest":
+        if not self.display_name.strip():
+            raise ValueError("display_name cannot be blank")
+        return self
+
+
+class SegmentSpeakerRenameRequest(APIModel):
+    display_name: str = PydanticField(min_length=1, max_length=100)
+    scope: SpeakerRenameScope
+    expected_speaker_version: int = PydanticField(ge=1)
+
+    @model_validator(mode="after")
+    def validate_display_name(self) -> "SegmentSpeakerRenameRequest":
+        if not self.display_name.strip():
+            raise ValueError("display_name cannot be blank")
+        return self
+
+
+class SegmentSpeakerRenameResponse(APIModel):
+    operation: Literal["rename_segment", "rename_speaker"]
+    scope: SpeakerRenameScope
+    segment: TranscriptSegmentResponse
+    tracks: list[SpeakerTrackResponse]
+    affected_segment_count: int = PydanticField(ge=1)
+    event_id: str
+    event_cursor: int
 
 
 class SpeakerMergeRequest(APIModel):

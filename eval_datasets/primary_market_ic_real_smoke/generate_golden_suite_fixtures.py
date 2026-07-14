@@ -43,8 +43,8 @@ SUITE_CASES: tuple[dict[str, str], ...] = (
         "case_id": "GOLDEN-PMIC-INSUFFICIENT-EVIDENCE",
         "fixture": "DEAL-PMIC-INSUFFICIENT-2026",
         "deal_id": "DEAL-PMIC-INSUFFICIENT-2026",
-        "execution": "R0-R4 real Hermes run; preserve explicit missing/assumed claims",
-        "expected_outcome": "insufficient_evidence",
+        "execution": "Real Hermes run until an audited R0/R1.5 fail-closed terminal, or through R4 when the workflow lawfully advances",
+        "expected_outcome": "fail_closed_insufficient_evidence",
     },
     {
         "case_id": "GOLDEN-PMIC-FULL-R3",
@@ -132,12 +132,12 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "fixture_id": "PMIC-GOLDEN-INSUFFICIENT-001",
         "label": "verified_material_omissions",
         "expected_semantics": {
-            "r0": "ready_or_needs_more_evidence_as_model_determines",
+            "r0": "ready_with_explicit_limits_or_audited_needs_more_evidence_as_model_determines",
             "r1": "material_claims_are_restricted_instead_of_invented",
             "r1_5": "missing_facts_remain_explicit",
             "r2": "no_missing_fact_is_silently_upgraded",
             "r3": "debate_cannot_substitute_for_missing_project_evidence",
-            "r4": "insufficient_evidence_if_the_workflow_reaches_a_decision",
+            "r4": "insufficient_evidence_only_if_the_workflow_lawfully_reaches_a_decision; never synthesize R4 after an early terminal",
         },
         "critical_fact_status": "incomplete",
         "critical_gaps": [
@@ -527,6 +527,14 @@ def build_scenario(case_id: str) -> tuple[Any, dict[str, str]]:
     quality["critical_fact_status"] = scenario["critical_fact_status"]
     quality["known_critical_fact_gaps"] = scenario["critical_gaps"]
     if scenario["critical_gaps"]:
+        for gate in quality.get("gates", []):
+            if isinstance(gate, dict) and gate.get("id") == "critical_fact_completeness":
+                gate.update(
+                    {
+                        "status": "warn",
+                        "message": f"{len(scenario['critical_gaps'])} known critical facts are missing",
+                    }
+                )
         quality["warnings"] = [f"verified_material_omission:{item}" for item in scenario["critical_gaps"]]
         quality["limitations"] = [
             *quality.get("limitations", []),
@@ -576,8 +584,16 @@ def _validate_candidate_input(
                     raise AssertionError(f"{case_id} input contains approval-like field: {relative}")
     manifest = _json_file(files, "manifest.json")
     contract = _json_file(files, "fixture_contract.json")
+    quality = _json_file(files, "evidence/evidence_quality_report.json")
     if manifest.get("deal_id") != scenario["deal_id"] or contract.get("golden_case_id") != case_id:
         raise AssertionError(f"{case_id} input identity mismatch")
+    critical_gate = next(
+        (gate for gate in quality.get("gates", []) if isinstance(gate, dict) and gate.get("id") == "critical_fact_completeness"),
+        None,
+    )
+    expected_gate_status = "warn" if scenario["critical_gaps"] else "pass"
+    if not isinstance(critical_gate, dict) or critical_gate.get("status") != expected_gate_status:
+        raise AssertionError(f"{case_id} critical fact gate mismatch")
     if manifest.get("quality_accepted") is not False or contract.get("quality_accepted") is not False:
         raise AssertionError(f"{case_id} input must remain unaccepted")
     if scenario.get("stale_update"):

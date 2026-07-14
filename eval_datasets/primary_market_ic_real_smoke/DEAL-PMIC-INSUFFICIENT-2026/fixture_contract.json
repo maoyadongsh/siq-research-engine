@@ -14,12 +14,12 @@
     "R4"
   ],
   "expected_semantics": {
-    "r0": "ready_or_needs_more_evidence_as_model_determines",
+    "r0": "ready_with_explicit_limits_or_audited_needs_more_evidence_as_model_determines",
     "r1": "material_claims_are_restricted_instead_of_invented",
     "r1_5": "missing_facts_remain_explicit",
     "r2": "no_missing_fact_is_silently_upgraded",
     "r3": "debate_cannot_substitute_for_missing_project_evidence",
-    "r4": "insufficient_evidence_if_the_workflow_reaches_a_decision"
+    "r4": "insufficient_evidence_only_if_the_workflow_lawfully_reaches_a_decision; never synthesize R4 after an early terminal"
   },
   "critical_fact_completeness": {
     "status": "incomplete",

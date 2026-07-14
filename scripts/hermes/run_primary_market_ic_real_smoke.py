@@ -45,7 +45,7 @@ STATE_SCHEMA = "siq_ic_real_smoke_state_v1"
 PHASE_ORDER = ("R0", "R1", "R1.5", "R2", "R3", "R4")
 DEFAULT_PHASES = ("R0", "R1")
 CREATED_BY = {"id": "primary-market-ic-real-smoke", "username": "real-smoke-runner"}
-WORKFLOW_ADVANCE_PHASES = frozenset({"R1.5", "R2", "R3", "R4"})
+WORKFLOW_ADVANCE_PHASES = frozenset({"R0", "R1.5", "R2", "R3", "R4"})
 
 PHASE_PROFILES: dict[str, tuple[str, ...]] = {
     "R0": (ic_phase_orchestrator.COORDINATOR_AGENT_ID,),
@@ -599,10 +599,11 @@ async def _execute_phase(
         missing = sorted(expected_executors - actual_executors)
     if result.get("hermes_called") is not True or missing:
         raise RuntimeError(f"{phase} did not complete validated real tasks: {', '.join(missing) or 'Hermes not called'}")
-    if phase == "R0" and result.get("status") != "completed":
-        raise RuntimeError(f"R0 readiness did not pass: {result.get('status') or 'unknown'}")
-    if str(result.get("status") or "") in {"stale_on_completion", "quality_blocked", "factcheck_blocked"}:
+    result_status = str(result.get("status") or "")
+    if result_status == "stale_on_completion":
         raise RuntimeError(f"{phase} returned {result.get('status')}")
+    if phase == "R0" and result_status not in {"completed", "blocked", "needs_more_evidence"}:
+        raise RuntimeError(f"R0 readiness returned an invalid terminal status: {result_status or 'unknown'}")
     for record in records:
         state.setdefault("profile_tasks", {}).setdefault(record["profile_id"], []).append(record)
     task_validated = all(

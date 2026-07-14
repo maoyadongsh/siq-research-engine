@@ -54,6 +54,7 @@ final class MeetingCaptureUploader: NSObject, URLSessionDelegate, URLSessionTask
     private var synchronizationCompletions: [
         (Result<MeetingServerCheckpoint, MeetingCaptureError>) -> Void
     ] = []
+    private var foregroundBearerToken: String?
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
         configuration.sessionSendsLaunchEvents = true
@@ -66,7 +67,7 @@ final class MeetingCaptureUploader: NSObject, URLSessionDelegate, URLSessionTask
 
     var onBatchUploaded: ((MeetingCaptureBatch) -> Void)?
     var onCheckpoint: ((MeetingServerCheckpoint) -> Void)?
-    var onSealed: ((MeetingServerSealResponse) -> Void)?
+    var onSealed: ((MeetingServerCheckpoint) -> Void)?
     var onError: ((MeetingCaptureError) -> Void)?
 
     init(store: MeetingCaptureStore, keychain: MeetingCaptureKeychain) throws {
@@ -146,6 +147,11 @@ final class MeetingCaptureUploader: NSObject, URLSessionDelegate, URLSessionTask
         })
         lock.unlock()
         drainQueue()
+    }
+
+    func setForegroundBearerToken(_ value: String?) {
+        let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        foregroundBearerToken = cleaned?.isEmpty == false ? cleaned : nil
     }
 
     func refreshCheckpointAndSchedule(
@@ -326,7 +332,7 @@ final class MeetingCaptureUploader: NSObject, URLSessionDelegate, URLSessionTask
                   manifest.pendingRollover == nil,
                   try store.pendingBatches().isEmpty else { return }
             let credentials = try keychain.credentials(captureId: manifest.captureId)
-            let boundary = try store.canonicalBoundary()
+            let boundary = try store.beginFinalSealBoundary()
             lock.lock()
             guard sealRequested, !sealInFlight else {
                 lock.unlock()
@@ -359,8 +365,57 @@ final class MeetingCaptureUploader: NSObject, URLSessionDelegate, URLSessionTask
                                 throw MeetingCaptureError.serverResponseInvalid
                             }
                             try self.store.reconcile(response.checkpoint)
+                            self.lastCheckpoint = response.checkpoint
                             self.onCheckpoint?(response.checkpoint)
-                            self.onSealed?(response)
+                            self.declareNextGap(after: response)
+                        } catch let error as MeetingCaptureError {
+                            self.onError?(error)
+                        } catch {
+                            self.onError?(.storageUnavailable)
+                        }
+                    case .failure(let error):
+                        self.onError?(error)
+                    }
+                }
+            }
+        } catch let error as MeetingCaptureError {
+            onError?(error)
+        } catch {
+            onError?(.storageUnavailable)
+        }
+    }
+
+    private func declareNextGap(after sealResponse: MeetingServerSealResponse) {
+        do {
+            let gaps = try store.pendingServerGaps()
+            guard let gap = gaps.first else {
+                foregroundBearerToken = nil
+                onSealed?(lastCheckpoint ?? sealResponse.checkpoint)
+                return
+            }
+            let manifest = try store.currentManifest()
+            serverClient.declareGap(
+                manifest: manifest,
+                gap: gap,
+                userBearerToken: foregroundBearerToken
+            ) { [weak self] result in
+                DispatchQueue.meetingCapture.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let response):
+                        do {
+                            guard response.schemaVersion == meetingCaptureSchemaVersion,
+                                  response.captureId == manifest.captureId,
+                                  response.checkpoint.captureId == manifest.captureId,
+                                  response.checkpoint.meetingId == manifest.meetingId,
+                                  let key = gap.idempotencyKey else {
+                                throw MeetingCaptureError.serverResponseInvalid
+                            }
+                            try self.store.markGapServerDeclared(idempotencyKey: key)
+                            try self.store.reconcile(response.checkpoint)
+                            self.lastCheckpoint = response.checkpoint
+                            self.onCheckpoint?(response.checkpoint)
+                            self.declareNextGap(after: sealResponse)
                         } catch let error as MeetingCaptureError {
                             self.onError?(error)
                         } catch {
