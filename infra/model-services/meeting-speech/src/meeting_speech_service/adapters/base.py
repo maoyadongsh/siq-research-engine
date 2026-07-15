@@ -83,6 +83,13 @@ class SpeakerEmbedding:
 
 
 @dataclass(frozen=True, slots=True)
+class SpeakerClustering:
+    diarizer_ref: str
+    labels: tuple[int, ...]
+    cluster_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class Recognition:
     kind: Literal["partial", "final"]
     segment_token: str
@@ -156,6 +163,14 @@ class SpeechEngine(ABC):
 
     async def speaker_embedding(self, pcm: bytes) -> SpeakerEmbedding:
         raise AdapterUnavailable("SPEAKER_EMBEDDING_UNAVAILABLE")
+
+    async def cluster_speaker_embeddings(
+        self,
+        embeddings: tuple[tuple[float, ...], ...],
+        *,
+        speaker_count: int | None = None,
+    ) -> SpeakerClustering:
+        raise AdapterUnavailable("SPEAKER_CLUSTERING_UNAVAILABLE")
 
     @abstractmethod
     async def close(self) -> None:

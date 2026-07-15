@@ -670,6 +670,7 @@ def _build_engine(
         http_finalizer_queue_timeout_seconds=settings.http_finalizer_queue_timeout_seconds,
         http_finalizer_max_concurrency=settings.http_finalizer_max_concurrency,
         http_finalizer_max_response_bytes=settings.http_finalizer_max_response_bytes,
+        http_finalizer_speaker_hints_enabled=settings.http_finalizer_speaker_hints_enabled,
         vad_model=settings.vad_model,
         punctuation_model=settings.punctuation_model,
         online_chunk_size=settings.parsed_online_chunk_size,
@@ -691,6 +692,9 @@ def _build_engine(
         speaker_max_clipping_ratio=settings.speaker_max_clipping_ratio,
         speaker_inference_timeout_seconds=settings.speaker_inference_timeout_seconds,
         embedding_endpoint_enabled=settings.embedding_endpoint_enabled,
+        speaker_global_cluster_enabled=settings.speaker_global_cluster_enabled,
+        speaker_global_cluster_merge_threshold=settings.speaker_global_cluster_merge_threshold,
+        speaker_global_cluster_max_speakers=settings.speaker_global_cluster_max_speakers,
         speaker_metrics_observer=speaker_metrics_observer,
     )
 

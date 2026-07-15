@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import anyio
+import pytest
 from services.auth_service import User
 from services.meeting_ai_worker import MeetingAIWorker, MeetingAIWorkerConfig
 from services.meeting_contracts import (
@@ -184,10 +185,22 @@ class MergeAllSpeakerReclusterService:
 
 
 class UnvalidatedMappingSpeakerReclusterService:
-    def __init__(self):
+    def __init__(self, *, authoritative: bool = False):
         self.policy = SpeakerReclusterPolicy()
+        self.authoritative = authoritative
 
     async def plan(self, **kwargs):
+        if self.authoritative:
+            return SpeakerReclusterPlan(
+                segment_cluster_keys={
+                    segment.id: "global-speaker-0" for segment in kwargs["segments"]
+                },
+                policy_version="speaker-recluster.funasr-global-spectral.v1",
+                final_diarizer_ref="native-global-diarizer-v1",
+                automatic_enabled=True,
+                authoritative_global_clustering=True,
+                cluster_count=1,
+            )
         active_track_ids = sorted(
             {segment.speaker_track_id for segment in kwargs["segments"] if segment.speaker_track_id}
         )
@@ -1404,6 +1417,9 @@ def test_global_recluster_applies_mapping_and_requeues_voiceprint_for_active_tar
                 "observed_final_diarizer_ref": "diarizer-test-v1",
                 "validation_artifact_sha256": "b" * 64,
                 "automatic_enabled": True,
+                "authoritative_global_clustering": False,
+                "cluster_count": 0,
+                "clustered_segment_count": 0,
                 "encoder_ref": "diarization-test-v1",
                 "embedded_track_count": 2,
                 "selected_sample_count": 4,
@@ -1689,7 +1705,18 @@ def test_pending_recluster_does_not_undo_a_prior_manual_track_merge():
     anyio.run(scenario)
 
 
-def test_unvalidated_global_mapping_is_ignored_even_if_service_returns_targets():
+@pytest.mark.parametrize(
+    ("authoritative", "expect_merged", "expected_degraded_reason"),
+    [
+        (False, False, "SPEAKER_RECLUSTER_POLICY_GATE_INVALID"),
+        (True, True, None),
+    ],
+)
+def test_only_authoritative_global_mapping_bypasses_unvalidated_threshold_gate(
+    authoritative,
+    expect_merged,
+    expected_degraded_reason,
+):
     async def scenario():
         engine = await _engine()
         factory = _factory(engine)
@@ -1716,7 +1743,7 @@ def test_unvalidated_global_mapping_is_ignored_even_if_service_returns_targets()
             first = await _add_segment(session, meeting, 1, "未校准一")
             second = await _add_segment(session, meeting, 2, "未校准二")
             first.speaker_track_id = first_track.id
-            second.speaker_track_id = second_track.id
+            second.speaker_track_id = None if authoritative else second_track.id
             session.add_all([first, second])
             alignment = MeetingArtifact(
                 meeting_id=meeting.id,
@@ -1751,23 +1778,22 @@ def test_unvalidated_global_mapping_is_ignored_even_if_service_returns_targets()
         worker = _worker(
             factory,
             FakeRunner(),
-            speaker_recluster_service=UnvalidatedMappingSpeakerReclusterService(),
+            speaker_recluster_service=UnvalidatedMappingSpeakerReclusterService(
+                authoritative=authoritative,
+            ),
         )
         assert await worker.run_once() is True
         async with factory() as session:
             stored_first = await session.get(MeetingTranscriptSegment, first.id)
             stored_second = await session.get(MeetingTranscriptSegment, second.id)
-            assert stored_first.speaker_track_id != stored_second.speaker_track_id
+            assert (stored_first.speaker_track_id == stored_second.speaker_track_id) is expect_merged
             artifact = (
                 await session.exec(
                     select(MeetingArtifact).where(MeetingArtifact.artifact_type == "speaker_recluster")
                 )
             ).one()
             payload = decode_json(artifact.content_json, {})
-            assert (
-                payload["global_embedding_recluster"]["degraded_reason"]
-                == "SPEAKER_RECLUSTER_POLICY_GATE_INVALID"
-            )
+            assert payload["global_embedding_recluster"]["degraded_reason"] == expected_degraded_reason
         await engine.dispose()
 
     anyio.run(scenario)

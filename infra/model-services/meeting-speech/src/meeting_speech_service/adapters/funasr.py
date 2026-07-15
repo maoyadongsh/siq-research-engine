@@ -13,6 +13,7 @@ from meeting_speech_service.adapters.base import (
     AdapterUnavailable,
     EngineSnapshot,
     SessionOptions,
+    SpeakerClustering,
     SpeakerEmbedding,
     SpeechEngine,
     SpeechSession,
@@ -45,6 +46,7 @@ class FunASREngine(SpeechEngine):
         http_finalizer_queue_timeout_seconds: float,
         http_finalizer_max_concurrency: int,
         http_finalizer_max_response_bytes: int,
+        http_finalizer_speaker_hints_enabled: bool,
         vad_model: str,
         punctuation_model: str,
         online_chunk_size: tuple[int, int, int],
@@ -66,6 +68,9 @@ class FunASREngine(SpeechEngine):
         speaker_max_clipping_ratio: float,
         speaker_inference_timeout_seconds: float,
         embedding_endpoint_enabled: bool,
+        speaker_global_cluster_enabled: bool,
+        speaker_global_cluster_merge_threshold: float,
+        speaker_global_cluster_max_speakers: int,
         speaker_metrics_observer: Callable[[str, str | None], None] | None = None,
     ) -> None:
         self._source_root = source_root
@@ -79,6 +84,7 @@ class FunASREngine(SpeechEngine):
         self._http_finalizer_queue_timeout_seconds = http_finalizer_queue_timeout_seconds
         self._http_finalizer_max_concurrency = http_finalizer_max_concurrency
         self._http_finalizer_max_response_bytes = http_finalizer_max_response_bytes
+        self._http_finalizer_speaker_hints_enabled = http_finalizer_speaker_hints_enabled
         self._vad_model_ref = vad_model
         self._punctuation_model_ref = punctuation_model
         self._chunk_size = list(online_chunk_size)
@@ -100,6 +106,9 @@ class FunASREngine(SpeechEngine):
         self._speaker_max_clipping_ratio = speaker_max_clipping_ratio
         self._speaker_inference_timeout_seconds = speaker_inference_timeout_seconds
         self._embedding_endpoint_enabled = embedding_endpoint_enabled
+        self._speaker_global_cluster_enabled = speaker_global_cluster_enabled
+        self._speaker_global_cluster_merge_threshold = speaker_global_cluster_merge_threshold
+        self._speaker_global_cluster_max_speakers = speaker_global_cluster_max_speakers
         self._speaker_metrics_observer = speaker_metrics_observer
         self._configured_diarizer_ref = build_diarizer_ref(
             adapter="funasr",
@@ -117,6 +126,9 @@ class FunASREngine(SpeechEngine):
                 "max_prototypes": speaker_max_prototypes,
                 "min_rms": speaker_min_rms,
                 "max_clipping_ratio": speaker_max_clipping_ratio,
+                "global_cluster": "funasr-spectral",
+                "global_cluster_merge_threshold": speaker_global_cluster_merge_threshold,
+                "global_cluster_max_speakers": speaker_global_cluster_max_speakers,
                 "finalization_protocol": INDEPENDENT_FINALIZATION_PROTOCOL,
             },
         )
@@ -141,6 +153,7 @@ class FunASREngine(SpeechEngine):
         self._final_lock = Lock()
         self._vad_lock = Lock()
         self._speaker_lock = Lock()
+        self._speaker_cluster_lock = Lock()
         self._closing = False
 
     @property
@@ -194,6 +207,9 @@ class FunASREngine(SpeechEngine):
                 "embedding_endpoint": "ready"
                 if self._embedding_endpoint_enabled and self._speaker_model is not None and not self._speaker_timed_out
                 else ("disabled" if not self._embedding_endpoint_enabled else "unavailable"),
+                "speaker_global_cluster": "ready"
+                if self._speaker_global_cluster_enabled and self._speaker_model is not None and not self._speaker_timed_out
+                else ("disabled" if not self._speaker_global_cluster_enabled else "unavailable"),
             },
         )
 
@@ -260,6 +276,29 @@ class FunASREngine(SpeechEngine):
             values=tuple(float(value) for value in vector),
         )
 
+    async def cluster_speaker_embeddings(
+        self,
+        embeddings: tuple[tuple[float, ...], ...],
+        *,
+        speaker_count: int | None = None,
+    ) -> SpeakerClustering:
+        if not self._speaker_global_cluster_enabled or self._speaker_model is None:
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_UNAVAILABLE")
+        if speaker_count is not None and not 1 <= speaker_count <= self._speaker_global_cluster_max_speakers:
+            raise AdapterUnavailable("SPEAKER_COUNT_INVALID")
+        try:
+            labels = await asyncio.wait_for(
+                asyncio.to_thread(self._cluster_speaker_embeddings_sync, embeddings, speaker_count),
+                timeout=self._speaker_inference_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_TIMEOUT") from exc
+        return SpeakerClustering(
+            diarizer_ref=self.diarizer_ref,
+            labels=labels,
+            cluster_count=len(set(labels)),
+        )
+
     async def close(self) -> None:
         self._closing = True
         self._state = "stopped"
@@ -301,6 +340,7 @@ class FunASREngine(SpeechEngine):
                 queue_timeout_seconds=self._http_finalizer_queue_timeout_seconds,
                 max_concurrency=self._http_finalizer_max_concurrency,
                 max_response_bytes=self._http_finalizer_max_response_bytes,
+                speaker_hints_enabled=self._http_finalizer_speaker_hints_enabled,
             )
             self._http_finalizer.probe()
         self._vad_model = AutoModel(
@@ -374,6 +414,38 @@ class FunASREngine(SpeechEngine):
         if not np.all(np.isfinite(normalized)):
             raise AdapterUnavailable("SPEAKER_EMBEDDING_INVALID")
         return normalized.astype(np.float32, copy=False)
+
+    def _cluster_speaker_embeddings_sync(
+        self,
+        embeddings: tuple[tuple[float, ...], ...],
+        speaker_count: int | None,
+    ) -> tuple[int, ...]:
+        try:
+            import torch
+            from funasr.models.campplus.cluster_backend import ClusterBackend
+        except ImportError as exc:
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_IMPORT_FAILED") from exc
+        matrix = np.asarray(embeddings, dtype=np.float32)
+        if matrix.ndim != 2 or matrix.shape[0] < 2 or matrix.shape[1] < 2 or not np.all(np.isfinite(matrix)):
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_INPUT_INVALID")
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        if np.any(norms <= 1e-12):
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_INPUT_INVALID")
+        matrix = matrix / norms
+        with self._speaker_cluster_lock:
+            cluster = ClusterBackend(merge_thr=self._speaker_global_cluster_merge_threshold)
+            labels = cluster(torch.from_numpy(matrix), oracle_num=speaker_count)
+        values = np.asarray(labels, dtype=np.int64).reshape(-1)
+        if values.size != matrix.shape[0] or np.any(values < 0):
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_OUTPUT_INVALID")
+        remap: dict[int, int] = {}
+        normalized: list[int] = []
+        for value in values.tolist():
+            key = int(value)
+            if key not in remap:
+                remap[key] = len(remap)
+            normalized.append(remap[key])
+        return tuple(normalized)
 
 
 class _FunASRVad:

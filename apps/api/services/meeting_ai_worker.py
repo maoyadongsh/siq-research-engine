@@ -2020,26 +2020,42 @@ class MeetingAIWorker:
                     degraded_reason=exc.code,
                 )
 
-            if global_plan.track_targets:
+            if global_plan.track_targets or global_plan.segment_cluster_keys:
                 configured_policy = self.speaker_recluster_service.policy
-                policy_gate_valid = (
-                    global_plan.automatic_enabled
-                    and configured_policy.auto_apply_validated
-                    and global_plan.policy_version == configured_policy.version
-                    and global_plan.final_diarizer_ref == configured_policy.final_diarizer_ref
-                    and global_plan.validation_artifact_sha256 == configured_policy.validation_artifact_sha256
-                    and ".validated." in global_plan.policy_version
-                    and isinstance(global_plan.validation_artifact_sha256, str)
-                    and re.fullmatch(r"[0-9a-f]{64}", global_plan.validation_artifact_sha256) is not None
-                )
+                if global_plan.authoritative_global_clustering:
+                    policy_gate_valid = (
+                        global_plan.automatic_enabled
+                        and global_plan.policy_version == "speaker-recluster.funasr-global-spectral.v1"
+                        and isinstance(global_plan.final_diarizer_ref, str)
+                        and re.fullmatch(
+                            r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,191}",
+                            global_plan.final_diarizer_ref,
+                        )
+                        is not None
+                    )
+                else:
+                    policy_gate_valid = (
+                        global_plan.automatic_enabled
+                        and configured_policy.auto_apply_validated
+                        and global_plan.policy_version == configured_policy.version
+                        and global_plan.final_diarizer_ref == configured_policy.final_diarizer_ref
+                        and global_plan.validation_artifact_sha256 == configured_policy.validation_artifact_sha256
+                        and ".validated." in global_plan.policy_version
+                        and isinstance(global_plan.validation_artifact_sha256, str)
+                        and re.fullmatch(r"[0-9a-f]{64}", global_plan.validation_artifact_sha256) is not None
+                    )
                 diarizer_binding_valid = (
-                    observed_diarizer_ref is not None
-                    and observed_diarizer_ref == configured_policy.final_diarizer_ref
+                    global_plan.authoritative_global_clustering
+                    or (
+                        observed_diarizer_ref is not None
+                        and observed_diarizer_ref == configured_policy.final_diarizer_ref
+                    )
                 )
                 if not policy_gate_valid or not diarizer_binding_valid:
                     global_plan = replace(
                         global_plan,
                         track_targets={},
+                        segment_cluster_keys={},
                         automatic_enabled=False,
                         degraded_reason=(
                             "SPEAKER_RECLUSTER_FINAL_DIARIZER_MISMATCH"
@@ -2126,20 +2142,58 @@ class MeetingAIWorker:
             meeting = locked_meeting
             current = locked_job
 
+            global_clusters: dict[str, list[MeetingTranscriptSegment]] = defaultdict(list)
+            for segment_id, cluster_key in global_plan.segment_cluster_keys.items():
+                member = segment_by_id.get(segment_id)
+                if member is None or not cluster_key or len(cluster_key) > 128:
+                    raise MeetingAIOutputInvalid("global speaker cluster mapping is invalid")
+                global_clusters[cluster_key].append(member)
+            global_target_by_cluster: dict[str, str] = {}
+            claimed_global_targets: set[str] = set()
+            for cluster_key, members in sorted(global_clusters.items()):
+                available_ids = [
+                    member.speaker_track_id
+                    for member in members
+                    if member.speaker_track_id
+                    and member.speaker_track_id not in claimed_global_targets
+                    and member.speaker_track_id not in manual_mapping_track_ids
+                    and member.speaker_track_id in track_by_id
+                    and track_by_id[member.speaker_track_id].label_source not in protected_sources
+                ]
+                target_id = Counter(available_ids).most_common(1)[0][0] if available_ids else ""
+                if not target_id:
+                    target = MeetingSpeakerTrack(
+                        meeting_id=job.meeting_id,
+                        track_key=f"global-{uuid4().hex}",
+                        anonymous_label=f"发言人 {len(track_by_id) + 1}",
+                    )
+                    track_by_id[target.id] = target
+                    tracks.append(target)
+                    target_id = target.id
+                claimed_global_targets.add(target_id)
+                global_target_by_cluster[cluster_key] = target_id
+
             for member in segments:
                 source_id = member.speaker_track_id
-                target_id = global_plan.track_targets.get(source_id or "")
-                if not source_id or not target_id or source_id == target_id:
+                cluster_key = global_plan.segment_cluster_keys.get(member.id)
+                target_id = (
+                    global_target_by_cluster.get(cluster_key, "")
+                    if cluster_key is not None
+                    else global_plan.track_targets.get(source_id or "", "")
+                )
+                if not target_id or source_id == target_id:
+                    continue
+                if source_id is None and cluster_key is None:
                     continue
                 source = track_by_id.get(source_id)
                 target = track_by_id.get(target_id)
-                if source is None or target is None:
+                if target is None or (source_id is not None and source is None):
                     raise MeetingAIOutputInvalid("global speaker recluster target is invalid")
                 if (
                     member.human_locked
                     or member.id in manual_mapping_segment_ids
                     or source_id in manual_mapping_track_ids
-                    or source.label_source in protected_sources
+                    or (source is not None and source.label_source in protected_sources)
                 ):
                     protected_segment_ids.append(member.id)
                     continue
@@ -2271,6 +2325,9 @@ class MeetingAIWorker:
                             "observed_final_diarizer_ref": observed_diarizer_ref,
                             "validation_artifact_sha256": global_plan.validation_artifact_sha256,
                             "automatic_enabled": global_plan.automatic_enabled,
+                            "authoritative_global_clustering": global_plan.authoritative_global_clustering,
+                            "cluster_count": global_plan.cluster_count,
+                            "clustered_segment_count": len(global_plan.segment_cluster_keys),
                             "encoder_ref": global_plan.encoder_ref,
                             "embedded_track_count": global_plan.embedded_track_count,
                             "selected_sample_count": global_plan.selected_sample_count,

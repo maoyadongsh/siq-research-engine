@@ -13,6 +13,7 @@ def _finalizer(
     *,
     max_response_bytes: int = 10_000,
     max_concurrency: int = 1,
+    speaker_hints_enabled: bool = False,
 ) -> FunASRHttpFinalizer:
     return FunASRHttpFinalizer(
         url="http://127.0.0.1:8899/asr",
@@ -21,6 +22,7 @@ def _finalizer(
         queue_timeout_seconds=1,
         max_concurrency=max_concurrency,
         max_response_bytes=max_response_bytes,
+        speaker_hints_enabled=speaker_hints_enabled,
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
 
@@ -33,7 +35,7 @@ def test_existing_funasr_contract_is_called_with_bounded_wav() -> None:
         assert b'filename="segment.wav"' in body
         assert b"RIFF" in body
         assert b'name="spk"' in body
-        assert b"true" in body
+        assert b"false" in body
         return httpx.Response(
             200,
             json={
@@ -59,6 +61,19 @@ def test_existing_funasr_contract_is_called_with_bounded_wav() -> None:
     assert result.word_timings[0].start_ms == 0
     assert result.word_timings[0].end_ms == 100
     assert result.source_speaker_hints == ("SPK0",)
+
+
+def test_http_finalizer_can_explicitly_request_source_speaker_hints() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"openapi": "3.0.0"})
+        body = request.read()
+        assert b'name="spk"' in body
+        assert b"true" in body
+        return httpx.Response(200, json={"text": "ok", "segments": []})
+
+    finalizer = _finalizer(handler, speaker_hints_enabled=True)
+    assert finalizer.decode(b"\x00\x00" * 1_600, hotwords=(), language="zh").text == "ok"
 
 
 def test_http_finalizer_rejects_oversized_response() -> None:

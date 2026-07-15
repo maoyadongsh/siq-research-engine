@@ -4,8 +4,10 @@ from typing import Callable
 
 from meeting_speech_service.adapters.base import (
     INDEPENDENT_FINALIZATION_PROTOCOL,
+    AdapterUnavailable,
     EngineSnapshot,
     SessionOptions,
+    SpeakerClustering,
     SpeakerEmbedding,
     SpeechEngine,
     SpeechSession,
@@ -107,6 +109,18 @@ class MockSpeechEngine(SpeechEngine):
         if self._state != "degraded":
             raise RuntimeError("mock engine is not initialized")
         return SpeakerEmbedding(encoder_ref="mock", values=(1.0, 0.0))
+
+    async def cluster_speaker_embeddings(
+        self,
+        embeddings: tuple[tuple[float, ...], ...],
+        *,
+        speaker_count: int | None = None,
+    ) -> SpeakerClustering:
+        if not embeddings:
+            raise AdapterUnavailable("SPEAKER_CLUSTERING_INPUT_INVALID")
+        count = speaker_count or 1
+        labels = tuple(index % count for index in range(len(embeddings)))
+        return SpeakerClustering(self.diarizer_ref, labels, count)
 
     async def close(self) -> None:
         self._state = "stopped"

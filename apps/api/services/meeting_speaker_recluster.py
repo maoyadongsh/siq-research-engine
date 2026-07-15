@@ -14,7 +14,8 @@ import os
 import re
 from array import array
 from bisect import bisect_left
-from dataclasses import dataclass, field
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Protocol, Sequence
 from urllib.parse import urlsplit, urlunsplit
@@ -32,6 +33,7 @@ from services.meeting_contracts import (
 )
 
 EMBEDDING_SCHEMA = "siq.meeting.speaker_embedding.v1"
+CLUSTER_SCHEMA = "siq.meeting.speaker_cluster.v1"
 RECLUSTER_POLICY_SCHEMA = "siq.meeting.speaker_recluster_policy.v1"
 DIARIZATION_REPORT_PRIVACY_BOUNDARY = {
     "aggregate_or_fixed_metadata_only": True,
@@ -547,6 +549,7 @@ class SpeakerMergeProposal:
 @dataclass(frozen=True, slots=True)
 class SpeakerReclusterPlan:
     track_targets: dict[str, str] = field(default_factory=dict)
+    segment_cluster_keys: dict[str, str] = field(default_factory=dict)
     proposals: tuple[SpeakerMergeProposal, ...] = ()
     embedded_track_count: int = 0
     selected_sample_count: int = 0
@@ -556,6 +559,8 @@ class SpeakerReclusterPlan:
     policy_version: str = "speaker-recluster.unvalidated.v1"
     validation_artifact_sha256: str | None = None
     automatic_enabled: bool = False
+    authoritative_global_clustering: bool = False
+    cluster_count: int = 0
     degraded_reason: str | None = None
 
 
@@ -566,6 +571,13 @@ class DiarizationEmbedding:
     duration_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class DiarizationClustering:
+    diarizer_ref: str
+    labels: tuple[int, ...]
+    cluster_count: int
+
+
 class DiarizationEmbeddingClient(Protocol):
     async def embed(
         self,
@@ -574,6 +586,17 @@ class DiarizationEmbeddingClient(Protocol):
         meeting_id: str,
         run_id: str,
     ) -> DiarizationEmbedding: ...
+
+
+class DiarizationClusterClient(Protocol):
+    async def cluster(
+        self,
+        embeddings: Sequence[Sequence[float]],
+        *,
+        meeting_id: str,
+        run_id: str,
+        speaker_count: int | None = None,
+    ) -> DiarizationClustering: ...
 
 
 class HttpDiarizationEmbeddingClient:
@@ -604,6 +627,7 @@ class HttpDiarizationEmbeddingClient:
         if timeout_seconds <= 0 or not 1_024 <= max_response_bytes <= 1_048_576:
             raise ValueError("diarization embedding HTTP bounds are invalid")
         self.endpoint = endpoint
+        self.cluster_endpoint = _sibling_endpoint(endpoint, "/v1/speaker/cluster")
         self.service_token = service_token
         self.expected_encoder_ref = expected_encoder_ref
         self.max_response_bytes = max_response_bytes
@@ -689,6 +713,83 @@ class HttpDiarizationEmbeddingClient:
             )
         return DiarizationEmbedding(self.expected_encoder_ref, vector, duration_ms)
 
+    async def cluster(
+        self,
+        embeddings: Sequence[Sequence[float]],
+        *,
+        meeting_id: str,
+        run_id: str,
+        speaker_count: int | None = None,
+    ) -> DiarizationClustering:
+        try:
+            UUID(meeting_id)
+            UUID(run_id)
+        except (TypeError, ValueError) as exc:
+            raise MeetingSpeakerReclusterError("SPEAKER_RECLUSTER_SCOPE_INVALID", "recluster scope is invalid") from exc
+        payload = {
+            "schema_version": "siq.meeting.speaker_cluster_request.v1",
+            "embeddings": [list(l2_normalize(value)) for value in embeddings],
+            "speaker_count": speaker_count,
+        }
+        try:
+            async with self.client.stream(
+                "POST",
+                self.cluster_endpoint,
+                content=json.dumps(payload, allow_nan=False, separators=(",", ":")).encode("utf-8"),
+                headers={
+                    "X-SIQ-Service-Token": self.service_token,
+                    "X-SIQ-Speaker-Purpose": "diarization",
+                    "X-SIQ-Meeting-ID": meeting_id,
+                    "X-SIQ-Diarization-Run-ID": run_id,
+                    "Content-Type": "application/json",
+                },
+            ) as response:
+                if response.status_code != 200:
+                    raise MeetingSpeakerReclusterError(
+                        "SPEAKER_RECLUSTER_CLUSTERER_UNAVAILABLE",
+                        "global speaker clustering service rejected the request",
+                        retryable=response.status_code >= 500 or response.status_code == 429,
+                    )
+                body = await _read_bounded_response(response, self.max_response_bytes)
+        except httpx.HTTPError as exc:
+            raise MeetingSpeakerReclusterError(
+                "SPEAKER_RECLUSTER_CLUSTERER_UNAVAILABLE",
+                "global speaker clustering service is unavailable",
+                retryable=True,
+            ) from exc
+        try:
+            result = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise MeetingSpeakerReclusterError(
+                "SPEAKER_RECLUSTER_CLUSTERER_RESPONSE_INVALID",
+                "global speaker clustering response is invalid",
+            ) from exc
+        scope = result.get("scope") if isinstance(result, dict) else None
+        labels = result.get("labels") if isinstance(result, dict) else None
+        diarizer_ref = result.get("diarizer_ref") if isinstance(result, dict) else None
+        cluster_count = result.get("cluster_count") if isinstance(result, dict) else None
+        if (
+            not isinstance(result, dict)
+            or result.get("schema_version") != CLUSTER_SCHEMA
+            or result.get("persisted") is not False
+            or not isinstance(scope, dict)
+            or scope.get("meeting_id") != meeting_id
+            or scope.get("run_id") != run_id
+            or not isinstance(diarizer_ref, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,191}", diarizer_ref) is None
+            or not isinstance(labels, list)
+            or len(labels) != len(embeddings)
+            or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in labels)
+            or not isinstance(cluster_count, int)
+            or isinstance(cluster_count, bool)
+            or cluster_count != len(set(labels))
+        ):
+            raise MeetingSpeakerReclusterError(
+                "SPEAKER_RECLUSTER_CLUSTERER_RESPONSE_INVALID",
+                "global speaker clustering response contract is invalid",
+            )
+        return DiarizationClustering(diarizer_ref, tuple(labels), cluster_count)
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self.client.aclose()
@@ -700,10 +801,12 @@ class MeetingSpeakerReclusterService:
         *,
         policy: SpeakerReclusterPolicy,
         embedding_client: DiarizationEmbeddingClient | None,
+        cluster_client: DiarizationClusterClient | None = None,
         audio_store: MeetingAudioStore | None = None,
     ) -> None:
         self.policy = policy
         self.embedding_client = embedding_client
+        self.cluster_client = cluster_client
         self.audio_store = audio_store or MeetingAudioStore()
 
     @classmethod
@@ -728,7 +831,7 @@ class MeetingSpeakerReclusterService:
                 service_token=token,
                 expected_encoder_ref=encoder_ref,
             )
-        return cls(policy=policy, embedding_client=client)
+        return cls(policy=policy, embedding_client=client, cluster_client=client)
 
     async def plan(
         self,
@@ -756,10 +859,18 @@ class MeetingSpeakerReclusterService:
                 automatic_enabled=self.policy.auto_apply_validated,
                 degraded_reason="SPEAKER_RECLUSTER_TRACK_LIMIT",
             )
-        windows = select_sample_windows(segments, policy=self.policy)
+        sampling_policy = (
+            replace(self.policy, max_samples_per_track=16)
+            if self.cluster_client is not None
+            else self.policy
+        )
+        windows = select_sample_windows(segments, policy=sampling_policy)
         ordered_chunks = sorted(chunks, key=lambda item: (item.start_ms, item.stream_epoch, item.sequence))
         chunk_starts = [item.start_ms for item in ordered_chunks]
         vectors_by_track: dict[str, list[tuple[float, ...]]] = {}
+        sample_track_ids: list[str] = []
+        sample_segment_ids: list[str] = []
+        sample_vectors: list[tuple[float, ...]] = []
         durations_by_track: dict[str, int] = {}
         skipped = 0
         encoder_ref: str | None = None
@@ -818,6 +929,9 @@ class MeetingSpeakerReclusterService:
             encoder_ref = embedded.encoder_ref
             embedding_dimension = len(normalized_values)
             vectors_by_track.setdefault(window.track_id, []).append(normalized_values)
+            sample_track_ids.append(window.track_id)
+            sample_segment_ids.append(window.segment_id)
+            sample_vectors.append(normalized_values)
             durations_by_track[window.track_id] = durations_by_track.get(window.track_id, 0) + embedded.duration_ms
         embedded_tracks = tuple(
             TrackEmbedding(
@@ -839,6 +953,71 @@ class MeetingSpeakerReclusterService:
             }
         }
         protected.update(protected_track_ids or set())
+        if self.cluster_client is not None and len(sample_vectors) >= 20:
+            clustered = await self.cluster_client.cluster(
+                sample_vectors,
+                meeting_id=meeting.id,
+                run_id=run_id,
+            )
+            native_plan = plan_global_track_clusters(
+                sample_track_ids,
+                clustered.labels,
+                embedded_tracks,
+                protected_track_ids=protected,
+            )
+            labels_by_track: dict[str, Counter[int]] = defaultdict(Counter)
+            for track_id, label in zip(sample_track_ids, clustered.labels, strict=True):
+                labels_by_track[track_id][label] += 1
+            dominant_label_by_track: dict[str, int] = {}
+            for track_id, counts in labels_by_track.items():
+                label, count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
+                if count / sum(counts.values()) >= 0.75:
+                    dominant_label_by_track[track_id] = label
+            segment_cluster_keys = {
+                segment_id: f"global-speaker-{label}"
+                for segment_id, label in zip(sample_segment_ids, clustered.labels, strict=True)
+            }
+            for segment in segments:
+                if segment.id in segment_cluster_keys or not segment.speaker_track_id:
+                    continue
+                dominant_label = dominant_label_by_track.get(segment.speaker_track_id)
+                if dominant_label is not None:
+                    segment_cluster_keys[segment.id] = f"global-speaker-{dominant_label}"
+            diarized_timeline = sorted(
+                (
+                    (segment.start_ms + segment.end_ms) // 2,
+                    segment_cluster_keys[segment.id],
+                )
+                for segment in segments
+                if segment.id in segment_cluster_keys
+            )
+            diarized_midpoints = [midpoint for midpoint, _cluster_key in diarized_timeline]
+            for segment in segments:
+                if segment.id in segment_cluster_keys or not diarized_timeline:
+                    continue
+                midpoint = (segment.start_ms + segment.end_ms) // 2
+                index = bisect_left(diarized_midpoints, midpoint)
+                candidates = diarized_timeline[max(0, index - 1) : min(len(diarized_timeline), index + 1)]
+                _nearest_midpoint, nearest_key = min(
+                    candidates,
+                    key=lambda value: (abs(value[0] - midpoint), value[0], value[1]),
+                )
+                segment_cluster_keys[segment.id] = nearest_key
+            return SpeakerReclusterPlan(
+                track_targets=native_plan.track_targets,
+                segment_cluster_keys=segment_cluster_keys,
+                proposals=native_plan.proposals,
+                embedded_track_count=len(embedded_tracks),
+                selected_sample_count=len(sample_vectors),
+                skipped_sample_count=skipped,
+                encoder_ref=encoder_ref,
+                final_diarizer_ref=clustered.diarizer_ref,
+                policy_version="speaker-recluster.funasr-global-spectral.v1",
+                automatic_enabled=True,
+                authoritative_global_clustering=True,
+                cluster_count=clustered.cluster_count,
+                degraded_reason=None,
+            )
         plan = plan_track_merges(embedded_tracks, protected_track_ids=protected, policy=self.policy)
         return SpeakerReclusterPlan(
             track_targets=plan.track_targets,
@@ -1068,6 +1247,68 @@ def plan_track_merges(
     )
 
 
+def plan_global_track_clusters(
+    sample_track_ids: Sequence[str],
+    labels: Sequence[int],
+    embeddings: Sequence[TrackEmbedding],
+    *,
+    protected_track_ids: set[str],
+    minimum_dominance: float = 0.75,
+) -> SpeakerReclusterPlan:
+    """Convert whole-meeting sample clusters into safe anonymous-track merges."""
+
+    if len(sample_track_ids) != len(labels) or not 0.5 <= minimum_dominance <= 1.0:
+        raise ValueError("global speaker cluster inputs are invalid")
+    by_id = {value.track_id: value for value in embeddings}
+    votes: dict[str, Counter[int]] = defaultdict(Counter)
+    for track_id, label in zip(sample_track_ids, labels, strict=True):
+        if track_id in by_id and isinstance(label, int) and not isinstance(label, bool) and label >= 0:
+            votes[track_id][label] += 1
+    groups: dict[int, set[str]] = defaultdict(set)
+    dominance_by_track: dict[str, float] = {}
+    for track_id, counts in votes.items():
+        label, count = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0]
+        dominance = count / sum(counts.values())
+        if dominance < minimum_dominance:
+            continue
+        groups[label].add(track_id)
+        dominance_by_track[track_id] = dominance
+
+    targets: dict[str, str] = {}
+    proposals: list[SpeakerMergeProposal] = []
+    for label in sorted(groups):
+        members = groups[label]
+        if len(members) < 2:
+            continue
+        protected = members & protected_track_ids
+        target = _choose_target(members, by_id, protected)
+        score = round(min(dominance_by_track[track_id] for track_id in members), 6)
+        protected_conflict = len(protected) > 1
+        protected_identity_attribution = len(protected) == 1 and len(members) > 1
+        auto_apply = not protected_conflict and not protected_identity_attribution
+        reason = (
+            "PROTECTED_TRACK_CONFLICT"
+            if protected_conflict
+            else "PROTECTED_IDENTITY_REVIEW_REQUIRED"
+            if protected_identity_attribution
+            else "GLOBAL_DIARIZATION"
+        )
+        proposals.append(
+            SpeakerMergeProposal(
+                source_track_ids=tuple(sorted(members - {target})),
+                target_track_id=target,
+                score=score,
+                auto_apply=auto_apply,
+                reason_code=reason,
+            )
+        )
+        if auto_apply:
+            for track_id in members:
+                if track_id != target:
+                    targets[track_id] = target
+    return SpeakerReclusterPlan(track_targets=targets, proposals=tuple(proposals))
+
+
 def aggregate_embeddings(values: Sequence[Sequence[float]]) -> tuple[float, ...]:
     if not values:
         raise ValueError("at least one embedding is required")
@@ -1151,6 +1392,11 @@ def _derived_embedding_url(finalization_url: str) -> str | None:
     return urlunsplit((parsed.scheme, parsed.netloc, "/v1/speaker/embedding", "", ""))
 
 
+def _sibling_endpoint(endpoint: str, path: str) -> str:
+    parsed = urlsplit(endpoint)
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
 async def _read_bounded_response(response: httpx.Response, maximum: int) -> bytes:
     chunks: list[bytes] = []
     total = 0
@@ -1166,6 +1412,8 @@ async def _read_bounded_response(response: httpx.Response, maximum: int) -> byte
 
 
 __all__ = [
+    "DiarizationClustering",
+    "DiarizationClusterClient",
     "DiarizationEmbedding",
     "DiarizationEmbeddingClient",
     "HttpDiarizationEmbeddingClient",
@@ -1179,5 +1427,6 @@ __all__ = [
     "aggregate_embeddings",
     "cosine_similarity",
     "plan_track_merges",
+    "plan_global_track_clusters",
     "select_sample_windows",
 ]

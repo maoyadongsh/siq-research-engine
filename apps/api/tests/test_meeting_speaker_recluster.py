@@ -19,12 +19,14 @@ from services.meeting_speaker_recluster import (
     DIARIZATION_REPORT_MINIMUM_SAMPLE,
     DIARIZATION_REPORT_PRIVACY_BOUNDARY,
     DIARIZATION_REPORT_SCORING_PROTOCOL,
+    DiarizationClustering,
     DiarizationEmbedding,
     HttpDiarizationEmbeddingClient,
     MeetingSpeakerReclusterError,
     MeetingSpeakerReclusterService,
     SpeakerReclusterPolicy,
     TrackEmbedding,
+    plan_global_track_clusters,
     plan_track_merges,
     select_sample_windows,
 )
@@ -54,6 +56,16 @@ class _ChangingDimensionEmbeddingClient(_FakeEmbeddingClient):
         if len(self.calls) == 1:
             return result
         return DiarizationEmbedding("encoder-v1", (1.0, 0.0, 0.0), len(pcm) // 32)
+
+
+class _FakeClusterClient:
+    def __init__(self, labels) -> None:
+        self.labels = tuple(labels)
+        self.calls = []
+
+    async def cluster(self, embeddings, *, meeting_id, run_id, speaker_count=None):
+        self.calls.append((len(embeddings), meeting_id, run_id, speaker_count))
+        return DiarizationClustering("diarizer-global-v1", self.labels, len(set(self.labels)))
 
 
 def _segment(
@@ -222,6 +234,70 @@ def test_service_converts_encoder_dimension_change_to_safe_recluster_error() -> 
         assert raised.value.code == "SPEAKER_RECLUSTER_ENCODER_CHANGED"
 
     anyio.run(scenario)
+
+
+def test_service_uses_whole_meeting_cluster_to_merge_fragmented_anonymous_tracks() -> None:
+    async def scenario() -> None:
+        meeting = MeetingSession(owner_user_id=7, title="global diarization")
+        tracks = [
+            MeetingSpeakerTrack(
+                meeting_id=meeting.id,
+                track_key=f"window-{index}:speaker-0",
+                anonymous_label=f"发言人 {index + 1}",
+            )
+            for index in range(21)
+        ]
+        segments = [
+            _segment(index + 1, track.id, duration_ms=900 if index == 20 else 2_000)
+            for index, track in enumerate(tracks)
+        ]
+        cluster_client = _FakeClusterClient([0] * 20)
+        service = MeetingSpeakerReclusterService(
+            policy=_policy(
+                max_tracks=21,
+                max_total_samples=21,
+                max_samples_per_track=1,
+            ),
+            embedding_client=_FakeEmbeddingClient(),
+            cluster_client=cluster_client,
+            audio_store=_FakeAudioStore(),
+        )
+        run_id = str(uuid4())
+        plan = await service.plan(
+            meeting=meeting,
+            run_id=run_id,
+            tracks=tracks,
+            segments=segments,
+            chunks=[],
+        )
+
+        assert plan.authoritative_global_clustering is True
+        assert plan.automatic_enabled is True
+        assert plan.cluster_count == 1
+        assert plan.final_diarizer_ref == "diarizer-global-v1"
+        assert len(plan.track_targets) == 19
+        assert len(plan.segment_cluster_keys) == 21
+        assert set(plan.segment_cluster_keys.values()) == {"global-speaker-0"}
+        assert len(cluster_client.calls) == 1
+        assert cluster_client.calls[0][:3] == (20, meeting.id, run_id)
+
+    anyio.run(scenario)
+
+
+def test_global_cluster_never_auto_attributes_anonymous_tracks_to_protected_identity() -> None:
+    embeddings = [
+        TrackEmbedding("protected", (1.0, 0.0), 2, 4_000),
+        TrackEmbedding("anonymous", (0.99, 0.1), 2, 4_000),
+    ]
+    plan = plan_global_track_clusters(
+        ["protected", "protected", "anonymous", "anonymous"],
+        [0, 0, 0, 0],
+        embeddings,
+        protected_track_ids={"protected"},
+    )
+    assert plan.track_targets == {}
+    assert plan.proposals[0].reason_code == "PROTECTED_IDENTITY_REVIEW_REQUIRED"
+    assert plan.proposals[0].auto_apply is False
 
 
 def test_unvalidated_policy_only_emits_review_proposal() -> None:
@@ -495,6 +571,48 @@ def test_http_diarization_embedding_sends_scoped_headers_and_validates_response(
         assert captured["headers"]["x-siq-meeting-id"] == meeting_id
         assert captured["headers"]["x-siq-diarization-run-id"] == run_id
         assert "service-token" not in captured["body"].decode("latin1")
+        await client.client.aclose()
+
+    anyio.run(scenario)
+
+
+def test_http_global_cluster_sends_ephemeral_embeddings_and_validates_labels() -> None:
+    meeting_id = str(uuid4())
+    run_id = str(uuid4())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/speaker/cluster"
+        assert request.headers["x-siq-speaker-purpose"] == "diarization"
+        payload = json.loads(request.content)
+        assert payload["speaker_count"] is None
+        assert len(payload["embeddings"]) == 20
+        return httpx.Response(
+            200,
+            json={
+                "schema_version": "siq.meeting.speaker_cluster.v1",
+                "diarizer_ref": "diarizer-global-v1",
+                "labels": [0] * 10 + [1] * 10,
+                "cluster_count": 2,
+                "sample_count": 20,
+                "persisted": False,
+                "scope": {"meeting_id": meeting_id, "run_id": run_id},
+            },
+        )
+
+    async def scenario() -> None:
+        client = HttpDiarizationEmbeddingClient(
+            endpoint="http://127.0.0.1:8901/v1/speaker/embedding",
+            service_token="service-token",
+            expected_encoder_ref="encoder-v1",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+        result = await client.cluster(
+            [(1.0, 0.0)] * 20,
+            meeting_id=meeting_id,
+            run_id=run_id,
+        )
+        assert result.cluster_count == 2
+        assert result.labels == (0,) * 10 + (1,) * 10
         await client.client.aclose()
 
     anyio.run(scenario)

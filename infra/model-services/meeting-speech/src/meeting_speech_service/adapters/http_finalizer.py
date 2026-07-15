@@ -24,12 +24,14 @@ class FunASRHttpFinalizer:
         queue_timeout_seconds: float,
         max_concurrency: int,
         max_response_bytes: int,
+        speaker_hints_enabled: bool = False,
         client: httpx.Client | None = None,
     ) -> None:
         self._url = url
         self._health_url = health_url or _default_health_url(url)
         self._queue_timeout_seconds = queue_timeout_seconds
         self._max_response_bytes = max_response_bytes
+        self._speaker_hints_enabled = speaker_hints_enabled
         self._slots = BoundedSemaphore(max_concurrency)
         self._client = client or httpx.Client(
             timeout=httpx.Timeout(timeout_seconds),
@@ -52,7 +54,7 @@ class FunASRHttpFinalizer:
             wav_bytes = _pcm_to_wav(pcm)
             form = {
                 "hotwords": ",".join(hotwords),
-                "spk": "true",
+                "spk": "true" if self._speaker_hints_enabled else "false",
                 "timestamp": "true",
             }
             if language:

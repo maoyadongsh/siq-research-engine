@@ -403,6 +403,44 @@ def test_embedding_endpoint_supports_isolated_diarization_scope_without_voicepri
         assert mixed.json()["code"] == "EMBEDDING_SCOPE_CONFLICT"
 
 
+def test_global_speaker_cluster_is_scoped_bounded_and_returns_only_labels() -> None:
+    meeting_id = uuid4()
+    run_id = uuid4()
+    headers = {
+        "x-siq-service-token": TOKEN,
+        "x-siq-speaker-purpose": "diarization",
+        "x-siq-meeting-id": str(meeting_id),
+        "x-siq-diarization-run-id": str(run_id),
+        "content-type": "application/json",
+    }
+    payload = {
+        "schema_version": "siq.meeting.speaker_cluster_request.v1",
+        "embeddings": [[1.0, 0.0] for _ in range(20)],
+        "speaker_count": 2,
+    }
+    settings = _settings(embedding_endpoint_enabled=True, speaker_global_cluster_min_samples=20)
+    with TestClient(create_app(settings)) as client:
+        unauthorized = client.post("/v1/speaker/cluster", json=payload)
+        assert unauthorized.status_code == 401
+
+        response = client.post("/v1/speaker/cluster", json=payload, headers=headers)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["schema_version"] == "siq.meeting.speaker_cluster.v1"
+        assert body["cluster_count"] == 2
+        assert body["sample_count"] == 20
+        assert len(body["labels"]) == 20
+        assert "embeddings" not in body
+        assert body["persisted"] is False
+        assert body["scope"] == {"meeting_id": str(meeting_id), "run_id": str(run_id)}
+
+        too_short = dict(payload)
+        too_short["embeddings"] = too_short["embeddings"][:19]
+        rejected = client.post("/v1/speaker/cluster", json=too_short, headers=headers)
+        assert rejected.status_code == 400
+        assert rejected.json()["code"] == "SPEAKER_CLUSTER_INPUT_INVALID"
+
+
 def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
     settings = _settings(speaker_adapter="mock", finalization_max_window_seconds=2)
     run_id = uuid4()

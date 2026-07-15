@@ -114,6 +114,7 @@ SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS=60
 SIQ_MEETING_FINAL_ASR_MAX_CONCURRENCY=2
 SIQ_MEETING_FINAL_ASR_WINDOW_OVERLAP_MS=2000
 SIQ_MEETING_SPEECH_HTTP_FINALIZER_MAX_CONCURRENCY=2
+SIQ_MEETING_SPEECH_HTTP_FINALIZER_SPEAKER_HINTS_ENABLED=0
 SIQ_MEETING_SPEECH_FINALIZATION_MAX_WINDOW_SECONDS=60
 SIQ_MEETING_SPEECH_FINALIZATION_MAX_SESSIONS=2
 SIQ_MEETING_SPEECH_FINALIZATION_MAX_CACHED_WINDOWS=2048
@@ -140,6 +141,11 @@ SIQ_MEETING_SPEAKER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding
 # The speech embedding endpoint is independently gated and remains off until
 # an approved speaker evaluation and rollout explicitly enable it.
 SIQ_MEETING_SPEECH_EMBEDDING_ENDPOINT_ENABLED=0
+SIQ_MEETING_SPEECH_SPEAKER_GLOBAL_CLUSTER_ENABLED=1
+SIQ_MEETING_SPEECH_SPEAKER_GLOBAL_CLUSTER_MERGE_THRESHOLD=0.80
+SIQ_MEETING_SPEECH_SPEAKER_GLOBAL_CLUSTER_MIN_SAMPLES=20
+SIQ_MEETING_SPEECH_SPEAKER_GLOBAL_CLUSTER_MAX_SAMPLES=1024
+SIQ_MEETING_SPEECH_SPEAKER_GLOBAL_CLUSTER_MAX_SPEAKERS=15
 # Whole-meeting reclustering uses request-scoped embeddings only. These
 # temporary vectors must not be written to PostgreSQL or Milvus.
 SIQ_MEETING_SPEAKER_RECLUSTER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding
@@ -148,7 +154,7 @@ SIQ_MEETING_SPEAKER_RECLUSTER_FINAL_DIARIZER_REF=
 SIQ_MEETING_SPEAKER_RECLUSTER_ENCODER_REF=iic/speech_eres2netv2_sv_zh-cn_16k-common
 # Deliberately unvalidated. Keep the approved report outside the repository;
 # validation_artifact_sha256 is the SHA-256 of that immutable report.
-SIQ_MEETING_SPEAKER_RECLUSTER_POLICY_JSON='{"schema_version":"siq.meeting.speaker_recluster_policy.v1","version":"speaker-recluster.unvalidated.v1","auto_apply_validated":false,"validation_artifact_sha256":null,"review_min_score":0.72,"merge_min_score":0.82,"singleton_merge_min_score":0.92,"min_top2_margin":0.04,"min_segment_ms":1500,"max_segment_ms":8000,"max_samples_per_track":4,"max_total_samples":512,"max_tracks":128,"max_noise_level":0.65,"min_asr_confidence":0.45,"min_rms":0.003,"max_clipping_ratio":0.01}'
+SIQ_MEETING_SPEAKER_RECLUSTER_POLICY_JSON='{"schema_version":"siq.meeting.speaker_recluster_policy.v1","version":"speaker-recluster.unvalidated.v1","auto_apply_validated":false,"validation_artifact_sha256":null,"review_min_score":0.72,"merge_min_score":0.82,"singleton_merge_min_score":0.92,"min_top2_margin":0.04,"min_segment_ms":1500,"max_segment_ms":8000,"max_samples_per_track":4,"max_total_samples":1024,"max_tracks":256,"max_noise_level":0.65,"min_asr_confidence":0.45,"min_rms":0.003,"max_clipping_ratio":0.01}'
 # Set to the approved report only when enabling cross-key automatic merge.
 SIQ_MEETING_SPEAKER_RECLUSTER_VALIDATION_REPORT=
 # Independent operator authorization for embedding-based cross-key merge only.

@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import secrets
 import time
 import wave
@@ -98,6 +99,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/v1/speaker/embedding")
     async def speaker_embedding(request: Request) -> JSONResponse:
         return await _serve_speaker_embedding(request, runtime)
+
+    @app.post("/v1/speaker/cluster")
+    async def speaker_cluster(request: Request) -> JSONResponse:
+        return await _serve_speaker_cluster(request, runtime)
 
     @app.post("/v1/finalize-window")
     async def finalize_window(request: Request) -> JSONResponse:
@@ -650,6 +655,106 @@ async def _serve_speaker_embedding(request: Request, runtime: SpeechRuntime) -> 
     if scope is not None:
         response["scope"] = scope
     return JSONResponse(response)
+
+
+async def _serve_speaker_cluster(request: Request, runtime: SpeechRuntime) -> JSONResponse:
+    settings = runtime.settings
+    if not settings.embedding_endpoint_enabled or not settings.speaker_global_cluster_enabled:
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    if not settings.enabled:
+        return JSONResponse({"detail": "Speaker clustering is unavailable", "code": "SERVICE_DISABLED"}, status_code=503)
+    if not _token_authorized(request.headers.get("x-siq-service-token", ""), settings):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    if request.headers.get("x-siq-speaker-purpose", "").strip() != "diarization":
+        return JSONResponse(
+            {"detail": "Speaker purpose must be diarization", "code": "CLUSTER_PURPOSE_INVALID"},
+            status_code=400,
+        )
+    try:
+        meeting_id = UUID(request.headers.get("x-siq-meeting-id", ""))
+        run_id = UUID(request.headers.get("x-siq-diarization-run-id", ""))
+        body = await _read_bounded_request(
+            request,
+            16 * 1024 * 1024,
+            code="SPEAKER_CLUSTER_REQUEST_TOO_LARGE",
+            message="Speaker clustering request exceeds its configured bound",
+        )
+        payload = json.loads(body)
+    except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse(
+            {"detail": "Speaker clustering request is invalid", "code": "SPEAKER_CLUSTER_INPUT_INVALID"},
+            status_code=400,
+        )
+    raw_embeddings = payload.get("embeddings") if isinstance(payload, dict) else None
+    speaker_count = payload.get("speaker_count") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != "siq.meeting.speaker_cluster_request.v1"
+        or not isinstance(raw_embeddings, list)
+        or not settings.speaker_global_cluster_min_samples
+        <= len(raw_embeddings)
+        <= settings.speaker_global_cluster_max_samples
+        or (speaker_count is not None and (not isinstance(speaker_count, int) or isinstance(speaker_count, bool)))
+        or (
+            isinstance(speaker_count, int)
+            and not 1 <= speaker_count <= settings.speaker_global_cluster_max_speakers
+        )
+    ):
+        return JSONResponse(
+            {"detail": "Speaker clustering request is invalid", "code": "SPEAKER_CLUSTER_INPUT_INVALID"},
+            status_code=400,
+        )
+    parsed: list[tuple[float, ...]] = []
+    dimension: int | None = None
+    try:
+        for raw_vector in raw_embeddings:
+            if not isinstance(raw_vector, list):
+                raise ValueError("embedding must be a list")
+            vector = tuple(float(value) for value in raw_vector)
+            if (
+                not 2 <= len(vector) <= 16_384
+                or any(not math.isfinite(value) for value in vector)
+                or (dimension is not None and len(vector) != dimension)
+            ):
+                raise ValueError("embedding is invalid")
+            dimension = len(vector)
+            parsed.append(vector)
+    except (TypeError, ValueError):
+        return JSONResponse(
+            {"detail": "Speaker clustering request is invalid", "code": "SPEAKER_CLUSTER_INPUT_INVALID"},
+            status_code=400,
+        )
+    if not await runtime.try_acquire_embedding():
+        return JSONResponse(
+            {"detail": "Speaker clustering capacity reached", "code": "EMBEDDING_CAPACITY_REACHED"},
+            status_code=429,
+        )
+    try:
+        result = await runtime.engine.cluster_speaker_embeddings(
+            tuple(parsed),
+            speaker_count=speaker_count,
+        )
+    except AdapterUnavailable as exc:
+        return JSONResponse({"detail": "Speaker clustering is unavailable", "code": exc.code}, status_code=503)
+    except Exception as exc:
+        logger.error("speaker clustering request failed: %s", type(exc).__name__)
+        return JSONResponse(
+            {"detail": "Speaker clustering failed safely", "code": "SPEAKER_CLUSTERING_FAILED"},
+            status_code=503,
+        )
+    finally:
+        await runtime.release_embedding()
+    return JSONResponse(
+        {
+            "schema_version": "siq.meeting.speaker_cluster.v1",
+            "diarizer_ref": result.diarizer_ref,
+            "labels": list(result.labels),
+            "cluster_count": result.cluster_count,
+            "sample_count": len(parsed),
+            "persisted": False,
+            "scope": {"meeting_id": str(meeting_id), "run_id": str(run_id)},
+        }
+    )
 
 
 async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JSONResponse:

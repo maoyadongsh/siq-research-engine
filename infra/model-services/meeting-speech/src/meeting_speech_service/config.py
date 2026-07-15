@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     http_finalizer_queue_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
     http_finalizer_max_concurrency: int = Field(default=2, ge=1, le=16)
     http_finalizer_max_response_bytes: int = Field(default=1_048_576, ge=1_024, le=16 * 1024 * 1024)
+    http_finalizer_speaker_hints_enabled: bool = False
     vad_model: str = "fsmn-vad"
     punctuation_model: str = "ct-punc"
     # Favor recognition context over minimum first-token latency. Ten encoder
@@ -65,6 +66,11 @@ class Settings(BaseSettings):
     embedding_min_seconds: float = Field(default=1.0, ge=0.3, le=10.0)
     embedding_max_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
     embedding_max_concurrency: int = Field(default=1, ge=1, le=16)
+    speaker_global_cluster_enabled: bool = True
+    speaker_global_cluster_merge_threshold: float = Field(default=0.80, gt=0.0, le=1.0)
+    speaker_global_cluster_min_samples: int = Field(default=20, ge=2, le=256)
+    speaker_global_cluster_max_samples: int = Field(default=1_024, ge=20, le=4_096)
+    speaker_global_cluster_max_speakers: int = Field(default=15, ge=1, le=100)
     finalization_endpoint_enabled: bool = True
     finalization_max_window_seconds: int = Field(default=60, ge=2, le=120)
     finalization_max_sessions: int = Field(default=2, ge=1, le=32)

@@ -175,7 +175,7 @@ export SIQ_MEETING_SPEECH_HTTP_FINALIZER_HEALTH_URL=http://127.0.0.1:8899/openap
 export SIQ_MEETING_SPEECH_HTTP_FINALIZER_MAX_CONCURRENCY=1
 ```
 
-Each sentence is wrapped as an in-memory 16 kHz mono WAV and sent using the existing multipart fields (`file`, `language`, `hotwords`, `spk=true`, `timestamp=true`). Word timestamps and per-request `segments[].speaker` labels are preserved as `source_speaker_hints`. Those hints are evidence only: because every sentence is a separate 8899 request, `SPK0` is not treated as the same person across sentences. The sentence buffer, concurrent calls, wait time, response bytes, redirects, and request timeout are bounded. The adapter does not call `8899 /ws`, does not change the existing service process, and does not send full-meeting audio. Real-time partials still come from this service's independent Paraformer online model.
+Each sentence is wrapped as an in-memory 16 kHz mono WAV and sent using the existing multipart fields (`file`, `language`, `hotwords`, `spk=false`, `timestamp=true`). Per-request speaker hints are disabled by default because they have no identity across requests and duplicate the whole-meeting embedding pass. `SIQ_MEETING_SPEECH_HTTP_FINALIZER_SPEAKER_HINTS_ENABLED=1` restores them only for diagnostics. The sentence buffer, concurrent calls, wait time, response bytes, redirects, and request timeout are bounded. The adapter does not call `8899 /ws`, does not change the existing service process, and does not send full-meeting audio. Real-time partials still come from this service's independent Paraformer online model.
 
 ### Anonymous speaker and voiceprint worker boundary
 
@@ -210,6 +210,8 @@ sample as a model fault.
 The endpoint returns a normalized embedding and `persisted=false`; it never stores audio, the consent reference, or the vector. The business worker remains responsible for object authorization, consent state, encryption, retention, matching thresholds, audit, revoke, and delete. This model service is not a consent authority.
 
 The same endpoint supports meeting-scoped, non-identity diarization for an already authorized internal finalization worker. Send `X-SIQ-Speaker-Purpose: diarization`, `X-SIQ-Meeting-ID: <UUID>`, and `X-SIQ-Diarization-Run-ID: <UUID>` instead of either `X-SIQ-Voiceprint-*` header. Mixed voiceprint and diarization scopes are rejected. The response uses `siq.meeting.speaker_embedding.v1`, echoes the meeting/run scope, sets `purpose=diarization` and `persisted=false`, and remains subject to the same token, duration, concurrency, and in-memory processing bounds.
+
+`POST /v1/speaker/cluster` accepts only authenticated, meeting-scoped embedding batches produced by that endpoint. It runs FunASR's spectral `ClusterBackend` once over the whole meeting, with cosine-center merging at `0.80`, automatic speaker counting capped at 15, and a 20-sample minimum. The response contains integer labels and the bound diarizer identity, never embeddings or audio. This follows the FunASR/3D-Speaker whole-recording pipeline while allowing final ASR windows to remain parallel. Anonymous global clusters may automatically merge fragmented window tracks; manual and voiceprint-backed identities remain review-protected.
 
 The voiceprint worker should configure `SIQ_MEETING_SPEAKER_EMBEDDING_URL=http://127.0.0.1:8901/v1/speaker/embedding` and reuse the internal service token only in its server-side environment.
 
