@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     embedding_max_seconds: float = Field(default=15.0, ge=1.0, le=60.0)
     embedding_max_concurrency: int = Field(default=1, ge=1, le=16)
     finalization_endpoint_enabled: bool = True
-    finalization_max_window_seconds: int = Field(default=30, ge=2, le=120)
+    finalization_max_window_seconds: int = Field(default=60, ge=2, le=120)
     finalization_max_sessions: int = Field(default=2, ge=1, le=32)
     finalization_max_cached_windows: int = Field(default=2_048, ge=16, le=10_000)
     finalization_session_ttl_seconds: int = Field(default=300, ge=30, le=3_600)

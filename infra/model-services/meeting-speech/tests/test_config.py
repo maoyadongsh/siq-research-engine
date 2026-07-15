@@ -12,6 +12,7 @@ def test_defaults_are_disabled_and_use_funasr() -> None:
     assert settings.port == 8901
     assert settings.http_finalizer_max_concurrency == 2
     assert settings.finalization_max_sessions == 2
+    assert settings.finalization_max_window_seconds == 60
     assert settings.finalization_max_cached_windows == 2_048
     assert settings.online_chunk_size == "0,10,5"
     assert settings.pre_roll_ms == 240

@@ -13,10 +13,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
+import type { SpeakerMergeSuggestion } from '../meetingArtifacts'
 import type { MeetingSpeakerTrack } from '../types'
 
 interface SpeakerPanelProps {
   speakers: MeetingSpeakerTrack[]
+  mergeSuggestions?: SpeakerMergeSuggestion[]
   editable?: boolean
   voiceprintEnabled?: boolean
   onRename?: (speaker: MeetingSpeakerTrack, displayName: string, saveVoiceprint: boolean) => Promise<void>
@@ -26,6 +28,7 @@ interface SpeakerPanelProps {
 
 export function SpeakerPanel({
   speakers,
+  mergeSuggestions = [],
   editable = false,
   voiceprintEnabled = false,
   onRename,
@@ -40,6 +43,7 @@ export function SpeakerPanel({
   const [mergeTargetId, setMergeTargetId] = useState('')
   const [mergeSourceIds, setMergeSourceIds] = useState<Set<string>>(() => new Set())
   const [mergeError, setMergeError] = useState('')
+  const [suggestionsExpanded, setSuggestionsExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -62,6 +66,18 @@ export function SpeakerPanel({
   function openMerge() {
     setMergeTargetId(speakers[0]?.id || '')
     setMergeSourceIds(new Set())
+    setMergeError('')
+    setMergeOpen(true)
+  }
+
+  function openSuggestedMerge(suggestion: SpeakerMergeSuggestion) {
+    const activeIds = new Set(speakers.map((speaker) => speaker.id))
+    if (
+      !activeIds.has(suggestion.target_track_id)
+      || suggestion.source_track_ids.some((trackId) => !activeIds.has(trackId))
+    ) return
+    setMergeTargetId(suggestion.target_track_id)
+    setMergeSourceIds(new Set(suggestion.source_track_ids))
     setMergeError('')
     setMergeOpen(true)
   }
@@ -111,10 +127,57 @@ export function SpeakerPanel({
     return <p className="py-8 text-center text-sm leading-6 text-text-muted">检测到稳定发言后，匿名发言人会显示在这里。</p>
   }
   const mergeTarget = speakers.find((speaker) => speaker.id === mergeTargetId)
+  const visibleMergeSuggestions = suggestionsExpanded ? mergeSuggestions : mergeSuggestions.slice(0, 5)
+
+  function suggestionReason(reasonCode: string) {
+    if (reasonCode === 'POLICY_NOT_VALIDATED') return '高相似度，等待人工确认'
+    if (reasonCode === 'LOW_TOP2_MARGIN') return '相似候选接近，需要人工判断'
+    if (reasonCode === 'PROTECTED_TRACK_CONFLICT' || reasonCode === 'PROTECTED_IDENTITY_REVIEW_REQUIRED') return '涉及已确认身份，需要人工判断'
+    return '相似度需人工复核'
+  }
 
   return (
     <>
       <div className="divide-y divide-border/70">
+        {editable && onMerge && visibleMergeSuggestions.length ? (
+          <div className="pb-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-text">待确认的合并建议</p>
+                <p className="mt-0.5 text-xs leading-5 text-text-muted">基于全场声纹相似度生成，确认前不会改动逐字稿。</p>
+              </div>
+              <span className="shrink-0 text-xs tabular-nums text-text-muted">{mergeSuggestions.length} 条</span>
+            </div>
+            <div className="divide-y divide-border/70 border-y border-border/70">
+              {visibleMergeSuggestions.map((suggestion) => {
+                const target = speakers.find((speaker) => speaker.id === suggestion.target_track_id)
+                const sources = speakers.filter((speaker) => suggestion.source_track_ids.includes(speaker.id))
+                return (
+                  <div key={`${suggestion.target_track_id}:${suggestion.source_track_ids.join(',')}`} className="py-3">
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-text">
+                          {sources.map(speakerName).join('、')} → {target ? speakerName(target) : '目标发言人'}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-text-muted">
+                          相似度 {Math.round(suggestion.score * 100)}% · {suggestionReason(suggestion.reason_code)}
+                        </p>
+                      </div>
+                      <Button type="button" size="sm" variant="secondary" className="shrink-0 max-sm:h-11" onClick={() => openSuggestedMerge(suggestion)}>
+                        <Merge />审核
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {mergeSuggestions.length > 5 ? (
+              <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={() => setSuggestionsExpanded((current) => !current)}>
+                {suggestionsExpanded ? '收起建议' : `查看全部 ${mergeSuggestions.length} 条`}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {editable && onMerge && speakers.length > 1 ? (
           <div className="pb-3">
             <Button type="button" variant="secondary" className="min-h-11 w-full sm:w-auto" onClick={openMerge}>

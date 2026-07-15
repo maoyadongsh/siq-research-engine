@@ -416,8 +416,8 @@ class SpeakerReclusterPolicy:
     min_segment_ms: int = 1_500
     max_segment_ms: int = 8_000
     max_samples_per_track: int = 4
-    max_total_samples: int = 256
-    max_tracks: int = 64
+    max_total_samples: int = 512
+    max_tracks: int = 128
     max_noise_level: float = 0.65
     min_asr_confidence: float = 0.45
     min_rms: float = 0.003
@@ -962,7 +962,7 @@ def plan_track_merges(
     candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
     components: dict[str, set[str]] = {track_id: {track_id} for track_id in ids}
     owner: dict[str, str] = {track_id: track_id for track_id in ids}
-    rejected: list[SpeakerMergeProposal] = []
+    protected_rejections: dict[tuple[str, ...], SpeakerMergeProposal] = {}
     for _score, left_id, right_id in candidates:
         left_root = owner[left_id]
         right_root = owner[right_id]
@@ -980,21 +980,17 @@ def plan_track_merges(
         threshold = policy.merge_min_score if support_ok else policy.singleton_merge_min_score
         protected_conflict = len(protected) > 1
         if protected_conflict or component_score < threshold:
-            combined = left_members | right_members
-            target = _choose_target(combined, by_id, protected)
-            rejected.append(
-                SpeakerMergeProposal(
+            if protected_conflict:
+                combined = left_members | right_members
+                target = _choose_target(combined, by_id, protected)
+                key = tuple(sorted(combined))
+                protected_rejections[key] = SpeakerMergeProposal(
                     source_track_ids=tuple(sorted(combined - {target})),
                     target_track_id=target,
                     score=round(component_score, 6),
                     auto_apply=False,
-                    reason_code=(
-                        "PROTECTED_TRACK_CONFLICT"
-                        if protected_conflict
-                        else "SCORE_BELOW_AUTO_THRESHOLD"
-                    ),
+                    reason_code="PROTECTED_TRACK_CONFLICT",
                 )
-            )
             continue
         root = min(left_root, right_root)
         other = right_root if root == left_root else left_root
@@ -1060,7 +1056,7 @@ def plan_track_merges(
             for track_id in members:
                 if track_id != target:
                     targets[track_id] = target
-    proposals.extend(rejected)
+    proposals.extend(protected_rejections.values())
     return SpeakerReclusterPlan(
         track_targets=targets,
         proposals=tuple(proposals),

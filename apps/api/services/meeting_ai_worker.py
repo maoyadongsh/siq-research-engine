@@ -236,18 +236,65 @@ def _critical_entities(value: str) -> tuple[str, ...]:
     return tuple(entities)
 
 
+_MINUTES_EVIDENCE_FIELDS = (
+    "agenda_topics",
+    "chapters",
+    "decisions",
+    "open_questions",
+    "risks",
+    "action_items",
+    "speaker_viewpoints",
+    "keywords",
+)
+
+
+def _normalize_minutes_evidence(
+    payload: dict[str, Any],
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    allowed_ids = {
+        value
+        for segment in segments
+        if isinstance((value := segment.get("segment_id")), str) and value
+    }
+    ordinal_ids = {
+        str(ordinal): segment_id
+        for segment in segments
+        if isinstance((ordinal := segment.get("ordinal")), int)
+        and not isinstance(ordinal, bool)
+        and isinstance((segment_id := segment.get("segment_id")), str)
+        and segment_id
+    }
+    normalized = dict(payload)
+    for field in _MINUTES_EVIDENCE_FIELDS:
+        values = payload.get(field)
+        if not isinstance(values, list):
+            continue
+        normalized_items: list[Any] = []
+        for item in values:
+            if not isinstance(item, dict):
+                normalized_items.append(item)
+                continue
+            normalized_item = dict(item)
+            source_ids = item.get("source_segment_ids")
+            if isinstance(source_ids, list):
+                canonical_ids: list[Any] = []
+                for source_id in source_ids:
+                    if not isinstance(source_id, str):
+                        canonical_ids.append(source_id)
+                        continue
+                    stripped = source_id.strip()
+                    canonical = stripped if stripped in allowed_ids else ordinal_ids.get(stripped, stripped)
+                    if canonical not in canonical_ids:
+                        canonical_ids.append(canonical)
+                normalized_item["source_segment_ids"] = canonical_ids
+            normalized_items.append(normalized_item)
+        normalized[field] = normalized_items
+    return normalized
+
+
 def _evidence_is_valid(payload: dict[str, Any], allowed_ids: frozenset[str]) -> bool:
-    evidence_fields = (
-        "agenda_topics",
-        "chapters",
-        "decisions",
-        "open_questions",
-        "risks",
-        "action_items",
-        "speaker_viewpoints",
-        "keywords",
-    )
-    for field in evidence_fields:
+    for field in _MINUTES_EVIDENCE_FIELDS:
         values = payload.get(field, [])
         if not isinstance(values, list):
             return False
@@ -726,7 +773,7 @@ class MeetingAIWorker:
             result = await self.runner.execute(
                 snapshot=snapshot,
                 task=task,
-                job_id=job.id,
+                job_id=f"{job.id}:attempt:{job.attempt}",
                 segments=transcript.segments,
                 glossary=transcript.glossary,
                 participants=transcript.participants,
@@ -1237,6 +1284,7 @@ class MeetingAIWorker:
         *,
         hermes_run_id: str | None = None,
     ) -> None:
+        output = _normalize_minutes_evidence(output, transcript.segments)
         if not _evidence_is_valid(output, transcript.segment_ids):
             raise MeetingAIOutputInvalid("meeting minutes cite evidence outside the transcript input")
         artifact_type = (

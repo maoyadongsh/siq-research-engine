@@ -56,6 +56,7 @@ import {
 import {
   isMinutesArtifact,
   parseMeetingMinutes,
+  parseSpeakerMergeSuggestions,
   selectPreferredMinutesArtifact,
 } from '@/features/meeting-transcription/meetingArtifacts'
 import { latestMeetingJobsByType } from '@/features/meeting-transcription/meetingJobs'
@@ -125,6 +126,10 @@ export default function MeetingDetail() {
   const minutesArtifact = useMemo(() => selectPreferredMinutesArtifact(artifacts), [artifacts])
   const minutesContent = useMemo(() => parseMeetingMinutes(minutesArtifact?.content_json), [minutesArtifact])
   const latestJobs = useMemo(() => latestMeetingJobsByType(jobs), [jobs])
+  const speakerMergeSuggestions = useMemo(() => parseSpeakerMergeSuggestions(
+    artifacts,
+    new Set(speakers.map((speaker) => speaker.id)),
+  ), [artifacts, speakers])
   const segmentById = useMemo(() => new Map(segments.map((segment) => [segment.id, segment])), [segments])
 
   useEffect(() => {
@@ -610,7 +615,7 @@ export default function MeetingDetail() {
           <TabsContent value="transcript" className="p-4 sm:p-5"><TranscriptTimeline segments={segments} speakers={speakers} editable correctionLearningEnabled={correctionLearningEnabled} hasEarlierSegments={hasEarlierSegments} hasLaterSegments={nextTranscriptOrdinal != null} loadingPage={transcriptPageBusy} onLoadEarlier={loadEarlierSegments} onLoadLater={loadLaterSegments} scrollToSegmentId={scrollToSegmentId} activePlaybackSegmentIds={activePlaybackSegments} followPlayback={followPlayback} onFollowPlaybackChange={setFollowPlayback} onSeek={seekPlayback} onCorrect={correct} onRevert={revert} onRenameSpeaker={renameTranscriptSpeaker} /></TabsContent>
           <TabsContent value="viewpoints" className="p-4 sm:p-5">
             <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
-              <div><h3 className="mb-3 text-sm font-semibold text-text">发言人</h3><SpeakerPanel speakers={speakers} editable voiceprintEnabled onRename={rename} onMerge={mergeSpeakers} /></div>
+              <div><h3 className="mb-3 text-sm font-semibold text-text">发言人</h3><SpeakerPanel speakers={speakers} mergeSuggestions={speakerMergeSuggestions} editable voiceprintEnabled onRename={rename} onMerge={mergeSpeakers} /></div>
               <div className="min-w-0 border-t border-border/70 pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
                 <MeetingMinutesSection content={minutesContent} section="speaker_viewpoints" onEvidence={openEvidence} evidenceLabel={evidenceLabel} />
               </div>

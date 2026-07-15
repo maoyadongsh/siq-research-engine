@@ -139,13 +139,18 @@ text, timestamps and anonymous track keys, never audio or speaker embeddings.
 
 Relevant settings are
 `SIQ_MEETING_SPEECH_FINALIZATION_ENDPOINT_ENABLED` (default true),
-`SIQ_MEETING_SPEECH_FINALIZATION_MAX_WINDOW_SECONDS` (30),
+`SIQ_MEETING_SPEECH_FINALIZATION_MAX_WINDOW_SECONDS` (60),
 `SIQ_MEETING_SPEECH_FINALIZATION_MAX_SESSIONS` (2),
 `SIQ_MEETING_SPEECH_FINALIZATION_MAX_CACHED_WINDOWS` (2048), and
 `SIQ_MEETING_SPEECH_FINALIZATION_SESSION_TTL_SECONDS` (300).
 When the finalizer is `funasr_http`, also keep
 `SIQ_MEETING_SPEECH_HTTP_FINALIZER_MAX_CONCURRENCY` aligned with measured
 downstream model capacity.
+
+This limit applies only to bounded finalization requests. Realtime Paraformer
+streaming keeps its own chunk/window and VAD settings, so increasing the
+finalization limit does not add a 60-second delay to live partial or stable
+transcript events.
 
 ## Start
 

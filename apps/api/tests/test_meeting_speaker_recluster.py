@@ -289,6 +289,24 @@ def test_component_margin_blocks_ambiguous_nearest_neighbour_merge() -> None:
     assert any(item.reason_code == "LOW_TOP2_MARGIN" for item in plan.proposals)
 
 
+def test_below_threshold_edges_do_not_expand_the_review_artifact() -> None:
+    plan = plan_track_merges(
+        [
+            TrackEmbedding("track-a", (1.0, 0.0), 1, 2_000),
+            TrackEmbedding("track-b", (0.98, 0.2), 1, 2_000),
+            TrackEmbedding("track-c", (0.96, 0.28), 1, 2_000),
+        ],
+        protected_track_ids=set(),
+        policy=SpeakerReclusterPolicy(
+            review_min_score=0.8,
+            merge_min_score=0.9,
+            singleton_merge_min_score=0.999,
+        ),
+    )
+    assert plan.track_targets == {}
+    assert plan.proposals == ()
+
+
 def test_protected_tracks_never_auto_merge_with_each_other() -> None:
     plan = plan_track_merges(
         [
@@ -348,8 +366,8 @@ def test_policy_from_env_requires_matching_passing_validation_report(monkeypatch
         "min_segment_ms": 1_500,
         "max_segment_ms": 8_000,
         "max_samples_per_track": 4,
-        "max_total_samples": 256,
-        "max_tracks": 64,
+        "max_total_samples": 512,
+        "max_tracks": 128,
         "max_noise_level": 0.65,
         "min_asr_confidence": 0.45,
         "min_rms": 0.003,

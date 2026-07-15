@@ -849,6 +849,36 @@ def test_rolling_minutes_are_temporary_and_evidence_bound():
     anyio.run(scenario)
 
 
+def test_minutes_normalize_unambiguous_ordinal_evidence_to_segment_ids():
+    async def scenario():
+        engine = await _engine()
+        factory = _factory(engine)
+        async with factory() as session:
+            meeting = await _seed_meeting(session, state="stopped")
+            segment = await _add_segment(session, meeting, 1, "序号引用可确定映射")
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind="final_minutes",
+                    idempotency_key="ordinal-evidence",
+                    input_watermark=1,
+                )
+            )
+            await session.commit()
+
+        runner = FakeRunner({MeetingAITask.FINAL_MINUTES: _minutes_output("1")})
+        await _worker(factory, runner).run_once()
+
+        async with factory() as session:
+            job = (await session.exec(select(MeetingJob))).one()
+            artifact = (await session.exec(select(MeetingArtifact))).one()
+            assert job.state == MeetingJobState.SUCCEEDED.value
+            assert decode_json(artifact.content_json, {})["decisions"][0]["source_segment_ids"] == [segment.id]
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
 def test_minutes_reject_unknown_evidence_without_persisting_ready_artifact():
     async def scenario():
         engine = await _engine()
@@ -922,6 +952,10 @@ def test_target_failure_retries_only_ai_job_and_never_changes_meeting_state():
             assert job.public_error_code == "MODEL_TARGET_UNAVAILABLE"
             assert meeting.state == "live"
             assert segment.asr_final_text == "字幕继续可用"
+            assert [call["job_id"] for call in runner.calls] == [
+                f"{job.id}:attempt:1",
+                f"{job.id}:attempt:2",
+            ]
         await engine.dispose()
 
     anyio.run(scenario)

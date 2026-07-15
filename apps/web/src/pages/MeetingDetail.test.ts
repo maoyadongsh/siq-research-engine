@@ -63,3 +63,10 @@ test('meeting detail collapses processing history to the latest job per type', (
   assert.match(source, /latestJobs\.map\(\(job\) =>/)
   assert.doesNotMatch(source, /jobs\.map\(\(job\) =>/)
 })
+
+test('meeting detail exposes review-only global speaker merge suggestions', () => {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'MeetingDetail.tsx'), 'utf-8')
+
+  assert.match(source, /parseSpeakerMergeSuggestions\(/)
+  assert.match(source, /mergeSuggestions=\{speakerMergeSuggestions\}/)
+})

@@ -63,7 +63,7 @@ class MeetingFinalizationSettings:
     endpoint: str | None
     service_token: str | None
     chunk_page_size: int = 64
-    window_seconds: int = 30
+    window_seconds: int = 60
     max_chunk_bytes: int = 640_000
     timeout_seconds: float = 60.0
     max_response_bytes: int = 2 * 1024 * 1024
@@ -91,7 +91,7 @@ class MeetingFinalizationSettings:
             endpoint=endpoint,
             service_token=token,
             chunk_page_size=_env_int("SIQ_MEETING_FINAL_ASR_CHUNK_PAGE_SIZE", 64, 1, 500),
-            window_seconds=_env_int("SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS", 30, 2, 120),
+            window_seconds=_env_int("SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS", 60, 2, 120),
             max_chunk_bytes=_env_int(
                 "SIQ_MEETING_FINAL_ASR_MAX_CHUNK_BYTES",
                 640_000,

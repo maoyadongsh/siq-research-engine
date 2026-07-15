@@ -34,6 +34,20 @@ export interface MeetingMinutesContent {
   keywords: MeetingMinutesItem[]
 }
 
+export interface SpeakerMergeSuggestion {
+  source_track_ids: string[]
+  target_track_id: string
+  score: number
+  reason_code: string
+}
+
+const reviewableSpeakerMergeReasons = new Set([
+  'POLICY_NOT_VALIDATED',
+  'LOW_TOP2_MARGIN',
+  'PROTECTED_TRACK_CONFLICT',
+  'PROTECTED_IDENTITY_REVIEW_REQUIRED',
+])
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -114,4 +128,51 @@ export function selectLatestMinutesArtifact(artifacts: MeetingArtifact[]) {
 
 export function hasMeetingMinutesContent(content: MeetingMinutesContent) {
   return Boolean(content.overview || meetingMinutesSectionKeys.some((key) => content[key].length))
+}
+
+export function parseSpeakerMergeSuggestions(
+  artifacts: MeetingArtifact[],
+  activeTrackIds?: ReadonlySet<string>,
+): SpeakerMergeSuggestion[] {
+  const reclusterArtifacts = artifacts.filter((artifact) => (
+    artifact.artifact_type === 'speaker_recluster' && record(artifact.content_json)
+  ))
+  const artifact = newest(reclusterArtifacts)
+  const content = record(artifact?.content_json)
+  const globalRecluster = record(content?.global_embedding_recluster)
+  const proposals = Array.isArray(globalRecluster?.proposals) ? globalRecluster.proposals : []
+  const seen = new Set<string>()
+
+  return proposals.flatMap((value) => {
+    const proposal = record(value)
+    const targetTrackId = text(proposal?.target_track_id)
+    const sourceTrackIds = Array.isArray(proposal?.source_track_ids)
+      ? [...new Set(proposal.source_track_ids.map(text).filter((trackId) => trackId && trackId !== targetTrackId))]
+      : []
+    const score = typeof proposal?.score === 'number' ? proposal.score : Number.NaN
+    const reasonCode = text(proposal?.reason_code) || 'REVIEW_REQUIRED'
+    if (
+      proposal?.auto_apply !== false
+      || !reviewableSpeakerMergeReasons.has(reasonCode)
+      || !targetTrackId
+      || sourceTrackIds.length === 0
+      || !Number.isFinite(score)
+      || score < 0
+      || score > 1
+      || (activeTrackIds && (
+        !activeTrackIds.has(targetTrackId)
+        || sourceTrackIds.some((trackId) => !activeTrackIds.has(trackId))
+      ))
+    ) return []
+
+    const key = `${targetTrackId}:${[...sourceTrackIds].sort().join(',')}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{
+      source_track_ids: sourceTrackIds,
+      target_track_id: targetTrackId,
+      score,
+      reason_code: reasonCode,
+    }]
+  }).sort((left, right) => right.score - left.score)
 }

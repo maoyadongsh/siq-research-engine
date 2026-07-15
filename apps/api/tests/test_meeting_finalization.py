@@ -94,6 +94,14 @@ def _settings(*, max_concurrency: int = 2, window_overlap_ms: int = 0) -> Meetin
     )
 
 
+def test_finalization_settings_default_to_sixty_second_windows(monkeypatch) -> None:
+    monkeypatch.delenv("SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS", raising=False)
+
+    settings = MeetingFinalizationSettings.from_env()
+
+    assert settings.window_seconds == 60
+
+
 async def _seed_audio(
     factory,
     store: MeetingAudioStore,

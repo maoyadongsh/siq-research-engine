@@ -80,7 +80,7 @@ correction request cannot occupy the minutes worker.
 | `SIQ_MEETING_FINAL_ASR_URL` | derived | Optional explicit internal `/v1/finalize-window` URL. By default it is derived from `SIQ_MEETING_ASR_WS_URL`. |
 | `SIQ_MEETING_SPEECH_INTERNAL_SERVICE_TOKEN` | none | Required internal speech-service credential when final ASR is configured. |
 | `SIQ_MEETING_FINAL_ASR_CHUNK_PAGE_SIZE` | `64` | Number of manifest rows fetched per database page. |
-| `SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS` | `30` | Maximum PCM duration resident/sent in one final-ASR request. This matches the speech service default limit and reduces offline request overhead without changing realtime capture frames. |
+| `SIQ_MEETING_FINAL_ASR_WINDOW_SECONDS` | `60` | Maximum PCM duration resident/sent in one final-ASR request. This matches the speech service default limit, reduces cross-window speaker namespaces, and does not change realtime capture frames or streaming decoder cadence. |
 | `SIQ_MEETING_FINAL_ASR_MAX_CHUNK_BYTES` | `640000` | Maximum verified manifest chunk read in one operation. |
 | `SIQ_MEETING_FINAL_ASR_TIMEOUT_SECONDS` | `60` | Timeout for one bounded speech request. |
 | `SIQ_MEETING_FINAL_ASR_MAX_RESPONSE_BYTES` | `2097152` | Maximum response bytes accepted per window. |
@@ -108,7 +108,11 @@ evaluation over authorized recordings.
 Hermes target failures retry only the AI job. They do not change the meeting
 capture state, stable transcript, audio, or ASR availability. A pinned target
 is never replaced by another target. Model selection mode `none` records a
-skipped AI job without calling Hermes.
+skipped AI job without calling Hermes. Each retry uses an attempt-scoped Hermes
+session so a failed prompt/output cannot accumulate in the next model context.
+Minutes evidence is stored only with canonical segment UUIDs. A model-provided
+ordinal is mapped only when it exactly identifies one segment in the frozen
+input; unknown or ambiguous evidence still fails closed.
 
 Final-ASR transport/capacity failures likewise retry only `final_transcript`.
 Stable ASR text remains readable. Successful final ASR writes
@@ -118,6 +122,18 @@ human locks or manual/revert revisions are never overwritten. A separate
 auditable mapping events. Manual and user-confirmed voiceprint names are not
 automatically reassigned. Only after reclustering succeeds or completes in an
 explicit no-change mode is `final_minutes` queued.
+
+The unvalidated default recluster policy accepts up to 128 tracks and selects
+at most 512 bounded samples per meeting. Exceeding either cap degrades the
+global embedding stage without losing the base final-ASR transcript. The
+transcription windows and whole-meeting speaker session are intentionally
+separate: final ASR remains independently parallelizable, while temporary
+track embeddings are clustered once across the full meeting. Review-only
+proposals are stored in the `speaker_recluster` artifact and appear under the
+meeting detail's speaker panel; an operator must inspect the prefilled merge
+dialog before applying them. Candidate edges below the merge threshold are not
+materialized as review proposals, which keeps the durable artifact bounded as
+track capacity grows.
 
 The protected API `/metrics` exposes durable, cross-process recluster results
 as `meeting_speaker_recluster_durable_total{result="succeeded|degraded|retry_wait|failed"}`.
@@ -201,13 +217,15 @@ window has an anonymous speaker namespace; the following whole-meeting
 recluster stage is responsible for evidence-gated cross-window speaker mapping.
 
 The checked-in defaults align API concurrency, speech decode capacity, and the
-HTTP finalizer at two. A 2026-07-15 read-only rerun of the same authorized long
-recording processed 1019.873 seconds of verified PCM as 37 overlapping windows
-in 272.560 seconds (RTF 0.2672), down from the historical 331.494 seconds / RTF
+HTTP finalizer at two. A 2026-07-15 read-only rerun using the former 30-second
+window processed 1019.873 seconds of verified PCM as 37 overlapping windows in
+272.560 seconds (RTF 0.2672), down from the historical 331.494 seconds / RTF
 0.325 by about 17.8%. This proves that the independent-window path produces a
 real speedup on the current HTTP finalizer, but it still misses the RTF 0.25
-release threshold and one recording is not a P95 report. More model-instance
-capacity must be measured before raising concurrency above two.
+release threshold and one recording is not a P95 report. The current 60-second
+default reduces window boundaries and requires a new authorized accuracy/RTF
+evaluation; do not reuse the old timing result as release evidence. More
+model-instance capacity must be measured before raising concurrency above two.
 
 Embedding-based cross-key automatic merge requires all three controls at the same time:
 
@@ -221,6 +239,11 @@ Embedding-based cross-key automatic merge requires all three controls at the sam
    `SIQ_MEETING_SPEAKER_RECLUSTER_VALIDATION_REPORT`, and an operator separately sets
    `SIQ_MEETING_SPEAKER_RECLUSTER_AUTO_APPLY_ENABLED=1` under the approved
    rollout change.
+
+Changing the final-ASR window, `max_tracks`, `max_total_samples`, diarizer,
+encoder, or merge thresholds requires a new end-to-end hypothesis and
+validation report. Existing reports remain historical evidence and cannot
+authorize the changed policy automatically.
 
 A missing endpoint/token degrades to no embedding-based cross-key merge; the
 base final-ASR diarization remains available. A malformed policy,

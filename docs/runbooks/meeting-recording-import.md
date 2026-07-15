@@ -9,7 +9,7 @@
 3. `complete` 只确认持久分片清单并排队，不在 API 请求内转码或转写。
 4. Import worker 流式拼接、用 `ffprobe` 校验容器/音轨/时长，再用 `ffmpeg` 输出 16 kHz 单声道 PCM。任一时刻不会把整份录音读入内存。
 5. 标准化音频按 10 秒写入既有 `MeetingAudioChunk` 清单，创建普通会议并排队 `FINAL_TRANSCRIPT`。
-6. Meeting Speech 按有界窗口执行最终 ASR。导入录音首次生成稳定段后，继续复用 speaker recluster；启用 AI 时再使用该会议选择的 Hermes 模型生成最终纪要。
+6. Meeting Speech 默认按 60 秒有界窗口并行执行最终 ASR。导入录音首次生成稳定段后，继续复用全场 speaker recluster；默认最多处理 128 个轨道并选择 512 个声纹样本，超限时保留基础逐字稿并明确降级。启用 AI 时再使用该会议选择的 Hermes 模型生成最终纪要。
 7. 成功写入会议音频后删除上传分片、拼接文件和标准化临时文件。取消也立即删除临时块。
 
 ## 开关与限制
@@ -72,6 +72,8 @@ curl -fsS -H "Authorization: Bearer $TOKEN" \
 ```
 
 确认 `recording_import.available=true`，并核对 `formats`、文件上限和时长上限。
+
+会议详情页的发言人区域会显示全场聚类产生的待确认合并建议。未绑定通过真实多人录音验证的发布报告前，建议只进入人工审核流程，不得仅通过打开自动应用开关绕过质量门禁。
 
 ## 恢复与清理
 
