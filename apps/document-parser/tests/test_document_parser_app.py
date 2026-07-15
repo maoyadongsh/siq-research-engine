@@ -330,6 +330,21 @@ def load_app(tmp_path):
     return load_app_module(tmp_path).app.test_client()
 
 
+def test_task_result_dir_falls_back_to_legacy_artifact_root(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+    current_root = tmp_path / "artifacts" / "document-parser" / "results"
+    legacy_root = tmp_path / "data" / "document-parser" / "results"
+    legacy_task = legacy_root / "legacy-task"
+    legacy_task.mkdir(parents=True)
+    (legacy_task / "document.md").write_text("# legacy\n", encoding="utf-8")
+
+    monkeypatch.setattr(module, "RESULTS_FOLDER", current_root)
+    monkeypatch.setattr(module, "RESULTS_FOLDERS", (current_root, legacy_root))
+
+    assert module._task_result_dir("legacy-task") == legacy_task
+    assert module._task_result_dir("new-task") == current_root / "new-task"
+
+
 def test_url_validation_rejects_private_and_non_http_destinations(monkeypatch, tmp_path):
     module = load_app_module(tmp_path)
     monkeypatch.setattr(module, "_is_public_hostname", lambda hostname: hostname == "public.example")

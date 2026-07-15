@@ -359,6 +359,19 @@ def _insert_evidence(conn: Any, schema: str, package_dir: Path, filing_id: str, 
               evidence_id, filing_id, parse_run_id, source_type, section_id, xbrl_tag, html_anchor,
               xpath, source_url, local_path, quote_text, target, raw
             ) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            on conflict (evidence_id) do update set
+              filing_id = excluded.filing_id,
+              parse_run_id = excluded.parse_run_id,
+              source_type = excluded.source_type,
+              section_id = excluded.section_id,
+              xbrl_tag = excluded.xbrl_tag,
+              html_anchor = excluded.html_anchor,
+              xpath = excluded.xpath,
+              source_url = excluded.source_url,
+              local_path = excluded.local_path,
+              quote_text = excluded.quote_text,
+              target = excluded.target,
+              raw = excluded.raw
             """,
             (
                 item.get("evidence_id"),

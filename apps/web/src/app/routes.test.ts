@@ -43,6 +43,29 @@ test('primary market routes are registered as additive navigation', () => {
   assert.match(routesSource, /label: '投后管理'/)
 })
 
+test('secondary market navigation groups existing routes without changing their paths', () => {
+  const routesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'routes.tsx'), 'utf-8')
+
+  assert.match(routesSource, /label: '二级市场'/)
+  assert.match(routesSource, /to: '\/', label: '工作平台', end: true/)
+  assert.match(routesSource, /to: '\/search', label: '财报下载'/)
+  assert.match(routesSource, /to: '\/parse', label: '财报解析'/)
+  assert.match(routesSource, /to: '\/analysis', label: '智能分析'/)
+  assert.match(routesSource, /to: '\/verify', label: '事实核查'/)
+  assert.match(routesSource, /to: '\/tracking', label: '持续跟踪'/)
+  assert.match(routesSource, /to: '\/legal', label: '法务合规'/)
+  assert.match(routesSource, /to: '\/system-dashboard', label: '系统平台', permission: 'system.config'/)
+})
+
+test('application center navigation groups existing application routes', () => {
+  const routesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'routes.tsx'), 'utf-8')
+
+  assert.match(routesSource, /label: '应用中心'/)
+  assert.match(routesSource, /to: '\/documents', label: '文档解析', end: true/)
+  assert.match(routesSource, /meetingsNavigationEnabled \? \[\{ to: '\/meetings', label: '会议转写' \}\] : \[\]/)
+  assert.match(routesSource, /to: '\/vector-ingest', label: '向量入库', permission: 'system.config'/)
+})
+
 test('meeting transcription routes are isolated from chat and primary-market meeting routes', () => {
   const routesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'routes.tsx'), 'utf-8')
   const meetingRoutes = [
@@ -62,8 +85,7 @@ test('meeting transcription routes are isolated from chat and primary-market mee
   assert.match(routesSource, /const meetingsNavigationEnabled = import\.meta\.env\.VITE_SIQ_MEETINGS_ENABLED === '1'/)
   assert.match(routesSource, /const loadMeetingUnavailable: PageLoader = \(\) => import\('\.\.\/pages\/MeetingUnavailable'\)/)
   assert.match(routesSource, /selectFeatureRouteLoader\(meetingsNavigationEnabled, loadEnabled, loadMeetingUnavailable\)/)
-  assert.match(routesSource, /sidebar: meetingsNavigationEnabled/)
-  assert.match(routesSource, /to: '\/meetings', icon: AudioLines, label: '会议转写'/)
+  assert.match(routesSource, /meetingsNavigationEnabled \? \[\{ to: '\/meetings', label: '会议转写' \}\] : \[\]/)
   assert.match(routesSource, /defineRoute\('\/chat', \(\) => import\('\.\.\/pages\/ChatPage'\)/)
   assert.match(routesSource, /defineRoute\('\/primary-market\/meeting', \(\) => import\('\.\.\/pages\/PrimaryMarketMeeting'\)/)
 })

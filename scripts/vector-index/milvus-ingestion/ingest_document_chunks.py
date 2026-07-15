@@ -20,6 +20,156 @@ def read_json(path: Path, default: Any | None = None) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+PACKAGE_TO_SOURCE_ARTIFACT = {
+    "qa/parse_manifest.json": "manifest.json",
+    "sections/document.md": "document.md",
+    "sections/blocks.json": "blocks.json",
+    "tables/tables.json": "tables.json",
+    "logical_tables/logical_tables.json": "logical_tables.json",
+    "logical_tables/table_relations.json": "table_relations.json",
+    "figures/figures.json": "figures.json",
+    "figures/figure_index.json": "figure_index.json",
+    "qa/source_map.json": "source_map.json",
+    "qa/quality_report.json": "quality_report.json",
+    "extraction/schema.json": "extraction/schema.json",
+    "extraction/result.json": "extraction/result.json",
+    "extraction/evidence_map.json": "extraction/evidence_map.json",
+    "extraction/validation_report.json": "extraction/validation_report.json",
+}
+
+
+def package_artifact_path(package_dir: Path, package_rel: str) -> Path:
+    local = package_dir / package_rel
+    if local.is_file():
+        return local
+    artifact_name = PACKAGE_TO_SOURCE_ARTIFACT.get(package_rel, package_rel)
+    artifact_manifest = read_json(package_dir / "artifact_manifest.json", {})
+    artifacts = artifact_manifest.get("artifacts") if isinstance(artifact_manifest, dict) else {}
+    item = artifacts.get(artifact_name) if isinstance(artifacts, dict) else None
+    source = item.get("source") if isinstance(item, dict) else None
+    if source:
+        return Path(str(source))
+    source_root = artifact_manifest.get("source_result_dir") if isinstance(artifact_manifest, dict) else None
+    return Path(str(source_root)) / artifact_name if source_root else local
+
+
+def read_package_json(package_dir: Path, package_rel: str, default: Any | None = None) -> Any:
+    return read_json(package_artifact_path(package_dir, package_rel), default)
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _segment_type(block: dict[str, Any], text: str) -> str:
+    value = text.lower()
+    rules = (
+        ("risk_factors", ("风险", "risk")),
+        ("key_financials", ("财务", "资产负债", "利润", "现金流", "financial")),
+        ("management_discussion", ("管理层讨论", "经营情况讨论", "management discussion")),
+        ("business_overview", ("主营业务", "业务概要", "business overview")),
+        ("company_profile", ("公司简介", "公司信息", "company profile")),
+    )
+    for segment_type, aliases in rules:
+        if any(alias in value for alias in aliases):
+            return segment_type
+    return "document_section" if block.get("type") in {"title", "heading"} else "document_content"
+
+
+def build_rule_semantics(package_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    blocks = read_package_json(package_dir, "sections/blocks.json").get("blocks") or []
+    source_payload = read_package_json(package_dir, "qa/source_map.json")
+    source_by_block = {
+        str(item.get("block_id")): item
+        for item in source_payload.get("sources") or []
+        if isinstance(item, dict) and item.get("block_id")
+    }
+    document_id = str(manifest.get("document_id") or f"doc-{manifest.get('task_id')}")
+    segments: list[dict[str, Any]] = []
+    evidence: list[dict[str, Any]] = []
+    for block in blocks:
+        text = str(block.get("text") or block.get("markdown") or "").strip()
+        if not text or block.get("type") in {"table", "image"}:
+            continue
+        block_id = str(block.get("block_id") or stable_id(document_id, len(segments)))
+        source = source_by_block.get(block_id) or {}
+        evidence_id = str(source.get("evidence_id") or f"ev_{stable_id(document_id, block_id)[:24]}")
+        segment_id = f"seg_{stable_id(document_id, block_id, text)[:24]}"
+        evidence.append({
+            "evidence_id": evidence_id,
+            "document_id": document_id,
+            "source_type": "text",
+            "source_file": "sections/document.md",
+            "block_id": block_id,
+            "pdf_page_number": block.get("page_number"),
+            "quote": text[:500],
+            "open_source_url": source.get("open_source_url") or "",
+            "confidence": "high" if source else "medium",
+            "needs_review": not bool(source),
+        })
+        segments.append({
+            "segment_id": segment_id,
+            "document_id": document_id,
+            "segment_type": _segment_type(block, text),
+            "title": text[:160] if block.get("type") in {"title", "heading"} else "",
+            "text": text,
+            "block_id": block_id,
+            "page_number": block.get("page_number"),
+            "evidence_ids": [evidence_id],
+            "confidence": "high" if source else "medium",
+            "needs_review": not bool(source),
+        })
+
+    extracted = read_package_json(package_dir, "extraction/result.json")
+    values = extracted.get("result") if isinstance(extracted, dict) else {}
+    facts = []
+    if isinstance(values, dict):
+        for key, value in values.items():
+            if value in (None, "", [], {}):
+                continue
+            facts.append({
+                "fact_id": f"fact_{stable_id(document_id, key, value)[:24]}",
+                "fact_type": "document_extraction",
+                "subject": {"type": "document", "id": document_id, "name": manifest.get("filename") or document_id},
+                "predicate": str(key),
+                "object": value,
+                "evidence_ids": [],
+                "confidence": "medium",
+                "needs_review": True,
+            })
+    claims = [{
+        "claim_id": f"claim_{fact['fact_id'][5:]}",
+        "claim_type": "extracted_field",
+        "text": f"{fact['predicate']}: {fact['object']}",
+        "supporting_facts": [fact["fact_id"]],
+        "evidence_ids": fact["evidence_ids"],
+        "needs_review": fact["needs_review"],
+    } for fact in facts]
+    topics: dict[str, list[str]] = {}
+    for segment in segments:
+        topics.setdefault(segment["segment_type"], []).append(segment["segment_id"])
+    semantic_dir = package_dir / "semantic"
+    generated = {
+        "segments.json": {"schema_version": "document_semantic_segments_v1", "segments": segments},
+        "facts.json": {"schema_version": "document_semantic_facts_v1", "facts": facts},
+        "relations.json": {"schema_version": "document_semantic_relations_v1", "relations": []},
+        "claims.json": {"schema_version": "document_semantic_claims_v1", "claims": claims},
+        "evidence_semantic.json": {"schema_version": "document_semantic_evidence_v1", "evidence": evidence},
+        "retrieval_index.json": {
+            "schema_version": "document_semantic_retrieval_v1",
+            "document_id": document_id,
+            "topics": [{"topic": key, "segment_ids": ids, "evidence_ids": sorted({eid for item in segments if item["segment_id"] in ids for eid in item["evidence_ids"]})} for key, ids in topics.items()],
+            "usage_policy": "LLM output must bind existing segment/evidence ids; extracted financial values require source evidence.",
+        },
+    }
+    for name, payload in generated.items():
+        write_json(semantic_dir / name, payload)
+    summary = {"rule_version": "a_share_compatible_document_rules_v1", "segments": len(segments), "facts": len(facts), "evidence": len(evidence), "claims": len(claims)}
+    write_json(semantic_dir / "semantic_manifest.json", summary)
+    return summary
+
+
 def stable_id(*parts: Any) -> str:
     return hashlib.sha256("\x1f".join("" if part is None else str(part) for part in parts).encode("utf-8")).hexdigest()
 
@@ -57,6 +207,7 @@ def iter_chunks(package_dir: Path, *, collection_name: str = DEFAULT_COLLECTION)
     manifest = read_json(package_dir / "manifest.json")
     if manifest.get("schema_version") != "generic_document_package_v1":
         raise ValueError("manifest schema_version must be generic_document_package_v1")
+    build_rule_semantics(package_dir, manifest)
     sources_by_block, sources_by_table, sources_by_image = _source_maps(package_dir)
     chunks: list[dict[str, Any]] = []
     chunks.extend(_section_chunks(package_dir, manifest, sources_by_block, collection_name))
@@ -90,7 +241,7 @@ def _base_metadata(package_dir: Path, manifest: dict[str, Any], chunk_type: str,
 
 
 def _source_maps(package_dir: Path) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict]]:
-    payload = read_json(package_dir / "qa" / "source_map.json")
+    payload = read_package_json(package_dir, "qa/source_map.json")
     block: dict[str, dict] = {}
     table: dict[str, dict] = {}
     image: dict[str, dict] = {}
@@ -107,19 +258,29 @@ def _source_maps(package_dir: Path) -> tuple[dict[str, dict], dict[str, dict], d
 
 
 def _section_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_block: dict[str, dict], collection_name: str) -> list[dict[str, Any]]:
-    blocks = read_json(package_dir / "sections" / "blocks.json").get("blocks") or []
+    blocks = read_package_json(package_dir, "sections/blocks.json").get("blocks") or []
+    semantic_segments = read_json(package_dir / "semantic" / "segments.json", {}).get("segments") or []
+    semantic_by_block = {
+        str(item.get("block_id")): item
+        for item in semantic_segments
+        if isinstance(item, dict) and item.get("block_id")
+    }
     chunks: list[dict[str, Any]] = []
     for block in blocks:
         text = str(block.get("text") or block.get("markdown") or "").strip()
         if not text or block.get("type") in {"table", "image"}:
             continue
         source = sources_by_block.get(str(block.get("block_id") or "")) or {}
+        semantic = semantic_by_block.get(str(block.get("block_id") or "")) or {}
         for index, chunk in enumerate(split_text(text), start=1):
             uid = stable_id(manifest.get("document_id"), "section", block.get("block_id"), index, chunk)
             metadata = {
                 **_base_metadata(package_dir, manifest, "section", collection_name),
                 "block_id": block.get("block_id") or "",
                 "evidence_id": source.get("evidence_id") or (block.get("source_ref") or {}).get("evidence_id") or "",
+                "semantic_evidence_ids": semantic.get("evidence_ids") or [],
+                "segment_id": semantic.get("segment_id") or "",
+                "segment_type": semantic.get("segment_type") or "document_content",
                 "page_number": block.get("page_number"),
                 "section_title": _section_title(block),
                 "open_source_url": source.get("open_source_url") or "",
@@ -131,7 +292,7 @@ def _section_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_bloc
 
 
 def _table_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_table: dict[str, dict], collection_name: str) -> list[dict[str, Any]]:
-    payload = read_json(package_dir / "tables" / "tables.json")
+    payload = read_package_json(package_dir, "tables/tables.json")
     chunks: list[dict[str, Any]] = []
     for table in payload.get("physical_tables") or payload.get("tables") or []:
         text = _table_text(table)
@@ -154,7 +315,7 @@ def _table_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_table:
 
 
 def _image_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_image: dict[str, dict], collection_name: str) -> list[dict[str, Any]]:
-    figures = read_json(package_dir / "figures" / "figures.json").get("figures") or []
+    figures = read_package_json(package_dir, "figures/figures.json").get("figures") or []
     chunks: list[dict[str, Any]] = []
     for figure in figures:
         text = "\n".join(str(figure.get(key) or "").strip() for key in ("caption", "alt_text", "ocr_text") if figure.get(key)).strip()
@@ -178,7 +339,7 @@ def _image_chunks(package_dir: Path, manifest: dict[str, Any], sources_by_image:
 
 
 def _extraction_chunks(package_dir: Path, manifest: dict[str, Any], collection_name: str) -> list[dict[str, Any]]:
-    result = read_json(package_dir / "extraction" / "result.json")
+    result = read_package_json(package_dir, "extraction/result.json")
     values = result.get("result") if isinstance(result, dict) else {}
     if not isinstance(values, dict):
         return []
@@ -329,7 +490,7 @@ def main() -> None:
     parser.add_argument("--report", type=Path, default=None)
     parser.add_argument("--milvus", action="store_true", help="Embed and upsert chunks into Milvus. Default only writes JSONL.")
     parser.add_argument("--batch-tag", default="generic-documents")
-    parser.add_argument("--embed-url", default=os.environ.get("SIQ_EMBED_URL", "http://127.0.0.1:8000/v1/embeddings"))
+    parser.add_argument("--embed-url", default=os.environ.get("SIQ_EMBED_URL", "http://127.0.0.1:8013/v1/embeddings"))
     parser.add_argument("--embed-model", default=os.environ.get("SIQ_EMBED_MODEL", "Qwen3-VL-Embedding-2B"))
     parser.add_argument("--vector-dim", type=int, default=DEFAULT_VECTOR_DIM)
     parser.add_argument("--batch-size", type=int, default=int(os.environ.get("SIQ_DOCUMENT_VECTOR_BATCH_SIZE", "32")))

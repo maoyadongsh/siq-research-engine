@@ -1,20 +1,11 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import {
-  AudioLines,
   BarChart3,
-  DatabaseZap,
-  FileText,
   Files,
   HelpCircle,
   Landmark,
-  LayoutDashboard,
   MessageCircle,
-  MonitorCog,
-  Scale,
-  Search,
   Settings,
-  ShieldCheck,
-  TrendingUp,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -44,6 +35,7 @@ export type SidebarChildItem = {
   to: string
   label: string
   end?: boolean
+  permission?: string
 }
 
 type RouteSidebarItem = SidebarItem & { group: SidebarGroup }
@@ -67,34 +59,31 @@ function defineRoute(path: string, load: PageLoader, route: Omit<AppRoute, 'path
 
 export const appRoutes: AppRoute[] = [
   defineRoute('/', () => import('../pages/MyWorkspace'), {
-    sidebar: { group: 'nav', to: '/', icon: LayoutDashboard, label: '工作平台' },
+    sidebar: {
+      group: 'nav',
+      to: '/',
+      icon: BarChart3,
+      label: '二级市场',
+      end: true,
+      children: [
+        { to: '/', label: '工作平台', end: true },
+        { to: '/search', label: '财报下载' },
+        { to: '/parse', label: '财报解析' },
+        { to: '/analysis', label: '智能分析' },
+        { to: '/verify', label: '事实核查' },
+        { to: '/tracking', label: '持续跟踪' },
+        { to: '/legal', label: '法务合规' },
+        { to: '/system-dashboard', label: '系统平台', permission: 'system.config' },
+      ],
+    },
   }),
-  defineRoute('/search', () => import('../pages/SearchDownload'), {
-    sidebar: { group: 'nav', to: '/search', icon: Search, label: '搜索下载' },
-  }),
-  defineRoute('/parse', () => import('../pages/PdfParsing'), {
-    sidebar: { group: 'nav', to: '/parse', icon: FileText, label: '财报解析' },
-  }),
+  defineRoute('/search', () => import('../pages/SearchDownload')),
+  defineRoute('/parse', () => import('../pages/PdfParsing')),
   defineRoute('/parse-hk', () => import('../pages/HkParsing')),
   defineRoute('/parse-us', () => import('../pages/UsParsing')),
   defineRoute('/parse-eu', () => import('../pages/EuParsing')),
   defineRoute('/parse-jp', () => import('../pages/JpParsing')),
   defineRoute('/parse-kr', () => import('../pages/KrParsing')),
-  defineRoute('/documents', () => import('../pages/DocumentParsing'), {
-    sidebar: { group: 'nav', to: '/documents', icon: Files, label: '文档解析' },
-  }),
-  defineRoute('/meetings', loadMeetingRoute(() => import('../pages/Meetings')), {
-    sidebar: meetingsNavigationEnabled
-      ? { group: 'nav', to: '/meetings', icon: AudioLines, label: '会议转写' }
-      : undefined,
-  }),
-  defineRoute('/meetings/new', loadMeetingRoute(() => import('../pages/MeetingCreate'))),
-  defineRoute('/meetings/import', loadMeetingRoute(() => import('../pages/MeetingImport'))),
-  defineRoute('/meetings/lexicon', loadMeetingRoute(() => import('../pages/MeetingLexicon'))),
-  defineRoute('/meetings/voiceprints', loadMeetingRoute(() => import('../pages/MeetingVoiceprints'))),
-  defineRoute('/meetings/:meetingId/live', loadMeetingRoute(() => import('../pages/MeetingLive'))),
-  defineRoute('/meetings/:meetingId', loadMeetingRoute(() => import('../pages/MeetingDetail'))),
-  defineRoute('/deals', () => import('../pages/Deals')),
   defineRoute('/primary-market', () => import('../pages/PrimaryMarketWorkbench'), {
     sidebar: {
       group: 'nav',
@@ -110,6 +99,27 @@ export const appRoutes: AppRoute[] = [
       ],
     },
   }),
+  defineRoute('/documents', () => import('../pages/DocumentParsing'), {
+    sidebar: {
+      group: 'nav',
+      to: '/documents',
+      icon: Files,
+      label: '应用中心',
+      children: [
+        { to: '/documents', label: '文档解析', end: true },
+        ...(meetingsNavigationEnabled ? [{ to: '/meetings', label: '会议转写' }] : []),
+        { to: '/vector-ingest', label: '向量入库', permission: 'system.config' },
+      ],
+    },
+  }),
+  defineRoute('/meetings', loadMeetingRoute(() => import('../pages/Meetings'))),
+  defineRoute('/meetings/new', loadMeetingRoute(() => import('../pages/MeetingCreate'))),
+  defineRoute('/meetings/import', loadMeetingRoute(() => import('../pages/MeetingImport'))),
+  defineRoute('/meetings/lexicon', loadMeetingRoute(() => import('../pages/MeetingLexicon'))),
+  defineRoute('/meetings/voiceprints', loadMeetingRoute(() => import('../pages/MeetingVoiceprints'))),
+  defineRoute('/meetings/:meetingId/live', loadMeetingRoute(() => import('../pages/MeetingLive'))),
+  defineRoute('/meetings/:meetingId', loadMeetingRoute(() => import('../pages/MeetingDetail'))),
+  defineRoute('/deals', () => import('../pages/Deals')),
   defineRoute('/primary-market/materials', () => import('../pages/PrimaryMarketMaterials')),
   defineRoute('/primary-market/meeting', () => import('../pages/PrimaryMarketMeeting')),
   defineRoute('/primary-market/post-investment', () => import('../pages/PrimaryMarketPostInvestment')),
@@ -121,18 +131,10 @@ export const appRoutes: AppRoute[] = [
   defineRoute('/deals/:dealId/reports', () => import('../pages/DealReports')),
   defineRoute('/deals/:dealId/decision', () => import('../pages/DealDecision')),
   defineRoute('/deals/:dealId/audit', () => import('../pages/DealAudit')),
-  defineRoute('/analysis', () => import('../pages/AnalysisReport'), {
-    sidebar: { group: 'nav', to: '/analysis', icon: BarChart3, label: '智能分析' },
-  }),
-  defineRoute('/verify', () => import('../pages/FactVerification'), {
-    sidebar: { group: 'nav', to: '/verify', icon: ShieldCheck, label: '事实核查' },
-  }),
-  defineRoute('/tracking', () => import('../pages/Tracking'), {
-    sidebar: { group: 'nav', to: '/tracking', icon: TrendingUp, label: '持续跟踪' },
-  }),
-  defineRoute('/legal', () => import('../pages/LegalCompliance'), {
-    sidebar: { group: 'nav', to: '/legal', icon: Scale, label: '法务合规' },
-  }),
+  defineRoute('/analysis', () => import('../pages/AnalysisReport')),
+  defineRoute('/verify', () => import('../pages/FactVerification')),
+  defineRoute('/tracking', () => import('../pages/Tracking')),
+  defineRoute('/legal', () => import('../pages/LegalCompliance')),
   defineRoute('/chat', () => import('../pages/ChatPage'), {
     sidebar: { group: 'assistant', to: '/chat', icon: MessageCircle, label: '问答助手' },
   }),
@@ -155,11 +157,9 @@ export const appRoutes: AppRoute[] = [
   }),
   defineRoute('/vector-ingest', () => import('../pages/VectorIngest'), {
     permission: 'system.config',
-    sidebar: { group: 'systemAdmin', to: '/vector-ingest', icon: DatabaseZap, label: '向量入库' },
   }),
   defineRoute('/system-dashboard', () => import('../pages/Dashboard'), {
     permission: 'user.manage',
-    sidebar: { group: 'systemAdmin', to: '/system-dashboard', icon: MonitorCog, label: '系统平台' },
   }),
   defineRoute('/forbidden', () => import('../pages/Forbidden')),
 ]

@@ -269,10 +269,10 @@ def test_document_db_import_endpoint_uses_wiki_package(monkeypatch, tmp_path):
     assert seen["timeout"] == 300
     assert seen["env"]["PGHOST"] == "h"
     assert seen["env"]["PGPORT"] == "5432"
-    assert seen["env"]["PGDATABASE"] == "d"
+    assert seen["env"]["PGDATABASE"] == "siq_document_parser"
     assert seen["env"]["PGUSER"] == "u"
     assert seen["env"]["PGPASSWORD"] == "p"
-    assert seen["env"]["DATABASE_URL"] == "postgresql://u:p@h:5432/d"
+    assert seen["env"]["DATABASE_URL"] == "postgresql://u:p@h:5432/siq_document_parser"
     assert result["postgres"]["status"] == "ready"
 
 
@@ -783,6 +783,20 @@ def test_document_semantic_endpoint_builds_chunks(monkeypatch, tmp_path):
     assert "--milvus" not in seen["args"]
     assert result["milvus"]["status"] == "chunks_ready"
     assert result["milvus"]["chunkCount"] == 1
+
+
+def test_document_result_finder_checks_compatibility_roots(monkeypatch, tmp_path):
+    task_id = "task-in-legacy-data-root"
+    canonical_root = tmp_path / "var" / "document-parser" / "results"
+    compatibility_root = tmp_path / "data" / "document-parser" / "results"
+    result_dir = compatibility_root / task_id
+    result_dir.mkdir(parents=True)
+    (result_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    (result_dir / "document.md").write_text("# document", encoding="utf-8")
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULTS_ROOT", canonical_root)
+    monkeypatch.setattr(workflow, "DOCUMENT_PARSER_RESULT_ROOT_CANDIDATES", (canonical_root, compatibility_root))
+
+    assert workflow._find_document_result_dir(task_id) == result_dir.resolve()
 
 
 def test_document_semantic_maps_command_failure_to_500(monkeypatch, tmp_path):

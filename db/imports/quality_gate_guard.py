@@ -190,6 +190,22 @@ def enforce_quality_gates(
     return QualityGateEnforcement(target=target, decision=decision, gates=gates, package_hash=package_hash)
 
 
+def assess_persistence_quality(package_dir: Path) -> QualityGateEnforcement:
+    """Record promotion gates without using them to veto durable storage.
+
+    Persistence follows the A-share importer contract: review/block quality
+    outcomes remain queryable audit metadata. Promotion consumers may still
+    filter canonical/retrieval/production data with ``should_write_target``.
+    """
+    gates = build_quality_gates(package_dir)
+    return QualityGateEnforcement(
+        target="persistence",
+        decision=_decision_for_target(gates, "canonical"),
+        gates=gates,
+        package_hash=_package_hash(package_dir),
+    )
+
+
 def quality_with_gate_audit(quality: dict[str, Any], enforcement: QualityGateEnforcement) -> dict[str, Any]:
     payload = dict(quality) if isinstance(quality, dict) else {}
     payload["quality_gates"] = enforcement.gates

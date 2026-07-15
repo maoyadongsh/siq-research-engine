@@ -22,7 +22,8 @@ if str(RULES_SRC) not in sys.path:
     sys.path.insert(0, str(RULES_SRC))
 
 from market_report_rules_service.evidence_package import compute_artifact_hashes, stable_id, stable_parse_run_id, validate_evidence_package
-from quality_gate_guard import enforce_quality_gates, quality_with_gate_audit
+from persistence_validation import validate_package_for_persistence
+from quality_gate_guard import assess_persistence_quality, quality_with_gate_audit
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -76,23 +77,13 @@ def import_package(
     force_expires_at: str | None = None,
 ) -> str:
     validation = validate_evidence_package(package_dir)
-    if not validation.ok:
-        raise SystemExit("Invalid evidence package: " + "; ".join(validation.errors))
-    manifest = validation.manifest
-    if manifest.get("market") != market:
-        raise SystemExit(f"manifest market must be {market}")
-    gate_enforcement = enforce_quality_gates(
-        package_dir,
-        target="canonical",
-        force_review=force_review,
-        requested_by=force_requested_by,
-        reason=force_reason,
-        approved_by=force_approved_by,
-        expires_at=force_expires_at,
-    )
+    persistence = validate_package_for_persistence(package_dir, validation, market=market)
+    manifest = persistence.manifest
+    gate_enforcement = assess_persistence_quality(package_dir)
     artifact_hashes = manifest.get("artifact_hashes") or compute_artifact_hashes(package_dir)
     parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, artifact_hashes)
     quality = quality_with_gate_audit(read_json(package_dir / "qa" / "quality_report.json"), gate_enforcement)
+    quality["persistence_validation_warnings"] = persistence.warnings
     warnings = (quality.get("critical_warnings") or []) + (quality.get("parser_warnings") or []) + (quality.get("rule_warnings") or [])
 
     with conn.transaction():
@@ -279,6 +270,10 @@ def _insert_xbrl_facts(conn: Any, schema: str, package_dir: Path, filing_id: str
 def _insert_tables(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     payload = read_json(package_dir / "tables" / "table_index.json")
     for table in payload.get("tables") or []:
+        table_index = table.get("table_index")
+        table_id = table.get("table_id") or stable_id(
+            filing_id, "pdf_table", table_index, table.get("page_number"), table.get("title")
+        )
         conn.execute(
             f"""
             insert into {schema}.pdf_tables (
@@ -289,9 +284,9 @@ def _insert_tables(conn: Any, schema: str, package_dir: Path, filing_id: str, pa
             (
                 parse_run_id,
                 filing_id,
-                table.get("table_id"),
+                table_id,
                 table.get("page_number"),
-                table.get("table_index"),
+                table_index,
                 table.get("title"),
                 table.get("row_count"),
                 table.get("column_count"),
@@ -335,7 +330,16 @@ def _insert_evidence(conn: Any, schema: str, package_dir: Path, filing_id: str, 
 
 def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id: str, parse_run_id: str) -> None:
     payload = read_json(package_dir / "metrics" / "normalized_metrics.json")
-    for item in payload.get("metrics") or []:
+    manifest = read_json(package_dir / "manifest.json")
+    for index, item in enumerate(payload.get("metrics") or [], start=1):
+        metric_id = item.get("metric_id") or stable_id(
+            filing_id,
+            item.get("statement_type"),
+            item.get("canonical_name"),
+            item.get("period_key") or item.get("period_end") or item.get("fiscal_year"),
+            item.get("value"),
+            index,
+        )
         if item.get("statement_type") == "operating_metrics":
             conn.execute(
                 f"""
@@ -346,10 +350,10 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
                 on conflict (metric_id) do update set value = excluded.value, raw = excluded.raw
                 """,
                 (
-                    item.get("metric_id"),
+                    metric_id,
                     filing_id,
                     parse_run_id,
-                    item.get("ticker"),
+                    item.get("ticker") or manifest.get("ticker"),
                     item.get("canonical_name"),
                     parse_numeric(item.get("value")),
                     item.get("unit"),
@@ -370,10 +374,10 @@ def _insert_financial_facts(conn: Any, schema: str, package_dir: Path, filing_id
             on conflict (metric_id) do update set value = excluded.value, raw = excluded.raw
             """,
             (
-                item.get("metric_id"),
+                metric_id,
                 filing_id,
                 parse_run_id,
-                item.get("ticker"),
+                item.get("ticker") or manifest.get("ticker"),
                 item.get("statement_type"),
                 item.get("canonical_name"),
                 item.get("local_name"),

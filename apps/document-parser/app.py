@@ -80,6 +80,7 @@ PROJECT_ROOT = APP_PATHS["project_root"]
 DATA_DIR = APP_PATHS["data_dir"]
 UPLOAD_FOLDER = APP_PATHS["uploads"]
 RESULTS_FOLDER = APP_PATHS["results"]
+RESULTS_FOLDERS = APP_PATHS["results_candidates"]
 OUTPUT_FOLDER = APP_PATHS["output"]
 DB_PATH = APP_PATHS["db"]
 LOG_DIR = APP_PATHS["logs"]
@@ -305,6 +306,10 @@ def _task_upload_dir(task_id: str) -> Path:
 
 
 def _task_result_dir(task_id: str) -> Path:
+    for root in RESULTS_FOLDERS:
+        candidate = root / task_id
+        if candidate.exists():
+            return candidate
     return RESULTS_FOLDER / task_id
 
 

@@ -25,6 +25,7 @@ from services.path_config import (
     DB_CONFIG_PY,
     DB_IMPORT_SCRIPT,
     DOCUMENT_DB_IMPORT_SCRIPT,
+    DOCUMENT_PARSER_RESULT_ROOT_CANDIDATES,
     DOCUMENT_PARSER_RESULTS_ROOT,
     DOCUMENT_WIKI_ROOT,
     PDF_RESULT_ROOT_CANDIDATES,
@@ -378,10 +379,11 @@ def _document_key_from_manifest(task_id: str, manifest: dict) -> str:
 
 def _find_document_result_dir(task_id: str) -> Path | None:
     task_id = _safe_task_id(task_id)
-    candidates = [
-        DOCUMENT_PARSER_RESULTS_ROOT / task_id,
-        Path(os.environ.get("SIQ_DOCUMENT_PARSER_RESULTS_FALLBACK", "")) / task_id if os.environ.get("SIQ_DOCUMENT_PARSER_RESULTS_FALLBACK") else None,
-    ]
+    roots = [DOCUMENT_PARSER_RESULTS_ROOT, *DOCUMENT_PARSER_RESULT_ROOT_CANDIDATES]
+    fallback = os.environ.get("SIQ_DOCUMENT_PARSER_RESULTS_FALLBACK")
+    if fallback:
+        roots.append(Path(fallback))
+    candidates = [root / task_id for root in dict.fromkeys(roots)]
     for path in candidates:
         if path is None:
             continue
@@ -1354,6 +1356,16 @@ def _db_connect_config() -> dict:
         "user": os.environ.get("SIQ_PGUSER") or os.environ.get("PGUSER", "postgres"),
         "password": os.environ.get("SIQ_PGPASSWORD") or os.environ.get("PGPASSWORD", ""),
     }
+
+
+def _document_db_connect_config() -> dict:
+    config = dict(_db_connect_config())
+    config["dbname"] = (
+        os.environ.get("SIQ_DOCUMENT_PGDATABASE")
+        or os.environ.get("PGDOCUMENTDATABASE")
+        or "siq_document_parser"
+    )
+    return config
 
 
 def _pdf2md_db_connect_config() -> dict:
@@ -2949,7 +2961,7 @@ def import_document_task_to_database(
     package_dir = Path(str(wiki.get("path") or ""))
     if not (package_dir / DOCUMENT_PACKAGE_MANIFEST_NAME).is_file():
         raise HTTPException(404, "Document Wiki package manifest not found")
-    pg_config = _db_connect_config()
+    pg_config = _document_db_connect_config()
     database_url = _postgres_database_url(pg_config)
     command = document_workflow_service.document_db_import_plan(
         executable=sys.executable,

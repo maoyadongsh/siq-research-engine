@@ -146,7 +146,11 @@ def infer_kr_pdf_metadata(
     parser_manifest = _read_json(parser_result_dir / "manifest.json")
     metadata = dict(parser_manifest)
     if metadata_path:
-        metadata.update(_read_json(metadata_path))
+        downloaded_metadata = _read_json(metadata_path)
+        candidate = downloaded_metadata.get("candidate")
+        if isinstance(candidate, dict):
+            metadata.update(candidate)
+        metadata.update({key: value for key, value in downloaded_metadata.items() if key != "candidate"})
 
     task_id = str(metadata.get("task_id") or parser_result_dir.name)
     ticker = normalize_kr_ticker(metadata.get("ticker") or _ticker_from_kr_filename(pdf_path.name) or pdf_path.stem)
@@ -173,6 +177,10 @@ def infer_kr_pdf_metadata(
         "period_end": period_end,
         "report_type": report_type,
         "form": metadata.get("form") or "business_report",
+        "source_id": metadata.get("source_id") or "dart_public",
+        "source_tier": metadata.get("source_tier") or "official_registry",
+        "published_at": metadata.get("published_at") or metadata.get("filing_date"),
+        "landing_url": metadata.get("landing_url"),
         "report_id": report_id,
         "pdf_parser_task_id": task_id,
         "source_pdf": str(pdf_path),
@@ -847,7 +855,12 @@ def write_kr_pdf_wiki_package(
         "company_wiki_path": _repo_relative(company_dir),
         "wiki_report_path": _repo_relative(package_dir),
         "source_type": "pdf",
+        "source_id": metadata.get("source_id"),
+        "source_tier": metadata.get("source_tier"),
         "source_url": metadata.get("source_url"),
+        "landing_url": metadata.get("landing_url"),
+        "published_at": metadata.get("published_at"),
+        "filing_date": metadata.get("published_at"),
         "local_source_path": f"raw/{pdf_path.name}",
         "pdf_parser_task_id": metadata["pdf_parser_task_id"],
         "task_id": metadata["pdf_parser_task_id"],

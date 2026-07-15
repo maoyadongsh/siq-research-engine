@@ -29,7 +29,9 @@ from market_report_rules_service.evidence_package import (  # noqa: E402
     stable_parse_run_id,
     validate_evidence_package,
 )
+from persistence_validation import validate_package_for_persistence  # noqa: E402
 from quality_gate_guard import (  # noqa: E402
+    assess_persistence_quality,
     enforce_quality_gates,
     quality_with_gate_audit,
     should_write_target,
@@ -436,20 +438,9 @@ def build_import_plan(
 ) -> dict[str, Any]:
     package_dir = package_dir.resolve()
     validation = validate_evidence_package(package_dir)
-    if not validation.ok:
-        raise SystemExit("Invalid evidence package: " + "; ".join(validation.errors))
-    manifest = validation.manifest
-    if manifest.get("market") != "HK":
-        raise SystemExit("manifest market must be HK")
-    gate_enforcement = enforce_quality_gates(
-        package_dir,
-        target="canonical",
-        force_review=force_review,
-        requested_by=force_requested_by,
-        reason=force_reason,
-        approved_by=force_approved_by,
-        expires_at=force_expires_at,
-    )
+    persistence = validate_package_for_persistence(package_dir, validation, market="HK")
+    manifest = persistence.manifest
+    gate_enforcement = assess_persistence_quality(package_dir)
     financial_data = read_json(package_dir / "metrics" / "financial_data.json")
     source_map = read_json(package_dir / "qa" / "source_map.json")
     parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, validation.artifact_hashes)
@@ -494,23 +485,13 @@ def import_package(
 ) -> str:
     validate_schema(schema)
     validation = validate_evidence_package(package_dir)
-    if not validation.ok:
-        raise SystemExit("Invalid evidence package: " + "; ".join(validation.errors))
-    manifest = validation.manifest
-    if manifest.get("market") != "HK":
-        raise SystemExit("manifest market must be HK")
-    gate_enforcement = enforce_quality_gates(
-        package_dir,
-        target="canonical",
-        force_review=force_review,
-        requested_by=force_requested_by,
-        reason=force_reason,
-        approved_by=force_approved_by,
-        expires_at=force_expires_at,
-    )
+    persistence = validate_package_for_persistence(package_dir, validation, market="HK")
+    manifest = persistence.manifest
+    gate_enforcement = assess_persistence_quality(package_dir)
     artifact_hashes = manifest.get("artifact_hashes") or compute_artifact_hashes(package_dir)
     parse_run_id = manifest.get("parse_run_id") or stable_parse_run_id(manifest, artifact_hashes)
     quality = quality_with_gate_audit(read_json(package_dir / "qa" / "quality_report.json"), gate_enforcement)
+    quality["persistence_validation_warnings"] = persistence.warnings
     financial_data = read_json(package_dir / "metrics" / "financial_data.json")
     source_map = read_json(package_dir / "qa" / "source_map.json")
     warnings = (quality.get("critical_warnings") or []) + (quality.get("parser_warnings") or []) + (quality.get("rule_warnings") or [])
