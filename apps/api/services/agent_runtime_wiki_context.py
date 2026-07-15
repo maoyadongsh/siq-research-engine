@@ -176,9 +176,6 @@ def select_report_for_research_identity(
     requested = {field: _identity_text(research_identity, field) for field in IDENTITY_SELECTION_FIELDS}
     company_id = str(company.get("company_id") or company.get("company_wiki_id") or "").strip()
     requested_company_id = _normalized_company_id(requested["company_id"])
-    company_ids = {_normalized_company_id(company_id), _normalized_company_id(company_dir.name)}
-    if requested_company_id and company_id and requested_company_id not in company_ids:
-        return {"selection_status": "identity_mismatch", "selection_reason": "company_id_mismatch"}
 
     reports = [item for item in (company.get("reports") or []) if isinstance(item, dict)]
     if not reports:
@@ -213,8 +210,19 @@ def select_report_for_research_identity(
         }
 
     report, manifest = parse_matches[0]
+    authoritative_company_id = str(report.get("company_id") or manifest.get("company_id") or "").strip()
+    fallback_company_ids = {_normalized_company_id(company_id), _normalized_company_id(company_dir.name)}
+    if requested_company_id:
+        if authoritative_company_id:
+            company_matches = requested_company_id == _normalized_company_id(authoritative_company_id)
+        else:
+            company_matches = not company_id or requested_company_id in fallback_company_ids
+        if not company_matches:
+            return {"selection_status": "identity_mismatch", "selection_reason": "company_id_mismatch"}
     selected = {**report}
     selected["selection_status"] = "identity_exact"
+    selected["market"] = report.get("market") or manifest.get("market")
+    selected["company_id"] = report.get("company_id") or manifest.get("company_id")
     selected["filing_id"] = report.get("filing_id") or manifest.get("filing_id")
     selected["parse_run_id"] = report.get("parse_run_id") or manifest.get("parse_run_id")
     selected["task_id"] = (

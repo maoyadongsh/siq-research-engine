@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
 from services.citation_links import append_missing_pdf_source_links
 
 LATEX_INLINE_SYMBOLS: dict[str, str] = {
@@ -126,6 +127,10 @@ def _primary_data_source_ref(
     parse_run_id: Any = None,
     evidence_id: Any = None,
     quote: Any = None,
+    evidence_source_type: Any = None,
+    source_url: Any = None,
+    source_anchor: Any = None,
+    xbrl_tag: Any = None,
 ) -> str:
     structured_fields = {
         "statement_type": statement_type,
@@ -143,6 +148,7 @@ def _primary_data_source_ref(
         "parse_run_id": parse_run_id,
         "evidence_id": evidence_id,
         "quote": quote,
+        "evidence_source_type": evidence_source_type,
     }
     structured = ", ".join(
         f"{key}={_reference_value(value)}"
@@ -160,6 +166,14 @@ def _primary_data_source_ref(
         md_line=md_line,
         table_source_links=table_source_links,
     )
+    external_url = str(source_url or "").strip()
+    external_anchor = str(source_anchor or "").strip()
+    if external_url:
+        target = external_url if not external_anchor or "#" in external_url else f"{external_url}#{external_anchor}"
+        locator += (
+            f", source_url={external_url}, source_anchor={external_anchor or '未返回'}, "
+            f"xbrl_tag={xbrl_tag or '未返回'}, [打开披露原文]({target})"
+        )
     return prefix + (f"{structured}, " if structured else "") + locator
 
 
@@ -172,7 +186,7 @@ def _reference_value(value: Any) -> str:
 
 def _append_unique_source_ref(
     refs: list[str],
-    seen: set[tuple[Any, Any, Any, str, str]],
+    seen: set[tuple[Any, ...]],
     *,
     source_type: str,
     file: str,
@@ -185,7 +199,19 @@ def _append_unique_source_ref(
     table_source_links: Callable[[Any, Any, Any], str],
     **structured_fields: Any,
 ) -> None:
-    key = (task_id, pdf_page, table_index, str(file or ""), str(metric or ""))
+    source_value = structured_fields.get("value")
+    if source_value in (None, ""):
+        source_value = structured_fields.get("raw_value")
+    key = (
+        task_id,
+        pdf_page,
+        table_index,
+        str(file or ""),
+        str(metric or ""),
+        str(structured_fields.get("evidence_id") or ""),
+        str(structured_fields.get("canonical_name") or structured_fields.get("metric_name") or ""),
+        str(source_value if source_value not in (None, "") else ""),
+    )
     if key in seen:
         return
     seen.add(key)
@@ -235,13 +261,27 @@ def _source_field_value(line: str, field: str) -> str:
     return match.group(1).strip().strip("。；;") if match else ""
 
 
-def _source_reference_key(line: str) -> tuple[str, str, str, str] | tuple[str]:
+def _source_reference_key(line: str) -> tuple[str, ...]:
     task_id = _source_field_value(line, "task_id")
     pdf_page = _source_field_value(line, "pdf_page") or _source_field_value(line, "pdf_page_number")
     table_index = _source_field_value(line, "table_index")
     md_line = _source_field_value(line, "md_line") or _source_field_value(line, "markdown_line")
     if task_id or pdf_page or table_index or md_line:
-        return (task_id, pdf_page, table_index, md_line)
+        fields = _extract_source_fields_shared(
+            line,
+            allowed_fields={"metric", "canonical_name", "metric_name", "value", "raw_value", "evidence_id"},
+        )
+        canonical_metric = fields.get("canonical_name") or fields.get("metric_name") or fields.get("metric") or ""
+        source_value = fields.get("value") or fields.get("raw_value") or ""
+        return (
+            task_id,
+            pdf_page,
+            table_index,
+            md_line,
+            fields.get("evidence_id") or "",
+            canonical_metric,
+            source_value,
+        )
     return (re.sub(r"\s+", " ", line or "").strip(),)
 
 
@@ -450,10 +490,15 @@ def _render_three_statement_primary_data_supplement(
         "| --- | --- | ---: | --- |",
     ]
     refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
+    seen_refs: set[tuple[Any, ...]] = set()
     for row in rows[:primary_data_supplement_max_rows]:
         metric = row.get("metric_name") or row.get("metric_key") or "未返回"
         value = _format_statement_value(row)
+        source_value = row.get("raw_value")
+        if source_value in (None, ""):
+            source_value = row.get("value")
+        if source_value in (None, ""):
+            source_value = row.get("normalized_value")
         locator = _source_locator_text(
             task_id=row.get("task_id"),
             pdf_page=row.get("pdf_page"),
@@ -471,24 +516,39 @@ def _render_three_statement_primary_data_supplement(
             f"{row.get('period') or result.get('report_id') or '未返回'} | {value or '未返回'} | {locator} |"
         )
         if source_url:
-            key = (source_url, source_anchor, row.get("xbrl_tag"), str(row.get("file") or ""), str(metric))
-            if key not in seen_refs:
-                seen_refs.add(key)
-                refs.append(
-                    f"[D{len(refs) + 1}] source_type={row.get('source_type') or 'wiki_metrics'}, "
-                    f"file={row.get('file') or 'metrics/financial_data.json'}, metric={row.get('statement_label') or metric}, "
-                    f"period={row.get('report_id') or result.get('report_id') or '未返回'}, task_id={row.get('task_id') or '未返回'}, "
-                    f"pdf_page=未返回, table_index=未返回, md_line={row.get('md_line') or '未返回'}, "
-                    f"evidence_source_type={row.get('evidence_source_type') or '未返回'}, source_url={source_url}, "
-                    f"source_anchor={source_anchor or '未返回'}, xbrl_tag={row.get('xbrl_tag') or '未返回'}, "
-                    f"[打开披露原文]({target})"
-                )
+            _append_unique_source_ref(
+                refs,
+                seen_refs,
+                source_type=row.get("source_type") or "wiki_metrics",
+                file=row.get("file") or "metrics/financial_data.json",
+                metric=row.get("statement_label") or metric,
+                period=row.get("period") or row.get("report_id") or result.get("report_id"),
+                task_id=row.get("task_id"),
+                pdf_page=row.get("pdf_page"),
+                table_index=row.get("table_index"),
+                md_line=row.get("md_line"),
+                table_source_links=table_source_links,
+                statement_type=row.get("statement_type"),
+                canonical_name=row.get("canonical_name") or row.get("metric_key"),
+                metric_name=row.get("metric_name") or metric,
+                value=source_value,
+                raw_value=row.get("raw_value"),
+                unit=row.get("unit"),
+                currency=row.get("currency"),
+                scale=row.get("scale") or row.get("base_scale"),
+                market=row.get("market") or result.get("market"),
+                company_id=row.get("company_id") or result.get("company_id"),
+                report_id=row.get("report_id") or result.get("report_id"),
+                filing_id=row.get("filing_id") or result.get("filing_id"),
+                parse_run_id=row.get("parse_run_id") or result.get("parse_run_id"),
+                evidence_id=row.get("evidence_id"),
+                quote=row.get("source_quote") or row.get("quote_text"),
+                evidence_source_type=row.get("evidence_source_type"),
+                source_url=source_url,
+                source_anchor=source_anchor,
+                xbrl_tag=row.get("xbrl_tag"),
+            )
         else:
-            source_value = row.get("raw_value")
-            if source_value in (None, ""):
-                source_value = row.get("value")
-            if source_value in (None, ""):
-                source_value = row.get("normalized_value")
             _append_unique_source_ref(
                 refs,
                 seen_refs,
@@ -561,7 +621,7 @@ def _render_statement_table_primary_data_supplement(
         "| --- | --- | --- |",
     ]
     refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
+    seen_refs: set[tuple[Any, ...]] = set()
     remaining = primary_data_supplement_max_rows
     for table in tables:
         records = [record for record in (table.get("records") or []) if isinstance(record, dict)]
@@ -622,7 +682,7 @@ def _render_note_detail_primary_data_supplement(
         "| --- | --- | --- |",
     ]
     refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
+    seen_refs: set[tuple[Any, ...]] = set()
     for table in tables[:primary_data_supplement_max_rows]:
         metric = table.get("metric") or result.get("metric") or "附注明细"
         records = [record for record in (table.get("records") or []) if isinstance(record, dict)]
@@ -739,7 +799,7 @@ def _render_wiki_fulltext_primary_data_supplement(
         "| --- | --- | --- |",
     ]
     refs: list[str] = []
-    seen_refs: set[tuple[Any, Any, Any, str, str]] = set()
+    seen_refs: set[tuple[Any, ...]] = set()
     for index, row in enumerate(rows[:primary_data_supplement_max_rows], start=1):
         snippet = re.sub(r"\s+", " ", str(row.get("snippet") or "")).strip()
         if len(snippet) > 180:

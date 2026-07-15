@@ -2310,6 +2310,35 @@ def _resolve_company_dir(message: str, context: Any | None = None) -> Path | Non
     forced_company_dir = _forced_context_company_dir(context)
     if forced_company_dir:
         return forced_company_dir
+    identity_market = str(agent_runtime_context.research_identity(context).get("market") or "").upper()
+    requested_markets = agent_runtime_catalog.requested_catalog_markets(message)
+    explicit_non_cn_market = (
+        identity_market not in {"", "CN"}
+        or (
+            requested_markets != agent_runtime_catalog.MARKET_ORDER
+            and "CN" not in requested_markets
+        )
+    )
+    if explicit_non_cn_market:
+        # The legacy local-citation resolver is rooted in the A-share Wiki and
+        # can treat short foreign tickers such as BA/CAT as CN aliases.  An
+        # explicit foreign market must stay inside its authoritative catalog.
+        resolved = _resolve_company_dir_from_catalog(message, context)
+        if resolved is not None:
+            return resolved
+        identity = agent_runtime_context.research_identity(context)
+        if all(identity.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS):
+            # Legacy catalog company ids can differ from the canonical report
+            # manifest (for example UK:AZN versus EU:GB:AZN). Re-resolve only
+            # from the explicit market/ticker text, then require the selected
+            # package to match the already-bound filing and parse identity.
+            fallback_message = " ".join(part for part in (message, _context_company_hint(context)) if part)
+            candidate = _resolve_company_dir_from_catalog(fallback_message, None)
+            if candidate is not None:
+                report = _primary_report_for_company(candidate, message, context)
+                if report.get("selection_status") == "identity_exact":
+                    return candidate
+        return None
     module = _load_local_citation_module()
     finder = getattr(module, "find_company_dir_from_text", None) if module else None
     company_hint = _context_company_hint(context)
@@ -2405,9 +2434,13 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
     if not company_dir:
         return output
     company = _read_json_file(company_dir / "company.json") or {}
-    market = str(existing.get("market") or company.get("market") or "CN").upper()
     report = _primary_report_for_company(company_dir, message, output)
-    company_id = str(existing.get("company_id") or company.get("company_id") or report.get("company_id") or company_dir.name)
+    market = str(existing.get("market") or report.get("market") or company.get("market") or "CN").upper()
+    # The selected report manifest is the authoritative filing identity. Some
+    # legacy company catalog rows contain duplicated market prefixes (for
+    # example JP:JP:4502); preferring that stale catalog value makes the same
+    # package unreadable as soon as a complete ResearchIdentity is enforced.
+    company_id = str(existing.get("company_id") or report.get("company_id") or company.get("company_id") or company_dir.name)
     report_id = str(report.get("report_id") or company.get("primary_report_id") or "")
     filing_id = str(existing.get("filing_id") or report.get("filing_id") or "")
     parse_run_id = str(existing.get("parse_run_id") or report.get("parse_run_id") or "")
@@ -2482,12 +2515,16 @@ def _result_with_research_identity(
         filing_id = identity["filing_id"]
         return filing_id == report_id or filing_id.endswith(f":{report_id}")
 
-    def scope_matches(item: Mapping[str, Any]) -> bool:
+    def scope_matches(
+        item: Mapping[str, Any],
+        *,
+        allow_distinct_task: bool = False,
+        trusted_task_id: str = "",
+    ) -> bool:
         expected_values = (
             (("market",), identity["market"], True),
             (("company_id",), identity["company_id"], False),
             (("filing_id",), identity["filing_id"], False),
-            (("parse_run_id", "task_id"), identity["parse_run_id"], False),
         )
         for fields, expected, normalize_market in expected_values:
             for value in explicit_values(item, *fields):
@@ -2495,6 +2532,24 @@ def _result_with_research_identity(
                 wanted = expected.upper() if normalize_market else expected
                 if actual != wanted:
                     return False
+        # A market package may carry both the stable parse-run hash used by
+        # ResearchIdentity and a separate parser job/task identifier.  The
+        # latter is a locator, not an alternate company identity; rejecting it
+        # merely because it differs from the hash discards otherwise exact
+        # XBRL evidence.  When no parse hash is present, task_id remains the
+        # only legacy binding and must still match exactly.
+        parse_values = explicit_values(item, "parse_run_id")
+        task_values = explicit_values(item, "task_id")
+        allowed_task_values = {identity["parse_run_id"]}
+        if trusted_task_id:
+            allowed_task_values.add(trusted_task_id)
+        if parse_values:
+            if any(value != identity["parse_run_id"] for value in parse_values):
+                return False
+            if not allow_distinct_task and any(value not in allowed_task_values for value in task_values):
+                return False
+        elif task_values and any(value not in allowed_task_values for value in task_values):
+            return False
         for report_id in explicit_values(item, "report_id"):
             if expected_report_id:
                 if report_id != expected_report_id:
@@ -2516,7 +2571,7 @@ def _result_with_research_identity(
             output["research_identity"] = nested_output
         return output
 
-    if not scope_matches(result):
+    if not scope_matches(result, allow_distinct_task=True):
         return without_trust_binding()
 
     child_scopes: list[Mapping[str, Any]] = []
@@ -2533,7 +2588,8 @@ def _result_with_research_identity(
                 table_rows = table.get(row_key)
                 if isinstance(table_rows, list):
                     child_scopes.extend(item for item in table_rows if isinstance(item, Mapping))
-    if any(not scope_matches(item) for item in child_scopes):
+    result_task_id = str(result.get("task_id") or "").strip()
+    if any(not scope_matches(item, trusted_task_id=result_task_id) for item in child_scopes):
         return without_trust_binding()
 
     def complete(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -2541,6 +2597,8 @@ def _result_with_research_identity(
         for field, value in identity.items():
             if not str(output.get(field) or "").strip():
                 output[field] = value
+        if not str(output.get("task_id") or "").strip() and str(result.get("task_id") or "").strip():
+            output["task_id"] = result["task_id"]
         return output
 
     output = complete(result)
@@ -3107,8 +3165,8 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
         return None
     return _result_with_research_identity({
         "company_dir": company_dir,
-        "market": company.get("market") or "CN",
-        "company_id": company.get("company_id") or company_dir.name,
+        "market": report.get("market") or company.get("market") or "CN",
+        "company_id": report.get("company_id") or company.get("company_id") or company_dir.name,
         "company_name": company.get("company_short_name")
         or company.get("company_name")
         or company.get("company_full_name")
@@ -3828,6 +3886,46 @@ def render_human_capital_markdown(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _result_has_research_identity_conflict(
+    result: Mapping[str, Any],
+    expected_identity: Mapping[str, str],
+) -> bool:
+    """Reject an otherwise stamped result when a nested scope disagrees."""
+
+    # ``task_id`` is an independently usable source locator for some market
+    # packages; it is not interchangeable with parse_run_id.
+    aliases = {
+        "market": "market",
+        "company_id": "company_id",
+        "companyid": "company_id",
+        "filing_id": "filing_id",
+        "filingid": "filing_id",
+        "parse_run_id": "parse_run_id",
+        "parserunid": "parse_run_id",
+    }
+
+    def walk(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                field = aliases.get(str(key).strip().lower().replace("-", "_"))
+                if field and item not in (None, ""):
+                    actual = str(item).strip()
+                    expected = str(expected_identity.get(field) or "").strip()
+                    if field == "market":
+                        actual = actual.upper()
+                        expected = expected.upper()
+                    if expected and actual != expected:
+                        return True
+                if isinstance(item, (Mapping, list, tuple)) and walk(item):
+                    return True
+            return False
+        if isinstance(value, (list, tuple)):
+            return any(walk(item) for item in value)
+        return False
+
+    return walk(result)
+
+
 def _statement_metric_result(message: str, context: Any | None = None) -> tuple[dict[str, Any] | None, Callable[..., str] | None]:
     resolver, renderer = _load_statement_metric_tools(context)
     if not resolver or not renderer:
@@ -3849,7 +3947,25 @@ def _statement_metric_result(message: str, context: Any | None = None) -> tuple[
         except Exception:
             continue
         if result.get("tables"):
-            return _result_with_research_identity(result, context), renderer
+            bound_result = _result_with_research_identity(result, context)
+            expected_identity = agent_runtime_context.research_identity(context)
+            if (
+                expected_identity.get("market") in agent_runtime_context.NON_CN_RESEARCH_MARKETS
+                and all(
+                    expected_identity.get(field)
+                    for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS
+                )
+            ):
+                actual_identity = agent_runtime_context.research_identity(bound_result)
+                if (
+                    _result_has_research_identity_conflict(bound_result, expected_identity)
+                    or any(
+                        actual_identity.get(field) != expected_identity[field]
+                        for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS
+                    )
+                ):
+                    continue
+            return bound_result, renderer
     return None, renderer
 
 
@@ -5371,14 +5487,24 @@ def _record_answer_audit_trace_compat(**kwargs: Any) -> dict[str, Any]:
     """Keep test/runtime adapters compatible while trusted receipts roll out."""
     enriched = dict(kwargs)
     message = str(enriched.get("message") or "")
+    raw_reply = str(enriched.get("raw_reply") or "")
     final_reply = str(enriched.get("final_reply") or "")
-    if (
-        "trusted_calculation_evidence" not in enriched
-        and agent_runtime_financial_guard.requires_financial_calculation_trace(message, final_reply)
-    ):
+    needs_calculation_trace = agent_runtime_financial_guard.requires_financial_calculation_trace(
+        message,
+        final_reply,
+    ) or bool(
+        raw_reply
+        and agent_runtime_financial_guard.requires_financial_calculation_trace(message, raw_reply)
+    )
+    if needs_calculation_trace:
+        resolved_context = _resolved_research_context(message, enriched.get("context"))
+        enriched["context"] = resolved_context
+    else:
+        resolved_context = enriched.get("context")
+    if "trusted_calculation_evidence" not in enriched and needs_calculation_trace:
         enriched["trusted_calculation_evidence"] = _trusted_financial_calculation_evidence(
             message,
-            enriched.get("context"),
+            resolved_context,
         )
     try:
         return agent_runtime_answer_audit.record_answer_audit_trace_for_reply(**enriched)

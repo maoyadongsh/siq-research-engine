@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 from pathlib import Path
 
 import anyio
@@ -40,6 +41,83 @@ def _write_session(profile_dir: Path, session_id: str, *, command: str, output: 
             }
         ),
         encoding="utf-8",
+    )
+
+
+def _create_state_db(profile_dir: Path) -> sqlite3.Connection:
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(profile_dir / "state.db")
+    connection.executescript(
+        """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            started_at REAL NOT NULL
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT,
+            tool_call_id TEXT,
+            tool_calls TEXT,
+            timestamp REAL NOT NULL
+        );
+        """
+    )
+    return connection
+
+
+def _insert_sqlite_turn(
+    connection: sqlite3.Connection,
+    session_id: str,
+    *,
+    command: str,
+    output: dict,
+    timestamp: float,
+    tool_call_id: str,
+    exit_code: int = 0,
+) -> None:
+    connection.execute(
+        "INSERT OR IGNORE INTO sessions (id, source, started_at) VALUES (?, 'api_server', ?)",
+        (session_id, timestamp),
+    )
+    connection.execute(
+        "INSERT INTO messages (session_id, role, content, timestamp) VALUES (?, 'user', 'calculate', ?)",
+        (session_id, timestamp),
+    )
+    connection.execute(
+        """
+        INSERT INTO messages (session_id, role, content, tool_calls, timestamp)
+        VALUES (?, 'assistant', '', ?, ?)
+        """,
+        (
+            session_id,
+            json.dumps(
+                [
+                    {
+                        "id": tool_call_id,
+                        "function": {
+                            "name": "terminal",
+                            "arguments": json.dumps({"command": command}),
+                        },
+                    }
+                ]
+            ),
+            timestamp + 0.1,
+        ),
+    )
+    connection.execute(
+        """
+        INSERT INTO messages (session_id, role, content, tool_call_id, timestamp)
+        VALUES (?, 'tool', ?, ?, ?)
+        """,
+        (
+            session_id,
+            json.dumps({"output": json.dumps(output), "exit_code": exit_code, "error": None}),
+            tool_call_id,
+            timestamp + 0.2,
+        ),
     )
 
 
@@ -116,6 +194,171 @@ def test_extracts_allowlisted_amount_normalization_receipt(tmp_path):
     assert len(receipts) == 1
     assert receipts[0]["operation"] == "normalize_amount"
     assert receipts[0]["result"]["native_100m_value"] == "44.27571"
+
+
+def test_extracts_only_latest_exact_sqlite_session_turn(tmp_path):
+    profile_dir = tmp_path / "profile"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:sqlite-session"
+    other_session_id = "siq:siq_assistant:other-session"
+    connection = _create_state_db(profile_dir)
+    try:
+        old_payload = _ratio_payload()
+        old_payload["result"] = {"ratio": "0.2", "percent": "20"}
+        _insert_sqlite_turn(
+            connection,
+            session_id,
+            command=f"python3 {script} --format json ratio --numerator 20 --denominator 100",
+            output=old_payload,
+            timestamp=100.0,
+            tool_call_id="old-call",
+        )
+        current_payload = _ratio_payload()
+        _insert_sqlite_turn(
+            connection,
+            session_id,
+            command=f"python3 {script} --format json ratio --numerator 40 --denominator 100",
+            output=current_payload,
+            timestamp=200.0,
+            tool_call_id="current-call",
+        )
+        other_payload = _ratio_payload()
+        other_payload["result"] = {"ratio": "0.9", "percent": "90"}
+        _insert_sqlite_turn(
+            connection,
+            other_session_id,
+            command=f"python3 {script} --format json ratio --numerator 90 --denominator 100",
+            output=other_payload,
+            timestamp=300.0,
+            tool_call_id="other-call",
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=profile_dir,
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert len(receipts) == 1
+    assert receipts[0]["receipt_tool_call_id"] == "current-call"
+    assert receipts[0]["result"]["percent"] == "40"
+
+
+def test_prefers_newer_sqlite_turn_over_stale_json_session(tmp_path):
+    profile_dir = tmp_path / "profile"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:migrated-session"
+    stale_payload = _ratio_payload()
+    stale_payload["result"] = {"ratio": "0.2", "percent": "20"}
+    _write_session(
+        profile_dir,
+        session_id,
+        command=f"python3 {script} --format json ratio --numerator 20 --denominator 100",
+        output=stale_payload,
+        tool_call_id="json-call",
+    )
+    json_path = profile_dir / "sessions" / f"session_{session_id}.json"
+    os.utime(json_path, ns=(100_000_000_000, 100_000_000_000))
+    connection = _create_state_db(profile_dir)
+    try:
+        _insert_sqlite_turn(
+            connection,
+            session_id,
+            command=f"python3 {script} --format json ratio --numerator 40 --denominator 100",
+            output=_ratio_payload(),
+            timestamp=200.0,
+            tool_call_id="sqlite-call",
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=profile_dir,
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert len(receipts) == 1
+    assert receipts[0]["receipt_tool_call_id"] == "sqlite-call"
+    assert receipts[0]["result"]["percent"] == "40"
+
+
+def test_future_mtime_legacy_json_cannot_override_canonical_sqlite_turn(tmp_path):
+    logical_profile = tmp_path / "siq_assistant"
+    live_profile = tmp_path / "finsight_assistant"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:migrated-session"
+    stale_payload = _ratio_payload()
+    stale_payload["result"] = {"ratio": "0.2", "percent": "20"}
+    _write_session(
+        logical_profile,
+        session_id,
+        command=f"python3 {script} --format json ratio --numerator 20 --denominator 100",
+        output=stale_payload,
+        tool_call_id="json-stale-call",
+    )
+    json_path = logical_profile / "sessions" / f"session_{session_id}.json"
+    os.utime(json_path, ns=(999_000_000_000, 999_000_000_000))
+    connection = _create_state_db(live_profile)
+    try:
+        _insert_sqlite_turn(
+            connection,
+            session_id,
+            command=f"python3 {script} --format json ratio --numerator 40 --denominator 100",
+            output=_ratio_payload(),
+            timestamp=200.0,
+            tool_call_id="sqlite-current-call",
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=logical_profile,
+        profile_dirs=(live_profile,),
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert len(receipts) == 1
+    assert receipts[0]["receipt_tool_call_id"] == "sqlite-current-call"
+    assert receipts[0]["result"]["percent"] == "40"
+
+
+def test_rejects_sqlite_receipt_with_nonzero_exit_status(tmp_path):
+    profile_dir = tmp_path / "profile"
+    script = tmp_path / "financial_calculator.py"
+    script.write_text("", encoding="utf-8")
+    session_id = "siq:siq_assistant:failed-sqlite-session"
+    connection = _create_state_db(profile_dir)
+    try:
+        _insert_sqlite_turn(
+            connection,
+            session_id,
+            command=f"python3 {script} --format json ratio --numerator 40 --denominator 100",
+            output=_ratio_payload(),
+            timestamp=200.0,
+            tool_call_id="failed-call",
+            exit_code=1,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    receipts = extract_runtime_financial_receipts(
+        profile_dir=profile_dir,
+        hermes_session_id=session_id,
+        allowed_script_paths={"financial_calculator.py": script},
+    )
+
+    assert receipts == ()
 
 
 def test_extracts_only_newest_exact_session_across_profile_roots(tmp_path):

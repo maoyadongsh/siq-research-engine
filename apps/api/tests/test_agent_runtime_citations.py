@@ -61,6 +61,51 @@ def test_statement_row_and_citation_keep_raw_value_unit_and_base_scale(tmp_path)
     assert "scale=1000" in supplement
 
 
+def test_external_statement_citation_keeps_identity_value_and_regulatory_locator():
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "market": "US",
+            "company_id": "US:0000320193",
+            "report_id": "2025-10-K-0000320193-25-000079",
+            "filing_id": "US:0000320193:0000320193-25-000079",
+            "parse_run_id": "run-aapl",
+            "rows": [
+                {
+                    "source_type": "wiki_metrics",
+                    "statement_type": "income_statement",
+                    "statement_label": "利润表",
+                    "metric_key": "operating_revenue",
+                    "metric_name": "Revenue",
+                    "period": "2025-09-27",
+                    "raw_value": "416161000000",
+                    "unit": "USD",
+                    "currency": "USD",
+                    "evidence_id": "E-AAPL-REV",
+                    "source_quote": "Revenue 416,161",
+                    "evidence_source_type": "sec_xbrl_fact",
+                    "source_url": "https://www.sec.gov/example.htm",
+                    "source_anchor": "f-78",
+                    "xbrl_tag": "us-gaap:Revenue",
+                }
+            ],
+        },
+        primary_data_supplement_max_rows=1,
+        table_source_links=lambda *_: "",
+    )
+    assert supplement is not None
+    assert "canonical_name=operating_revenue" in supplement
+    assert "value=416161000000" in supplement
+    assert "unit=USD" in supplement
+    assert "market=US" in supplement
+    assert "company_id=US:0000320193" in supplement
+    assert "filing_id=US:0000320193:0000320193-25-000079" in supplement
+    assert "parse_run_id=run-aapl" in supplement
+    assert "evidence_id=E-AAPL-REV" in supplement
+    assert "source_url=https://www.sec.gov/example.htm" in supplement
+    assert "source_anchor=f-78" in supplement
+    assert "xbrl_tag=us-gaap:Revenue" in supplement
+
+
 def test_render_human_capital_primary_data_supplement_limits_rows_and_adds_refs():
     calls = []
 
@@ -746,6 +791,60 @@ def test_append_unique_source_ref_dedupes_by_locator_file_and_metric():
     assert "metric=收入" in refs[0]
     assert refs[1].startswith("[D2] source_type=wiki_metrics")
     assert "metric=利润" in refs[1]
+
+
+def test_three_statement_refs_keep_distinct_metrics_from_the_same_table():
+    shared_locator = {
+        "task_id": "task-cn",
+        "pdf_page": 83,
+        "table_index": 67,
+        "md_line": 1800,
+        "statement_label": "资产负债表",
+        "statement_type": "balance_sheet",
+        "period": "2025-12-31",
+        "unit": "人民币元",
+    }
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "report_id": "2025-annual",
+            "rows": [
+                {
+                    **shared_locator,
+                    "metric_key": "current_assets",
+                    "metric_name": "流动资产合计",
+                    "raw_value": "128,553,272,323.33",
+                    "evidence_id": "wiki:current-assets",
+                },
+                {
+                    **shared_locator,
+                    "metric_key": "total_assets",
+                    "metric_name": "资产总计",
+                    "raw_value": "202,961,073,175.76",
+                    "evidence_id": "wiki:total-assets",
+                },
+            ],
+        },
+        primary_data_supplement_max_rows=2,
+        table_source_links=lambda *_: "",
+    )
+    merged = citations._merge_primary_data_refs_into_citations(
+        "结论正文。",
+        supplement=supplement,
+        auto_evidence_section_titles={"主要数据引用来源", "主要数据溯源补充"},
+    )
+
+    assert supplement is not None
+    assert supplement.count("[D1]") == 1
+    assert supplement.count("[D2]") == 1
+    assert "canonical_name=current_assets" in supplement
+    assert "evidence_id=wiki:current-assets" in supplement
+    assert 'value="128,553,272,323.33"' in supplement
+    assert "canonical_name=total_assets" in supplement
+    assert "evidence_id=wiki:total-assets" in supplement
+    assert 'value="202,961,073,175.76"' in supplement
+    assert merged.count("source_type=wiki_metrics") == 2
+    assert "canonical_name=current_assets" in merged
+    assert "canonical_name=total_assets" in merged
 
 
 def test_extract_reference_lines_filters_table_and_incomplete_rows():

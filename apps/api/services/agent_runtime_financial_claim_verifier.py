@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Mapping, Sequence
 
+from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
+
 FINANCIAL_MINUS_SIGNS = "-‐‑‒−﹣－"
 FINANCIAL_MINUS_SIGN_CLASS = re.escape(FINANCIAL_MINUS_SIGNS)
 _FINANCIAL_MINUS_TRANSLATION = str.maketrans({sign: "-" for sign in FINANCIAL_MINUS_SIGNS if sign != "-"})
@@ -69,6 +71,7 @@ ABSOLUTE_CHANGE_CLAIM_TERMS = (
     "上升",
     "下降",
     "净增",
+    "净减",
     "差异",
     "计提",
     "损失",
@@ -77,7 +80,25 @@ ABSOLUTE_CHANGE_CLAIM_TERMS = (
 )
 ABSOLUTE_CHANGE_ALIAS_SUFFIX_RE = re.compile(r"(?:同比变动|绝对变动|变动额|变动)$")
 INCREASE_CHANGE_TERMS = ("增加", "增长", "上升", "提升", "净增", "计提")
-DECREASE_CHANGE_TERMS = ("减少", "下降", "降低", "下滑", "降幅", "转出")
+DECREASE_CHANGE_TERMS = ("净减", "减少", "下降", "降低", "下滑", "降幅", "转出")
+LOCAL_ABSOLUTE_CHANGE_TERMS = (
+    "净增",
+    "净减",
+    "增加",
+    "减少",
+    "增长",
+    "上升",
+    "下降",
+    "降低",
+    "下滑",
+    "转出",
+    "变动额",
+    "绝对变动",
+    "计提",
+    "损失",
+    "本期发生",
+    "报告期发生",
+)
 NEGATED_CHANGE_TERMS = (
     "未新增计提",
     "无新增计提",
@@ -110,6 +131,8 @@ UNIT_MULTIPLIERS = {
     "cny million": ("currency", 1_000_000.0),
     "rmb 百万元": ("currency", 1_000_000.0),
     "人民币百万元": ("currency", 1_000_000.0),
+    "百萬元": ("currency", 1_000_000.0),
+    "人民幣百萬元": ("currency", 1_000_000.0),
     "hkd": ("currency", 1.0),
     "hk$": ("currency", 1.0),
     "hkd million": ("currency", 1_000_000.0),
@@ -168,7 +191,7 @@ UNIT_MULTIPLIERS = {
 }
 
 CURRENCY_PREFIX_PATTERN = (
-    r"人民币元|人民币|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
+    r"人民币元|人民币|人民幣元|人民幣|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
     r"RMB|CNY|HKD|HK\$|USD|US\$|EUR|GBP|£|CHF|JPY|KRW"
 )
 NUMBER_WITH_UNIT_RE = re.compile(
@@ -177,25 +200,36 @@ NUMBER_WITH_UNIT_RE = re.compile(
     r"(?:[（(]\s*)?"
     rf"(?P<value>[+{FINANCIAL_MINUS_SIGN_CLASS}]?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)(?:\.\d+)?)"
     r"(?:\s*[)）])?"
-    r"\s*(?P<unit>人民币元/股|港元/股|美元/股|英镑/股|元/股|百万日元|百万韩元|百万英镑|百万円|백만원|"
-    r"亿日元|亿韩元|億元|億円|억원|人民币千元|千元|万元|百万元|人民币元|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
+    r"\s*(?P<unit>(?:RMB|CNY|HKD|HK\$|USD|US\$|EUR|GBP|CHF|JPY|KRW)\s+(?:million|thousand|billion)|"
+    r"人民币元/股|港元/股|美元/股|英镑/股|元/股|百万日元|百万韩元|百万英镑|百万円|백만원|"
+    r"亿日元|亿韩元|億元|億円|억원|人民币\s*百万元|人民幣\s*百萬元|人民币千元|千元|万元|百万元|百萬元|人民币元|人民幣元|港元|港币|美元|欧元|英镑|瑞士法郎|日元|韩元|"
+    r"RMB|CNY|HKD|HK\$|USD|US\$|EUR|GBP|CHF|JPY|KRW|"
     r"billion|million|thousand|per\s+share|百分点|％|%|亿|元|pct)(?![A-Za-z])",
     re.IGNORECASE,
 )
 CLAUSE_SPLIT_RE = re.compile(r"[。；;！？!?]|(?<!\d)[,，](?!\d)")
-CLAUSE_CONTINUATION_RE = re.compile(r"^(?:为|约为|达(?:到)?|是|即(?:为)?)\s*")
-SOURCE_FIELD_START_RE = re.compile(r"(?:(?<=^)|(?<=[\s,，;；|]))([A-Za-z_][A-Za-z0-9_]*)=")
-DATE_RE = re.compile(
-    rf"\b(?P<year>20\d{{2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.年](?P<month>\d{{1,2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.月](?P<day>\d{{1,2}})日?"
+CLAUSE_CONTINUATION_RE = re.compile(
+    r"^(?:为|约为|达(?:到)?|是|即(?:为)?|同为|均为|各为|相同(?:为)?|"
+    r"本期初|本年初|期初|年初|上年末|本期末|本年末|期末|年末|"
+    r"降至|减至|增至|升至|增长至|下降至|变为|调整为|转为|"
+    r"增加|减少|上升|下降|净增|变动(?:为)?)\s*"
 )
-QUARTER_RE = re.compile(r"\b(?P<year>20\d{2})\s*(?:Q(?P<q1>[1-4])|年?第?(?P<q2>[一二三四1234])季度)", re.IGNORECASE)
-YEAR_RE = re.compile(r"\b(20\d{2})(?:\s*(?:年(?:度|末)?|FY))?\b", re.IGNORECASE)
+DATE_RE = re.compile(
+    rf"(?<!\d)(?P<year>20\d{{2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.年](?P<month>\d{{1,2}})[{FINANCIAL_MINUS_SIGN_CLASS}/.月](?P<day>\d{{1,2}})日?"
+)
+QUARTER_RE = re.compile(
+    r"(?<!\d)(?P<year>20\d{2})\s*(?:Q(?P<q1>[1-4])|年?第?(?P<q2>[一二三四1234])季度)",
+    re.IGNORECASE,
+)
+YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?:\s*(?:年(?:度|末)?|FY))?(?!\d)", re.IGNORECASE)
 CHINESE_QUARTER_MAP = {"一": "1", "二": "2", "三": "3", "四": "4"}
 CURRENCY_ALIASES = {
     "cny": "CNY",
     "rmb": "CNY",
     "人民币": "CNY",
     "人民币元": "CNY",
+    "人民幣": "CNY",
+    "人民幣元": "CNY",
     "hkd": "HKD",
     "hk$": "HKD",
     "港元": "HKD",
@@ -246,6 +280,8 @@ class EvidenceFact:
     quote: str = ""
     source_type: str = ""
     change_direction: str = ""
+    has_locator: bool = False
+    financial_scope: str = ""
 
 
 @dataclass(frozen=True)
@@ -321,14 +357,20 @@ class PercentClaimOccurrence:
 def _trace_decimal(value: Any) -> Decimal | None:
     if isinstance(value, bool) or value is None:
         return None
-    text = normalize_financial_minus_signs(value).strip().replace(",", "")
+    text = normalize_financial_minus_signs(value).strip()
+    accounting_negative = text.startswith("(") and text.endswith(")")
+    if accounting_negative:
+        text = text[1:-1].strip()
+    text = text.replace(",", "")
     if not text:
         return None
     try:
         number = Decimal(text)
     except InvalidOperation:
         return None
-    return number if number.is_finite() else None
+    if not number.is_finite():
+        return None
+    return -abs(number) if accounting_negative else number
 
 
 def _trace_json_objects(reply: str) -> list[dict[str, Any]]:
@@ -628,6 +670,12 @@ def _trace_evidence_reason(
             if not _trace_visible_locator_matches(reference, visible_references):
                 return "trace_input_source_locator_missing"
         else:
+            # Once the backend has resolved a trusted evidence set, an input
+            # that is absent from that set must not be reintroduced through a
+            # model-authored citation line.  The visible-reference fallback
+            # remains for legacy/tool-only calls where no trusted set exists.
+            if trusted_evidence:
+                return "trace_input_evidence_missing"
             matches = [
                 candidate for candidate in visible_references if str(candidate.get("evidence_id") or "") == evidence_id
             ]
@@ -648,14 +696,43 @@ def _trace_evidence_reason(
         aliases = _trace_reference_aliases(reference)
         if str(item.get("metric") or "").strip().lower() not in aliases:
             return "trace_input_metric_mismatch"
-        if not set(_period_tokens(item.get("period"))).intersection(
-            _period_tokens(reference.get("period_key") or reference.get("period"))
+        input_currency = _currency_token(item.get("currency"), item.get("unit"))
+        reference_unit = reference.get("unit") or reference.get("currency") or reference.get("fact_currency")
+        reference_currency = _currency_token(
+            reference.get("currency"),
+            reference.get("fact_currency"),
+            reference_unit,
+        )
+        if input_currency and reference_currency and input_currency != reference_currency:
+            return "trace_input_currency_mismatch"
+        reference_value = _trace_decimal(reference.get("value", reference.get("raw_value")))
+        if reference_value is None:
+            return "trace_input_value_mismatch"
+        raw_values_match = _trace_numbers_close(item_value, reference_value)
+        input_normalized = _normalized_amount(item_value, item.get("unit"), scale=item.get("scale"))
+        reference_normalized = _normalized_amount(
+            reference.get("value", reference.get("raw_value")),
+            reference_unit,
+            scale=reference.get("scale"),
+        )
+        if input_normalized is not None and reference_normalized is not None:
+            input_amount, input_category = input_normalized
+            reference_amount, reference_category = reference_normalized
+            if input_category != reference_category:
+                return "trace_input_unit_mismatch"
+            normalized_values_match = _trace_numbers_close(
+                Decimal(str(input_amount)), Decimal(str(reference_amount))
+            )
+            if not normalized_values_match:
+                return "trace_input_unit_mismatch" if raw_values_match else "trace_input_value_mismatch"
+        elif not raw_values_match:
+            return "trace_input_value_mismatch"
+        if not _period_tokens_compatible(
+            _period_tokens(item.get("period")),
+            _period_tokens(reference.get("period_key") or reference.get("period")),
         ):
             return "trace_input_period_mismatch"
-        reference_value = _trace_decimal(reference.get("value", reference.get("raw_value")))
-        if reference_value is None or not _trace_numbers_close(item_value, reference_value):
-            return "trace_input_value_mismatch"
-    if not output_period_tokens or not output_period_tokens.intersection(input_period_tokens):
+    if not output_period_tokens or not _period_tokens_compatible(output_period_tokens, input_period_tokens):
         return "trace_period_mismatch"
     operation = str(payload.get("operation") or "").strip().lower()
     output_metric = str(payload.get("metric") or "").strip().lower()
@@ -693,6 +770,10 @@ def _trace_evidence_reason(
         "debt_to_asset_ratio": (("total_liabilities",), ("total_assets",)),
         "return_on_equity": (("net_profit", "net_income", "parent_net_profit"), ("shareholders_equity",)),
         "return_on_assets": (("net_profit", "net_income", "parent_net_profit"), ("total_assets",)),
+        "goodwill_impairment_coverage": (
+            ("goodwill_impairment_allowance", "goodwill_allowance", "goodwill_impairment_provision"),
+            ("goodwill_gross",),
+        ),
     }
     if operation == "ratio" and output_metric in ratio_roles:
         numerator_metrics, denominator_metrics = ratio_roles[output_metric]
@@ -761,6 +842,7 @@ DERIVED_PERCENT_TERMS = (
     "占",
     "占比",
     "集中度",
+    "覆盖率",
     "毛利率",
     "净利率",
     "资产负债率",
@@ -776,6 +858,7 @@ DERIVED_METRIC_REPLY_ALIASES = {
     "return_on_equity": ("净资产收益率", "股本回报率", "roe", "return on equity"),
     "return_on_assets": ("总资产收益率", "资产回报率", "roa", "return on assets"),
     "net_interest_margin": ("净息差", "净利息收益率", "nim", "net interest margin"),
+    "goodwill_impairment_coverage": ("减值覆盖率", "impairment coverage"),
 }
 
 
@@ -876,15 +959,6 @@ def _percent_occurrence_matches_expected(occurrence: PercentClaimOccurrence, exp
     return abs(occurrence.value - expected) <= tolerance
 
 
-def _expected_trace_metrics(reply: str) -> frozenset[str]:
-    prose = "\n".join(
-        line for line in (reply or "").splitlines() if "source_type=" not in line and "schema_version" not in line
-    ).lower()
-    return frozenset(
-        metric for metric, aliases in DERIVED_METRIC_REPLY_ALIASES.items() if any(alias in prose for alias in aliases)
-    )
-
-
 def _trace_reference_metric(reference: Mapping[str, Any]) -> str:
     return str(
         reference.get("canonical_name")
@@ -934,6 +1008,10 @@ def _trace_identity_payload(expected_identity: Mapping[str, Any] | None) -> dict
 def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
     numerator = str(inputs.get("numerator", {}).get("metric") or "").strip().lower()
     denominator = str(inputs.get("denominator", {}).get("metric") or "").strip().lower()
+    if denominator == "goodwill_gross" and any(
+        token in numerator for token in ("allowance", "impairment", "provision")
+    ):
+        return "goodwill_impairment_coverage"
     if numerator in {"gross_profit", "gross_income", "毛利润", "毛利"} and denominator in {
         "revenue",
         "operating_revenue",
@@ -1025,6 +1103,7 @@ def materialize_runtime_calculation_runs(
                     "period": period,
                     "value": str(raw_input.get(value_key)),
                     "unit": str(raw_input.get(unit_name_key) or ""),
+                    "scale": reference.get("scale"),
                     "evidence_id": evidence_id,
                 }
             if len(inputs) != len(role_specs):
@@ -1508,6 +1587,7 @@ def _matching_percent_occurrences(
                 for term in (
                     "占",
                     "集中度",
+                    "覆盖率",
                     "比率",
                     "毛利率",
                     "净利率",
@@ -1553,6 +1633,92 @@ def _matching_percent_occurrences(
             continue
         matches.append(occurrence)
     return tuple(matches)
+
+
+def _trace_run_context_matches_percentage_claim(
+    run: Mapping[str, Any],
+    occurrence: PercentClaimOccurrence,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Allow repeated prose claims to reuse an already validated trace.
+
+    A report commonly states the same percentage in a conclusion, a table,
+    and an interpretation paragraph.  Requiring operands on every repetition
+    creates a false failure, but matching by number alone would let an
+    unrelated metric borrow a result.  Bind the repetition to the run's
+    source aliases and operation context instead.
+    """
+
+    operation = str(run.get("operation") or "").strip().lower()
+    if operation not in {"yoy", "yoy_growth", "ratio"}:
+        return False
+    source_line = occurrence.line or ""
+    clause_boundaries = "，,；;。！？!?|"
+    boundary_positions = [
+        index
+        for index, char in enumerate(source_line)
+        if char in clause_boundaries
+        and not (
+            char in "，,"
+            and index > 0
+            and index + 1 < len(source_line)
+            and source_line[index - 1].isdigit()
+            and source_line[index + 1].isdigit()
+        )
+    ]
+    clause_start = max((position for position in boundary_positions if position < occurrence.match_start), default=-1)
+    clause_end = min(
+        (position for position in boundary_positions if position >= occurrence.match_start),
+        default=len(source_line),
+    )
+    line = source_line[clause_start + 1 : clause_end]
+    compact_clause = _compact_semantic_text(line)
+    boundary_marker = source_line[clause_start] if clause_start >= 0 else ""
+    if boundary_marker in "，," and compact_clause.startswith(("同比", "环比", "占")):
+        previous_start = max((position for position in boundary_positions if position < clause_start), default=-1)
+        line = source_line[previous_start + 1 : clause_end]
+    compact_line = _compact_semantic_text(line)
+    if not compact_line:
+        return False
+    trusted_by_id = {
+        str(item.get("evidence_id") or ""): item
+        for item in trusted_evidence
+        if isinstance(item, Mapping) and str(item.get("evidence_id") or "")
+    }
+    semantic_terms: set[str] = set()
+    inputs = run.get("inputs")
+    if isinstance(inputs, Mapping):
+        for input_role, item in inputs.items():
+            if not isinstance(item, Mapping) or str(item.get("role") or "") == "period_count":
+                continue
+            if operation == "ratio" and str(input_role) != "numerator":
+                continue
+            metric = str(item.get("metric") or "").strip().lower()
+            if metric:
+                semantic_terms.add(metric)
+                if operation in {"yoy", "yoy_growth"} and "goodwill" in metric:
+                    semantic_terms.add("商誉")
+            reference = trusted_by_id.get(str(item.get("evidence_id") or ""))
+            if reference is not None:
+                reference_aliases = _trace_reference_aliases(reference)
+                semantic_terms.update(reference_aliases)
+                for alias in reference_aliases:
+                    semantic_terms.update(re.findall(r"[a-z0-9]{2,}", alias.lower()))
+    output_metric = str(run.get("metric") or "").strip().lower()
+    semantic_terms.update(DERIVED_METRIC_REPLY_ALIASES.get(output_metric, ()))
+    if operation in {"yoy", "yoy_growth"} and "goodwill" in output_metric:
+        semantic_terms.add("商誉")
+    if not any(
+        _compact_semantic_text(term) and _compact_semantic_text(term) in compact_line
+        for term in semantic_terms
+    ):
+        return False
+    if operation in {"yoy", "yoy_growth"}:
+        return any(term in line for term in ("同比", "增长", "增幅", "增加", "减少", "上升", "下降", "变化", "变动"))
+    return any(
+        term in line.lower()
+        for term in ("占", "占比", "比例", "百分比", "集中度", "覆盖率", "比率", "毛利率", "净利率", "收益率", "回报率", "ratio", "/")
+    )
 
 
 def _plain_line_values(line: str) -> tuple[Decimal, ...]:
@@ -1615,6 +1781,10 @@ def _amount_match_number(
     previous_match: re.Match[str] | None = None,
 ) -> float | None:
     value = _clean_number(match.group("value"))
+    value_prefix = line[match.start() : match.start("value")].rstrip()
+    value_suffix = line[match.end("value") : match.end()].lstrip()
+    if value is not None and value_prefix.endswith("(") and value_suffix.startswith(")"):
+        value = -abs(value)
     if value is None or value >= 0 or previous_match is None or any(marker in line for marker in ("=", "＝")):
         return value
 
@@ -1831,6 +2001,10 @@ def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, 
         denominator_metric == "goodwill_gross"
         and numerator_metric.startswith("goodwill_component_")
         and not numerator_metric.endswith("_absolute_change")
+    ):
+        return True
+    if denominator_metric == "goodwill_gross" and any(
+        token in numerator_metric for token in ("allowance", "impairment", "provision")
     ):
         return True
     known_pairs = {
@@ -2098,19 +2272,29 @@ def validate_calculation_traces(
     trusted_runs: Sequence[Mapping[str, Any]] = (),
     trusted_evidence: Sequence[Mapping[str, Any]] = (),
 ) -> CalculationTraceValidation:
-    materialized_trusted_runs = materialize_runtime_calculation_runs(
-        trusted_runs,
-        reply,
-        expected_identity=expected_identity,
+    structured_runs = tuple(
+        {**dict(run), "trace_origin": "reply_structured"}
+        for run in extract_structured_calculation_runs(reply)
     )
-    evidence_bound_runs = materialize_evidence_bound_calculation_runs(
-        reply,
-        trusted_evidence,
-        expected_identity=expected_identity,
-        expected_operations=expected_operations,
-        require_reconciliation=require_reconciliation,
+    materialized_trusted_runs = tuple(
+        {**dict(run), "trace_origin": "trusted_runtime_receipt"}
+        for run in materialize_runtime_calculation_runs(
+            trusted_runs,
+            reply,
+            expected_identity=expected_identity,
+        )
     )
-    runs = extract_structured_calculation_runs(reply) + tuple(materialized_trusted_runs) + tuple(evidence_bound_runs)
+    evidence_bound_runs = tuple(
+        {**dict(run), "trace_origin": "backend_evidence_recompute"}
+        for run in materialize_evidence_bound_calculation_runs(
+            reply,
+            trusted_evidence,
+            expected_identity=expected_identity,
+            expected_operations=expected_operations,
+            require_reconciliation=require_reconciliation,
+        )
+    )
+    runs = structured_runs + materialized_trusted_runs + evidence_bound_runs
     if not (require_calculator or require_reconciliation):
         return CalculationTraceValidation(checked=False, allowed=True, runs=runs)
     if not runs:
@@ -2121,7 +2305,6 @@ def validate_calculation_traces(
     seen_operations: set[str] = set()
     calculator_results: list[Decimal] = []
     calculator_run_results: list[tuple[Mapping[str, Any], Decimal]] = []
-    expected_metrics = _expected_trace_metrics(reply)
     for run in runs:
         schema = str(run.get("schema_version") or "")
         tool = str(run.get("tool") or "")
@@ -2130,15 +2313,11 @@ def validate_calculation_traces(
         period = str(run.get("period") or "").strip()
         if not operation or not metric or not period:
             return CalculationTraceValidation(True, False, "trace_fields_missing", runs)
-        if expected_metrics and metric.lower() not in expected_metrics:
-            return CalculationTraceValidation(True, False, "trace_metric_mismatch", runs)
         is_reconciliation = schema == RECONCILIATION_TRACE_SCHEMA
         allowed_operations = RECONCILIATION_OPERATIONS if is_reconciliation else CALCULATOR_OPERATIONS
         expected_tool = "financial_reconciliation_validator.py" if is_reconciliation else "financial_calculator.py"
         if operation not in allowed_operations:
             return CalculationTraceValidation(True, False, "trace_unknown_operation", runs)
-        if not is_reconciliation and expected_operations and operation not in expected_operations:
-            return CalculationTraceValidation(True, False, "trace_operation_mismatch", runs)
         if tool != expected_tool:
             return CalculationTraceValidation(True, False, "trace_tool_mismatch", runs)
         identity_reason = _trace_identity_reason(run, expected)
@@ -2174,6 +2353,9 @@ def validate_calculation_traces(
         return CalculationTraceValidation(True, False, "calculator_trace_missing", runs)
     if require_reconciliation and not reconciliation_seen:
         return CalculationTraceValidation(True, False, "reconciliation_trace_missing", runs)
+    # expected_operations is a minimum coverage requirement, not an allowlist.
+    # Additional evidence-bound operations remain valid when their inputs and
+    # displayed results pass the same deterministic verification below.
     if expected_operations:
         covered_operations = set(seen_operations)
         if "yoy" in covered_operations or "yoy_growth" in covered_operations:
@@ -2190,11 +2372,19 @@ def validate_calculation_traces(
         # tolerance is only for binding the displayed claim to an already
         # strictly recomputed trace result; the trace itself remains 1 ppm.
         if evidence_bound_results:
-            candidate_results = [
+            directly_bound_results = [
                 result
                 for run, result in evidence_bound_results
                 if int(run.get("display_line_number") or 0) == occurrence.line_number
                 and int(run.get("display_match_start") or -1) == occurrence.match_start
+            ]
+            contextual_results = [
+                result
+                for run, result in evidence_bound_results
+                if _trace_run_context_matches_percentage_claim(run, occurrence, trusted_evidence)
+            ]
+            candidate_results = directly_bound_results + [
+                result for result in contextual_results if result not in directly_bound_results
             ]
         else:
             candidate_results = calculator_results
@@ -2237,7 +2427,11 @@ def validate_calculation_traces(
 
 
 def _clean_number(value: Any) -> float | None:
-    text = normalize_financial_minus_signs(value).strip().replace(",", "")
+    text = normalize_financial_minus_signs(value).strip()
+    accounting_negative = text.startswith("(") and text.endswith(")")
+    if accounting_negative:
+        text = text[1:-1].strip()
+    text = text.replace(",", "")
     if not text:
         return None
     try:
@@ -2246,7 +2440,7 @@ def _clean_number(value: Any) -> float | None:
         return None
     if not math.isfinite(number):
         return None
-    return number
+    return -abs(number) if accounting_negative else number
 
 
 def _clean_positive_scale(value: Any) -> float | None:
@@ -2257,9 +2451,12 @@ def _clean_positive_scale(value: Any) -> float | None:
 
 
 def _unit_multiplier(unit: Any) -> tuple[str, float] | None:
-    normalized = str(unit or "").strip().lower()
+    normalized = re.sub(r"\s+", " ", str(unit or "").strip().lower())
     if normalized in UNIT_MULTIPLIERS:
         return UNIT_MULTIPLIERS[normalized]
+    compact = normalized.replace(" ", "")
+    if compact in UNIT_MULTIPLIERS:
+        return UNIT_MULTIPLIERS[compact]
     if normalized.startswith("iso4217:") and _currency_token(normalized):
         return "currency", 1.0
     return None
@@ -2397,6 +2594,40 @@ def _period_text(tokens: tuple[str, ...]) -> str:
     return ",".join(tokens)
 
 
+def _period_token_parts(tokens: Sequence[str]) -> tuple[set[str], set[str], set[str]]:
+    dates: set[str] = set()
+    quarters: set[str] = set()
+    years: set[str] = set()
+    for token in tokens:
+        normalized = str(token or "").strip()
+        if re.fullmatch(r"20\d{2}-\d{2}-\d{2}", normalized):
+            dates.add(normalized)
+            years.add(normalized[:4])
+        elif re.fullmatch(r"20\d{2}Q[1-4]", normalized, re.IGNORECASE):
+            quarters.add(normalized.upper())
+            years.add(normalized[:4])
+        elif re.fullmatch(r"20\d{2}", normalized):
+            years.add(normalized)
+    return dates, quarters, years
+
+
+def _period_tokens_compatible(
+    required_tokens: Sequence[str],
+    evidence_tokens: Sequence[str],
+) -> bool:
+    """Match the most specific declared period instead of borrowing by year."""
+
+    required_dates, required_quarters, required_years = _period_token_parts(required_tokens)
+    evidence_dates, evidence_quarters, evidence_years = _period_token_parts(evidence_tokens)
+    if required_dates:
+        return bool(required_dates.intersection(evidence_dates))
+    if required_quarters:
+        return bool(required_quarters.intersection(evidence_quarters))
+    if required_years:
+        return bool(required_years.intersection(evidence_years))
+    return False
+
+
 def _nearest_preceding_period_tokens(text: str, position: int) -> tuple[str, ...]:
     candidates: list[re.Match[str]] = []
     for pattern in (DATE_RE, QUARTER_RE, YEAR_RE):
@@ -2469,6 +2700,8 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
                     f"{base}同比",
                     f"{base}增加",
                     f"{base}减少",
+                    f"{base}净增",
+                    f"{base}净减",
                     f"{base}本期增加",
                     f"{base}本期减少",
                     f"{base}本年增加",
@@ -2479,7 +2712,7 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
                     f"{base}报告期发生",
                 )
             )
-        aliases.extend(("本期增加", "本期减少", "本年增加", "本年减少"))
+        aliases.extend(("本期增加", "本期减少", "本期净增", "本期净减", "本年增加", "本年减少"))
     footnote_short_aliases: set[str] = set()
     for alias in tuple(aliases):
         stripped = FOOTNOTE_ALIAS_SUFFIX_RE.sub("", alias).strip()
@@ -2508,18 +2741,7 @@ def _metric_aliases(fact: Mapping[str, Any]) -> tuple[str, ...]:
 
 
 def _extract_source_fields(raw_line: str) -> dict[str, str]:
-    matches = list(SOURCE_FIELD_START_RE.finditer(raw_line or ""))
-    fields: dict[str, str] = {}
-    for index, match in enumerate(matches):
-        key = match.group(1).strip()
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(raw_line)
-        value = raw_line[start:end].strip().strip(" \t,，;；|。")
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1].strip()
-        if value:
-            fields[key] = value
-    return fields
+    return _extract_source_fields_shared(raw_line)
 
 
 def _extract_source_references(reply: str) -> list[dict[str, Any]]:
@@ -2570,6 +2792,26 @@ def _reference_locator(reference: Mapping[str, Any]) -> tuple[str, str, str] | N
     if task_id and (pdf_page or table_index):
         return task_id, pdf_page, table_index
     return None
+
+
+def _has_reviewable_source_locator(reference: Mapping[str, Any]) -> bool:
+    task_id = str(reference.get("task_id") or "").strip()
+    has_pdf_locator = bool(
+        task_id
+        and any(
+            str(reference.get(field) or "").strip() not in {"", "未返回"}
+            for field in ("pdf_page", "pdf_page_number", "table_index", "md_line")
+        )
+    )
+    source_url = str(reference.get("source_url") or "").strip()
+    has_external_locator = bool(
+        source_url
+        and any(
+            str(reference.get(field) or "").strip() not in {"", "未返回"}
+            for field in ("source_anchor", "xbrl_tag")
+        )
+    )
+    return has_pdf_locator or has_external_locator
 
 
 def _coalesce_identity_free_reference_duplicates(
@@ -2639,7 +2881,9 @@ def _trusted_claim_references(
             continue
         if expected and _identity_violation_reason(item, expected):
             continue
-        if not all(item.get(field) not in (None, "") for field in ("evidence_id", "quote", "unit")):
+        if not all(item.get(field) not in (None, "") for field in ("evidence_id", "unit")):
+            continue
+        if not item.get("quote") and not _has_reviewable_source_locator(item):
             continue
         if item.get("value", item.get("raw_value")) in (None, ""):
             continue
@@ -2704,6 +2948,7 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "quote_text",
         "source_url",
         "line_number",
+        "financial_scope",
     )
     fact = {key: reference[key] for key in preferred_keys if key in reference and reference[key] not in (None, "")}
     if "metric_name" not in fact:
@@ -2753,6 +2998,8 @@ def _reference_facts(
                 quote=str(fact.get("quote") or fact.get("quote_text") or ""),
                 source_type=source_type,
                 change_direction=str(fact.get("change_direction") or ""),
+                has_locator=_has_reviewable_source_locator(reference),
+                financial_scope=str(fact.get("financial_scope") or "").strip().lower(),
             )
         )
     return tuple(facts)
@@ -2865,20 +3112,66 @@ def _fact_for_amount(
             )
     if not candidates:
         return None
-    best_semantic_score = min(candidate[0] for candidate in candidates)
-    semantic_candidates = [candidate for candidate in candidates if candidate[0] == best_semantic_score]
     amount_prefix = clause[:amount_start]
     balance_position = amount_prefix.rfind("余额")
-    change_position = max(
+    change_position = _last_term_position(amount_prefix, LOCAL_ABSOLUTE_CHANGE_TERMS)
+    component_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate[3].metric.startswith("goodwill_component_")
+        and not candidate[3].metric.endswith("_absolute_change")
+    ]
+    if change_position > balance_position and amount_start - change_position <= 48:
+        component_metrics = {candidate[3].metric for candidate in component_candidates}
+        change_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate[3].metric.endswith("_absolute_change")
+            and (
+                not component_metrics
+                or candidate[3].metric.removesuffix("_absolute_change") in component_metrics
+            )
+        ]
+        if change_candidates:
+            best_change_score = min(candidate[0] for candidate in change_candidates)
+            semantic_change_candidates = [
+                candidate for candidate in change_candidates if candidate[0] == best_change_score
+            ]
+            if len({candidate[3].metric for candidate in semantic_change_candidates}) == 1:
+                semantic_change_candidates = _period_preferred_fact_candidates(
+                    clause,
+                    amount_start,
+                    semantic_change_candidates,
+                )
+                return min(semantic_change_candidates, key=lambda item: (item[0], item[2]))[3]
+    component_metrics = {candidate[3].metric for candidate in component_candidates}
+    if len(component_metrics) == 1:
+        component_candidates = _period_preferred_fact_candidates(
+            clause,
+            amount_start,
+            component_candidates,
+        )
+        best_component = min(component_candidates, key=lambda item: (item[1], item[0], item[2]))
+        if not _component_value_is_ratio_denominator(
+            clause,
+            amount_start,
+            best_component[3],
+            tuple(candidate[3] for candidate in candidates if candidate not in component_candidates),
+        ):
+            return best_component[3]
+    best_semantic_score = min(candidate[0] for candidate in candidates)
+    semantic_candidates = [candidate for candidate in candidates if candidate[0] == best_semantic_score]
+    directional_change_position = max(
         (_last_term_position(amount_prefix, terms) for terms in (INCREASE_CHANGE_TERMS, DECREASE_CHANGE_TERMS)),
         default=-1,
     )
-    if balance_position >= 0 and balance_position > change_position:
+    if balance_position >= 0 and balance_position > directional_change_position:
         balance_candidates = [
             candidate for candidate in semantic_candidates if not candidate[3].metric.endswith("_absolute_change")
         ]
         balance_metrics = {candidate[3].metric for candidate in balance_candidates}
         if balance_candidates and len(balance_metrics) == 1:
+            balance_candidates = _period_preferred_fact_candidates(clause, amount_start, balance_candidates)
             return min(balance_candidates, key=lambda item: (item[0], item[1], item[2]))[3]
     if any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
         change_candidates = [
@@ -2893,7 +3186,108 @@ def _fact_for_amount(
     if len(best_metrics) != 1:
         return None
     candidates = [candidate for candidate in candidates if candidate[3].metric in best_metrics]
+    candidates = _period_preferred_fact_candidates(clause, amount_start, candidates)
     return min(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+
+
+def _implicit_period_mode(clause: str, amount_start: int) -> str:
+    prefix = re.sub(r"\s+", "", clause[:amount_start])
+    relative_mentions: list[tuple[int, int, str]] = []
+    for mode, terms in (
+        ("previous", ("本期初", "本年初", "期初", "年初", "上年末")),
+        ("latest", ("本期末", "本年末", "期末", "年末")),
+    ):
+        for term in terms:
+            position = prefix.rfind(term)
+            if position >= 0:
+                relative_mentions.append((position + len(term), len(term), mode))
+    if relative_mentions:
+        return max(relative_mentions, key=lambda item: (item[0], item[1]))[2]
+    current_position = _last_term_position(prefix, ("本期", "本年", "报告期"))
+    transition_prefix = prefix[current_position:] if current_position >= 0 else ""
+    if (
+        current_position >= 0
+        and not NUMBER_WITH_UNIT_RE.search(clause[:amount_start])
+        and any(marker in transition_prefix for marker in ("由", "从"))
+    ):
+        return "previous"
+    if current_position >= 0 and any(term in transition_prefix for term in LOCAL_ABSOLUTE_CHANGE_TERMS):
+        return "latest"
+    return ""
+
+
+def _period_preferred_fact_candidates(
+    clause: str,
+    amount_start: int,
+    candidates: list[tuple[tuple[int, int, int], float, int, EvidenceFact]],
+) -> list[tuple[tuple[int, int, int], float, int, EvidenceFact]]:
+    mode = _implicit_period_mode(clause, amount_start)
+    if not mode:
+        return candidates
+    dated = [candidate for candidate in candidates if _trace_period_sort_key({"period": candidate[3].period})[0] >= 0]
+    if not dated:
+        return candidates
+    period_keys = sorted({_trace_period_sort_key({"period": candidate[3].period}) for candidate in dated})
+    target = period_keys[-2] if mode == "previous" and len(period_keys) > 1 else period_keys[-1]
+    return [candidate for candidate in dated if _trace_period_sort_key({"period": candidate[3].period}) == target]
+
+
+def _last_fact_alias_position(text: str, fact: EvidenceFact) -> int:
+    lowered = text.lower()
+    best = -1
+    for alias in fact.aliases:
+        parts = alias.lower().split()
+        if not parts:
+            continue
+        pattern = r"\s*".join(re.escape(part) for part in parts)
+        for match in re.finditer(pattern, lowered):
+            best = max(best, match.start())
+    return best
+
+
+def _component_value_is_ratio_denominator(
+    clause: str,
+    amount_start: int,
+    component: EvidenceFact,
+    other_facts: tuple[EvidenceFact, ...],
+) -> bool:
+    """Keep a named component as subject unless the amount is an explicit ratio denominator."""
+
+    prefix = clause[:amount_start]
+    component_position = _last_fact_alias_position(prefix, component)
+    ratio_position = prefix.rfind("占")
+    if component_position < 0 or ratio_position <= component_position:
+        return False
+    return any(
+        not fact.metric.startswith("goodwill_component_")
+        and _last_fact_alias_position(prefix, fact) > ratio_position
+        for fact in other_facts
+    )
+
+
+def _shared_value_component_facts(
+    clause: str,
+    amount_start: int,
+    facts: tuple[EvidenceFact, ...],
+) -> tuple[EvidenceFact, ...]:
+    """Bind one shared value to every explicitly named goodwill component."""
+
+    prefix = clause[:amount_start]
+    if not any(term in prefix for term in ("同为", "均为", "各为", "相同", "相等", "一致")):
+        return ()
+    matches: list[tuple[int, int, EvidenceFact]] = []
+    seen_metrics: set[str] = set()
+    for index, fact in enumerate(facts):
+        if not fact.metric.startswith("goodwill_component_") or fact.metric.endswith("_absolute_change"):
+            continue
+        position = _last_fact_alias_position(prefix, fact)
+        if position < 0 or fact.metric in seen_metrics:
+            continue
+        seen_metrics.add(fact.metric)
+        matches.append((position, index, fact))
+    if len(matches) < 2:
+        return ()
+    return tuple(item[2] for item in sorted(matches, key=lambda item: (item[0], item[1])))
 
 
 def _parallel_fact_assignments(
@@ -2964,6 +3358,300 @@ def _is_same_metric_unit_restatement(
     )
 
 
+def _balance_transition_fact(
+    clause: str,
+    previous_match: re.Match[str],
+    current_match: re.Match[str],
+    previous_fact: EvidenceFact | None,
+    category: str,
+    normalized_value: float,
+    facts: tuple[EvidenceFact, ...],
+    period_tokens: tuple[str, ...] = (),
+) -> tuple[bool, EvidenceFact | None]:
+    if previous_fact is None or previous_fact.metric.endswith("_absolute_change"):
+        return False, None
+    prefix = clause[: previous_match.start()]
+    if not any(term in prefix for term in ("余额", "期初", "年初", "上年末")):
+        return False, None
+    connector = re.sub(
+        r"[\s*`_'\"“”‘’]+",
+        "",
+        clause[previous_match.end() : current_match.start()],
+    )
+    if not any(term in connector for term in ("降至", "减至", "增至", "升至", "增长至", "下降至", "变为", "调整为", "转为")):
+        return False, None
+    candidates = [
+        fact
+        for fact in facts
+        if fact.metric == previous_fact.metric
+        and fact.value_category == category
+        and not fact.metric.endswith("_absolute_change")
+        and fact.evidence_id != previous_fact.evidence_id
+    ]
+    relative_current_transition = not period_tokens and any(term in prefix for term in ("本期", "本年", "报告期"))
+    if relative_current_transition:
+        dated = [
+            fact
+            for fact in (*candidates, previous_fact)
+            if _trace_period_sort_key({"period": fact.period})[0] >= 0
+        ]
+        if dated:
+            latest_period_key = max(_trace_period_sort_key({"period": fact.period}) for fact in dated)
+            candidates = [
+                fact
+                for fact in dated
+                if _trace_period_sort_key({"period": fact.period}) == latest_period_key
+            ]
+    elif period_tokens:
+        period_candidates = [
+            fact
+            for fact in candidates
+            if _period_tokens_compatible(period_tokens, _period_tokens(fact.period))
+        ]
+        if period_candidates:
+            candidates = period_candidates
+    else:
+        previous_period_key = _trace_period_sort_key({"period": previous_fact.period})
+        if previous_period_key[0] >= 0:
+            candidates = [
+                fact
+                for fact in candidates
+                if _trace_period_sort_key({"period": fact.period}) > previous_period_key
+            ]
+            if candidates:
+                next_period_key = min(_trace_period_sort_key({"period": fact.period}) for fact in candidates)
+                candidates = [
+                    fact
+                    for fact in candidates
+                    if _trace_period_sort_key({"period": fact.period}) == next_period_key
+                ]
+    if not candidates:
+        # A transition target without later-period evidence is still a claim.
+        # Bind it to the known starting balance so an unsupported value fails.
+        return True, previous_fact
+    return (
+        True,
+        min(
+            candidates,
+            key=lambda fact: _claim_fact_value_distance(normalized_value, fact.normalized_value, fact.metric),
+        ),
+    )
+
+
+def _period_endpoint_fact(
+    clause: str,
+    previous_match: re.Match[str],
+    current_match: re.Match[str],
+    previous_fact: EvidenceFact | None,
+    category: str,
+    normalized_value: float,
+    facts: tuple[EvidenceFact, ...],
+    period_tokens: tuple[str, ...] = (),
+) -> tuple[bool, EvidenceFact | None]:
+    if previous_fact is None or previous_fact.metric.endswith("_absolute_change"):
+        return False, None
+    connector = re.sub(
+        r"[\s*`_'\"“”‘’]+",
+        "",
+        clause[previous_match.end() : current_match.start()],
+    )
+    if not any(term in connector for term in ("本期末", "本年末", "期末", "年末")):
+        return False, None
+    candidates = [
+        fact
+        for fact in facts
+        if fact.metric == previous_fact.metric
+        and fact.value_category == category
+        and not fact.metric.endswith("_absolute_change")
+    ]
+    if period_tokens:
+        period_candidates = [
+            fact
+            for fact in candidates
+            if _period_tokens_compatible(period_tokens, _period_tokens(fact.period))
+        ]
+        if period_candidates:
+            candidates = period_candidates
+    else:
+        dated = [fact for fact in candidates if _trace_period_sort_key({"period": fact.period})[0] >= 0]
+        if dated:
+            latest_period_key = max(_trace_period_sort_key({"period": fact.period}) for fact in dated)
+            candidates = [
+                fact
+                for fact in dated
+                if _trace_period_sort_key({"period": fact.period}) == latest_period_key
+            ]
+    if not candidates:
+        return True, previous_fact
+    return (
+        True,
+        min(
+            candidates,
+            key=lambda fact: _claim_fact_value_distance(normalized_value, fact.normalized_value, fact.metric),
+        ),
+    )
+
+
+def _reconciliation_fact_context(fact: EvidenceFact) -> tuple[str, ...] | None:
+    context = (
+        fact.market,
+        fact.company_id,
+        fact.filing_id,
+        fact.parse_run_id,
+        fact.period,
+        fact.financial_scope,
+    )
+    return context if all(context) else None
+
+
+def _strict_reconciliation_operator_shape(
+    clause: str,
+    matches: list[re.Match[str]],
+    rhs_index: int,
+) -> bool:
+    if rhs_index < 2:
+        return False
+    between_operands = clause[matches[rhs_index - 2].end() : matches[rhs_index - 1].start()]
+    before_result = clause[matches[rhs_index - 1].end() : matches[rhs_index].start()]
+    between_operators = between_operands.replace("**", "").replace("__", "").replace("`", "")
+    result_operators = before_result.replace("**", "").replace("__", "").replace("`", "")
+    if len(re.findall(rf"[{FINANCIAL_MINUS_SIGN_CLASS}]", between_operators)) != 1:
+        return False
+    if re.search(r"[+*/×÷=＝]", between_operators):
+        return False
+    if len(re.findall(r"[=＝]", result_operators)) != 1:
+        return False
+    return re.search(rf"[+*/×÷{FINANCIAL_MINUS_SIGN_CLASS}]", result_operators) is None
+
+
+def _reconciliation_equation_gross_fact(
+    clause: str,
+    matches: list[re.Match[str]],
+    match_index: int,
+    category: str,
+    normalized_value: float,
+    facts: tuple[EvidenceFact, ...],
+    period_tokens: tuple[str, ...] = (),
+) -> EvidenceFact | None:
+    """Resolve the report-specific `附注原值` label only in a strict reconciliation."""
+
+    if match_index != 0 or len(matches) < 3 or not _strict_reconciliation_operator_shape(clause, matches, 2):
+        return None
+    prefix = clause[: matches[0].start()]
+    if re.search(
+        r"(?:^|[,，;；:：])\s*(?:\*\*|__|`)*附注原值(?:\*\*|__|`)*\s*$",
+        prefix,
+    ) is None:
+        return None
+    allowance_connector = re.sub(
+        r"[\s*`_'\"“”‘’]+",
+        "",
+        clause[matches[0].end() : matches[1].start()],
+    )
+    if re.fullmatch(rf"[{FINANCIAL_MINUS_SIGN_CLASS}](?:商誉)?减值准备", allowance_connector) is None:
+        return None
+    if any((_unit_multiplier(match.group("unit")) or ("", 0.0))[0] != category for match in matches[1:3]):
+        return None
+
+    allowance_contexts = {
+        context
+        for fact in facts
+        if fact.metric == "goodwill_impairment_allowance" and fact.value_category == category
+        if (context := _reconciliation_fact_context(fact)) is not None
+    }
+    net_contexts = {
+        context
+        for fact in facts
+        if fact.metric == "goodwill_net" and fact.value_category == category
+        if (context := _reconciliation_fact_context(fact)) is not None
+    }
+    valid_contexts = allowance_contexts & net_contexts
+    candidates = [
+        fact
+        for fact in facts
+        if fact.metric == "goodwill_gross"
+        and fact.value_category == category
+        and _reconciliation_fact_context(fact) in valid_contexts
+    ]
+    if period_tokens:
+        candidates = [
+            fact
+            for fact in candidates
+            if _period_tokens_compatible(period_tokens, _period_tokens(fact.period))
+        ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda fact: (
+            _claim_fact_value_distance(normalized_value, fact.normalized_value, fact.metric),
+            fact.evidence_id,
+        ),
+    )
+
+
+def _reconciliation_equation_rhs_fact(
+    clause: str,
+    matches: list[re.Match[str]],
+    match_index: int,
+    resolved_facts: list[EvidenceFact | None],
+    category: str,
+    facts: tuple[EvidenceFact, ...],
+    period_tokens: tuple[str, ...] = (),
+) -> tuple[bool, EvidenceFact | None]:
+    """Bind a strict gross - allowance = net RHS without using its displayed value."""
+
+    if match_index < 2:
+        return False, None
+    gross_fact = resolved_facts[match_index - 2]
+    allowance_fact = resolved_facts[match_index - 1]
+    if (
+        gross_fact is None
+        or allowance_fact is None
+        or gross_fact.metric != "goodwill_gross"
+        or allowance_fact.metric != "goodwill_impairment_allowance"
+    ):
+        return False, None
+    gross_context = _reconciliation_fact_context(gross_fact)
+    if gross_context is None or gross_context != _reconciliation_fact_context(allowance_fact):
+        return False, None
+
+    if not _strict_reconciliation_operator_shape(clause, matches, match_index):
+        return False, None
+
+    candidates = [
+        fact
+        for fact in facts
+        if fact.metric == "goodwill_net"
+        and fact.value_category == category
+        and _reconciliation_fact_context(fact) == gross_context
+    ]
+    if period_tokens:
+        candidates = [
+            fact
+            for fact in candidates
+            if _period_tokens_compatible(period_tokens, _period_tokens(fact.period))
+        ]
+    if not candidates:
+        return False, None
+    return True, min(candidates, key=lambda fact: (fact.evidence_id, fact.normalized_value))
+
+
+def _balance_transition_direction_conflicts(
+    clause: str,
+    previous_match: re.Match[str],
+    current_match: re.Match[str],
+    previous_value: float,
+    current_value: float,
+) -> bool:
+    connector = clause[previous_match.end() : current_match.start()]
+    if any(term in connector for term in ("降至", "减至", "下降至")):
+        return current_value >= previous_value
+    if any(term in connector for term in ("增至", "升至", "增长至")):
+        return current_value <= previous_value
+    return False
+
+
 def _last_term_position(text: str, terms: Sequence[str]) -> int:
     return max((text.rfind(term) for term in terms), default=-1)
 
@@ -3005,7 +3693,7 @@ def _extract_claims(
     facts: tuple[EvidenceFact, ...],
 ) -> tuple[NumericClaim, ...]:
     claims: list[NumericClaim] = []
-    seen: set[tuple[int, str, float, str]] = set()
+    seen: set[tuple[int, int, str, float, str]] = set()
     for line_number, raw_line in enumerate((reply or "").splitlines(), start=1):
         line = raw_line.strip()
         if not line or "source_type=" in line or line.startswith("guardrail_") or line.startswith("claim_verifier_"):
@@ -3041,8 +3729,7 @@ def _extract_claims(
                             period_facts = [
                                 item
                                 for item in reconciliation_facts
-                                if not _period_tokens(item.period)
-                                or set(clause_period_tokens).intersection(_period_tokens(item.period))
+                                if _period_tokens_compatible(clause_period_tokens, _period_tokens(item.period))
                             ]
                             if period_facts:
                                 reconciliation_facts = period_facts
@@ -3066,6 +3753,57 @@ def _extract_claims(
                             facts,
                             amount_end=local_amount_end,
                         )
+                if fact is None:
+                    fact = _reconciliation_equation_gross_fact(
+                        clause,
+                        matches,
+                        match_index,
+                        category,
+                        normalized_value,
+                        facts,
+                        period_tokens=clause_period_tokens,
+                    )
+                if match_index > 0:
+                    transition_matched, transition_fact = _balance_transition_fact(
+                        clause,
+                        matches[match_index - 1],
+                        match,
+                        resolved_facts[match_index - 1],
+                        category,
+                        normalized_value,
+                        facts,
+                        period_tokens=clause_period_tokens,
+                    )
+                    if transition_matched:
+                        fact = transition_fact
+                    endpoint_matched = False
+                    if not transition_matched:
+                        endpoint_matched, endpoint_fact = _period_endpoint_fact(
+                            clause,
+                            matches[match_index - 1],
+                            match,
+                            resolved_facts[match_index - 1],
+                            category,
+                            normalized_value,
+                            facts,
+                            period_tokens=clause_period_tokens,
+                        )
+                        if endpoint_matched:
+                            fact = endpoint_fact
+                else:
+                    transition_matched = False
+                    endpoint_matched = False
+                equation_matched, equation_fact = _reconciliation_equation_rhs_fact(
+                    clause,
+                    matches,
+                    match_index,
+                    resolved_facts,
+                    category,
+                    facts,
+                    period_tokens=clause_period_tokens,
+                )
+                if equation_matched:
+                    fact = equation_fact
                 if (
                     fact is None
                     and match_index > 0
@@ -3088,27 +3826,53 @@ def _extract_claims(
                 resolved_facts[match_index] = fact
                 if fact is None:
                     continue
-                key = (line_number, fact.metric, normalized_value, unit)
-                if key in seen:
-                    continue
-                seen.add(key)
-                claims.append(
-                    NumericClaim(
-                        metric=fact.metric,
-                        value=float(value or 0.0),
-                        value_text=match.group("value"),
-                        unit=unit,
-                        normalized_value=normalized_value,
-                        value_category=category,
-                        currency=_currency_token(match.group("currency"), clause, line),
-                        period_tokens=clause_period_tokens,
-                        period_text=_period_text(clause_period_tokens),
-                        line_number=line_number,
-                        line=line,
-                        match_start=match.start(),
-                        change_direction=_claim_change_direction(clause, match),
+                claim_period_tokens = clause_period_tokens
+                if (transition_matched or endpoint_matched or equation_matched) and not claim_period_tokens:
+                    claim_period_tokens = _period_tokens(fact.period)
+                if not claim_period_tokens and _implicit_period_mode(clause, match.start()):
+                    claim_period_tokens = _period_tokens(fact.period)
+                claim_direction = _claim_change_direction(clause, match)
+                if transition_matched and previous_match is not None:
+                    previous_normalized = _normalized_amount(
+                        _amount_match_number(
+                            clause,
+                            previous_match,
+                            matches[match_index - 2] if match_index > 1 else None,
+                        ),
+                        previous_match.group("unit"),
                     )
-                )
+                    if previous_normalized is not None and _balance_transition_direction_conflicts(
+                        clause,
+                        previous_match,
+                        match,
+                        previous_normalized[0],
+                        normalized_value,
+                    ):
+                        claim_direction = "conflict"
+                shared_component_facts = _shared_value_component_facts(clause, match.start(), facts)
+                claim_facts = shared_component_facts or (fact,)
+                for claim_fact in claim_facts:
+                    key = (line_number, match.start(), claim_fact.metric, normalized_value, unit)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    claims.append(
+                        NumericClaim(
+                            metric=claim_fact.metric,
+                            value=float(value or 0.0),
+                            value_text=match.group("value"),
+                            unit=unit,
+                            normalized_value=normalized_value,
+                            value_category=category,
+                            currency=_currency_token(match.group("currency"), clause, line),
+                            period_tokens=claim_period_tokens,
+                            period_text=_period_text(claim_period_tokens),
+                            line_number=line_number,
+                            line=line,
+                            match_start=match.start(),
+                            change_direction=claim_direction,
+                        )
+                    )
     return tuple(claims)
 
 
@@ -3150,7 +3914,7 @@ def _evidence_bound_unit_normalization_claims(
                 continue
             if claim.period_tokens:
                 fact_tokens = _period_tokens(fact.period)
-                if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
+                if not _period_tokens_compatible(claim.period_tokens, fact_tokens):
                     continue
             reference = reference_by_evidence_id.get(fact.evidence_id)
             if reference is None:
@@ -3192,10 +3956,10 @@ def has_evidence_bound_unit_normalization(
 
 
 def _change_direction_matches(claim: NumericClaim, fact: EvidenceFact) -> bool:
-    if not fact.metric.endswith("_absolute_change"):
-        return True
     if claim.change_direction == "conflict":
         return False
+    if not fact.metric.endswith("_absolute_change"):
+        return True
     if claim.change_direction:
         return bool(fact.change_direction) and claim.change_direction == fact.change_direction
     return True
@@ -3208,13 +3972,13 @@ def _matches_evidence(claim: NumericClaim, fact: EvidenceFact) -> bool:
         return False
     if not fact.company_id or not fact.filing_id:
         return False
-    if not fact.evidence_id or not fact.quote:
+    if not fact.evidence_id or (not fact.quote and not fact.has_locator):
         return False
     if claim.currency and fact.currency and claim.currency != fact.currency:
         return False
     if claim.period_tokens:
         fact_tokens = _period_tokens(fact.period)
-        if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
+        if not _period_tokens_compatible(claim.period_tokens, fact_tokens):
             return False
     tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
     return _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) <= tolerance
@@ -3227,13 +3991,13 @@ def _violation_reason(claim: NumericClaim, fact: EvidenceFact) -> str:
         return "missing_filing_id"
     if not fact.evidence_id:
         return "missing_evidence_id"
-    if not fact.quote:
+    if not fact.quote and not fact.has_locator:
         return "missing_quote"
     if claim.currency and fact.currency and claim.currency != fact.currency:
         return "currency_mismatch"
     if claim.period_tokens:
         fact_tokens = _period_tokens(fact.period)
-        if fact_tokens and not set(claim.period_tokens).intersection(fact_tokens):
+        if not _period_tokens_compatible(claim.period_tokens, fact_tokens):
             return "period_mismatch"
     if not _change_direction_matches(claim, fact):
         return "direction_mismatch"
@@ -3351,8 +4115,17 @@ def verify_financial_claims(
         ]
         if not candidates or any(_matches_evidence(claim, fact) for fact in candidates):
             continue
+        diagnostic_candidates = candidates
+        if claim.period_tokens:
+            period_candidates = [
+                fact
+                for fact in candidates
+                if _period_tokens_compatible(claim.period_tokens, _period_tokens(fact.period))
+            ]
+            if period_candidates:
+                diagnostic_candidates = period_candidates
         nearest = min(
-            candidates,
+            diagnostic_candidates,
             key=lambda fact: _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric),
         )
         violations.append(

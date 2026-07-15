@@ -12,7 +12,7 @@ from services.agent_runtime_financial_claim_verifier import normalize_financial_
 
 IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
 DATE_HEADER_RE = re.compile(r"(?P<year>20\d{2})\s*年\s*(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*日")
-YEAR_RE = re.compile(r"\b(20\d{2})\b")
+YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 
 GOODWILL_TOTAL_LABELS = frozenset({"小计", "合计", "账面原值", "原值小计"})
 GOODWILL_GROSS_ALIASES = ("商誉原值", "账面原值", "原值小计", "商誉原值合计", "商誉总额")

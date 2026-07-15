@@ -1,9 +1,14 @@
-from services.agent_runtime_financial_evidence import _decimal, build_trusted_calculation_evidence
+from services.agent_runtime_financial_evidence import _decimal, _period, build_trusted_calculation_evidence
 
 
 def test_financial_evidence_decimal_preserves_numeric_zero():
     assert _decimal(0) == 0
     assert _decimal(0.0) == 0
+
+
+def test_financial_evidence_period_parses_year_before_chinese_text():
+    assert _period("2025年度合并") == "2025"
+    assert _period("截至2025年末") == "2025"
 
 
 IDENTITY = {

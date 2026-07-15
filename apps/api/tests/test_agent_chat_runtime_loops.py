@@ -1428,6 +1428,144 @@ def test_company_catalog_resolution_uses_market_specific_catalog(tmp_path, monke
     assert runtime._resolve_company_dirs("请解释 aapple") == []
 
 
+def test_explicit_non_cn_company_resolution_does_not_fall_back_to_cn_local_alias(tmp_path, monkeypatch):
+    wiki_root = tmp_path / "wiki"
+    us_root = wiki_root / "us"
+    us_company_dir = us_root / "companies" / "BA-Boeing"
+    us_company_dir.mkdir(parents=True)
+    cn_company_dir = wiki_root / "companies" / "000001-平安银行"
+    cn_company_dir.mkdir(parents=True)
+    meta_dir = us_root / "_meta"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "company_catalog.json").write_text(
+        json.dumps(
+            {
+                "market": "US",
+                "companies": [
+                    {
+                        "market": "US",
+                        "company_id": "US:0000012927",
+                        "company_wiki_id": "BA-Boeing",
+                        "ticker": "BA",
+                        "company_name": "Boeing",
+                        "company_wiki_path": "data/wiki/us/companies/BA-Boeing",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "PROJECT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "ASSISTANT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "WIKI_FALLBACK_ROOTS", ())
+    monkeypatch.setattr(
+        runtime,
+        "_load_local_citation_module",
+        lambda: type(
+            "LocalCitationStub",
+            (),
+            {"find_company_dir_from_text": staticmethod(lambda *_args: cn_company_dir)},
+        )(),
+    )
+
+    assert runtime._resolve_company_dir("查询 US BA revenue") == us_company_dir.resolve()
+
+
+def test_non_cn_catalog_alias_fallback_requires_exact_bound_report_identity(tmp_path, monkeypatch):
+    company_dir = tmp_path / "eu" / "companies" / "AZN-AstraZeneca"
+    company_dir.mkdir(parents=True)
+    context = {
+        "research_identity": {
+            "market": "EU",
+            "company_id": "EU:GB:AZN",
+            "filing_id": "EU:AZN:2025-annual:run-azn",
+            "parse_run_id": "EU:run-azn",
+        },
+        "company": {"name": "AstraZeneca", "code": "AZN"},
+    }
+    calls = []
+
+    def resolve_from_catalog(message, catalog_context):
+        calls.append((message, catalog_context))
+        return None if catalog_context is context else company_dir
+
+    monkeypatch.setattr(runtime, "_resolve_company_dir_from_catalog", resolve_from_catalog)
+    monkeypatch.setattr(
+        runtime,
+        "_primary_report_for_company",
+        lambda *_args, **_kwargs: {"selection_status": "identity_exact"},
+    )
+
+    assert runtime._resolve_company_dir("查询 EU AZN 总资产", context) == company_dir
+    assert len(calls) == 2
+    assert calls[0][1] is context
+    assert calls[1][1] is None
+
+
+def test_non_cn_catalog_alias_fallback_rejects_report_identity_mismatch(tmp_path, monkeypatch):
+    company_dir = tmp_path / "eu" / "companies" / "AZN-AstraZeneca"
+    company_dir.mkdir(parents=True)
+    context = {
+        "research_identity": {
+            "market": "EU",
+            "company_id": "EU:GB:AZN",
+            "filing_id": "EU:AZN:2025-annual:run-azn",
+            "parse_run_id": "EU:run-azn",
+        }
+    }
+    monkeypatch.setattr(
+        runtime,
+        "_resolve_company_dir_from_catalog",
+        lambda _message, catalog_context: None if catalog_context is context else company_dir,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_primary_report_for_company",
+        lambda *_args, **_kwargs: {"selection_status": "identity_mismatch"},
+    )
+
+    assert runtime._resolve_company_dir("查询 EU AZN 总资产", context) is None
+
+
+def test_resolved_context_prefers_authoritative_report_company_id_over_legacy_catalog(tmp_path, monkeypatch):
+    company_dir = tmp_path / "4502-Takeda"
+    company_dir.mkdir()
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "market": "JP",
+                "company_id": "JP:JP:4502",
+                "ticker": "4502",
+                "company_name": "Takeda",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime, "_resolve_company_dir", lambda _message, _context=None: company_dir)
+    monkeypatch.setattr(
+        runtime,
+        "_primary_report_for_company",
+        lambda *_args, **_kwargs: {
+            "market": "JP",
+            "company_id": "JP:4502",
+            "report_id": "2025-annual",
+            "filing_id": "JP:4502:2025-annual:run-4502",
+            "parse_run_id": "JP:run-4502",
+        },
+    )
+
+    context = runtime._resolved_research_context("分析 JP 4502 总资产")
+
+    assert context["research_identity"] == {
+        "market": "JP",
+        "company_id": "JP:4502",
+        "filing_id": "JP:4502:2025-annual:run-4502",
+        "parse_run_id": "JP:run-4502",
+    }
+    assert context["company"]["company_id"] == "JP:4502"
+
+
 def test_runtime_catalog_resolution_uses_authoritative_company_id_without_name(tmp_path, monkeypatch):
     wiki_root = tmp_path / "wiki"
     us_root = wiki_root / "us"
@@ -1590,6 +1728,152 @@ def test_result_identity_checks_conflicting_task_aliases_in_each_row():
     assert "filing_id" not in guarded
     assert guarded["rows"][0]["task_id"] == "task-other-filing"
     assert guarded["rows"][0]["parse_run_id"] == "task-midea-2025"
+
+
+def test_result_identity_keeps_parse_hash_when_parser_task_id_is_separate():
+    context = {
+        "research_identity": {
+            "market": "US",
+            "company_id": "US:0000012927",
+            "filing_id": "US:0000012927:0001628280-26-004357",
+            "parse_run_id": "parse-hash-ba",
+        },
+        "resolved_period": {"report_id": "2025-10-K-0001628280-26-004357"},
+    }
+    result = {
+        "market": "US",
+        "company_id": "US:0000012927",
+        "filing_id": "US:0000012927:0001628280-26-004357",
+        "parse_run_id": "parse-hash-ba",
+        "task_id": "BA-10-K-0001628280-26-004357",
+        "report_id": "2025-10-K-0001628280-26-004357",
+        "rows": [{"metric_key": "operating_revenue", "report_id": "2025-10-K-0001628280-26-004357"}],
+    }
+
+    bound = runtime._result_with_research_identity(result, context)
+
+    assert bound["parse_run_id"] == "parse-hash-ba"
+    assert bound["task_id"] == "BA-10-K-0001628280-26-004357"
+    assert bound["rows"][0]["parse_run_id"] == "parse-hash-ba"
+    assert bound["rows"][0]["task_id"] == "BA-10-K-0001628280-26-004357"
+
+
+def test_non_cn_statement_metric_rejects_cross_company_resolver_result(monkeypatch):
+    renderer = object()
+    calls = []
+
+    def resolver(company_text, _lookup_message):
+        calls.append(company_text)
+        return {
+            "market": "CN",
+            "company_id": "000001-平安银行",
+            "filing_id": "CN:000001-平安银行:2025-annual",
+            "parse_run_id": "parse-cn-pingan",
+            "task_id": "parse-cn-pingan",
+            "tables": [
+                {
+                    "market": "CN",
+                    "company_id": "000001-平安银行",
+                    "filing_id": "CN:000001-平安银行:2025-annual",
+                    "task_id": "parse-cn-pingan",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(runtime, "_load_statement_metric_tools", lambda _context: (resolver, renderer))
+    context = {
+        "research_identity": {
+            "market": "US",
+            "company_id": "US:0000012927",
+            "filing_id": "US:0000012927:0001628280-26-004357",
+            "parse_run_id": "parse-us-ba",
+        },
+        "company": {"name": "Boeing", "code": "BA"},
+    }
+
+    result, actual_renderer = runtime._statement_metric_result("分析 US BA 的营业收入", context)
+
+    assert result is None
+    assert actual_renderer is renderer
+    assert calls == ["分析 US BA 的营业收入", "Boeing BA", "分析 US BA 的营业收入\nBoeing BA"]
+
+
+def test_non_cn_statement_metric_retries_company_hint_after_cross_company_result(monkeypatch):
+    renderer = object()
+    calls = []
+    expected_identity = {
+        "market": "US",
+        "company_id": "US:0000018230",
+        "filing_id": "US:0000018230:0000018230-26-000008",
+        "parse_run_id": "parse-us-cat",
+    }
+
+    def resolver(company_text, _lookup_message):
+        calls.append(company_text)
+        if len(calls) == 1:
+            return {
+                "market": "CN",
+                "company_id": "000001-平安银行",
+                "report_id": "2025-annual",
+                "task_id": "parse-cn-pingan",
+                "tables": [{"company_id": "000001-平安银行", "task_id": "parse-cn-pingan"}],
+            }
+        return {
+            **expected_identity,
+            "tables": [
+                {
+                    **expected_identity,
+                    "metric_name": "total_liabilities",
+                    "value": "89154800000",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(runtime, "_load_statement_metric_tools", lambda _context: (resolver, renderer))
+    context = {
+        "research_identity": expected_identity,
+        "company": {"name": "Caterpillar", "code": "CAT"},
+    }
+
+    result, actual_renderer = runtime._statement_metric_result("查看 US CAT 报告期总负债", context)
+
+    assert result is not None
+    assert actual_renderer is renderer
+    assert runtime.agent_runtime_context.research_identity(result) == expected_identity
+    assert result["tables"][0]["company_id"] == "US:0000018230"
+    assert calls == ["查看 US CAT 报告期总负债", "Caterpillar CAT"]
+
+
+def test_non_cn_statement_metric_rejects_nested_cross_company_scope(monkeypatch):
+    renderer = object()
+    expected_identity = {
+        "market": "US",
+        "company_id": "US:0000012927",
+        "filing_id": "US:0000012927:0001628280-26-004357",
+        "parse_run_id": "parse-us-ba",
+    }
+
+    def resolver(_company_text, _lookup_message):
+        return {
+            **expected_identity,
+            "resolved_period": {"parse_run_id": expected_identity["parse_run_id"]},
+            "tables": [
+                {
+                    "market": "CN",
+                    "company_id": "000001-平安银行",
+                    "filing_id": "CN:000001-平安银行:2025-annual",
+                    "task_id": "parse-cn-pingan",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(runtime, "_load_statement_metric_tools", lambda _context: (resolver, renderer))
+    context = {"research_identity": expected_identity}
+
+    result, actual_renderer = runtime._statement_metric_result("分析 US BA 的营业收入", context)
+
+    assert result is None
+    assert actual_renderer is renderer
 
 
 def test_hk_company_wiki_financial_data_is_core_metrics_candidate(tmp_path, monkeypatch):

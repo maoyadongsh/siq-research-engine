@@ -54,7 +54,7 @@ _YOY_COMPARISON_RE = re.compile(
     re.IGNORECASE,
 )
 _RATIO_PERCENTAGE_RE = re.compile(
-    r"(?:占(?!用|款)[^，。；;\n]{0,32}?|(?:占用率|占款比例)[^，。；;\n]{0,16}?)"
+    r"(?:占(?!用|款)[^，。；;\n]{0,32}?|(?:占用率|占款比例|覆盖率)[^，。；;\n]{0,16}?)"
     rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,.]*\s*(?:%|％|个?\s*百分点)",
     re.IGNORECASE,
 )
@@ -83,6 +83,7 @@ DERIVED_FINANCIAL_TERMS = (
     # below so they still require a calculator trace.
     *YOY_FINANCIAL_TERMS,
     "占比",
+    "覆盖率",
     "毛利率",
     "净利率",
     "资产负债率",
@@ -344,7 +345,11 @@ def _required_calculator_operations(
         operations.update({"yoy", "yoy_growth"})
     if "人均" in text or "/人" in text:
         operations.add("per_capita")
-    if any(term in text for term in ("占比", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")) or _has_contextual_ratio(text):
+    ratio_terms = ("占比", "比例", "百分比", "覆盖率", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")
+    # A ratio explicitly requested by the user is mandatory. In the answer,
+    # require it only for an actual contextual percentage claim; plain prose
+    # such as "关注毛利率和折现率假设" is not itself a calculation.
+    if any(term in message_text for term in ratio_terms) or _has_contextual_ratio(reply_text):
         operations.add("ratio")
     return frozenset(operations)
 

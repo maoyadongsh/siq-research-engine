@@ -119,6 +119,7 @@ python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts
 ```
 
   `ratio`、`cagr` 和 `per_capita` 使用相同 envelope，按运算类型提供 `numerator/denominator`、`start/end/periods` 或 `amount/count` 输入；勾稽必须使用 `siq_financial_reconciliation_trace_v1`、`tool=financial_reconciliation_validator.py`，并提供 `gross/allowance/net` 三个带 evidence_id 的输入和 `status=passed`。每个输入的 evidence_id 必须能在同一回答的结构化来源行中找到，四字段 ResearchIdentity 必须完整且一致。旧 Markdown 标记可作为人类可读展示，但不能单独满足后端 guard。
+- 后端以每个 trace 的 evidence_id、指标输入、期间、单位/币种、ResearchIdentity 和确定性重算结果为准；正文分析段落中仅讨论某个指标（例如减值测试的毛利率假设）不会把整轮 trace 强制标记为该指标。`expected_operations` 只表示本轮派生结论的最低操作覆盖，额外但完整、可重算的 trace 仍保留并可通过。若后端已提供 trusted evidence 集合，trace 的事实输入必须命中该集合，不能用模型自行追加的引用行替代。
 - 引用来源仍按 SIQ Citation Contract 执行：分子、分母各自要有来源；计算器只负责算术和单位，不替代证据。
 - 若计算器输出 `fx_required`、`division_by_zero`、`not_applicable`、`error`，不得把结果写成确定数字；必须说明原因和缺口。
 - 若模型自己的草稿值与计算器 `checks` 不一致，以计算器为准，并把原值标注为计算错误或笔误。

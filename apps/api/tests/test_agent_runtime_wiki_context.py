@@ -135,6 +135,87 @@ def test_primary_report_for_company_fails_closed_on_parse_run_mismatch(tmp_path)
     }
 
 
+def test_primary_report_uses_manifest_company_id_when_legacy_catalog_id_drifted(tmp_path):
+    company_dir = tmp_path / "4502-Takeda"
+    report_dir = company_dir / "reports" / "2025-annual"
+    report_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "company_id": "JP:JP:4502",
+                "reports": [{"report_id": "2025-annual"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (report_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "company_id": "JP:4502",
+                "filing_id": "JP:4502:2025-annual:run-4502",
+                "parse_run_id": "JP:run-4502",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = wiki_context.primary_report_for_company(
+        company_dir,
+        "查看年报",
+        local_citation_module=None,
+        read_json_file=_read_json_file,
+        annual_terms=("年报",),
+        quarterly_terms=("季报",),
+        research_identity={
+            "market": "JP",
+            "company_id": "JP:4502",
+            "filing_id": "JP:4502:2025-annual:run-4502",
+            "parse_run_id": "JP:run-4502",
+        },
+    )
+
+    assert report["selection_status"] == "identity_exact"
+    assert report["report_id"] == "2025-annual"
+    assert report["company_id"] == "JP:4502"
+
+
+def test_primary_report_rejects_company_id_conflicting_with_exact_manifest(tmp_path):
+    company_dir = tmp_path / "4502-Takeda"
+    report_dir = company_dir / "reports" / "2025-annual"
+    report_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps({"company_id": "JP:JP:4502", "reports": [{"report_id": "2025-annual"}]}),
+        encoding="utf-8",
+    )
+    (report_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "company_id": "JP:4502",
+                "filing_id": "JP:4502:2025-annual:run-4502",
+                "parse_run_id": "JP:run-4502",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = wiki_context.primary_report_for_company(
+        company_dir,
+        "查看年报",
+        local_citation_module=None,
+        read_json_file=_read_json_file,
+        annual_terms=("年报",),
+        quarterly_terms=("季报",),
+        research_identity={
+            "market": "JP",
+            "company_id": "JP:9999",
+            "filing_id": "JP:4502:2025-annual:run-4502",
+            "parse_run_id": "JP:run-4502",
+        },
+    )
+
+    assert report == {"selection_status": "identity_mismatch", "selection_reason": "company_id_mismatch"}
+
+
 def test_company_artifact_paths_prefers_by_report_and_latest(tmp_path):
     company_dir = tmp_path / "600000-demo"
     metrics_dir = company_dir / "metrics" / "reports" / "2025-annual"

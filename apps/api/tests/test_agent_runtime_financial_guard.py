@@ -118,6 +118,49 @@ def _reconciliation_evidence() -> str:
     return "\n".join(lines)
 
 
+def _trusted_reconciliation_evidence() -> tuple[dict, ...]:
+    identity = {
+        "market": "HK",
+        "company_id": "HK:01398",
+        "filing_id": "HK:01398:2025-annual",
+        "parse_run_id": "run-hk-01398-2025",
+    }
+    records = []
+    for metric, metric_name, aliases, value, evidence_id in (
+        ("goodwill_gross", "商誉原值", ("商誉原值", "附注原值", "账面原值"), "1282", "EVID-GW-GROSS"),
+        (
+            "goodwill_impairment_allowance",
+            "商誉减值准备",
+            ("商誉减值准备", "减值准备"),
+            "99",
+            "EVID-GW-ALLOWANCE",
+        ),
+        ("goodwill_net", "商誉净额", ("商誉净额", "主表净额", "账面净值"), "1183", "EVID-GW-NET"),
+    ):
+        records.append(
+            {
+                "source_type": "trusted_wiki_table_cell",
+                "metric": metric,
+                "canonical_name": metric,
+                "metric_name": metric_name,
+                "aliases": aliases,
+                "period": "2025",
+                "period_key": "2025",
+                "value": value,
+                "raw_value": value,
+                "unit": "RMB million",
+                "evidence_id": evidence_id,
+                "quote": f"{metric_name} {value}",
+                "task_id": "task-recon",
+                "pdf_page": 1,
+                "table_index": 1,
+                "financial_scope": "consolidated",
+                **identity,
+            }
+        )
+    return tuple(records)
+
+
 def test_runtime_status_reply_is_not_warned():
     reply = "  [失败] run failed"
 
@@ -565,6 +608,24 @@ def test_enforce_financial_evidence_contract_blocks_matching_value_without_quote
     assert "claim_verifier_status=failed" in reply
 
 
+def test_enforce_financial_evidence_contract_allows_matching_value_with_reviewable_locator_without_quote():
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行 2025 年营业收入是多少？",
+        None,
+        (
+            "工商银行 2025 年营业收入为 8,382.70 亿元。\n\n"
+            "[P1] source_type=wiki_metrics company_id=HK:01398 filing_id=2025-annual "
+            "canonical_name=operating_revenue metric_name=营业收入 period_key=2025 "
+            "value=8382.70 unit=亿元 evidence_id=EVID-REV-2025 task_id=task-ok "
+            "pdf_page=7 table_index=4 md_line=10"
+        ),
+        deps=_deps(),
+    )
+
+    assert "guardrail_reason=financial_claim_mismatch" not in reply
+    assert "工商银行 2025 年营业收入为 8,382.70 亿元。" in reply
+
+
 def test_enforce_financial_evidence_contract_blocks_matching_value_without_evidence_id():
     reply = guard.enforce_financial_evidence_contract(
         "工商银行 2025 年营业收入是多少？",
@@ -1001,7 +1062,9 @@ def test_enforce_financial_evidence_contract_blocks_ratio_trace_for_wrong_derive
         deps=_deps(),
     )
 
-    assert "calculation_trace_reason=trace_metric_mismatch" in reply
+    # The prose-derived metric allowlist is intentionally relaxed, but the
+    # trace still cannot label gross-profit/revenue inputs as debt/assets.
+    assert "calculation_trace_reason=trace_input_metric_mismatch" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_recomputed_reconciliation_trace():
@@ -1024,6 +1087,31 @@ def test_enforce_financial_evidence_contract_allows_recomputed_reconciliation_tr
 
     assert "## 计算校验无效" not in reply
     assert "商誉原值为 12.82 亿元" in reply
+
+
+def test_guard_does_not_mask_wrong_reconciliation_rhs_with_valid_equation():
+    identity = {
+        "market": "HK",
+        "company_id": "HK:01398",
+        "filing_id": "HK:01398:2025-annual",
+        "parse_run_id": "run-hk-01398-2025",
+    }
+    reply = guard.enforce_financial_evidence_contract(
+        "工商银行商誉原值、减值准备和净额如何勾稽？",
+        {"research_identity": identity},
+        (
+            "附注原值 1,282 RMB million - 减值准备 99 RMB million = 999 RMB million。\n"
+            "账面原值 1,282 RMB million - 减值准备 99 RMB million = 1,183 RMB million。\n"
+            "[D1] source_type=wiki_metrics task_id=task-recon pdf_page=1 table_index=1"
+        ),
+        deps=_deps(),
+        trusted_calculation_evidence=_trusted_reconciliation_evidence(),
+    )
+
+    assert "## 财务数值证据不一致" in reply
+    assert "metric=goodwill_net" in reply
+    assert "claimed=999" in reply
+    assert "evidence=1183" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_compact_summary_with_trusted_tool_receipt():

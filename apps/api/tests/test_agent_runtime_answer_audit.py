@@ -20,6 +20,7 @@ class _StreamEvent:
         self.preview = None
         self.duration = None
         self.error = None
+        self.runtime = None
 
 
 class _PydanticLikeContext:
@@ -42,6 +43,19 @@ def _load_financial_qa_benchmark_module():
 def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n", encoding="utf-8")
+
+
+def test_answer_audit_source_field_parser_ignores_xbrl_assignments_inside_quote():
+    fields = audit._extract_source_fields(
+        "[D1] source_type=wiki_metrics, scale=1, "
+        'quote="<ix:nonFraction id=\'f-78\' scale=\'6\'>416,161</ix:nonFraction>", '
+        "source_url=https://www.sec.gov/example.htm, source_anchor=f-78, xbrl_tag=us-gaap:Revenue"
+    )
+
+    assert fields["scale"] == "1"
+    assert "scale='6'" in fields["quote"]
+    assert fields["source_anchor"] == "f-78"
+    assert fields["xbrl_tag"] == "us-gaap:Revenue"
 
 
 def test_answer_audit_trace_extracts_wiki_source_and_guardrail_fields():
@@ -305,6 +319,54 @@ def test_answer_audit_validates_trusted_amount_normalization_without_legacy_head
     assert record["guardrail_result"]["has_calculator_runs"] is True
 
 
+def test_answer_audit_resolves_empty_context_for_backend_evidence_recompute(monkeypatch):
+    reply = (
+        "美的集团商誉净额由 2024-12-31 的 29,581,014 千元增至 "
+        "2025-12-31 的 34,256,859 千元，同比 +15.81%。\n\n"
+        "## 计算器校验\n"
+        "- financial_calculator.py yoy："
+        "(34,256,859 - 29,581,014) / abs(29,581,014) = +15.81%。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    monkeypatch.setattr(
+        runtime.agent_runtime_answer_audit,
+        "record_answer_audit_trace_for_reply",
+        lambda **kwargs: audit.build_answer_audit_trace(**kwargs),
+    )
+
+    record = runtime._record_answer_audit_trace_compat(
+        message="分析美的集团的商誉",
+        context=None,
+        profile="siq_assistant",
+        session_id="resolved-audit-context",
+        raw_reply=reply,
+        final_reply=reply,
+    )
+
+    backend_runs = [
+        item for item in record["calculator_runs"] if item["source"] == "backend_evidence_recompute"
+    ]
+    assert record["resolved_company"]["id"] == "000333-美的集团"
+    assert record["resolved_period"]["filing_id"] == "CN:000333-美的集团:2025-annual"
+    assert record["calculation_trace_validation"]["checked"] is True
+    assert record["calculation_trace_validation"]["allowed"] is True
+    assert record["calculation_trace_validation"]["reason"] is None
+    assert backend_runs
+    assert {item["operation"] for item in backend_runs} == {"yoy"}
+    assert all(item["validated"] is True for item in backend_runs)
+    assert backend_runs[0]["payload"]["research_identity"] == {
+        "market": "CN",
+        "company_id": "000333-美的集团",
+        "filing_id": "CN:000333-美的集团:2025-annual",
+        "parse_run_id": "f4dead73-e0de-42b4-b1b7-d8cf217214ee",
+    }
+
+
 def test_answer_audit_trace_extracts_research_identity_context():
     context = {
         "research_identity": {
@@ -421,6 +483,136 @@ def test_answer_audit_trace_records_claim_verifier_result_from_raw_reply():
     delivered_verifier = record["delivered_claim_verifier_result"]
     assert delivered_verifier["allowed"] is True
     assert delivered_verifier["violation_count"] == 0
+
+
+def test_answer_audit_does_not_reverify_numeric_values_in_guardrail_diagnostic(monkeypatch):
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "run-hk",
+    }
+    evidence = (
+        {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "operating_revenue",
+            "canonical_name": "operating_revenue",
+            "metric_name": "营业收入",
+            "aliases": ("营业收入", "operating_revenue"),
+            "period": "2025",
+            "value": "100",
+            "unit": "RMB million",
+            "currency": "RMB",
+            "evidence_id": "E-REV",
+            "quote": "营业收入 100",
+            "market": "HK",
+            "company_id": "HK:00700",
+            "filing_id": identity["filing_id"],
+            "parse_run_id": identity["parse_run_id"],
+            "task_id": "run-hk",
+            "pdf_page": "7",
+            "table_index": "4",
+            "md_line": "10",
+        },
+    )
+    raw_reply = (
+        "营业收入为 100 百万元。\n"
+        "[D1] source_type=wiki_metrics, market=HK, company_id=HK:00700, "
+        "filing_id=HK:00700:2025-annual, parse_run_id=run-hk, "
+        "canonical_name=operating_revenue, metric_name=营业收入, period_key=2025, "
+        'value=100, unit="RMB million", evidence_id=E-REV, quote="营业收入 100", '
+        "task_id=run-hk, pdf_page=7, table_index=4, md_line=10"
+    )
+    final_reply = (
+        f"{raw_reply}\n\n"
+        "## 财务数值证据不一致\n"
+        "- mismatch_1: reason=value_mismatch metric=operating_revenue period=2025 "
+        "claimed=999百万元 claimed_currency=unknown evidence=100人民币百万元 "
+        "evidence_currency=RMB evidence_id=E-REV\n"
+        "guardrail_status=warning\n"
+        "guardrail_reason=financial_claim_mismatch\n"
+        "claim_verifier_status=failed"
+    )
+    calculation_inputs: list[str] = []
+    original_validate = audit.validate_calculation_traces
+
+    def capture_calculation_input(reply, *args, **kwargs):
+        calculation_inputs.append(reply)
+        return original_validate(reply, *args, **kwargs)
+
+    monkeypatch.setattr(audit, "validate_calculation_traces", capture_calculation_input)
+
+    record = audit.build_answer_audit_trace(
+        message="腾讯 2025 年营业收入是多少？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="diagnostic-claim-reverify",
+        raw_reply=raw_reply,
+        final_reply=final_reply,
+        trusted_calculation_evidence=evidence,
+    )
+
+    assert record["claim_verifier_result"]["claim_count"] == 1
+    assert record["claim_verifier_result"]["violation_count"] == 0
+    assert record["delivered_claim_verifier_result"]["claim_count"] == 1
+    assert record["delivered_claim_verifier_result"]["allowed"] is True
+    assert record["delivered_claim_verifier_result"]["violation_count"] == 0
+    assert calculation_inputs
+    assert all("mismatch_1" not in item for item in calculation_inputs)
+
+
+def test_answer_audit_does_not_materialize_calculator_run_from_guardrail_diagnostic():
+    identity = {
+        "market": "HK",
+        "company_id": "HK:00700",
+        "filing_id": "HK:00700:2025-annual",
+        "parse_run_id": "run-hk",
+    }
+
+    def evidence(period, value, evidence_id):
+        return {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "operating_revenue",
+            "canonical_name": "operating_revenue",
+            "metric_name": "营业收入",
+            "aliases": ("营业收入", "operating_revenue"),
+            "period": period,
+            "value": value,
+            "unit": "RMB million",
+            "currency": "RMB",
+            "evidence_id": evidence_id,
+            "quote": f"营业收入 {value}",
+            **identity,
+            "task_id": "run-hk",
+            "pdf_page": "7",
+            "table_index": "4",
+            "md_line": "10",
+        }
+
+    final_reply = (
+        "## 计算校验无效\n"
+        "- 营业收入由 2024 年的 100 百万元增至 2025 年的 120 百万元，同比 20%。\n"
+        "[D1] source_type=wiki_metrics, task_id=run-hk, pdf_page=7, table_index=4, md_line=10\n"
+        "guardrail_status=blocked\n"
+        "guardrail_reason=financial_calculation_trace_invalid"
+    )
+
+    record = audit.build_answer_audit_trace(
+        message="腾讯营业收入同比是多少？",
+        context={"research_identity": identity},
+        profile="siq_assistant",
+        session_id="diagnostic-calculator-run",
+        final_reply=final_reply,
+        trusted_calculation_evidence=(
+            evidence("2024", "100", "E-REV-2024"),
+            evidence("2025", "120", "E-REV-2025"),
+        ),
+    )
+
+    assert record["calculator_runs"] == []
+    assert record["calculation_trace_validation"]["checked"] is False
+    assert record["calculation_trace_validation"]["structured_run_count"] == 0
+    assert record["guardrail_result"]["has_calculator_runs"] is False
 
 
 def test_answer_audit_trace_records_financial_evidence_identity_mismatch():

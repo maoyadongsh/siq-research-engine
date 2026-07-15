@@ -20,6 +20,8 @@ from services.agent_runtime_financial_claim_verifier import (
     validate_calculation_traces,
     verify_financial_claims,
 )
+from services.agent_runtime_guardrail_text import strip_guardrail_diagnostics
+from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
 from services.path_config import BACKEND_DATA_ROOT
 
 ANSWER_AUDIT_TRACE_SCHEMA = "siq_answer_audit_trace_v1"
@@ -65,7 +67,6 @@ _SECRET_ASSIGNMENT_RE = re.compile(
     r"\s*([:=])\s*['\"]?(?!\[REDACTED(?:_DATABASE_URL)?\])[^'\"\s,;)}\]]+"
 )
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/\-]+=*")
-_SOURCE_FIELD_START_RE = re.compile(r"(?:(?<=^)|(?<=[\s,，;；|]))([A-Za-z_][A-Za-z0-9_]*)=")
 _SOURCE_FIELD_NAMES = frozenset(
     {
         "bbox",
@@ -76,6 +77,7 @@ _SOURCE_FIELD_NAMES = frozenset(
         "currency",
         "evidence_count",
         "evidence_id",
+        "evidence_source_type",
         "effective_date",
         "fact_currency",
         "file",
@@ -104,6 +106,7 @@ _SOURCE_FIELD_NAMES = frozenset(
         "scale",
         "schema",
         "source",
+        "source_anchor",
         "source_page",
         "source_path",
         "source_type",
@@ -116,6 +119,7 @@ _SOURCE_FIELD_NAMES = frozenset(
         "unit",
         "value",
         "wiki_report_path",
+        "xbrl_tag",
         "relevance",
     }
 )
@@ -281,22 +285,7 @@ def _extract_question_id(message: str, context: Any | None) -> str | None:
 
 
 def _extract_source_fields(raw_line: str) -> dict[str, str]:
-    matches = [
-        match
-        for match in _SOURCE_FIELD_START_RE.finditer(raw_line or "")
-        if match.group(1) in _SOURCE_FIELD_NAMES
-    ]
-    fields: dict[str, str] = {}
-    for index, match in enumerate(matches):
-        key = match.group(1).strip()
-        start = match.end()
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(raw_line)
-        value = raw_line[start:end].strip().strip(" \t,，;；|。")
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1].strip()
-        if value:
-            fields[key] = value
-    return fields
+    return _extract_source_fields_shared(raw_line, allowed_fields=_SOURCE_FIELD_NAMES)
 
 
 def _extract_source_references(reply: str) -> list[dict[str, Any]]:
@@ -427,6 +416,9 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "quote",
         "quote_text",
         "source_url",
+        "source_anchor",
+        "xbrl_tag",
+        "evidence_source_type",
         "wiki_report_path",
         "relevance",
         "line_number",
@@ -836,15 +828,21 @@ def build_answer_audit_trace(
         for reference in references
         if _is_legal_reference(reference)
     ]
+    clean_raw_reply = strip_guardrail_diagnostics(raw_reply) if raw_reply is not None else ""
+    clean_final_reply = strip_guardrail_diagnostics(final_reply or "")
     calculator_runs = _extract_calculator_runs(
         context,
-        final_reply or "",
+        clean_final_reply,
         trusted_calculation_runs=trusted_calculation_runs,
         trusted_calculation_evidence=trusted_calculation_evidence,
     )
-    calculation_trace_reply = raw_reply if raw_reply is not None else final_reply or ""
-    if (trusted_calculation_runs or trusted_calculation_evidence) and final_reply and final_reply not in calculation_trace_reply:
-        calculation_trace_reply = f"{calculation_trace_reply}\n{final_reply}"
+    calculation_trace_reply = clean_raw_reply if raw_reply is not None else clean_final_reply
+    if (
+        (trusted_calculation_runs or trusted_calculation_evidence)
+        and clean_final_reply
+        and clean_final_reply not in calculation_trace_reply
+    ):
+        calculation_trace_reply = f"{calculation_trace_reply}\n{clean_final_reply}"
     structured_calculation_runs = extract_structured_calculation_runs(calculation_trace_reply)
     has_legacy_calculation_marker = _has_actionable_legacy_marker(
         calculation_trace_reply,
@@ -887,7 +885,11 @@ def build_answer_audit_trace(
         if str(run.get("trace_origin") or "") == "backend_evidence_recompute"
         and int(run.get("display_line_number") or 0) > 0
     )
-    claim_verifier_reply = raw_reply if raw_reply is not None else final_reply
+    # Guardrail sections are backend diagnostics, not model-authored financial
+    # claims.  They may contain the mismatched values that triggered the
+    # diagnostic; feeding them back into the claim extractor creates a second,
+    # misleading violation in the delivered audit record.
+    claim_verifier_reply = strip_guardrail_diagnostics(raw_reply if raw_reply is not None else final_reply)
     claim_verifier_result = claim_verification_payload(
         verify_financial_claims(
             claim_verifier_reply or "",
@@ -898,7 +900,7 @@ def build_answer_audit_trace(
     )
     delivered_claim_verifier_result = claim_verification_payload(
         verify_financial_claims(
-            final_reply or "",
+            strip_guardrail_diagnostics(final_reply or ""),
             expected_identity=agent_runtime_context.research_identity(context),
             trusted_evidence=trusted_calculation_evidence,
             validated_calculation_lines=validated_calculation_lines,

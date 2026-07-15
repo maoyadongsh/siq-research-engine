@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shlex
+import sqlite3
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -21,6 +23,8 @@ from services.agent_runtime_financial_claim_verifier import TRACE_SCHEMAS
 _SCRIPT_NAMES = frozenset({"financial_calculator.py", "financial_reconciliation_validator.py"})
 _PYTHON_NAMES = frozenset({"python", "python3", "python3.11", "python3.12"})
 _SHELL_META = (";", "&&", "||", "|", ">", "<", "$(", "`", "\x00")
+_MAX_SESSION_BYTES = 20 * 1024 * 1024
+_MAX_CURRENT_TURN_MESSAGES = 2048
 _SCRIPT_OPERATIONS = {
     "financial_calculator.py": frozenset(
         {"normalize_amount", "yoy", "yoy_growth", "ratio", "cagr", "per_capita"}
@@ -76,28 +80,187 @@ def _session_path(profile_dir: Path, hermes_session_id: str) -> Path | None:
     return candidate
 
 
-def _newest_session_path(
+def _state_db_path(profile_dir: Path) -> Path | None:
+    try:
+        resolved_profile_dir = Path(profile_dir).expanduser().resolve()
+        candidate = (resolved_profile_dir / "state.db").resolve()
+    except (OSError, RuntimeError):
+        return None
+    if candidate.parent != resolved_profile_dir:
+        return None
+    return candidate
+
+
+def _sqlite_table_columns(connection: sqlite3.Connection, table: str) -> frozenset[str]:
+    if table not in {"sessions", "messages"}:
+        return frozenset()
+    try:
+        rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    except sqlite3.Error:
+        return frozenset()
+    return frozenset(str(row[1]) for row in rows if len(row) > 1)
+
+
+def _timestamp_ns(value: Any) -> int:
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+    if not math.isfinite(timestamp) or timestamp < 0:
+        return 0
+    return int(timestamp * 1_000_000_000)
+
+
+def _sqlite_session_messages(
+    profile_dir: Path,
+    hermes_session_id: str,
+) -> tuple[int, tuple[Mapping[str, Any], ...]] | None:
+    """Read one exact session's current turn from a Hermes SQLite state store."""
+
+    path = _state_db_path(profile_dir)
+    if path is None or not path.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(
+            f"{path.as_uri()}?mode=ro",
+            uri=True,
+            timeout=0.1,
+        )
+    except (OSError, sqlite3.Error):
+        return None
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("BEGIN")
+        if not {"id"}.issubset(_sqlite_table_columns(connection, "sessions")):
+            return None
+        required_message_columns = {
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "tool_call_id",
+            "tool_calls",
+            "timestamp",
+        }
+        if not required_message_columns.issubset(_sqlite_table_columns(connection, "messages")):
+            return None
+        if connection.execute(
+            "SELECT 1 FROM sessions WHERE id = ? LIMIT 1",
+            (hermes_session_id,),
+        ).fetchone() is None:
+            return None
+        last_user = connection.execute(
+            """
+            SELECT id, timestamp
+            FROM messages
+            WHERE session_id = ? AND role = 'user'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (hermes_session_id,),
+        ).fetchone()
+        if last_user is None:
+            return None
+        last_user_id = int(last_user[0])
+        turn_size = connection.execute(
+            """
+            SELECT
+                COUNT(*),
+                COALESCE(SUM(COALESCE(length(content), 0) + COALESCE(length(tool_calls), 0)), 0)
+            FROM messages
+            WHERE session_id = ? AND id >= ?
+            """,
+            (hermes_session_id, last_user_id),
+        ).fetchone()
+        if (
+            turn_size is None
+            or int(turn_size[0] or 0) > _MAX_CURRENT_TURN_MESSAGES
+            or int(turn_size[1] or 0) > _MAX_SESSION_BYTES
+        ):
+            return None
+        rows = connection.execute(
+            """
+            SELECT role, content, tool_call_id, tool_calls, timestamp
+            FROM messages
+            WHERE session_id = ? AND id >= ?
+            ORDER BY id ASC
+            """,
+            (hermes_session_id, last_user_id),
+        ).fetchall()
+    except (TypeError, ValueError, sqlite3.Error):
+        return None
+    finally:
+        connection.close()
+
+    messages: list[Mapping[str, Any]] = []
+    activity_ns = _timestamp_ns(last_user[1])
+    for role, content, tool_call_id, tool_calls, timestamp in rows:
+        item: dict[str, Any] = {"role": str(role or "")}
+        if content is not None:
+            item["content"] = content
+        if tool_call_id is not None:
+            item["tool_call_id"] = str(tool_call_id)
+        if tool_calls is not None:
+            if isinstance(tool_calls, str):
+                try:
+                    tool_calls = json.loads(tool_calls)
+                except json.JSONDecodeError:
+                    tool_calls = ()
+            item["tool_calls"] = tool_calls if isinstance(tool_calls, Sequence) else ()
+        messages.append(item)
+        activity_ns = max(activity_ns, _timestamp_ns(timestamp))
+    return activity_ns, tuple(messages)
+
+
+def _newest_session_messages(
     profile_dirs: Sequence[Path],
     hermes_session_id: str,
-) -> Path | None:
-    """Return one exact session file, preferring the most recently written copy."""
+) -> tuple[Mapping[str, Any], ...] | None:
+    """Select the newest exact-session transcript across JSON and SQLite stores."""
 
-    candidates: list[tuple[int, int, Path]] = []
+    candidates: list[tuple[int, int, int, tuple[Mapping[str, Any], ...]]] = []
     seen: set[Path] = set()
     for index, profile_dir in enumerate(profile_dirs):
-        path = _session_path(Path(profile_dir), hermes_session_id)
-        if path is None or path in seen:
-            continue
-        seen.add(path)
         try:
-            stat = path.stat()
-        except OSError:
+            resolved_profile_dir = Path(profile_dir).expanduser().resolve()
+        except (OSError, RuntimeError):
             continue
-        if not path.is_file() or stat.st_size > 20 * 1024 * 1024:
+        if resolved_profile_dir in seen:
             continue
-        # Earlier directories win an otherwise indistinguishable timestamp tie.
-        candidates.append((stat.st_mtime_ns, -index, path))
-    return max(candidates, default=(0, 0, None), key=lambda item: (item[0], item[1]))[2]
+        seen.add(resolved_profile_dir)
+
+        path = _session_path(resolved_profile_dir, hermes_session_id)
+        if path is not None:
+            try:
+                stat = path.stat()
+            except OSError:
+                pass
+            else:
+                if path.is_file() and stat.st_size <= _MAX_SESSION_BYTES:
+                    try:
+                        payload = json.loads(path.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                    else:
+                        messages = payload.get("messages") if isinstance(payload, Mapping) else None
+                        if isinstance(messages, Sequence):
+                            normalized_messages = tuple(item for item in messages if isinstance(item, Mapping))
+                            candidates.append((stat.st_mtime_ns, 0, -index, normalized_messages))
+
+        sqlite_messages = _sqlite_session_messages(resolved_profile_dir, hermes_session_id)
+        if sqlite_messages is not None:
+            activity_ns, messages = sqlite_messages
+            # Prefer the canonical SQLite store for an indistinguishable timestamp tie.
+            candidates.append((activity_ns, 1, -index, messages))
+
+    if not candidates:
+        return None
+    sqlite_candidates = [candidate for candidate in candidates if candidate[1] == 1]
+    if sqlite_candidates:
+        # SQLite is Hermes' canonical session store.  Legacy JSON mtimes can
+        # change during copy/backup and must not replace a current DB turn.
+        candidates = sqlite_candidates
+    return max(candidates, key=lambda item: (item[0], item[1], item[2]))[3]
 
 
 def _allowed_script_path(token: str, allowed_script_paths: Mapping[str, Path | Sequence[Path]]) -> str | None:
@@ -171,18 +334,11 @@ def extract_runtime_financial_receipts(
     hermes_session_id: str,
     allowed_script_paths: Mapping[str, Path | Sequence[Path]],
 ) -> tuple[Mapping[str, Any], ...]:
-    """Extract receipts from the newest exact session file across profile roots."""
+    """Extract receipts from the newest exact session across profile roots."""
 
     candidate_dirs = ((profile_dir,) if profile_dir is not None else ()) + tuple(profile_dirs)
-    path = _newest_session_path(candidate_dirs, hermes_session_id)
-    if path is None:
-        return ()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ()
-    messages = payload.get("messages") if isinstance(payload, Mapping) else None
-    if not isinstance(messages, Sequence):
+    messages = _newest_session_messages(candidate_dirs, hermes_session_id)
+    if messages is None:
         return ()
     last_user = max((index for index, item in enumerate(messages) if isinstance(item, Mapping) and item.get("role") == "user"), default=-1)
     pending: dict[str, str] = {}
