@@ -99,3 +99,16 @@ python3 db/imports/cleanup_market_document_full_parse_runs.py --market HK --pars
 - 市场 package 路径变更时，要检查 importer 是否仍能正确恢复 company / report identity。
 - 需要做 smoke test 时优先使用 `--limit` 或单 package 导入。
 - 对 Agent 消费重要的表或 view，应保留足够 evidence 坐标字段。
+
+## 技术创新、难点与商业价值
+
+数据库导入层承担最后一道事实防线。它不会因为 JSON 可解析就认为数据可入库，而是联合检查 package 质量、持久化目标、写入计数、来源身份和重复运行结果。
+
+| 能力 | 技术难点 | 商业价值 |
+| --- | --- | --- |
+| 质量门禁 | 汇总 parser、rules、hash、coverage 与强制覆盖语义 | 阻止低质量材料静默污染生产数据 |
+| 市场隔离 | 不同 schema、键空间、报告身份和符号口径 | 避免跨市场同名科目被错误合并 |
+| 幂等与可对账 | stable key、upsert、expected/persisted/affected row 验证 | 支持批量重跑、失败恢复和审计对账 |
+| 持久化后校验 | 事务完成后确认关键实体真实落库 | 避免“命令成功但业务数据缺失”的假成功 |
+
+这使 PostgreSQL 从被动存储升级为受治理的研究事实账本，适合机构批处理、数据交付和后续 BI/API 消费。

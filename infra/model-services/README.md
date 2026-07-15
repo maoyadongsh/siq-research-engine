@@ -79,3 +79,17 @@ systemctl --user enable --now hermes-gateway-siq@assistant.service
 - systemd user unit 与 shell 启动脚本尽量保持一致的环境变量语义。
 - 对关键依赖服务，建议保留最小 smoke test 或 health check 入口。
 - 在 README 中始终提醒：模型服务是上游依赖，不是业务事实层。
+
+## 技术创新与部署价值
+
+本目录把模型视为可替换基础设施，而不是写死在业务代码中的能力。业务服务依赖 OpenAI-compatible、embedding、reranker、MinerU 或 meeting-speech 合同，模型名称、量化方式和硬件编排留在部署层。
+
+| 服务类型 | 典型能力 | 部署价值 |
+| --- | --- | --- |
+| 文本/工具模型 | Hermes 分析、核查、法务、投委会推理与工具调用 | 研究材料不出内网，模型可按任务分级 |
+| 多模态模型 | 页面、表格、图片理解 | 弥补纯文本解析对复杂版面的信息损失 |
+| Embedding/Reranker | Milvus 召回与精排 | 形成可控、低延迟的私有检索栈 |
+| MinerU | PDF 版面解析 | 将高成本解析能力独立扩缩容 |
+| Meeting Speech | ASR、说话人及会议语音处理 | 让会议链路与通用 LLM 解耦 |
+
+主要难点是 GPU 显存、模型并发、冷启动、量化精度、端口和健康状态的一致治理。systemd user 单元与脚本为单机私有化提供可操作基线，生产部署仍需容量评估、监控、故障转移与模型版本冻结。

@@ -126,3 +126,9 @@ uv run python -m pytest tests
 - 保持 dependency-light，避免 shared layer 反向放大环境复杂度。
 - 任何字段或路径变更都应同步更新测试、README 和调用方适配。
 - 共享包负责“定义和读取合同”，不应承担具体业务市场逻辑。
+
+## 创新性与商业价值
+
+`market-contracts` 把文件型知识包当作正式领域 API，而不是临时目录约定。稳定 ID、artifact hash、summary/detail reader、source map 和财务极性规则共同构成跨进程、跨版本的兼容层。
+
+这带来三项直接价值：任何索引都可从证据包重建；package 可以离线交付、版本比较和独立验收；API、规则、导入和评测团队可以并行演进。技术难点是兼顾严格性与向后兼容，新增字段必须可渐进消费，关键语义变更则必须显式升级 schema version。

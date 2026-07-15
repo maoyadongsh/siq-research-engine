@@ -152,3 +152,16 @@ bash -n run.sh
 - 任何财务规则更新都应同步反映到版本、测试和 README 描述里。
 - 运行态目录、缓存、上传 PDF 和日志不写回源码目录。
 - 当上游 MinerU / VLM 失败时，应显式暴露失败而不是偷偷降级为简单文本输出。
+
+## 创新性与商业价值
+
+PDF parser 面向“高价值、低容错”的财务披露。它不仅提取 Markdown，还保留页面、bbox、表格、财务科目、勾稽检查、目录和脚注关系，让解析质量可以被量化和阻断。
+
+| 创新点 | 实现方式 | 商业价值 |
+| --- | --- | --- |
+| 解析与财务语义并行 | 版面块、表格、`financial_data`、`financial_checks` 同任务产出 | 研究员无需在 OCR 文本上重新手工搭建三表 |
+| 证据坐标稳定化 | page/table/row/column/Markdown line 与 artifact hash | 数字可回到披露原页，支持复核和审计抽样 |
+| 质量可计算 | statement coverage、bridge checks、parser warnings、quality report | 低质量结果在入库前被识别 |
+| 市场 profile 隔离 | 市场差异在 profile 与规则层消化 | 扩展全球市场同时保留会计与披露差异 |
+
+技术难点集中在扫描件、跨页表、单位/币种、负数括号、合并口径、脚注和多语言标题。任一环节失真，都可能让看似正确的财务数字失去可用性。

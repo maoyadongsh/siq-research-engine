@@ -97,3 +97,17 @@ export MINIMAX_EMBED_MODEL=embo-01
 - API key 和数据库口令只放环境变量，不写入脚本和 README。
 - 大文件先小批量试跑，检查质量报告后再全量入库。
 - 运行态文件如 `.progress_*`、`.ingest_runtime_state.json`、`.mineru_ingest_cache/`、`ingest_quality_reports/` 不作为源码提交。
+
+## 技术创新与检索治理
+
+SIQ 强调“可重建索引”，而不是把向量库当作唯一知识库。市场 evidence package、通用文档 artifact 和 Hermes 记忆分别使用领域 chunk builder，但统一保留 source identity、scope、quality 和 evidence metadata。
+
+| 机制 | 技术难点 | 商业价值 |
+| --- | --- | --- |
+| 领域化切块 | 表格、段落、事实、claim 与 source target 不能只按字符切分 | 提高财务、法务和尽调问题的召回精度 |
+| 多模态检索 | 文本、表格、页面图与视觉 embedding/reranker 协同 | 支持复杂版面与图表信息检索 |
+| 权限与市场过滤 | collection、project、market、scope、ACL metadata 一致 | 防止跨项目、跨用户和跨市场错误召回 |
+| Stable ID 与 dry-run | 重跑去重、变更预览、质量门禁后再写入 | 降低索引污染并支持低风险批量更新 |
+| 可替换模型 | 本地 Qwen VL 或受控云 embedding 接口 | 在隐私、成本和效果间选择 |
+
+通用文档语义构建还会生成 segments、facts、claims、evidence 和 retrieval index，使没有预先 LLM 增强的 package 也能先获得可审计的规则语义基线。

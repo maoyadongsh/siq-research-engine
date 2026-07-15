@@ -1,6 +1,37 @@
-# SIQ iOS Meeting Capture
+# SIQ iOS 原生会议采集
 
-This directory is the isolated M8 native-capture build target. It contains a Capacitor 8 bridge contract and an iOS 15+ Swift Package. It is not imported by the default web build, and the existing `AudioWorklet + WebSocket + IndexedDB` path remains the only default path.
+`apps/ios-meeting-capture` 是 SIQ 会议智能化的隔离式原生采集候选实现，包含 Capacitor 8 类型桥、iOS 15+ Swift Package 和独立宿主应用。它解决 Web 音频链路难以可靠覆盖的锁屏、弱网、后台上传、崩溃恢复和本地回放问题。
+
+该模块尚未进入默认发布路径。默认 Web 方案仍是 `AudioWorklet + WebSocket + IndexedDB`；只有完成本文末尾的真机、隐私、安全和签名门禁后，才能启用 `SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED`。文档中的“已实现”指代码合同已存在，不代表 App Store、锁屏长时录音或生产设备矩阵已经验收。
+
+## 产品定位与商业价值
+
+投资访谈、投委会和内部会议的音频具有高保密、高价值、长时运行和弱网容错需求。原生采集层的商业意义是让会议资产不依赖 WebView 存活，并以可校验批次持续上传，最终与转写、说话人、纪要、行动项和证据回放形成闭环。
+
+| 能力 | 工程实现 | 业务价值 |
+| --- | --- | --- |
+| 原生音频所有权 | Swift 管理 `AVAudioSession`、`AVAudioEngine`、文件和后台任务 | 锁屏或 WebView 暂停时仍有明确的录音责任边界 |
+| 防丢批次 | sample offset 时间轴、fsync、SHA-256、原子 sidecar/manifest | 弱网、闪退和恢复过程可判断每段音频是否真正持久化 |
+| 有序后台上传 | capture 独立 `URLSession`、outbox、精确 ACK 校验 | 避免重复、乱序或“客户端认为成功但服务端未落盘” |
+| 中断显式化 | interruption gap、虚拟 sequence、确定性静音回放 | 电话或音频路由中断不会被伪装成正常会议内容 |
+| 安全删除 | seal、server checkpoint、WAV hash/size、cleanup receipt | 只有服务端具备完整可播放副本后才删除本地证据 |
+| 凭据分层 | Keychain capture token + 内存 user bearer + trusted origin | 后台上传权限与用户控制面权限分离，降低凭据泄漏面 |
+
+## 技术栈与系统关系
+
+- TypeScript 6：定义 Web/Capacitor 可调用的强类型桥合同。
+- Capacitor 8：承载 SIQ Web 工作台并连接原生插件。
+- Swift / AVFoundation：负责录音、连续 WAV、本地播放与音频中断。
+- Foundation `URLSession` / Keychain / CryptoKit：负责后台传输、设备绑定凭据和摘要校验。
+- SIQ Meeting API：提供 batch upload、checkpoint、gap、rollover、seal、playback 与 cleanup 合同。
+
+```text
+Web Meeting UI
+  -> typed Capacitor bridge
+  -> Swift recorder + protected store + ordered outbox
+  -> Meeting capture API / checkpoint / seal
+  -> ASR + speaker + minutes + export + evidence playback
+```
 
 ## Frozen boundary
 
