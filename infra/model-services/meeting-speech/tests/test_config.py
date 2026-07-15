@@ -13,6 +13,10 @@ def test_defaults_are_disabled_and_use_funasr() -> None:
     assert settings.http_finalizer_max_concurrency == 2
     assert settings.finalization_max_sessions == 2
     assert settings.finalization_max_cached_windows == 2_048
+    assert settings.online_chunk_size == "0,10,5"
+    assert settings.pre_roll_ms == 240
+    assert settings.vad_min_speech_ms == 180
+    assert settings.vad_endpoint_silence_ms == 800
 
 
 def test_mock_requires_explicit_opt_in() -> None:

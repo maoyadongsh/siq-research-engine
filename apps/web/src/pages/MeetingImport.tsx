@@ -293,7 +293,7 @@ export default function MeetingImport() {
     }
   }
 
-  function resetCancelled() {
+  function resetImport() {
     setStatus(null)
     setFile(null)
     setError('')
@@ -417,7 +417,7 @@ export default function MeetingImport() {
               {error ? <p role="alert" className="mt-3 break-words rounded-md bg-error-soft p-3 text-sm leading-6 text-error">{error}</p> : null}
               <div className="mt-4 grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 {status?.state === 'cancelled' ? (
-                  <Button type="button" variant="secondary" className="sm:col-span-2 xl:col-span-1 2xl:col-span-2" onClick={resetCancelled}><RotateCcw />导入另一份录音</Button>
+                  <Button type="button" variant="secondary" className="sm:col-span-2 xl:col-span-1 2xl:col-span-2" onClick={resetImport}><RotateCcw />导入另一份录音</Button>
                 ) : status?.state === 'failed' && status.retryable ? (
                   <Button type="button" onClick={() => void retry()}><RotateCcw />重试处理</Button>
                 ) : (
@@ -428,6 +428,8 @@ export default function MeetingImport() {
                 )}
                 {status?.can_cancel ? (
                   <Button type="button" variant="secondary" onClick={() => void cancel()}><X />取消导入</Button>
+                ) : status?.state === 'failed' ? (
+                  <Button type="button" variant="secondary" onClick={resetImport}><FileUp />导入其他录音</Button>
                 ) : status?.state === 'ready' && status.meeting_id ? (
                   <Button asChild><Link to={`/meetings/${encodeURIComponent(status.meeting_id)}`}><CheckCircle2 />打开会议</Link></Button>
                 ) : (

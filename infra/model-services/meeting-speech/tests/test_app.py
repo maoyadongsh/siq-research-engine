@@ -92,7 +92,7 @@ def test_websocket_emits_partial_final_ack_and_idempotent_duplicate() -> None:
             websocket.send_json(_start())
             ready = websocket.receive_json()
             assert ready["type"] == "stream.ready"
-            assert ready["payload"]["first_partial_audio_budget_ms"] == 400
+            assert ready["payload"]["first_partial_audio_budget_ms"] == 600
             assert websocket.receive_json()["type"] == "pipeline.degraded"
 
             websocket.send_bytes(_frame(0, 12_000))

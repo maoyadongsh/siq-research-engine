@@ -84,7 +84,7 @@ Internal output uses `siq.meeting.speech.event.v1`. Important event types are `s
 
 ### Low-latency and live hotwords
 
-The browser captures 200 ms PCM frames and drains them every 160 ms when it needs to catch up. The outbox remains bounded to 600 frames, preserving the prior 120-second memory/durability window. Paraformer online defaults to `chunk_size=0,5,2`; for 200 ms input the advertised audio accumulation bound before a complete online window is 400 ms. Model inference and network time remain separately observable through partial latency metrics.
+The browser captures 200 ms PCM frames and drains them every 160 ms when it needs to catch up. The outbox remains bounded to 600 frames, preserving the prior 120-second memory/durability window. Paraformer online defaults to the accuracy-first `chunk_size=0,10,5`; for 200 ms input the advertised audio accumulation bound before a complete online window is 600 ms. Model inference and network time remain separately observable through partial latency metrics.
 
 An active meeting can update its immutable lexicon without reconnecting:
 

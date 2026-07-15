@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     http_finalizer_max_response_bytes: int = Field(default=1_048_576, ge=1_024, le=16 * 1024 * 1024)
     vad_model: str = "fsmn-vad"
     punctuation_model: str = "ct-punc"
-    # 5 encoder frames (~300 ms for Paraformer online) keeps first text under
-    # the realtime budget while retaining bounded look-back context.
-    online_chunk_size: str = "0,5,2"
+    # Favor recognition context over minimum first-token latency. Ten encoder
+    # frames (~600 ms for Paraformer online) is the pre-acceleration baseline.
+    online_chunk_size: str = "0,10,5"
     encoder_chunk_look_back: int = Field(default=4, ge=0, le=16)
     decoder_chunk_look_back: int = Field(default=1, ge=0, le=16)
     inference_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
@@ -78,9 +78,9 @@ class Settings(BaseSettings):
     max_chunk_ms: int = Field(default=1_000, ge=100, le=2_000)
     max_frame_bytes: int = Field(default=32_000, ge=3_200, le=1_048_576)
     max_segment_seconds: int = Field(default=30, ge=2, le=120)
-    pre_roll_ms: int = Field(default=160, ge=0, le=2_000)
-    vad_min_speech_ms: int = Field(default=100, ge=20, le=2_000)
-    vad_endpoint_silence_ms: int = Field(default=600, ge=100, le=5_000)
+    pre_roll_ms: int = Field(default=240, ge=0, le=2_000)
+    vad_min_speech_ms: int = Field(default=180, ge=20, le=2_000)
+    vad_endpoint_silence_ms: int = Field(default=800, ge=100, le=5_000)
     vad_energy_threshold: float = Field(default=0.012, gt=0, lt=1)
 
     max_pending_frames: int = Field(default=16, ge=1, le=512)
