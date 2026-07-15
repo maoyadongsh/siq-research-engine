@@ -16,7 +16,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from services.auth_service import User
-from services.meeting_contracts import MeetingJob, MeetingJobKind, MeetingJobState, utcnow
+from services.meeting_contracts import MeetingJob, MeetingJobKind, MeetingJobState, MeetingSession, MeetingState, utcnow
 from services.meeting_import_config import MeetingImportSettings
 from services.meeting_import_contracts import (
     MeetingImportChunk,
@@ -454,10 +454,19 @@ class MeetingImportRepository:
         step = upload.step
         error_code = upload.public_error_code
         retryable = state == MeetingImportState.FAILED.value
+        meeting_deleted = False
+        if upload.meeting_id:
+            meeting = await self.session.get(MeetingSession, upload.meeting_id)
+            meeting_deleted = meeting is not None and meeting.state == MeetingState.DELETED.value
+            if meeting_deleted:
+                state = MeetingImportState.CANCELLED.value
+                step = MeetingImportStep.CANCELLED.value
+                error_code = None
+                retryable = False
         if upload.meeting_id and state in {
             MeetingImportState.POSTPROCESS_QUEUED.value,
             MeetingImportState.READY.value,
-        }:
+        } and not meeting_deleted:
             jobs = list(
                 (
                     await self.session.exec(

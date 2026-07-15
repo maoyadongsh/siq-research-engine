@@ -467,14 +467,16 @@ def _target_config(target: dict[str, Any], port: int) -> dict[str, Any]:
         },
     }
     if str(target["provider"]).startswith("custom:"):
-        provider_name = str(runtime.get("provider_name") or "").strip()
+        provider_key = str(target["provider"]).removeprefix("custom:")
         base_url = str(runtime.get("base_url") or "").strip()
-        if not provider_name:
-            provider_name = str(target["provider"]).removeprefix("custom:").replace("-", " ")
         if not base_url:
             raise TargetConfigurationError("custom meeting provider is missing base_url")
         custom = {
-            "name": provider_name,
+            # Hermes resolves ``model.provider=custom:<name>`` against this
+            # field using only case/space normalization. Use the already
+            # canonical provider key so punctuation cannot make the target
+            # undiscoverable at runtime.
+            "name": provider_key,
             "base_url": base_url,
             "model": target["model"],
             "api_mode": runtime.get("api_mode") or "openai_chat",

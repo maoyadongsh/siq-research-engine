@@ -465,6 +465,53 @@ def test_import_limits_and_cancel_remove_temporary_chunks(tmp_path):
     anyio.run(scenario)
 
 
+def test_deleted_meeting_hides_stale_import_postprocess_failure(tmp_path):
+    async def scenario():
+        engine, factory = await _database()
+        await _seed_user(factory)
+        settings = _settings(tmp_path)
+        storage = MeetingImportStorage(settings.root)
+        async with factory() as session:
+            repository = MeetingImportRepository(session, storage, settings)
+            created, _ = await repository.create(7, _request("deleted.wav", 4), idempotency_key="deleted")
+            meeting = MeetingSession(
+                owner_user_id=7,
+                title="deleted import",
+                state="deleted",
+                postprocess_state="queued",
+                audio_source="import",
+                ai_enabled=False,
+                selection_mode="none",
+            )
+            session.add(meeting)
+            await session.flush()
+            upload = await session.get(MeetingImportUpload, created.id)
+            assert upload is not None
+            upload.meeting_id = meeting.id
+            upload.state = MeetingImportState.POSTPROCESS_QUEUED.value
+            session.add(upload)
+            session.add(
+                MeetingJob(
+                    meeting_id=meeting.id,
+                    job_kind=MeetingJobKind.FINAL_TRANSCRIPT.value,
+                    idempotency_key=f"{meeting.id}:failed-final",
+                    state=MeetingJobState.FAILED.value,
+                    public_error_code="MEETING_AI_OUTPUT_INVALID",
+                )
+            )
+            await session.commit()
+
+            projected = await repository.status(upload)
+            assert projected.state == MeetingImportState.CANCELLED.value
+            assert projected.step == "cancelled"
+            assert projected.public_error_code is None
+            assert projected.retryable is False
+
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
 def test_worker_cancel_race_queues_standard_meeting_deletion(tmp_path, monkeypatch):
     async def scenario():
         engine, factory = await _database()

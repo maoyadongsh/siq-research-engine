@@ -245,6 +245,8 @@ def test_rendered_target_has_no_tools_or_fallbacks():
     assert config["fallback_providers"] == []
     assert config["toolsets"] == []
     assert config["agent"]["max_turns"] == 2
+    assert config["model"]["provider"] == "custom:nemotron-local"
+    assert config["custom_providers"][0]["name"] == "nemotron-local"
     assert set(config["agent"]["disabled_toolsets"]) >= {
         "terminal",
         "file",
@@ -253,6 +255,31 @@ def test_rendered_target_has_no_tools_or_fallbacks():
         "web",
     }
     assert config["memory"]["memory_enabled"] is False
+
+
+def test_rendered_custom_provider_uses_canonical_slug_when_display_name_has_punctuation():
+    module = load_module()
+    target = module.build_targets(
+        [
+            {
+                "provider": "custom:stepfun-step-3-7-flash",
+                "model": "step-3.7-flash",
+                "provider_name": "StepFun Step-3.7 Flash",
+                "base_url": "https://api.stepfun.com/v1",
+                "api_mode": "openai_chat",
+                "key_env": "SIQ_STEPFUN_LLM_API_KEY",
+                "context_length": 200000,
+                "temperature": 0.2,
+            }
+        ],
+        port_base=18710,
+        allowlist=set(),
+    )[0]
+
+    config = module._target_config(target, 18710)
+
+    assert config["model"]["provider"] == "custom:stepfun-step-3-7-flash"
+    assert config["custom_providers"][0]["name"] == "stepfun-step-3-7-flash"
 
 
 def test_inline_profile_credential_is_rejected(tmp_path):
