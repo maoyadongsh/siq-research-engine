@@ -5151,11 +5151,44 @@ def _trusted_financial_calculation_evidence(
     note_result: Mapping[str, Any] | None = None
     if _should_inject_note_detail_context(message):
         note_result, _note_renderer = _note_detail_result(message, resolved_context, limit=8)
-    return agent_runtime_financial_evidence.build_trusted_calculation_evidence(
-        statement_result=statement_result,
-        note_result=note_result,
-        expected_identity=identity,
+    evidence = list(
+        agent_runtime_financial_evidence.build_trusted_calculation_evidence(
+            statement_result=statement_result,
+            note_result=note_result,
+            expected_identity=identity,
+        )
     )
+    normalized_message = _normalize_financial_text(message)
+    if any(term in normalized_message for term in ("商誉", "商譽", "goodwill", "のれん", "영업권")):
+        # Goodwill analysis commonly compares the main-statement net amount
+        # with total assets and parent equity even when the user did not name
+        # those denominators explicitly. Resolve the same report's balance
+        # sheet totals up front so any such ratio remains source-bound.
+        company_hint = _context_company_hint(resolved_context) or message
+        scale_result, _scale_renderer = _statement_metric_result(
+            f"{company_hint} 总资产",
+            resolved_context,
+        )
+        scale_evidence = agent_runtime_financial_evidence.build_trusted_calculation_evidence(
+            statement_result=scale_result,
+            note_result=None,
+            expected_identity=identity,
+        )
+        evidence.extend(
+            item
+            for item in scale_evidence
+            if str(item.get("metric") or "")
+            in {"total_assets", "parent_shareholders_equity"}
+        )
+    seen: set[str] = set()
+    output: list[Mapping[str, Any]] = []
+    for item in evidence:
+        evidence_id = str(item.get("evidence_id") or "")
+        if not evidence_id or evidence_id in seen:
+            continue
+        seen.add(evidence_id)
+        output.append(item)
+    return tuple(output)
 
 
 def _financial_evidence_contract_dependencies() -> agent_runtime_financial_guard.FinancialEvidenceContractDependencies:

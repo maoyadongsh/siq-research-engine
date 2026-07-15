@@ -77,6 +77,8 @@ ABSOLUTE_CHANGE_CLAIM_TERMS = (
     "损失",
     "本期发生",
     "报告期发生",
+    "转出",
+    "处置",
 )
 ABSOLUTE_CHANGE_ALIAS_SUFFIX_RE = re.compile(r"(?:同比变动|绝对变动|变动额|变动)$")
 INCREASE_CHANGE_TERMS = ("增加", "增长", "上升", "提升", "净增", "计提")
@@ -774,6 +776,15 @@ def _trace_evidence_reason(
             ("goodwill_impairment_allowance", "goodwill_allowance", "goodwill_impairment_provision"),
             ("goodwill_gross",),
         ),
+        "goodwill_to_total_assets_ratio": (("goodwill", "goodwill_net", "goodwill_net_note"), ("total_assets",)),
+        "goodwill_to_parent_equity_ratio": (
+            ("goodwill", "goodwill_net", "goodwill_net_note"),
+            ("parent_shareholders_equity",),
+        ),
+        "goodwill_to_equity_ratio": (
+            ("goodwill", "goodwill_net", "goodwill_net_note"),
+            ("shareholders_equity",),
+        ),
     }
     if operation == "ratio" and output_metric in ratio_roles:
         numerator_metrics, denominator_metrics = ratio_roles[output_metric]
@@ -858,7 +869,10 @@ DERIVED_METRIC_REPLY_ALIASES = {
     "return_on_equity": ("净资产收益率", "股本回报率", "roe", "return on equity"),
     "return_on_assets": ("总资产收益率", "资产回报率", "roa", "return on assets"),
     "net_interest_margin": ("净息差", "净利息收益率", "nim", "net interest margin"),
-    "goodwill_impairment_coverage": ("减值覆盖率", "impairment coverage"),
+    "goodwill_impairment_coverage": ("减值覆盖率", "覆盖率", "impairment coverage"),
+    "goodwill_to_total_assets_ratio": ("占总资产", "总资产比重", "总资产占比"),
+    "goodwill_to_parent_equity_ratio": ("占归母净资产", "归母净资产比重", "归母净资产占比"),
+    "goodwill_to_equity_ratio": ("占净资产", "净资产比重", "净资产占比"),
 }
 
 
@@ -911,7 +925,10 @@ def _percent_claim_occurrences(
                 ):
                     value = -abs(value)
                 comparison_context = re.sub(r"[\s*`_'\"“”‘’~]+", "", direction_context[-32:])
-                if any(comparison_context.endswith(term) for term in ("不高于", "不超过", "至多", "低于", "小于")):
+                if any(
+                    comparison_context.endswith(term)
+                    for term in ("不高于", "不超过", "至多", "低于", "小于", "不足", "少于", "以内", "以下")
+                ):
                     comparison = "upper_bound"
                 elif any(
                     comparison_context.endswith(term)
@@ -983,7 +1000,7 @@ def _trace_reference_for_value(
     if normalized is None:
         return None
     target, category = normalized
-    candidates: list[Mapping[str, Any]] = []
+    candidates: dict[str, Mapping[str, Any]] = {}
     for reference in references:
         evidence_id = str(reference.get("evidence_id") or "")
         if not evidence_id or evidence_id in used:
@@ -994,8 +1011,11 @@ def _trace_reference_for_value(
         if observed is None or observed[1] != category:
             continue
         if abs(observed[0] - target) <= max(0.01, abs(target) * 0.000001):
-            candidates.append(reference)
-    return candidates[0] if len(candidates) == 1 else None
+            # The rendered answer can repeat one source as both a primary and
+            # a deterministic supplemental citation. Treat one evidence_id as
+            # one candidate instead of manufacturing ambiguity.
+            candidates.setdefault(evidence_id, reference)
+    return next(iter(candidates.values())) if len(candidates) == 1 else None
 
 
 def _trace_identity_payload(expected_identity: Mapping[str, Any] | None) -> dict[str, str]:
@@ -1012,6 +1032,13 @@ def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
         token in numerator for token in ("allowance", "impairment", "provision")
     ):
         return "goodwill_impairment_coverage"
+    if numerator in {"goodwill", "goodwill_net", "goodwill_net_note"}:
+        if denominator == "total_assets":
+            return "goodwill_to_total_assets_ratio"
+        if denominator == "parent_shareholders_equity":
+            return "goodwill_to_parent_equity_ratio"
+        if denominator == "shareholders_equity":
+            return "goodwill_to_equity_ratio"
     if numerator in {"gross_profit", "gross_income", "毛利润", "毛利"} and denominator in {
         "revenue",
         "operating_revenue",
@@ -1041,6 +1068,7 @@ def materialize_runtime_calculation_runs(
     reply: str,
     *,
     expected_identity: Mapping[str, Any] | None = None,
+    trusted_evidence: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[Mapping[str, Any], ...]:
     """Turn a trusted CLI receipt into the strict trace envelope used by the verifier.
 
@@ -1049,7 +1077,20 @@ def materialize_runtime_calculation_runs(
     model-authored identity or evidence fields are accepted.
     """
 
-    references = _extract_source_references(reply)
+    visible_references = _extract_source_references(reply)
+    expected = _expected_identity(expected_identity)
+    trusted_references = [
+        reference
+        for reference in trusted_evidence
+        if isinstance(reference, Mapping)
+        and str(reference.get("evidence_id") or "")
+        and (not expected or _identity_violation_reason(reference, expected) is None)
+        and _trace_visible_locator_matches(reference, visible_references)
+    ]
+    # Trusted cells carry the structured values that compact document-link
+    # citations may keep only in their quote. They are still admitted only
+    # when the answer exposes the same task/page/table locator.
+    references = [*trusted_references, *visible_references]
     identity = _trace_identity_payload(expected_identity)
     materialized: list[Mapping[str, Any]] = []
     for receipt in receipts:
@@ -1524,6 +1565,97 @@ def _nearest_markdown_heading(occurrence: PercentClaimOccurrence, visible_reply:
     return ""
 
 
+def _trusted_ratio_result(
+    numerator: Mapping[str, Any],
+    denominator: Mapping[str, Any],
+) -> Decimal | None:
+    return _trace_expected_result(
+        "ratio",
+        {
+            "numerator": _trusted_trace_input(numerator, "numerator"),
+            "denominator": _trusted_trace_input(denominator, "denominator"),
+        },
+    )
+
+
+def _collective_ratio_bound_holds(
+    occurrence: PercentClaimOccurrence,
+    primary: Mapping[str, Any],
+    secondary: Mapping[str, Any],
+    all_references: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Validate every member represented by a collective threshold claim."""
+
+    if occurrence.comparison not in {"upper_bound", "lower_bound"}:
+        return False
+    prefix = occurrence.line[: occurrence.match_start]
+    primary_metric = _trusted_evidence_metric(primary).lower()
+    secondary_metric = _trusted_evidence_metric(secondary).lower()
+    primary_period = _trusted_evidence_period(primary)
+    secondary_period = _trusted_evidence_period(secondary)
+
+    if (
+        "其余主体" in prefix
+        and primary_metric.startswith("goodwill_component_")
+        and "component_sum" not in primary_metric
+        and secondary_metric == "goodwill_gross"
+    ):
+        component_references = [
+            reference
+            for reference in all_references
+            if _trusted_evidence_metric(reference).lower().startswith("goodwill_component_")
+            and "component_sum" not in _trusted_evidence_metric(reference).lower()
+            and not _trusted_evidence_metric(reference).lower().endswith("_absolute_change")
+            and _trusted_evidence_period(reference) == secondary_period
+            and _ratio_scope_compatible((reference, secondary))
+        ]
+        by_metric: dict[str, Mapping[str, Any]] = {}
+        for reference in component_references:
+            metric = _trusted_evidence_metric(reference).lower()
+            current = by_metric.get(metric)
+            if current is None or (_trusted_evidence_value(reference) or Decimal("0")) > (
+                _trusted_evidence_value(current) or Decimal("0")
+            ):
+                by_metric[metric] = reference
+        components = list(by_metric.values())
+        if len(components) < 2:
+            return False
+        largest = max(components, key=lambda item: _trusted_evidence_value(item) or Decimal("-Infinity"))
+        members = [item for item in components if item is not largest]
+        if str(primary.get("evidence_id") or "") not in {
+            str(item.get("evidence_id") or "") for item in members
+        }:
+            return False
+        results = [_trusted_ratio_result(item, secondary) for item in members]
+        return bool(results) and all(
+            result is not None and _percent_occurrence_matches_expected(occurrence, result)
+            for result in results
+        )
+
+    if "均" not in prefix or primary_period != secondary_period:
+        return False
+    denominators = [
+        reference
+        for reference in all_references
+        if _trusted_evidence_period(reference) == primary_period
+        and _ratio_pair_allowed(primary, reference)
+        and _ratio_scope_compatible((primary, reference))
+        and _line_mentions_reference(occurrence.line, reference)
+    ]
+    unique_denominators = {
+        str(reference.get("evidence_id") or ""): reference
+        for reference in denominators
+        if str(reference.get("evidence_id") or "")
+    }
+    if len(unique_denominators) < 2 or str(secondary.get("evidence_id") or "") not in unique_denominators:
+        return False
+    results = [_trusted_ratio_result(primary, item) for item in unique_denominators.values()]
+    return all(
+        result is not None and _percent_occurrence_matches_expected(occurrence, result)
+        for result in results
+    )
+
+
 def _matching_percent_occurrences(
     occurrences: Sequence[PercentClaimOccurrence],
     *,
@@ -1550,13 +1682,22 @@ def _matching_percent_occurrences(
         )
         primary_value_bound = direct_primary_value_bound or derived_sum_formula_bound
         secondary_value_bound = _line_contains_trusted_value(line, secondary)
+        direct_operand_pair_bound = primary_value_bound and secondary_value_bound
+        if operation in {"yoy", "yoy_growth"} and direct_operand_pair_bound:
+            primary_spans = _trusted_value_occurrences(line, primary)
+            secondary_spans = _trusted_value_occurrences(line, secondary)
+            direct_operand_pair_bound = any(
+                primary_span != secondary_span
+                for primary_span in primary_spans
+                for secondary_span in secondary_spans
+            )
         reply_operands_bound = all(
             _visible_reply_binds_reference(visible_reply, reference) for reference in (primary, secondary)
         )
         period_references = (
             (primary, secondary)
             if operation in {"yoy", "yoy_growth"}
-            and ((primary_value_bound and secondary_value_bound) or reply_operands_bound)
+            and (direct_operand_pair_bound or reply_operands_bound)
             else (primary,)
         )
         if not _occurrence_period_matches(occurrence, period_references):
@@ -1577,7 +1718,7 @@ def _matching_percent_occurrences(
                 term in line for term in ("同比", "增长", "增幅", "增加", "减少", "上升", "下降", "变化", "变动")
             )
             if not (
-                (primary_value_bound and secondary_value_bound)
+                direct_operand_pair_bound
                 or ((semantic_bound or heading_semantic_bound) and yoy_context)
             ):
                 continue
@@ -1621,12 +1762,33 @@ def _matching_percent_occurrences(
                 and primary_metric.startswith("goodwill_component_")
                 and _trusted_evidence_metric(secondary).lower() == "goodwill_gross"
             )
+            collective_bound = _collective_ratio_bound_holds(
+                occurrence,
+                primary,
+                secondary,
+                all_references,
+            )
+            threshold_semantic_bound = (
+                occurrence.comparison in {"upper_bound", "lower_bound"}
+                and (semantic_bound or heading_semantic_bound)
+                and _line_mentions_reference(line, primary)
+                and _line_mentions_reference(line, secondary)
+                and ("均" not in line or collective_bound)
+            )
+            collective_component_bound = (
+                collective_bound
+                and primary_metric.startswith("goodwill_component_")
+                and _trusted_evidence_metric(secondary).lower() == "goodwill_gross"
+                and _line_contains_trusted_value(line, secondary)
+            )
             if not ratio_context or not (
                 output_bound
                 or (primary_value_bound and secondary_value_bound)
                 or semantic_ratio_bound
                 or explicit_ratio_pair_bound
                 or component_summary_bound
+                or threshold_semantic_bound
+                or collective_component_bound
             ):
                 continue
         else:
@@ -1912,7 +2074,13 @@ def _reconciliation_equation_clause_matches(
                     before_net = clause[equals.end() : net_span[0]]
                     if len(re.findall(rf"[{FINANCIAL_MINUS_SIGN_CLASS}]", between_operands)) != 1:
                         continue
-                    if re.search(r"[+*/×÷]", between_operands + after_allowance + before_net):
+                    operator_context = (
+                        (between_operands + after_allowance + before_net)
+                        .replace("**", "")
+                        .replace("__", "")
+                        .replace("`", "")
+                    )
+                    if re.search(r"[+*/×÷]", operator_context):
                         continue
                     if re.search(rf"[{FINANCIAL_MINUS_SIGN_CLASS}=＝]", after_allowance + before_net):
                         continue
@@ -2006,6 +2174,12 @@ def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, 
     if denominator_metric == "goodwill_gross" and any(
         token in numerator_metric for token in ("allowance", "impairment", "provision")
     ):
+        return True
+    if numerator_metric in {"goodwill", "goodwill_net", "goodwill_net_note"} and denominator_metric in {
+        "total_assets",
+        "parent_shareholders_equity",
+        "shareholders_equity",
+    }:
         return True
     known_pairs = {
         "gross_margin": ({"gross_profit"}, {"revenue", "operating_revenue", "total_operating_revenue"}),
@@ -2282,6 +2456,7 @@ def validate_calculation_traces(
             trusted_runs,
             reply,
             expected_identity=expected_identity,
+            trusted_evidence=trusted_evidence,
         )
     )
     evidence_bound_runs = tuple(
@@ -3823,6 +3998,30 @@ def _extract_claims(
                         change_facts,
                         amount_end=match.end(),
                     )
+                elif fact is not None and not fact.metric.endswith("_absolute_change") and any(
+                    term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS
+                ):
+                    # A coordinated phrase can put the movement verb before a
+                    # preceding operand (for example "转出原值 X 及减值准备 Y").
+                    # Prefer an exact source-backed movement fact over a
+                    # same-label closing balance even when the local slice no
+                    # longer contains that verb.
+                    change_fact = _fact_for_amount(
+                        clause,
+                        match.start(),
+                        category,
+                        normalized_value,
+                        match.group("value"),
+                        unit,
+                        tuple(item for item in facts if item.metric.endswith("_absolute_change")),
+                        amount_end=match.end(),
+                    )
+                    if change_fact is not None and _claim_fact_value_distance(
+                        normalized_value,
+                        change_fact.normalized_value,
+                        change_fact.metric,
+                    ) <= _display_amount_tolerance(match.group("value"), unit, change_fact.normalized_value):
+                        fact = change_fact
                 resolved_facts[match_index] = fact
                 if fact is None:
                     continue

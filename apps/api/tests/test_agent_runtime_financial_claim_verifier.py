@@ -1182,6 +1182,58 @@ def test_evidence_recompute_accepts_strict_rounded_goodwill_reconciliation():
     assert result.allowed is True
 
 
+def test_evidence_recompute_treats_markdown_emphasis_as_formatting_in_reconciliation():
+    valid = _validate_goodwill_reconciliation(
+        "附注原值 34,813,270 千元 - 减值准备 556,411 千元 = **34,256,859 千元**"
+    )
+    tampered = _validate_goodwill_reconciliation(
+        "附注原值 34,813,270 千元 - 减值准备 556,411 千元 = **99,999,999 千元**"
+    )
+
+    assert valid.allowed is True
+    assert tampered.allowed is False
+    assert tampered.reason == "trace_unstructured"
+
+
+def test_runtime_reconciliation_receipt_binds_trusted_cells_behind_compact_citations():
+    gross, allowance, net = _trusted_goodwill_evidence()
+    gross.update({"unit": "元", "task_id": "task-midea", "table_index": 165, "pdf_page": 137})
+    allowance.update({"unit": "元", "task_id": "task-midea", "table_index": 166, "pdf_page": 137})
+    net.update({"unit": "元", "task_id": "task-midea", "table_index": 84, "pdf_page": 65})
+    gross["value"] = gross["raw_value"] = "1282"
+    allowance["value"] = allowance["raw_value"] = "99"
+    net["value"] = net["raw_value"] = "1183"
+    receipt = {
+        "operation": "goodwill_reconciliation",
+        "status": "pass",
+        "result": {
+            "note_gross": "1282",
+            "impairment_allowance": "99",
+            "statement_net": "1183",
+        },
+        "receipt_source": "hermes_session_tool",
+        "receipt_tool_call_id": "call-recon",
+    }
+    reply = (
+        "商誉原值 1,282 元 - 减值准备 99 元 = 净额 1,183 元。\n"
+        "[D1] source_type=wiki_metrics evidence_id=midea-net-2025 task_id=task-midea pdf_page=65 table_index=84\n"
+        "[D1] source_type=wiki_metrics evidence_id=midea-net-2025 task_id=task-midea pdf_page=65 table_index=84\n"
+        "[D2] source_type=wiki_document_links task_id=task-midea pdf_page=137 table_index=165\n"
+        "[D3] source_type=wiki_document_links task_id=task-midea pdf_page=137 table_index=166"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_runs=(receipt,),
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is True
+    assert any(run.get("trace_origin") == "trusted_runtime_receipt" for run in result.runs)
+
+
 def test_unit_normalization_does_not_misbind_repeated_reconciliation_operands():
     source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
     reply = (
@@ -3099,6 +3151,107 @@ def test_evidence_recompute_validates_ratio_threshold_and_approximation_semantic
         assert result.reason == "trace_unstructured"
 
 
+def _trusted_saic_scale_and_collective_ratio_evidence() -> tuple[dict, ...]:
+    facts = (
+        ("goodwill_net", "商誉账面价值", "1183122320.47", "saic-net", ("商誉", "商誉账面价值")),
+        ("total_assets", "资产总计", "960207461450.69", "saic-assets", ("总资产", "资产总计")),
+        (
+            "parent_shareholders_equity",
+            "归属于母公司所有者权益",
+            "298812278173.08",
+            "saic-parent-equity",
+            ("归母净资产", "归属于母公司所有者权益"),
+        ),
+        (
+            "goodwill_gross",
+            "商誉账面原值",
+            "1282085915.36",
+            "saic-gross",
+            ("商誉原值", "账面原值"),
+        ),
+        (
+            "goodwill_component_vision",
+            "华域视觉",
+            "781115081.73",
+            "saic-vision",
+            ("华域视觉",),
+        ),
+        (
+            "goodwill_component_finance",
+            "上汽通用汽车金融",
+            "333378433.68",
+            "saic-finance",
+            ("上汽通用汽车金融",),
+        ),
+        (
+            "goodwill_component_cowheels",
+            "Co wheels UK & Trip IQ",
+            "66724864.08",
+            "saic-cowheels",
+            ("Co wheels UK & Trip IQ",),
+        ),
+        (
+            "goodwill_impairment_allowance",
+            "商誉减值准备",
+            "98963594.89",
+            "saic-allowance",
+            ("减值准备", "商誉减值准备"),
+        ),
+    )
+    return tuple(
+        {
+            **_trusted_period_goodwill_fact(metric, name, "2025-12-31", value, evidence_id, aliases),
+            "unit": "元",
+        }
+        for metric, name, value, evidence_id, aliases in facts
+    )
+
+
+def _validate_saic_scale_and_collective_ratio(reply: str):
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    return validate_calculation_traces(
+        f"{reply}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=_trusted_saic_scale_and_collective_ratio_evidence(),
+    )
+
+
+def test_evidence_recompute_accepts_source_bound_collective_thresholds_and_cross_line_coverage():
+    reply = (
+        "商誉规模：商誉占总资产、归母净资产比重均不足 0.5%。\n"
+        "华域视觉占比约 60.93%（781,115,081.73 / 1,282,085,915.36），其余主体占比均不足 30%。\n"
+        "减值准备对账面原值覆盖率为 7.72%。"
+    )
+
+    result = _validate_saic_scale_and_collective_ratio(reply)
+
+    assert result.allowed is True
+    assert {run["metric"] for run in result.runs} >= {
+        "goodwill_to_total_assets_ratio",
+        "goodwill_to_parent_equity_ratio",
+        "goodwill_impairment_coverage",
+    }
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (("0.5%", "0.1%"), ("30%", "20%"), ("7.72%", "8.72%")),
+)
+def test_evidence_recompute_rejects_forged_source_bound_thresholds(old: str, new: str):
+    reply = (
+        "商誉规模：商誉占总资产、归母净资产比重均不足 0.5%。\n"
+        "华域视觉占比约 60.93%（781,115,081.73 / 1,282,085,915.36），其余主体占比均不足 30%。\n"
+        "减值准备对账面原值覆盖率为 7.72%。"
+    ).replace(old, new)
+
+    result = _validate_saic_scale_and_collective_ratio(reply)
+
+    assert result.allowed is False
+    assert result.reason == "trace_claim_result_mismatch"
+
+
 def test_evidence_recompute_accepts_attachment_concentration_and_pp_business_tolerance():
     evidence = (
         _trusted_period_goodwill_fact(
@@ -3316,6 +3469,78 @@ def test_claim_verifier_local_net_decrease_binds_component_absolute_change():
     assert result.allowed is True
     assert result.claims[0].metric == "goodwill_component_tlsc_absolute_change"
     assert result.claims[0].change_direction == "decrease"
+
+
+def test_claim_verifier_binds_coordinated_disposal_amounts_to_movements_not_closing_balances():
+    component_disposal = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_component_recycler_absolute_change",
+            "上海机动车回收服务中心有限公司转出额",
+            "2025-12-31",
+            "15087796.12",
+            "saic-recycler-disposal",
+            ("上海机动车回收服务中心", "转出商誉账面原值", "商誉账面原值转出"),
+        ),
+        "unit": "元",
+        "change_direction": "decrease",
+    }
+    allowance_change = {
+        **_trusted_period_goodwill_fact(
+            "goodwill_impairment_allowance_absolute_change",
+            "商誉减值准备变动额",
+            "2025-12-31",
+            "5825349.96",
+            "saic-allowance-disposal",
+            ("减值准备变动", "减值准备", "本期减少"),
+        ),
+        "unit": "元",
+        "change_direction": "decrease",
+    }
+    balances = (
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_gross",
+                "商誉账面原值",
+                "2025-12-31",
+                "1282085915.36",
+                "saic-gross-balance",
+                ("商誉账面原值", "账面原值"),
+            ),
+            "unit": "元",
+        },
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_impairment_allowance",
+                "商誉减值准备",
+                "2025-12-31",
+                "98963594.89",
+                "saic-allowance-balance",
+                ("减值准备", "商誉减值准备"),
+            ),
+            "unit": "元",
+        },
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = "对应转出商誉账面原值 15,087,796.12 元及减值准备 5,825,349.96 元。"
+
+    valid = verify_financial_claims(
+        f"{reply}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(*balances, component_disposal, allowance_change),
+    )
+    tampered = verify_financial_claims(
+        f"{reply.replace('15,087,796.12', '16,087,796.12')}\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=(*balances, component_disposal, allowance_change),
+    )
+
+    assert valid.allowed is True
+    assert [claim.metric for claim in valid.claims] == [
+        "goodwill_component_recycler_absolute_change",
+        "goodwill_impairment_allowance_absolute_change",
+    ]
+    assert tampered.allowed is False
+    assert tampered.violations[0].metric == "goodwill_component_recycler_absolute_change"
 
 
 @pytest.mark.parametrize("minus_sign", ("-", "−", "‐", "‑", "‒", "﹣", "－"))

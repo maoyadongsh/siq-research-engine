@@ -148,6 +148,13 @@ def _saic_note_result(task_id: str = "task-saic") -> dict:
                         "期末余额": "333,378,433.68",
                     },
                     {
+                        label: "上海机动车回收服务中心有限公司",
+                        "期初余额": "15,087,796.12",
+                        "本期增加/企业合并形成的": "",
+                        "本期减少/处置": "15,087,796.12",
+                        "期末余额": "",
+                    },
+                    {
                         label: "合计",
                         "期初余额": "1,302,999,061.44",
                         "本期增加/企业合并形成的": "",
@@ -604,6 +611,45 @@ def test_builds_saic_separate_gross_and_allowance_tables_with_aligned_periods():
     assert "上汽通用汽车金融" in finance_component["aliases"]
     assert "华域视觉 + 上汽通用汽车金融" in component_sum["aliases"]
     assert "上汽通用汽车金融 + 华域视觉" in component_sum["aliases"]
+    disposed_component = next(
+        item
+        for item in evidence
+        if item["metric"].endswith("_absolute_change")
+        and item["metric_name"] == "上海机动车回收服务中心有限公司转出额"
+    )
+    assert disposed_component["value"] == "15087796.12"
+    assert disposed_component["period"] == "2025-12-31"
+    assert disposed_component["change_direction"] == "decrease"
+    assert "转出商誉账面原值" in disposed_component["aliases"]
+
+
+def test_statement_evidence_distinguishes_parent_equity_from_parent_profit():
+    statement = _saic_statement_result()
+    statement["tables"][0]["records"].extend(
+        [
+            {
+                "资产": "资产总计",
+                "2025年12月31日": "960,207,461,450.69",
+                "2024年12月31日": "957,143,417,731.69",
+            },
+            {
+                "资产": "归属于母公司所有者权益(或股东权益)合计",
+                "2025年12月31日": "298,812,278,173.08",
+                "2024年12月31日": "287,840,094,973.12",
+            },
+        ]
+    )
+
+    evidence = build_trusted_calculation_evidence(
+        statement_result=statement,
+        note_result=None,
+        expected_identity=SAIC_IDENTITY,
+    )
+
+    by_metric_period = {(item["metric"], item["period"]): item for item in evidence}
+    assert by_metric_period[("total_assets", "2025-12-31")]["value"] == "960207461450.69"
+    assert by_metric_period[("parent_shareholders_equity", "2025-12-31")]["value"] == "298812278173.08"
+    assert not any(item["metric"] == "parent_net_profit" for item in evidence)
 
 
 def test_rejects_saic_note_tables_from_another_parse_run():
