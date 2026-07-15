@@ -1366,7 +1366,7 @@ class MeetingAIWorker:
         stop = asyncio.Event()
         heartbeat = asyncio.create_task(self._heartbeat(job.id, stop))
         try:
-            analysis = await self.finalization_service.analyze(job.meeting_id)
+            analysis = await self.finalization_service.analyze(job.meeting_id, run_id=job.id)
             await self._apply_final_transcript(job, analysis)
         finally:
             stop.set()
@@ -1634,6 +1634,10 @@ class MeetingAIWorker:
                             "chunk_count": analysis.chunk_count,
                             "total_audio_bytes": analysis.total_audio_bytes,
                             "window_count": analysis.window_count,
+                            "protocol_version": analysis.protocol_version,
+                            "window_overlap_ms": analysis.window_overlap_ms,
+                            "max_concurrency": analysis.max_concurrency,
+                            "boundary_trimmed_segment_count": analysis.boundary_trimmed_segment_count,
                             "gaps": [{"start_ms": start_ms, "end_ms": end_ms} for start_ms, end_ms in analysis.gaps],
                         },
                         "alignments": alignments,

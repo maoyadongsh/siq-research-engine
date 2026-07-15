@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -66,6 +66,12 @@ import {
   MEETING_TRANSCRIPT_PAGE_SIZE,
   mergeTranscriptSegments,
 } from '@/features/meeting-transcription/transcriptPagination'
+import {
+  activePlaybackSegmentIds,
+  playbackTranscriptLookupBucket,
+  playbackTranscriptWindowMissing,
+  samePlaybackSegments,
+} from '@/features/meeting-transcription/playbackTracking'
 import type {
   MeetingArtifact,
   MeetingExport,
@@ -102,14 +108,82 @@ export default function MeetingDetail() {
   const [nextTranscriptOrdinal, setNextTranscriptOrdinal] = useState<number | null>(null)
   const [transcriptPageBusy, setTranscriptPageBusy] = useState<'earlier' | 'later' | null>(null)
   const [seekToMs, setSeekToMs] = useState<number | null>(null)
+  const [seekRequestId, setSeekRequestId] = useState(0)
+  const [activePlaybackSegments, setActivePlaybackSegments] = useState<string[]>([])
+  const [followPlayback, setFollowPlayback] = useState(true)
   const [scrollToSegmentId, setScrollToSegmentId] = useState('')
   const [activeTab, setActiveTab] = useState('minutes')
   const [loading, setLoading] = useState(true)
   const [busyKey, setBusyKey] = useState('')
   const [error, setError] = useState('')
+  const segmentsRef = useRef<MeetingTranscriptSegment[]>([])
+  const playbackPositionRef = useRef(0)
+  const finalTranscriptOrdinalRef = useRef(0)
+  const playbackLookupBucketRef = useRef<number | null>(null)
+  const playbackLookupControllerRef = useRef<AbortController | null>(null)
   const minutesArtifact = useMemo(() => selectPreferredMinutesArtifact(artifacts), [artifacts])
   const minutesContent = useMemo(() => parseMeetingMinutes(minutesArtifact?.content_json), [minutesArtifact])
   const segmentById = useMemo(() => new Map(segments.map((segment) => [segment.id, segment])), [segments])
+
+  useEffect(() => {
+    segmentsRef.current = segments
+  }, [segments])
+
+  useEffect(() => {
+    finalTranscriptOrdinalRef.current = session?.last_segment_ordinal || 0
+  }, [session?.last_segment_ordinal])
+
+  useEffect(() => () => playbackLookupControllerRef.current?.abort(), [])
+
+  const loadPlaybackTranscriptWindow = useCallback(async (positionMs: number, bucket: number) => {
+    playbackLookupControllerRef.current?.abort()
+    const controller = new AbortController()
+    playbackLookupControllerRef.current = controller
+    playbackLookupBucketRef.current = bucket
+    try {
+      const page = await getMeetingTranscript(meetingId, {
+        atMs: positionMs,
+        limit: MEETING_TRANSCRIPT_PAGE_SIZE,
+      }, controller.signal)
+      if (controller.signal.aborted) return
+      segmentsRef.current = page.items
+      setSegments(page.items)
+      setHasEarlierSegments((page.items[0]?.ordinal ?? 1) > 1)
+      setNextTranscriptOrdinal(page.next_ordinal ?? null)
+      const active = activePlaybackSegmentIds(page.items, playbackPositionRef.current)
+      setActivePlaybackSegments((current) => samePlaybackSegments(current, active) ? current : active)
+    } catch {
+      if (!controller.signal.aborted) playbackLookupBucketRef.current = null
+    } finally {
+      if (playbackLookupControllerRef.current === controller) playbackLookupControllerRef.current = null
+    }
+  }, [meetingId])
+
+  const handlePlaybackPosition = useCallback((positionMs: number, playing: boolean) => {
+    playbackPositionRef.current = positionMs
+    const loadedSegments = segmentsRef.current
+    const active = activePlaybackSegmentIds(loadedSegments, positionMs)
+    setActivePlaybackSegments((current) => samePlaybackSegments(current, active) ? current : active)
+    if (!playing) return
+    const earliest = loadedSegments[0]
+    const latest = loadedSegments.at(-1)
+    if (earliest?.ordinal === 1 && positionMs < earliest.start_ms) return
+    if (
+      latest
+      && latest.ordinal >= finalTranscriptOrdinalRef.current
+      && positionMs >= latest.end_ms
+    ) return
+    if (!playbackTranscriptWindowMissing(loadedSegments, positionMs)) return
+    const bucket = playbackTranscriptLookupBucket(positionMs)
+    if (playbackLookupBucketRef.current === bucket) return
+    void loadPlaybackTranscriptWindow(positionMs, bucket)
+  }, [loadPlaybackTranscriptWindow])
+
+  const seekPlayback = useCallback((positionMs: number) => {
+    setFollowPlayback(true)
+    setSeekToMs(positionMs)
+    setSeekRequestId((current) => current + 1)
+  }, [])
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!meetingId) return
@@ -134,6 +208,7 @@ export default function MeetingDetail() {
         ]),
       ])
       setSession(meeting)
+      playbackLookupBucketRef.current = null
       setSegments(transcript.items || [])
       setSpeakers(speakerItems)
       setArtifacts(artifactItems)
@@ -384,7 +459,7 @@ export default function MeetingDetail() {
       toast({ title: '证据片段暂不可用', description: '刷新会议详情后重试。', type: 'error' })
       return
     }
-    setSeekToMs(segment.start_ms)
+    seekPlayback(segment.start_ms)
     setScrollToSegmentId(segmentId)
     setActiveTab('transcript')
   }
@@ -490,7 +565,12 @@ export default function MeetingDetail() {
       {stale ? <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft/55 px-4 py-3 text-sm leading-6 text-text"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" /><span><strong>纪要基于旧版逐字稿。</strong> 已保存的版本不会被静默覆盖，可在确认逐字稿后显式重新生成。</span></div> : null}
 
       <PageSection title="会议录音" description="点击逐字稿时间戳可定位到对应音频。">
-        <MeetingAudioPlayer meetingId={meetingId} seekToMs={seekToMs} />
+        <MeetingAudioPlayer
+          meetingId={meetingId}
+          seekToMs={seekToMs}
+          seekRequestId={seekRequestId}
+          onPlaybackPositionChange={handlePlaybackPosition}
+        />
       </PageSection>
 
       {jobs.length ? (
@@ -525,7 +605,7 @@ export default function MeetingDetail() {
               regenerating={busyKey.startsWith('regenerate:')}
             />
           </TabsContent>
-          <TabsContent value="transcript" className="p-4 sm:p-5"><TranscriptTimeline segments={segments} speakers={speakers} editable correctionLearningEnabled={correctionLearningEnabled} hasEarlierSegments={hasEarlierSegments} hasLaterSegments={nextTranscriptOrdinal != null} loadingPage={transcriptPageBusy} onLoadEarlier={loadEarlierSegments} onLoadLater={loadLaterSegments} scrollToSegmentId={scrollToSegmentId} onSeek={setSeekToMs} onCorrect={correct} onRevert={revert} onRenameSpeaker={renameTranscriptSpeaker} /></TabsContent>
+          <TabsContent value="transcript" className="p-4 sm:p-5"><TranscriptTimeline segments={segments} speakers={speakers} editable correctionLearningEnabled={correctionLearningEnabled} hasEarlierSegments={hasEarlierSegments} hasLaterSegments={nextTranscriptOrdinal != null} loadingPage={transcriptPageBusy} onLoadEarlier={loadEarlierSegments} onLoadLater={loadLaterSegments} scrollToSegmentId={scrollToSegmentId} activePlaybackSegmentIds={activePlaybackSegments} followPlayback={followPlayback} onFollowPlaybackChange={setFollowPlayback} onSeek={seekPlayback} onCorrect={correct} onRevert={revert} onRenameSpeaker={renameTranscriptSpeaker} /></TabsContent>
           <TabsContent value="viewpoints" className="p-4 sm:p-5">
             <div className="grid gap-5 xl:grid-cols-[220px_minmax(0,1fr)]">
               <div><h3 className="mb-3 text-sm font-semibold text-text">发言人</h3><SpeakerPanel speakers={speakers} editable voiceprintEnabled onRename={rename} onMerge={mergeSpeakers} /></div>

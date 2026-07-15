@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from functools import cached_property
 from pathlib import Path
 from typing import Literal
@@ -34,11 +35,13 @@ class Settings(BaseSettings):
     http_finalizer_health_url: str | None = None
     http_finalizer_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     http_finalizer_queue_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
-    http_finalizer_max_concurrency: int = Field(default=1, ge=1, le=16)
+    http_finalizer_max_concurrency: int = Field(default=2, ge=1, le=16)
     http_finalizer_max_response_bytes: int = Field(default=1_048_576, ge=1_024, le=16 * 1024 * 1024)
     vad_model: str = "fsmn-vad"
     punctuation_model: str = "ct-punc"
-    online_chunk_size: str = "0,10,5"
+    # 5 encoder frames (~300 ms for Paraformer online) keeps first text under
+    # the realtime budget while retaining bounded look-back context.
+    online_chunk_size: str = "0,5,2"
     encoder_chunk_look_back: int = Field(default=4, ge=0, le=16)
     decoder_chunk_look_back: int = Field(default=1, ge=0, le=16)
     inference_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
@@ -65,6 +68,7 @@ class Settings(BaseSettings):
     finalization_endpoint_enabled: bool = True
     finalization_max_window_seconds: int = Field(default=30, ge=2, le=120)
     finalization_max_sessions: int = Field(default=2, ge=1, le=32)
+    finalization_max_cached_windows: int = Field(default=2_048, ge=16, le=10_000)
     finalization_session_ttl_seconds: int = Field(default=300, ge=30, le=3_600)
     mock_transcript_prefix: str = "[mock speech]"
 
@@ -74,9 +78,9 @@ class Settings(BaseSettings):
     max_chunk_ms: int = Field(default=1_000, ge=100, le=2_000)
     max_frame_bytes: int = Field(default=32_000, ge=3_200, le=1_048_576)
     max_segment_seconds: int = Field(default=30, ge=2, le=120)
-    pre_roll_ms: int = Field(default=240, ge=0, le=2_000)
-    vad_min_speech_ms: int = Field(default=180, ge=20, le=2_000)
-    vad_endpoint_silence_ms: int = Field(default=800, ge=100, le=5_000)
+    pre_roll_ms: int = Field(default=160, ge=0, le=2_000)
+    vad_min_speech_ms: int = Field(default=100, ge=20, le=2_000)
+    vad_endpoint_silence_ms: int = Field(default=600, ge=100, le=5_000)
     vad_energy_threshold: float = Field(default=0.012, gt=0, lt=1)
 
     max_pending_frames: int = Field(default=16, ge=1, le=512)
@@ -104,6 +108,13 @@ class Settings(BaseSettings):
         if len(values) != 3 or any(value < 0 for value in values) or values[1] == 0:
             raise ValueError("online_chunk_size must contain three non-negative integers with a positive stride")
         return values
+
+    def first_partial_audio_budget_ms(self, input_chunk_ms: int) -> int:
+        """Audio accumulation bound before one configured online decode window."""
+        if input_chunk_ms <= 0:
+            raise ValueError("input_chunk_ms must be positive")
+        online_window_ms = self.parsed_online_chunk_size[1] * 60
+        return math.ceil(online_window_ms / input_chunk_ms) * input_chunk_ms
 
     @property
     def protected_deployment(self) -> bool:

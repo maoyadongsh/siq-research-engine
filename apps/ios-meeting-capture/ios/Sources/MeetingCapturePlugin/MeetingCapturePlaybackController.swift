@@ -36,6 +36,36 @@ final class MeetingCapturePlaybackController {
         return status()
     }
 
+    func resume() throws -> MeetingPlaybackStatus {
+        if source == "server" {
+            guard let serverPlayer else {
+                throw MeetingCaptureError.invalidState("server playback is not prepared")
+            }
+            serverPlayer.play()
+        } else if source == "local" {
+            guard localPlayer?.play() == true else {
+                throw MeetingCaptureError.invalidState("local playback is not prepared")
+            }
+        } else {
+            throw MeetingCaptureError.invalidState("playback is not prepared")
+        }
+        return status()
+    }
+
+    func reset() {
+        switchGeneration = UUID()
+        pendingObservation = nil
+        pendingServerPlayer?.pause()
+        pendingServerPlayer = nil
+        localPlayer?.stop()
+        localPlayer = nil
+        serverPlayer?.pause()
+        serverPlayer = nil
+        handle = nil
+        source = "none"
+        fallbackDurationMs = 0
+    }
+
     func seek(positionMs: Int64) throws -> MeetingPlaybackStatus {
         guard positionMs >= 0 else { throw MeetingCaptureError.invalidArgument("playback position") }
         let seconds = Double(positionMs) / 1_000

@@ -1,7 +1,8 @@
 """Bounded final-ASR adapter for durable meeting post-processing.
 
-Only one verified PCM window is resident at a time. The adapter never sends
-filesystem paths to the speech service and never persists speaker embeddings.
+Only a configured, bounded number of verified PCM windows are resident at a
+time. The adapter never sends filesystem paths to the speech service and never
+persists speaker embeddings.
 """
 
 from __future__ import annotations
@@ -12,10 +13,10 @@ import math
 import os
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Protocol, Sequence
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from sqlalchemy import or_
@@ -35,6 +36,7 @@ from services.meeting_metrics import observe_meeting_latency, record_meeting_cou
 
 FINAL_ASR_WINDOW_SCHEMA = "siq.meeting.final_asr_window.v1"
 FINAL_ALIGNMENT_SCHEMA = "siq.meeting.final_transcript_alignment.v1"
+FINAL_ASR_INDEPENDENT_PROTOCOL = "siq.meeting.final_asr.independent_window.v1"
 _DIARIZER_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{2,191}")
 
 
@@ -66,10 +68,16 @@ class MeetingFinalizationSettings:
     timeout_seconds: float = 60.0
     max_response_bytes: int = 2 * 1024 * 1024
     max_result_segments: int = 50_000
+    max_concurrency: int = 2
+    window_overlap_ms: int = 2_000
 
     @property
     def max_window_bytes(self) -> int:
         return self.window_seconds * 16_000 * 2
+
+    @property
+    def overlap_bytes(self) -> int:
+        return self.window_overlap_ms * 32
 
     @classmethod
     def from_env(cls) -> "MeetingFinalizationSettings":
@@ -103,6 +111,8 @@ class MeetingFinalizationSettings:
                 1,
                 200_000,
             ),
+            max_concurrency=_env_int("SIQ_MEETING_FINAL_ASR_MAX_CONCURRENCY", 2, 1, 8),
+            window_overlap_ms=_env_int("SIQ_MEETING_FINAL_ASR_WINDOW_OVERLAP_MS", 2_000, 0, 30_000),
         )
         value.validate()
         return value
@@ -110,6 +120,10 @@ class MeetingFinalizationSettings:
     def validate(self) -> None:
         if self.max_chunk_bytes > self.max_window_bytes:
             raise ValueError("final ASR chunk bound cannot exceed the window bound")
+        if not 1 <= self.max_concurrency <= 8:
+            raise ValueError("final ASR concurrency must be between 1 and 8")
+        if not 0 <= self.window_overlap_ms <= min(30_000, self.window_seconds * 1_000 // 2):
+            raise ValueError("final ASR window overlap must be at most half the window")
         if self.endpoint is None:
             return
         parsed = urlsplit(self.endpoint)
@@ -167,9 +181,12 @@ class FinalASRSegment:
 class FinalASRWindowResult:
     diarizer_ref: str
     segments: tuple[FinalASRSegment, ...]
+    protocol_version: str = FINAL_ASR_INDEPENDENT_PROTOCOL
 
     def __post_init__(self) -> None:
         _validate_diarizer_ref(self.diarizer_ref)
+        if not self.protocol_version or len(self.protocol_version) > 128:
+            raise MeetingFinalizationOutputInvalid("final ASR protocol identity is invalid")
         if any(value.diarizer_ref != self.diarizer_ref for value in self.segments):
             raise MeetingFinalizationOutputInvalid("final ASR window diarizer identity is inconsistent")
 
@@ -183,6 +200,10 @@ class FinalizationAnalysis:
     gaps: tuple[tuple[int, int], ...]
     segments: tuple[FinalASRSegment, ...]
     diarizer_ref: str | None
+    protocol_version: str | None = None
+    window_overlap_ms: int = 0
+    max_concurrency: int = 1
+    boundary_trimmed_segment_count: int = 0
 
     def __post_init__(self) -> None:
         if self.mode == "stable_transcript_passthrough":
@@ -194,6 +215,10 @@ class FinalizationAnalysis:
         _validate_diarizer_ref(self.diarizer_ref)
         if any(value.diarizer_ref != self.diarizer_ref for value in self.segments):
             raise MeetingFinalizationOutputInvalid("final ASR analysis contains mixed diarizer identities")
+        if self.protocol_version != FINAL_ASR_INDEPENDENT_PROTOCOL:
+            raise MeetingFinalizationOutputInvalid("final ASR analysis protocol identity is invalid")
+        if self.window_overlap_ms < 0 or self.max_concurrency < 1 or self.boundary_trimmed_segment_count < 0:
+            raise MeetingFinalizationOutputInvalid("final ASR analysis bounds are invalid")
 
 
 class FinalASRClient(Protocol):
@@ -244,6 +269,7 @@ class HttpFinalASRClient:
             "x-siq-language": language,
             "x-siq-hotwords": json.dumps(list(hotwords), ensure_ascii=True, separators=(",", ":")),
             "content-type": "application/octet-stream",
+            "x-siq-finalization-protocol": FINAL_ASR_INDEPENDENT_PROTOCOL,
         }
         try:
             async with self._client.stream(
@@ -262,7 +288,7 @@ class HttpFinalASRClient:
             raise
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise MeetingFinalizationUnavailable("final ASR transport is unavailable") from exc
-        return _parse_final_asr_response(payload_bytes, window.index)
+        return _parse_final_asr_response(payload_bytes, window.index, FINAL_ASR_INDEPENDENT_PROTOCOL)
 
 
 @dataclass(slots=True)
@@ -270,6 +296,14 @@ class _ManifestStats:
     chunk_count: int = 0
     total_audio_bytes: int = 0
     gaps: list[tuple[int, int]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class _WindowBoundary:
+    index: int
+    start_ms: int
+    end_ms: int
+    discontinuity: bool
 
 
 class MeetingFinalizationService:
@@ -289,7 +323,7 @@ class MeetingFinalizationService:
         if self.client is None and self.settings.endpoint is not None:
             self.client = HttpFinalASRClient(self.settings)
 
-    async def analyze(self, meeting_id: str) -> FinalizationAnalysis:
+    async def analyze(self, meeting_id: str, *, run_id: str | None = None) -> FinalizationAnalysis:
         async with self.session_factory() as session:
             meeting = await session.get(MeetingSession, meeting_id)
             if meeting is None:
@@ -318,32 +352,65 @@ class MeetingFinalizationService:
             )
 
         stats = _ManifestStats()
-        pending: FinalizationWindow | None = None
-        results: list[FinalASRSegment] = []
+        boundaries: list[_WindowBoundary] = []
+        results_by_window: dict[int, FinalASRWindowResult] = {}
         observed_diarizer_ref: str | None = None
-        window_count = 0
-        run_id = str(uuid4())
+        raw_segment_count = 0
+        finalization_id = _normalize_run_id(run_id)
+        in_flight: dict[asyncio.Task[FinalASRWindowResult], int] = {}
         processing_started = time.perf_counter()
-        async for window in self._windows(meeting_id, owner_user_id, stats):
-            if self.client is None:
-                raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
-            if pending is not None:
-                window_result = await self._finalize_window(
-                    pending,
-                    run_id=run_id,
-                    language=language,
-                    hotwords=hotwords,
-                    final_window=False,
+
+        async def collect_completed(*, wait_for_one: bool) -> None:
+            nonlocal raw_segment_count
+            if not in_flight:
+                return
+            done, _ = await asyncio.wait(
+                tuple(in_flight),
+                return_when=asyncio.FIRST_COMPLETED if wait_for_one else asyncio.ALL_COMPLETED,
+            )
+            for task in done:
+                index = in_flight.pop(task)
+                result = await task
+                results_by_window[index] = result
+                raw_segment_count += len(result.segments)
+                if raw_segment_count > self.settings.max_result_segments:
+                    raise MeetingFinalizationOutputInvalid("final ASR segment limit exceeded")
+
+        try:
+            async for window in self._windows(meeting_id, owner_user_id, stats):
+                if self.client is None:
+                    raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
+                boundaries.append(
+                    _WindowBoundary(
+                        index=window.index,
+                        start_ms=window.start_ms,
+                        end_ms=window.end_ms,
+                        discontinuity=window.discontinuity,
+                    )
                 )
-                observed_diarizer_ref = _bind_diarizer_ref(
-                    observed_diarizer_ref,
-                    window_result.diarizer_ref,
+                task = asyncio.create_task(
+                    self._finalize_window(
+                        window,
+                        run_id=finalization_id,
+                        language=language,
+                        hotwords=hotwords,
+                        final_window=True,
+                    ),
+                    name=f"meeting-final-asr-window-{window.index}",
                 )
-                results.extend(window_result.segments)
-                window_count += 1
-                self._check_result_bound(results)
-            pending = window
-        if pending is None:
+                in_flight[task] = window.index
+                if len(in_flight) >= self.settings.max_concurrency:
+                    await collect_completed(wait_for_one=True)
+            while in_flight:
+                await collect_completed(wait_for_one=False)
+        except BaseException:
+            for task in in_flight:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*in_flight, return_exceptions=True)
+            raise
+
+        if not boundaries:
             return FinalizationAnalysis(
                 mode="stable_transcript_passthrough",
                 chunk_count=0,
@@ -353,22 +420,13 @@ class MeetingFinalizationService:
                 segments=(),
                 diarizer_ref=None,
             )
-        if self.client is None:
-            raise MeetingFinalizationUnavailable("final ASR endpoint is not configured")
-        window_result = await self._finalize_window(
-            pending,
-            run_id=run_id,
-            language=language,
-            hotwords=hotwords,
-            final_window=True,
-        )
-        observed_diarizer_ref = _bind_diarizer_ref(
-            observed_diarizer_ref,
-            window_result.diarizer_ref,
-        )
-        results.extend(window_result.segments)
-        window_count += 1
-        self._check_result_bound(results)
+
+        for boundary in boundaries:
+            result = results_by_window[boundary.index]
+            observed_diarizer_ref = _bind_diarizer_ref(observed_diarizer_ref, result.diarizer_ref)
+            if result.protocol_version != FINAL_ASR_INDEPENDENT_PROTOCOL:
+                raise MeetingFinalizationOutputInvalid("final ASR protocol identity is invalid")
+        results, trimmed_count = _deduplicate_window_segments(boundaries, results_by_window)
         observe_meeting_latency(
             "final_asr_job_processing_seconds",
             time.perf_counter() - processing_started,
@@ -377,10 +435,14 @@ class MeetingFinalizationService:
             mode="final_asr",
             chunk_count=stats.chunk_count,
             total_audio_bytes=stats.total_audio_bytes,
-            window_count=window_count,
+            window_count=len(boundaries),
             gaps=tuple(stats.gaps),
             segments=tuple(results),
             diarizer_ref=observed_diarizer_ref,
+            protocol_version=FINAL_ASR_INDEPENDENT_PROTOCOL,
+            window_overlap_ms=self.settings.window_overlap_ms,
+            max_concurrency=self.settings.max_concurrency,
+            boundary_trimmed_segment_count=trimmed_count,
         )
 
     async def _finalize_window(
@@ -434,6 +496,8 @@ class MeetingFinalizationService:
         window_end = 0
         window_index = 0
         next_discontinuity = False
+        buffer_discontinuity = False
+        buffer_has_new_audio = False
         previous_audio_end: int | None = None
         offset = 0
         while True:
@@ -472,16 +536,17 @@ class MeetingFinalizationService:
                 stats.total_audio_bytes += len(payload)
                 effective_start = chunk.start_ms
                 if previous_audio_end is not None and effective_start > previous_audio_end:
-                    if buffer:
+                    if buffer and buffer_has_new_audio:
                         yield FinalizationWindow(
                             index=window_index,
                             start_ms=window_start,
                             end_ms=window_end,
                             pcm=bytes(buffer),
-                            discontinuity=next_discontinuity,
+                            discontinuity=buffer_discontinuity,
                         )
                         window_index += 1
-                        buffer.clear()
+                    buffer.clear()
+                    buffer_has_new_audio = False
                     stats.gaps.append((previous_audio_end, effective_start))
                     next_discontinuity = True
                 elif previous_audio_end is not None and effective_start < previous_audio_end:
@@ -491,30 +556,126 @@ class MeetingFinalizationService:
                     if not payload:
                         continue
 
-                if buffer and len(buffer) + len(payload) > self.settings.max_window_bytes:
-                    yield FinalizationWindow(
-                        index=window_index,
-                        start_ms=window_start,
-                        end_ms=window_end,
-                        pcm=bytes(buffer),
-                        discontinuity=next_discontinuity,
-                    )
-                    window_index += 1
-                    buffer.clear()
-                    next_discontinuity = False
-                if not buffer:
-                    window_start = effective_start
-                buffer.extend(payload)
-                window_end = effective_start + len(payload) // 32
+                payload_offset = 0
+                while payload_offset < len(payload):
+                    if not buffer:
+                        window_start = effective_start + payload_offset // 32
+                        buffer_discontinuity = next_discontinuity
+                        next_discontinuity = False
+                    capacity = self.settings.max_window_bytes - len(buffer)
+                    take = min(capacity, len(payload) - payload_offset)
+                    buffer.extend(payload[payload_offset : payload_offset + take])
+                    buffer_has_new_audio = True
+                    payload_offset += take
+                    window_end = window_start + len(buffer) // 32
+                    if len(buffer) == self.settings.max_window_bytes:
+                        yield FinalizationWindow(
+                            index=window_index,
+                            start_ms=window_start,
+                            end_ms=window_end,
+                            pcm=bytes(buffer),
+                            discontinuity=buffer_discontinuity,
+                        )
+                        window_index += 1
+                        retained = (
+                            bytes(buffer[-self.settings.overlap_bytes :])
+                            if self.settings.overlap_bytes
+                            else b""
+                        )
+                        buffer = bytearray(retained)
+                        window_start = window_end - len(retained) // 32
+                        window_end = window_start + len(retained) // 32
+                        buffer_discontinuity = False
+                        buffer_has_new_audio = False
                 previous_audio_end = max(previous_audio_end or 0, chunk.start_ms + chunk.duration_ms)
-        if buffer:
+        if buffer and buffer_has_new_audio:
             yield FinalizationWindow(
                 index=window_index,
                 start_ms=window_start,
                 end_ms=window_end,
                 pcm=bytes(buffer),
-                discontinuity=next_discontinuity,
+                discontinuity=buffer_discontinuity,
             )
+
+
+def _deduplicate_window_segments(
+    boundaries: Sequence[_WindowBoundary],
+    results_by_window: dict[int, FinalASRWindowResult],
+) -> tuple[list[FinalASRSegment], int]:
+    """Keep each timestamp on one deterministic side of an overlap boundary."""
+
+    output: list[FinalASRSegment] = []
+    trimmed_count = 0
+    for position, boundary in enumerate(boundaries):
+        if position and not boundary.discontinuity:
+            previous = boundaries[position - 1]
+            ownership_start = (previous.end_ms + boundary.start_ms) // 2
+        else:
+            ownership_start = boundary.start_ms
+        if position + 1 < len(boundaries) and not boundaries[position + 1].discontinuity:
+            following = boundaries[position + 1]
+            ownership_end = (boundary.end_ms + following.start_ms) // 2
+        else:
+            ownership_end = boundary.end_ms
+
+        for segment in results_by_window[boundary.index].segments:
+            owned = _trim_segment_to_boundary(
+                segment,
+                ownership_start=ownership_start,
+                ownership_end=ownership_end,
+                include_end=position + 1 == len(boundaries),
+            )
+            if owned is None:
+                trimmed_count += 1
+                continue
+            if owned is not segment:
+                trimmed_count += 1
+            output.append(owned)
+
+    # Window order is the primary key; the stable sort retains adapter order for
+    # equal timestamps without relying on random segment UUIDs.
+    output.sort(key=lambda value: (value.start_ms, value.end_ms, value.window_index))
+    return output, trimmed_count
+
+
+def _trim_segment_to_boundary(
+    segment: FinalASRSegment,
+    *,
+    ownership_start: int,
+    ownership_end: int,
+    include_end: bool,
+) -> FinalASRSegment | None:
+    def owns(timestamp: int) -> bool:
+        return timestamp >= ownership_start and (timestamp <= ownership_end if include_end else timestamp < ownership_end)
+
+    if segment.word_timestamps:
+        words = tuple(
+            word
+            for word in segment.word_timestamps
+            if owns((word.start_ms + word.end_ms) // 2)
+        )
+        if not words:
+            return None
+        if len(words) == len(segment.word_timestamps):
+            return segment
+        text = _join_words(words).strip()
+        if not text:
+            return None
+        token_suffix = (
+            f":w{segment.window_index}-boundary-"
+            f"{words[0].token_index}-{words[-1].token_index}"
+        )
+        return replace(
+            segment,
+            segment_token=(segment.segment_token[: max(1, 128 - len(token_suffix))] + token_suffix)[:128],
+            text=text,
+            start_ms=words[0].start_ms,
+            end_ms=words[-1].end_ms,
+            word_timestamps=words,
+        )
+
+    midpoint = (segment.start_ms + segment.end_ms) // 2
+    return segment if owns(midpoint) else None
 
 
 def align_final_segments(
@@ -585,13 +746,19 @@ def _join_words(words: Sequence[FinalWord]) -> str:
     return " ".join(values)
 
 
-def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> FinalASRWindowResult:
+def _parse_final_asr_response(
+    payload_bytes: bytes,
+    window_index: int,
+    expected_protocol: str,
+) -> FinalASRWindowResult:
     try:
         payload = json.loads(payload_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise MeetingFinalizationOutputInvalid("final ASR response is not valid JSON") from exc
     if not isinstance(payload, dict) or payload.get("schema_version") != FINAL_ASR_WINDOW_SCHEMA:
         raise MeetingFinalizationOutputInvalid("final ASR schema is invalid")
+    if payload.get("protocol_version") != expected_protocol:
+        raise MeetingFinalizationOutputInvalid("final ASR protocol identity is invalid")
     try:
         diarizer_ref = _validate_diarizer_ref(payload.get("diarizer_ref"))
     except (TypeError, ValueError) as exc:
@@ -632,7 +799,11 @@ def _parse_final_asr_response(payload_bytes: bytes, window_index: int) -> FinalA
         ):
             raise MeetingFinalizationOutputInvalid("final ASR segment bounds are invalid")
         parsed.append(value)
-    return FinalASRWindowResult(diarizer_ref=diarizer_ref, segments=tuple(parsed))
+    return FinalASRWindowResult(
+        diarizer_ref=diarizer_ref,
+        segments=tuple(parsed),
+        protocol_version=expected_protocol,
+    )
 
 
 def _validate_diarizer_ref(value: Any) -> str:
@@ -646,6 +817,15 @@ def _bind_diarizer_ref(current: str | None, observed: str) -> str:
     if current is not None and current != observed:
         raise MeetingFinalizationOutputInvalid("final ASR diarizer identity changed between windows")
     return observed
+
+
+def _normalize_run_id(value: str | None) -> str:
+    if not value:
+        return str(uuid4())
+    try:
+        return str(UUID(value))
+    except (TypeError, ValueError):
+        return str(uuid5(NAMESPACE_URL, f"siq.meeting.finalization:{value}"))
 
 
 def _parse_words(value: Any) -> tuple[FinalWord, ...]:
@@ -744,6 +924,7 @@ def _env_float(name: str, default: float, minimum: float, maximum: float) -> flo
 
 __all__ = [
     "FINAL_ALIGNMENT_SCHEMA",
+    "FINAL_ASR_INDEPENDENT_PROTOCOL",
     "FinalASRClient",
     "FinalASRSegment",
     "FinalASRWindowResult",

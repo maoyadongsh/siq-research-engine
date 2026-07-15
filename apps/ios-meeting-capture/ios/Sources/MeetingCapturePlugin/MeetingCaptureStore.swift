@@ -412,6 +412,81 @@ final class MeetingCaptureStore {
         }
     }
 
+    /// Persist a cleanup authorization before touching the local capture files.
+    /// The authorization is derived from a fresh, capture-token authenticated
+    /// checkpoint and is deliberately kept in the manifest so a crash between
+    /// token removal and directory deletion can finish cleanup on next launch.
+    func stageCleanup(afterAuthenticatedCheckpoint checkpoint: MeetingServerCheckpoint) throws -> MeetingCaptureCleanupReceipt {
+        try reconcile(checkpoint)
+        guard let current = manifest,
+              current.state == .stopped,
+              current.localPlaybackReady,
+              current.pendingGap == nil,
+              current.pendingRollover == nil,
+              current.finalSealBoundary != nil,
+              current.batches.allSatisfy(\.uploaded),
+              current.gaps.allSatisfy({
+                  $0.serverDeclared == true && $0.startSample >= 0 && $0.startSample < $0.endSample
+              }) else {
+            throw MeetingCaptureError.cleanupNotReady
+        }
+
+        if let existing = current.cleanupReceipt {
+            try validateCleanupReceipt(existing, against: checkpoint, manifest: current)
+            return existing
+        }
+
+        let boundary = current.finalSealBoundary!
+        let receipt = try makeCleanupReceipt(
+            checkpoint: checkpoint,
+            manifest: current,
+            boundary: boundary
+        )
+        var updated = current
+        updated.cleanupReceipt = receipt
+        updated.manifestRevision += 1
+        updated.updatedAt = Date()
+        manifest = updated
+        do {
+            try persistManifest()
+        } catch {
+            manifest = current
+            throw error
+        }
+        return receipt
+    }
+
+    func validatedStagedCleanupReceipt() throws -> MeetingCaptureCleanupReceipt {
+        guard let current = manifest,
+              let receipt = current.cleanupReceipt else {
+            throw MeetingCaptureError.cleanupNotReady
+        }
+        try validateLocalCleanupReceipt(receipt, manifest: current)
+        return receipt
+    }
+
+    /// Complete a previously staged cleanup. It never removes anything before
+    /// the staged server proof and local WAV fingerprint have been validated.
+    @discardableResult
+    func completeStagedCleanup() throws -> MeetingCaptureCleanupReceipt {
+        let receipt = try validatedStagedCleanupReceipt()
+        guard let captureURL else { throw MeetingCaptureError.storageUnavailable }
+        guard batchHandle == nil, playbackHandle == nil,
+              batchPartialURL == nil,
+              !fileManager.fileExists(atPath: openBatchJournalURL.path) else {
+            throw MeetingCaptureError.cleanupNotReady
+        }
+        try rejectSymbolicLink(captureURL)
+        guard captureURL.deletingLastPathComponent().standardizedFileURL == rootURL,
+              captureURL.path.hasPrefix(rootURL.path + "/") else {
+            throw MeetingCaptureError.storageUnavailable
+        }
+        try fileManager.removeItem(at: captureURL)
+        manifest = nil
+        self.captureURL = nil
+        return receipt
+    }
+
     func currentManifest() throws -> MeetingCaptureManifest {
         guard let manifest else { throw MeetingCaptureError.invalidState("prepare required") }
         return manifest
@@ -437,6 +512,154 @@ final class MeetingCaptureStore {
             captureId: manifest.captureId,
             durationMs: manifest.recordedAudioSamples * 1_000 / Int64(manifest.audio.sampleRate)
         )
+    }
+
+    private func makeCleanupReceipt(
+        checkpoint: MeetingServerCheckpoint,
+        manifest: MeetingCaptureManifest,
+        boundary: MeetingCaptureBoundary
+    ) throws -> MeetingCaptureCleanupReceipt {
+        guard checkpoint.schemaVersion == meetingCaptureSchemaVersion,
+              checkpoint.captureId == manifest.captureId,
+              checkpoint.meetingId == manifest.meetingId,
+              checkpoint.captureCheckpoint.state == "sealed",
+              checkpoint.captureCheckpoint.lastSealedEpoch == boundary.expectedEpoch,
+              checkpoint.captureCheckpoint.recordedThroughSample == boundary.recordedThroughSample,
+              checkpoint.captureCheckpoint.manifestRevision == boundary.manifestRevision,
+              checkpoint.ingestCheckpoint.ingestComplete,
+              checkpoint.ingestCheckpoint.accountedThroughSample == boundary.recordedThroughSample,
+              checkpoint.ingestCheckpoint.receivedBatches == manifest.batches.count,
+              checkpoint.ingestCheckpoint.receivedBytes == manifest.batches.reduce(Int64(0), {
+                  $0 + Int64($1.byteSize)
+              }),
+              checkpoint.ingestCheckpoint.missingSampleRanges.isEmpty,
+              checkpoint.ingestCheckpoint.acceptedGaps == manifest.gaps.count,
+              checkpoint.ingestCheckpoint.audioMissingSampleRanges.allSatisfy({ range in
+                  guard range.count == 2,
+                        let start = range["start"], let end = range["end"] else { return false }
+                  return start >= 0 && start < end
+              }),
+              canonicalSampleRanges(checkpoint.ingestCheckpoint.audioMissingSampleRanges) ==
+                  canonicalSampleRanges(manifest.gaps.map {
+                      ["start": $0.startSample, "end": $0.endSample]
+                  }),
+              checkpoint.finalizationCheckpoint.captureSealed,
+              checkpoint.finalizationCheckpoint.ingestComplete,
+              checkpoint.finalizationCheckpoint.hasUnrecoverableGaps == !manifest.gaps.isEmpty,
+              checkpoint.finalizationCheckpoint.packagingState == "ready",
+              checkpoint.finalizationCheckpoint.serverPlaybackState == "ready",
+              let serverHash = checkpoint.finalizationCheckpoint.wavSHA256,
+              serverHash.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+              let serverBytes = checkpoint.finalizationCheckpoint.wavByteSize,
+              serverBytes >= 44 else {
+            throw MeetingCaptureError.cleanupNotReady
+        }
+        let (localHash, localBytes) = try localPlaybackFingerprint(manifest: manifest)
+        guard localHash == serverHash, localBytes == serverBytes else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        return MeetingCaptureCleanupReceipt(
+            schemaVersion: MeetingCaptureCleanupReceipt.schemaValue,
+            captureId: manifest.captureId,
+            meetingId: manifest.meetingId,
+            streamEpoch: boundary.expectedEpoch,
+            recordedThroughSample: boundary.recordedThroughSample,
+            manifestRevision: boundary.manifestRevision,
+            serverWAVSHA256: serverHash,
+            serverWAVByteSize: serverBytes,
+            verifiedAt: Date()
+        )
+    }
+
+    private func validateCleanupReceipt(
+        _ receipt: MeetingCaptureCleanupReceipt,
+        against checkpoint: MeetingServerCheckpoint,
+        manifest: MeetingCaptureManifest
+    ) throws {
+        guard receipt.schemaVersion == MeetingCaptureCleanupReceipt.schemaValue else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        guard let boundary = manifest.finalSealBoundary,
+              receipt.captureId == manifest.captureId,
+              receipt.meetingId == manifest.meetingId,
+              receipt.streamEpoch == boundary.expectedEpoch,
+              receipt.recordedThroughSample == boundary.recordedThroughSample,
+              receipt.manifestRevision == boundary.manifestRevision else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        guard checkpoint.finalizationCheckpoint.wavSHA256 == receipt.serverWAVSHA256,
+              checkpoint.finalizationCheckpoint.wavByteSize == receipt.serverWAVByteSize else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        try validateLocalCleanupReceipt(receipt, manifest: manifest)
+    }
+
+    private func validateLocalCleanupReceipt(
+        _ receipt: MeetingCaptureCleanupReceipt,
+        manifest: MeetingCaptureManifest
+    ) throws {
+        guard receipt.schemaVersion == MeetingCaptureCleanupReceipt.schemaValue,
+              receipt.captureId == manifest.captureId,
+              receipt.meetingId == manifest.meetingId,
+              manifest.state == .stopped,
+              manifest.localPlaybackReady,
+              manifest.pendingGap == nil,
+              manifest.pendingRollover == nil,
+              manifest.finalSealBoundary?.expectedEpoch == receipt.streamEpoch,
+              manifest.finalSealBoundary?.recordedThroughSample == receipt.recordedThroughSample,
+              manifest.finalSealBoundary?.manifestRevision == receipt.manifestRevision,
+              manifest.batches.allSatisfy(\.uploaded),
+              manifest.gaps.allSatisfy({ $0.serverDeclared == true }) else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        let (localHash, localBytes) = try localPlaybackFingerprint(manifest: manifest)
+        guard localHash == receipt.serverWAVSHA256,
+              localBytes == receipt.serverWAVByteSize else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+    }
+
+    private func localPlaybackFingerprint(manifest: MeetingCaptureManifest) throws -> (String, Int64) {
+        let url = try safeCaptureFileURL(manifest.playbackFileName)
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              let fileSize = values.fileSize,
+              fileSize >= 44 else {
+            throw MeetingCaptureError.cleanupReceiptInvalid
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let chunk = try handle.read(upToCount: 1_048_576) ?? Data()
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return (digest, Int64(fileSize))
+    }
+
+    private func canonicalSampleRanges(_ ranges: [[String: Int64]]) -> [[String: Int64]] {
+        var intervals = ranges.compactMap { range -> (Int64, Int64)? in
+            guard let start = range["start"], let end = range["end"], start >= 0, start < end else {
+                return nil
+            }
+            return (start, end)
+        }
+        intervals.sort {
+            if $0.0 == $1.0 { return $0.1 < $1.1 }
+            return $0.0 < $1.0
+        }
+        var merged: [(Int64, Int64)] = []
+        for interval in intervals {
+            if let last = merged.last, interval.0 <= last.1 {
+                merged[merged.count - 1] = (last.0, max(last.1, interval.1))
+            } else {
+                merged.append(interval)
+            }
+        }
+        return merged.map { ["start": $0.0, "end": $0.1] }
     }
 
     func playbackURL(for handle: String) throws -> URL {

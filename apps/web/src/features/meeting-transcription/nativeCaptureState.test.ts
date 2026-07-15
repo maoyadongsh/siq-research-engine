@@ -4,7 +4,9 @@ import test from 'node:test'
 import {
   createNativePlaybackState,
   deriveNativeCaptureOperationalState,
+  nativePlaybackToggleAction,
   recoverNativeCaptureAfterForeground,
+  retainNativeRecoveryRequest,
   reduceNativePlaybackState,
 } from './nativeCaptureState'
 import {
@@ -311,4 +313,31 @@ test('server playback switch preserves position and falls back to the opaque loc
     playing: false,
   })
   assert.equal(invalidPosition, ready)
+})
+
+test('paused server playback resumes the current server source instead of reopening local audio', () => {
+  assert.equal(nativePlaybackToggleAction({
+    handle: 'capture-asset:capture-1',
+    source: 'server',
+    positionMs: 7_250,
+    durationMs: 10_000,
+    playing: false,
+    serverReady: true,
+  }), 'resume')
+  assert.equal(nativePlaybackToggleAction({
+    handle: 'capture-asset:capture-1',
+    source: 'local',
+    positionMs: 7_250,
+    durationMs: 10_000,
+    playing: true,
+    serverReady: false,
+  }), 'pause')
+  assert.equal(nativePlaybackToggleAction(null), 'play_local')
+})
+
+test('foreground recovery request persists only while uploads still need reconciliation', () => {
+  assert.equal(retainNativeRecoveryRequest('waiting_for_upload'), true)
+  assert.equal(retainNativeRecoveryRequest('rolled_over'), false)
+  assert.equal(retainNativeRecoveryRequest('stopped'), false)
+  assert.equal(retainNativeRecoveryRequest('not_recording'), false)
 })

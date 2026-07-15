@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -51,6 +51,7 @@ import {
 } from '@/features/meeting-transcription/api'
 import { MeetingArtifacts } from '@/features/meeting-transcription/components/MeetingArtifacts'
 import { MeetingModelSelector } from '@/features/meeting-transcription/components/MeetingModelSelector'
+import { NativeCapturePanel } from '@/features/meeting-transcription/components/NativeCapturePanel'
 import { SpeakerPanel } from '@/features/meeting-transcription/components/SpeakerPanel'
 import { TranscriptTimeline } from '@/features/meeting-transcription/components/TranscriptTimeline'
 import { formatMeetingDuration, meetingDurationMs, meetingStateLabels } from '@/features/meeting-transcription/formatters'
@@ -63,9 +64,12 @@ import {
   MEETING_TRANSCRIPT_PAGE_SIZE,
 } from '@/features/meeting-transcription/transcriptPagination'
 import { useMeetingRealtime } from '@/features/meeting-transcription/useMeetingRealtime'
+import { useNativeMeetingCapture } from '@/features/meeting-transcription/useNativeMeetingCapture'
 import type {
+  MeetingCapabilities,
   MeetingModel,
   MeetingSession,
+  MeetingSessionState,
   MeetingSpeakerTrack,
   MeetingTranscriptSegment,
   SegmentCorrectionRequest,
@@ -82,16 +86,35 @@ function connectionLabel(status: ReturnType<typeof useMeetingRealtime>['state'][
   return '未连接'
 }
 
+function meetingDisplayStatus(
+  serverStatus: MeetingSessionState,
+  nativeMode: boolean,
+  nativeLifecycle?: string,
+): MeetingSessionState {
+  if (!nativeMode) return serverStatus
+  if (nativeLifecycle === 'recording') return 'live'
+  if (nativeLifecycle === 'paused') return 'paused'
+  if (nativeLifecycle === 'interrupted' || nativeLifecycle === 'error') return 'interrupted'
+  if (nativeLifecycle === 'stopping') return 'stopping'
+  if (nativeLifecycle === 'stopped') {
+    return ['stopped', 'archived'].includes(serverStatus) ? serverStatus : 'stopping'
+  }
+  return serverStatus
+}
+
 export default function MeetingLive() {
   const { meetingId = '' } = useParams()
   const navigate = useNavigate()
   const { toast } = useToast()
   const realtime = useMeetingRealtime(meetingId)
+  const nativeCapture = useNativeMeetingCapture(meetingId)
+  const selectNativeCapture = nativeCapture.select
   const hydrateRealtime = realtime.hydrate
   const [session, setSession] = useState<MeetingSession | null>(null)
   const [models, setModels] = useState<MeetingModel[]>([])
   const [modelRef, setModelRef] = useState('auto')
   const [correctionLearningEnabled, setCorrectionLearningEnabled] = useState(false)
+  const [capabilities, setCapabilities] = useState<MeetingCapabilities | null>(null)
   const [hasEarlierSegments, setHasEarlierSegments] = useState(false)
   const [nextTranscriptOrdinal, setNextTranscriptOrdinal] = useState<number | null>(null)
   const [transcriptPageBusy, setTranscriptPageBusy] = useState<'earlier' | 'later' | null>(null)
@@ -100,6 +123,7 @@ export default function MeetingLive() {
   const [error, setError] = useState('')
   const [stopOpen, setStopOpen] = useState(false)
   const [now, setNow] = useState(0)
+  const nativeTranscriptRefreshPending = useRef(false)
   const desktopWorkspace = useMediaQuery(DESKTOP_WORKSPACE_QUERY)
   const wideWorkspace = useMediaQuery(WIDE_WORKSPACE_QUERY)
 
@@ -122,6 +146,7 @@ export default function MeetingLive() {
       setModels(availableModels)
       setModelRef(meeting.selection_mode === 'auto' ? 'auto' : meeting.requested_model_ref || 'auto')
       setCorrectionLearningEnabled(Boolean(capabilities?.correction_learning?.available))
+      setCapabilities(capabilities)
       setHasEarlierSegments((transcript.items[0]?.ordinal ?? 1) > 1)
       setNextTranscriptOrdinal(transcript.next_ordinal ?? null)
       hydrateRealtime({ segments: transcript.items || [], speakers, artifacts, sessionState: meeting.state })
@@ -142,6 +167,11 @@ export default function MeetingLive() {
   }, [load])
 
   useEffect(() => {
+    if (!capabilities) return
+    void selectNativeCapture(capabilities)
+  }, [capabilities, selectNativeCapture])
+
+  useEffect(() => {
     queueMicrotask(() => setNow(Date.now()))
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
@@ -149,12 +179,49 @@ export default function MeetingLive() {
 
   useEffect(() => {
     const warnBeforeLeave = (event: BeforeUnloadEvent) => {
-      if (!['live', 'connecting', 'reconnecting'].includes(realtime.state.sessionState)) return
+      const nativeActive = nativeCapture.state.mode === 'native'
+        && nativeCapture.state.bound
+        && ['recording', 'paused', 'interrupted', 'stopping'].includes(nativeCapture.state.status?.state ?? '')
+      if (nativeCapture.state.mode === 'native' ? !nativeActive : !['live', 'connecting', 'reconnecting'].includes(realtime.state.sessionState)) return
       event.preventDefault()
     }
     window.addEventListener('beforeunload', warnBeforeLeave)
     return () => window.removeEventListener('beforeunload', warnBeforeLeave)
-  }, [realtime.state.sessionState])
+  }, [nativeCapture.state.bound, nativeCapture.state.mode, nativeCapture.state.status?.state, realtime.state.sessionState])
+
+  const nativeStableOrdinal = nativeCapture.state.checkpoints?.realtime.stableOrdinal ?? 0
+  useEffect(() => {
+    if (nativeCapture.state.mode !== 'native' || nativeStableOrdinal <= 0 || nativeTranscriptRefreshPending.current) return
+    const latestOrdinal = latestTranscriptOrdinal(realtime.state.segments) ?? 0
+    if (nativeStableOrdinal <= latestOrdinal) return
+    nativeTranscriptRefreshPending.current = true
+    void getMeetingTranscript(meetingId, {
+      afterOrdinal: latestOrdinal,
+      limit: MEETING_TRANSCRIPT_PAGE_SIZE,
+    }).then((page) => {
+      hydrateRealtime({ segments: page.items })
+      setNextTranscriptOrdinal(page.next_ordinal ?? null)
+    }).catch(() => undefined).finally(() => {
+      nativeTranscriptRefreshPending.current = false
+    })
+  }, [hydrateRealtime, meetingId, nativeCapture.state.mode, nativeStableOrdinal, realtime.state.segments])
+
+  useEffect(() => {
+    if (
+      nativeCapture.state.mode !== 'native'
+      || nativeCapture.state.status?.state !== 'stopped'
+      || ['stopped', 'archived'].includes(session?.state ?? '')
+    ) return undefined
+    const refreshSession = () => {
+      void getMeeting(meetingId).then((updated) => {
+        setSession(updated)
+        hydrateRealtime({ sessionState: updated.state })
+      }).catch(() => undefined)
+    }
+    refreshSession()
+    const timer = window.setInterval(refreshSession, 2_000)
+    return () => window.clearInterval(timer)
+  }, [hydrateRealtime, meetingId, nativeCapture.state.mode, nativeCapture.state.status?.state, session?.state])
 
   async function connect() {
     if (!session) return
@@ -162,6 +229,17 @@ export default function MeetingLive() {
     setError('')
     let capturePrepared = false
     try {
+      const nativeSelected = await nativeCapture.select(capabilities)
+      if (nativeSelected) {
+        let current = session
+        if (session.state === 'draft') {
+          current = await startMeeting(meetingId)
+          setSession(current)
+          realtime.hydrate({ sessionState: current.state })
+        }
+        await nativeCapture.start(current.stream_epoch)
+        return
+      }
       let storedDevice = ''
       try { storedDevice = sessionStorage.getItem(`siq-meeting-device:${meetingId}`) || '' } catch { /* Ignore unavailable storage. */ }
       await realtime.prepareCapture({
@@ -194,10 +272,19 @@ export default function MeetingLive() {
     if (!session) return
     setBusy(true)
     try {
-      await realtime.pause()
-      const updated = await pauseMeeting(meetingId, session.version)
-      setSession(updated)
-      realtime.hydrate({ sessionState: updated.state })
+      if (nativeCapture.state.mode === 'native') {
+        await nativeCapture.pause()
+        if (['live', 'reconnecting'].includes(session.state)) {
+          const updated = await pauseMeeting(meetingId, session.version)
+          setSession(updated)
+          realtime.hydrate({ sessionState: updated.state })
+        }
+      } else {
+        await realtime.pause()
+        const updated = await pauseMeeting(meetingId, session.version)
+        setSession(updated)
+        realtime.hydrate({ sessionState: updated.state })
+      }
     } catch (pauseError) {
       setError(pauseError instanceof Error ? pauseError.message : '暂停失败')
     } finally {
@@ -209,11 +296,24 @@ export default function MeetingLive() {
     if (!session) return
     setBusy(true)
     try {
-      const updated = await resumeMeeting(meetingId, session.version)
-      setSession(updated)
-      realtime.hydrate({ sessionState: updated.state })
-      if (realtime.state.connectionStatus === 'connected') await realtime.resume()
-      else await connect()
+      if (nativeCapture.state.mode === 'native') {
+        if (nativeCapture.state.bound) {
+          if (['paused', 'interrupted'].includes(session.state)) {
+            const updated = await resumeMeeting(meetingId, session.version)
+            setSession(updated)
+            realtime.hydrate({ sessionState: updated.state })
+          }
+          await nativeCapture.resume()
+        } else {
+          await connect()
+        }
+      } else {
+        const updated = await resumeMeeting(meetingId, session.version)
+        setSession(updated)
+        realtime.hydrate({ sessionState: updated.state })
+        if (realtime.state.connectionStatus === 'connected') await realtime.resume()
+        else await connect()
+      }
     } catch (resumeError) {
       setError(resumeError instanceof Error ? resumeError.message : '恢复失败')
     } finally {
@@ -226,6 +326,16 @@ export default function MeetingLive() {
     setBusy(true)
     setError('')
     try {
+      if (nativeCapture.state.mode === 'native') {
+        await nativeCapture.stop()
+        setStopOpen(false)
+        toast({
+          title: '本地录音已封存',
+          description: '录音可立即回放，剩余批次会继续上传并由服务端自动完成转写。',
+          type: 'success',
+        })
+        return
+      }
       await realtime.stop()
       let stopped = await stopMeeting(meetingId, session.version)
       for (let attempt = 0; stopped.state === 'stopping' && attempt < 15; attempt += 1) {
@@ -359,8 +469,20 @@ export default function MeetingLive() {
   }
 
   const duration = useMemo(() => meetingDurationMs(session?.started_at, session?.stopped_at, now), [now, session?.started_at, session?.stopped_at])
-  const status = realtime.state.sessionState === 'draft' && session ? session.state : realtime.state.sessionState
-  const active = ['live', 'connecting', 'reconnecting'].includes(status)
+  const serverStatus = realtime.state.sessionState === 'draft' && session ? session.state : realtime.state.sessionState
+  const nativeMode = nativeCapture.state.mode === 'native'
+  const nativeLifecycle = nativeCapture.state.status?.state
+  const status = meetingDisplayStatus(serverStatus, nativeMode, nativeLifecycle)
+  const statusLabel = nativeMode && nativeLifecycle === 'recording'
+    ? '录音中'
+    : meetingStateLabels[status] || status
+  const active = nativeMode
+    ? nativeCapture.state.bound && nativeLifecycle === 'recording'
+    : ['live', 'connecting', 'reconnecting'].includes(status)
+  const captureConnected = nativeMode
+    ? nativeCapture.state.bound && ['recording', 'paused', 'interrupted', 'stopping', 'stopped'].includes(nativeLifecycle ?? '')
+    : realtime.state.connectionStatus === 'connected'
+  const nativeNeedsStart = nativeMode && !nativeCapture.state.bound
   const selectedModel = models.find((model) => model.model_ref === modelRef)
   const savedSegmentCount = Math.max(session?.last_segment_ordinal ?? 0, latestTranscriptOrdinal(realtime.state.segments) ?? 0)
 
@@ -383,7 +505,7 @@ export default function MeetingLive() {
   const transcriptWorkspace = (
     <Surface kind="panel" className="min-w-0">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-text">实时逐字稿</h2>
+        <h2 className="text-sm font-semibold text-text">{nativeMode ? '会议逐字稿' : '实时逐字稿'}</h2>
         <span className="text-xs tabular-nums text-text-muted">{savedSegmentCount} 句已保存 · 已加载 {realtime.state.segments.length}</span>
       </div>
       <TranscriptTimeline
@@ -423,19 +545,30 @@ export default function MeetingLive() {
         <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Button asChild variant="ghost" size="icon-sm" className="max-sm:size-11"><Link to="/meetings" aria-label="返回会议列表"><ArrowLeft /></Link></Button>
-            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-text">{session.title}</h1><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted"><StatusBadge tone={active ? 'success' : status === 'paused' ? 'warning' : 'neutral'} icon={active ? Radio : undefined}>{meetingStateLabels[status] || status}</StatusBadge><span className="font-mono tabular-nums">{formatMeetingDuration(duration)}</span><span className="inline-flex items-center gap-1">{realtime.state.connectionStatus === 'connected' ? <Wifi className="h-3.5 w-3.5 text-success" /> : <WifiOff className="h-3.5 w-3.5" />}{connectionLabel(realtime.state.connectionStatus)}</span>{realtime.state.asrLatencyMs != null ? <span>延迟 {(realtime.state.asrLatencyMs / 1000).toFixed(1)}s</span> : null}</div></div>
+            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-text">{session.title}</h1><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted"><StatusBadge tone={active ? 'success' : status === 'paused' ? 'warning' : 'neutral'} icon={active ? Radio : undefined}>{statusLabel}</StatusBadge><span className="font-mono tabular-nums">{formatMeetingDuration(duration)}</span><span className="inline-flex items-center gap-1">{captureConnected ? <Wifi className="h-3.5 w-3.5 text-success" /> : <WifiOff className="h-3.5 w-3.5" />}{nativeMode ? 'iPhone 原生采集' : connectionLabel(realtime.state.connectionStatus)}</span>{!nativeMode && realtime.state.asrLatencyMs != null ? <span>延迟 {(realtime.state.asrLatencyMs / 1000).toFixed(1)}s</span> : null}</div></div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {status === 'draft' || (active && realtime.state.connectionStatus !== 'connected') ? <Button type="button" onClick={() => void connect()} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Mic2 />}{status === 'draft' ? '开始会议' : '连接麦克风'}</Button> : null}
-            {active && realtime.state.connectionStatus === 'connected' ? <Button type="button" variant="secondary" onClick={() => void pause()} disabled={busy}><Pause />暂停</Button> : null}
-            {['paused', 'interrupted'].includes(status) ? <Button type="button" onClick={() => void resume()} disabled={busy}><Play />恢复</Button> : null}
-            {!['stopped', 'stopping', 'archived'].includes(status) ? <Button type="button" variant="danger" onClick={() => setStopOpen(true)} disabled={busy}><CircleStop />结束</Button> : null}
+            {status === 'draft' || nativeNeedsStart || (!nativeMode && active && realtime.state.connectionStatus !== 'connected') ? <Button type="button" onClick={() => void connect()} disabled={busy || nativeCapture.state.busy}>{busy ? <Loader2 className="animate-spin" /> : <Mic2 />}{status === 'draft' ? '开始会议' : nativeMode && nativeLifecycle ? '载入原生采集' : nativeMode ? '启动原生采集' : '连接麦克风'}</Button> : null}
+            {active && captureConnected ? <Button type="button" variant="secondary" onClick={() => void pause()} disabled={busy || nativeCapture.state.busy}><Pause />暂停</Button> : null}
+            {(nativeMode && nativeCapture.state.bound && ['paused', 'interrupted'].includes(nativeLifecycle ?? '')) || (!nativeMode && ['paused', 'interrupted'].includes(status)) ? <Button type="button" onClick={() => void resume()} disabled={busy || nativeCapture.state.busy}><Play />恢复</Button> : null}
+            {!['stopped', 'stopping', 'archived'].includes(status) && nativeLifecycle !== 'stopped' ? <Button type="button" variant="danger" onClick={() => setStopOpen(true)} disabled={busy || nativeCapture.state.busy}><CircleStop />结束</Button> : null}
           </div>
         </div>
       </Surface>
 
-      {error || realtime.streamError ? <div role="alert" className="flex items-start gap-2 rounded-md border border-error/25 bg-error-soft px-4 py-3 text-sm text-error"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error || realtime.streamError}<Button type="button" size="icon-xs" variant="ghost" className="ml-auto max-sm:size-11" onClick={() => void (status === 'interrupted' ? resume() : connect())} aria-label="重新连接"><RefreshCw /></Button></div> : null}
+      {error || nativeCapture.state.error || (!nativeMode && realtime.streamError) ? <div role="alert" className="flex items-start gap-2 rounded-md border border-error/25 bg-error-soft px-4 py-3 text-sm text-error"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error || nativeCapture.state.error || realtime.streamError}<Button type="button" size="icon-xs" variant="ghost" className="ml-auto max-sm:size-11" onClick={() => void (nativeMode ? nativeCapture.state.bound ? nativeCapture.retryUploads() : connect() : status === 'interrupted' ? resume() : connect())} aria-label="重试"><RefreshCw /></Button></div> : null}
       {realtime.state.pipelineWarnings.some((warning) => !warning.recovered) ? <div className="rounded-md border border-warning/30 bg-warning-soft/55 px-4 py-3 text-sm text-text">可选处理能力暂时降级，录音与稳定逐字稿仍会继续保存。</div> : null}
+
+      {nativeMode ? (
+        <NativeCapturePanel
+          state={nativeCapture.state}
+          canCleanup={nativeCapture.canCleanup}
+          onRetryUploads={() => void nativeCapture.retryUploads()}
+          onTogglePlayback={() => void nativeCapture.togglePlayback()}
+          onSeekPlayback={(positionMs) => void nativeCapture.seekPlayback(positionMs)}
+          onDiscardLocal={() => void nativeCapture.discardLocal()}
+        />
+      ) : null}
 
       {wideWorkspace ? (
         <div className="grid grid-cols-[220px_minmax(0,1fr)_340px] gap-4">
@@ -468,16 +601,16 @@ export default function MeetingLive() {
         </Tabs>
       )}
 
-      <Surface kind="muted" padding="sm" className="grid gap-3 text-xs text-text-muted sm:grid-cols-4">
+      {!nativeMode ? <Surface kind="muted" padding="sm" className="grid gap-3 text-xs text-text-muted sm:grid-cols-4">
         <div><p>音频输入</p><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted"><div className="h-full origin-left bg-success transition-transform" style={{ transform: `scaleX(${realtime.inputLevel})` }} /></div></div>
         <div><p>网络状态</p><p className="mt-1 font-medium text-text">{connectionLabel(realtime.state.connectionStatus)}</p></div>
         <div><p>ASR 状态</p><p className="mt-1 font-medium text-text">{active ? '实时识别' : status === 'paused' ? '已暂停' : '等待开始'}</p></div>
         <div><p>AI 模型</p><p className="mt-1 truncate font-medium text-text" title={selectedModel?.label}>{session.ai_enabled ? selectedModel?.label || (modelRef === 'auto' ? '自动选择' : modelRef) : '已关闭'} {selectedModel?.locality === 'cloud' ? <Cloud className="inline h-3.5 w-3.5" /> : session.ai_enabled ? <Cpu className="inline h-3.5 w-3.5" /> : null}</p></div>
-      </Surface>
+      </Surface> : null}
 
       <Dialog open={stopOpen} onOpenChange={(open) => { if (!busy) setStopOpen(open) }}>
         <DialogContent className="bg-card text-text sm:max-w-md">
-          <DialogHeader><DialogTitle>结束本场会议？</DialogTitle><DialogDescription className="leading-6">系统会发送最后音频分片、关闭采集，并在后台继续最终转写、说话人整理和纪要生成。</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>结束本场会议？</DialogTitle><DialogDescription className="leading-6">{nativeMode ? 'iPhone 会先封存本地录音并立即开放回放，剩余批次会继续上传；服务端完整校验后自动生成最终转写与纪要。' : '系统会发送最后音频分片、关闭采集，并在后台继续最终转写、说话人整理和纪要生成。'}</DialogDescription></DialogHeader>
           <DialogFooter><Button type="button" variant="secondary" onClick={() => setStopOpen(false)} disabled={busy}>继续会议</Button><Button type="button" variant="danger" onClick={() => void finish()} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <CircleStop />}确认结束</Button></DialogFooter>
         </DialogContent>
       </Dialog>

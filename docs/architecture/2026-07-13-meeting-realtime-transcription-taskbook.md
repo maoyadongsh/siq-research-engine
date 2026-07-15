@@ -1422,7 +1422,7 @@ ${SIQ_MEETING_AUDIO_ROOT}/<owner_user_id>/<meeting_id>/
 | `WS` | `/sessions/{id}/audio?ticket=...` | 上传音频并接收实时事件 |
 | `GET` | `/sessions/{id}/events?after_cursor=` | 重连回放 durable event |
 | `GET` | `/sessions/{id}/events/stream?after_cursor=` | 可选 SSE 观察者连接 |
-| `GET` | `/sessions/{id}/transcript?after_ordinal=&limit=` | 分页读取稳定逐字稿 |
+| `GET` | `/sessions/{id}/transcript?after_ordinal=&at_ms=&limit=` | 按序分页或按播放时间读取有界稳定逐字稿窗口 |
 
 ### 9.5 逐字稿与说话人
 
@@ -2317,7 +2317,7 @@ SIQ_MEETING_ASR_WS_URL=
 SIQ_MEETING_ASR_FINAL_URL=
 SIQ_MEETING_AUDIO_ROOT=/home/maoyd/siq-research-engine/var/meetings
 SIQ_MEETING_MAX_DURATION_SECONDS=14400
-SIQ_MEETING_AUDIO_CHUNK_MS=500
+SIQ_MEETING_AUDIO_CHUNK_MS=200
 SIQ_MEETING_AUDIO_MAX_FRAME_BYTES=
 SIQ_MEETING_RECONNECT_BUFFER_SECONDS=60
 SIQ_MEETING_LEXICON_AUTO_CANDIDATE_MIN_OCCURRENCES=
@@ -2333,6 +2333,8 @@ SIQ_MEETING_AUDIO_RETENTION_DAYS=90
 SIQ_MEETING_TEMP_RETENTION_HOURS=6
 SIQ_MEETING_WORKER_CONCURRENCY=
 SIQ_MEETING_AI_CONCURRENCY=
+SIQ_MEETING_FINAL_ASR_MAX_CONCURRENCY=2
+SIQ_MEETING_FINAL_ASR_WINDOW_OVERLAP_MS=2000
 SIQ_MEETING_VOICEPRINT_KEY_ID=
 SIQ_MEETING_VOICEPRINT_KEY_ENV=
 ```

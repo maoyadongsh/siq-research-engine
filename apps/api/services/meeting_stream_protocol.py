@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 STREAM_SCHEMA_VERSION = "siq.meeting.stream.v1"
 SPEECH_EVENT_SCHEMA_VERSION = "siq.meeting.speech.event.v1"
@@ -61,7 +61,29 @@ class GatewayStreamStart(BaseModel):
     last_acked_sequence: int = Field(default=-1, ge=-1)
     language: str | None = Field(default=None, min_length=1, max_length=32)
     hotwords: list[str] = Field(default_factory=list, max_length=1_000)
+    hotword_version: int | None = Field(default=None, ge=1)
     trace_id: UUID | None = None
+
+
+class GatewayHotwordUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["stream.hotwords.update"]
+    schema_version: Literal[STREAM_SCHEMA_VERSION]
+    request_id: UUID
+    hotword_version: int = Field(ge=1)
+    effective_sequence: int = Field(ge=0)
+    hotwords: list[str] = Field(default_factory=list, max_length=1_000)
+
+    @field_validator("hotwords")
+    @classmethod
+    def validate_hotwords(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values]
+        if any(not value or len(value) > 256 for value in normalized):
+            raise ValueError("hotwords must be non-empty and bounded")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("hotwords must be unique")
+        return normalized
 
 
 _CONTROLS = {
@@ -70,6 +92,7 @@ _CONTROLS = {
     "stream.stop",
     "stream.heartbeat",
     "stream.resume_request",
+    "stream.hotwords.update",
 }
 
 
@@ -119,11 +142,24 @@ def parse_control(raw: str) -> dict[str, Any]:
     value = _json_object(raw)
     if value.get("schema_version") != STREAM_SCHEMA_VERSION or value.get("type") not in _CONTROLS:
         raise MeetingStreamProtocolError("CONTROL_MESSAGE_INVALID", "control message is invalid")
+    if value["type"] == "stream.hotwords.update":
+        try:
+            return GatewayHotwordUpdate.model_validate(value).model_dump(mode="json")
+        except ValidationError as exc:
+            raise MeetingStreamProtocolError("CONTROL_MESSAGE_INVALID", "hotword update is invalid") from exc
     if value["type"] == "stream.resume_request":
         sequence = value.get("last_acked_sequence")
         if not isinstance(sequence, int) or sequence < -1:
             raise MeetingStreamProtocolError("CONTROL_MESSAGE_INVALID", "resume sequence is invalid")
-    allowed = {"type", "schema_version", "last_acked_sequence"}
+    if value["type"] == "stream.heartbeat" and "next_sequence" in value:
+        next_sequence = value.get("next_sequence")
+        if not isinstance(next_sequence, int) or isinstance(next_sequence, bool) or next_sequence < 0:
+            raise MeetingStreamProtocolError("CONTROL_MESSAGE_INVALID", "heartbeat sequence is invalid")
+    allowed = {"type", "schema_version"}
+    if value["type"] == "stream.resume_request":
+        allowed.add("last_acked_sequence")
+    elif value["type"] == "stream.heartbeat":
+        allowed.add("next_sequence")
     if set(value) - allowed:
         raise MeetingStreamProtocolError("CONTROL_MESSAGE_INVALID", "control message has unsupported fields")
     return value

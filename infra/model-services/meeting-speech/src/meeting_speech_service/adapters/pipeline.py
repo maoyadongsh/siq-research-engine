@@ -55,6 +55,8 @@ class Decoder(Protocol):
 
     def final(self, pcm: bytes) -> FinalDecode: ...
 
+    def update_hotwords(self, hotwords: tuple[str, ...]) -> None: ...
+
 
 class SpeakerHook(Protocol):
     def assign(self, pcm: bytes, *, start_ms: int, end_ms: int) -> SpeakerAssignment | None: ...
@@ -153,6 +155,7 @@ class BufferedRecognitionSession(SpeechSession):
         self._online_cache: dict[str, object] = {}
         self._partial_text = ""
         self._last_partial_emitted = ""
+        self._hotword_version = options.hotword_version
         self._last_capture_end_ms = 0
         self._closed = False
         self._inflight: asyncio.Future[tuple[Recognition, ...]] | None = None
@@ -194,6 +197,31 @@ class BufferedRecognitionSession(SpeechSession):
     async def flush(self) -> tuple[Recognition, ...]:
         return await self.ingest(b"", capture_time_ms=self._last_capture_end_ms, end_of_stream=True)
 
+    async def update_hotwords(
+        self,
+        hotwords: tuple[str, ...],
+        *,
+        hotword_version: int,
+    ) -> tuple[Recognition, ...]:
+        async with self._async_lock:
+            if self._closed:
+                raise RuntimeError("speech session is closed")
+            operation = asyncio.get_running_loop().run_in_executor(
+                None,
+                self._update_hotwords_sync,
+                tuple(hotwords),
+                hotword_version,
+            )
+            self._inflight = operation
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(operation),
+                    timeout=self._options.inference_timeout_seconds,
+                )
+            finally:
+                if operation.done():
+                    self._inflight = None
+
     async def close(self) -> None:
         async with self._async_lock:
             self._closed = True
@@ -234,7 +262,18 @@ class BufferedRecognitionSession(SpeechSession):
 
         was_speaking = self._vad.speaking
         decision = self._vad.process(pcm, is_final=end_of_stream)
-        belongs_to_segment = bool(pcm) and (was_speaking or decision.started or decision.speaking or decision.endpoint)
+        # The model VAD remains authoritative for sentence endpoints, but its
+        # onset signal may trail audible speech. A small local energy gate lets
+        # the online decoder start on the first real 200 ms chunk. Empty model
+        # output is still suppressed, so this never emits placeholder text.
+        eager_voiced = bool(pcm) and _pcm_rms(pcm) >= self._options.vad_energy_threshold
+        belongs_to_segment = bool(pcm) and (
+            was_speaking
+            or decision.started
+            or decision.speaking
+            or decision.endpoint
+            or (self._options.online_decode_enabled and eager_voiced)
+        )
 
         if belongs_to_segment:
             prefix = b""
@@ -286,6 +325,7 @@ class BufferedRecognitionSession(SpeechSession):
             start_ms=self._segment_start_ms or 0,
             end_ms=max(self._segment_start_ms or 0, end_ms),
             adapter=self._adapter_name,
+            hotword_version=self._hotword_version,
         )
 
     def _finalize_segment(self, reason: str, end_ms: int) -> tuple[Recognition, ...]:
@@ -332,11 +372,30 @@ class BufferedRecognitionSession(SpeechSession):
                 degraded_reason=degraded_reason,
                 inference_ms=inference_ms,
                 source_speaker_hints=decoded.source_speaker_hints,
+                hotword_version=self._hotword_version,
             )
         self._clear_segment()
         if result is None:
             return ()
         return (result,)
+
+    def _update_hotwords_sync(
+        self,
+        hotwords: tuple[str, ...],
+        hotword_version: int,
+    ) -> tuple[Recognition, ...]:
+        # Finalize all audio decoded with the previous vocabulary before the
+        # decoder/cache switch. The next audio frame therefore has one exact
+        # sequence boundary and cannot rewrite an older segment.
+        results = self._finalize_segment("hotword_update", self._last_capture_end_ms)
+        self._vad.reset()
+        self._pre_roll.clear()
+        self._pre_roll_bytes = 0
+        update = getattr(self._decoder, "update_hotwords", None)
+        if callable(update):
+            update(hotwords)
+        self._hotword_version = hotword_version
+        return results
 
     def _observe_speaker_result(self, result: str, track_result: str | None) -> None:
         if self._speaker_metrics_observer is None:
@@ -383,6 +442,13 @@ def _pcm_to_float32(pcm: bytes) -> np.ndarray:
     if not pcm:
         return np.empty(0, dtype=np.float32)
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+
+
+def _pcm_rms(pcm: bytes) -> float:
+    samples = _pcm_to_float32(pcm)
+    if not samples.size:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(samples), dtype=np.float64)))
 
 
 def _pcm_duration_ms(pcm: bytes, sample_rate: int) -> int:

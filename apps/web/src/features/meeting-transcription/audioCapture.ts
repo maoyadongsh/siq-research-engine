@@ -4,7 +4,7 @@ class SiqMeetingPcmProcessor extends AudioWorkletProcessor {
     super()
     const config = options.processorOptions || {}
     this.targetRate = config.targetSampleRate || 16000
-    this.chunkMs = config.chunkMs || 500
+    this.chunkMs = config.chunkMs || 200
     this.outputFrames = Math.round(this.targetRate * this.chunkMs / 1000)
     this.ratio = sampleRate / this.targetRate
     this.samples = []
@@ -150,7 +150,7 @@ export class AudioWorkletMeetingCapture implements MeetingAudioCapture {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: { targetSampleRate: 16000, chunkMs: this.options.chunkMs || 500 },
+        processorOptions: { targetSampleRate: 16000, chunkMs: this.options.chunkMs || 200 },
       })
       this.silentGain = this.context.createGain()
       this.silentGain.gain.value = 0

@@ -14,6 +14,8 @@ import {
   type MeetingCapturePrepareOptions,
   type MeetingCaptureStatus,
   type MeetingLocalPlaybackAsset,
+  type MeetingNativePlaybackStatus,
+  type MeetingNativeCaptureCleanupReceipt,
   type MeetingNativeCapturePrepareOptions,
   type MeetingNativeRuntimeCapability,
 } from './nativeCapture'
@@ -303,7 +305,50 @@ export class IosNativeCaptureAdapter implements MeetingCaptureAdapter<MeetingNat
   }
 
   async discardLocalCapture(confirmedServerComplete: boolean) {
-    return (await this.plugin.discardLocalCapture({ confirmedServerComplete })).discarded
+    await this.discardLocalCaptureWithReceipt(confirmedServerComplete)
+    return true
+  }
+
+  async discardLocalCaptureWithReceipt(
+    confirmedServerComplete: boolean,
+  ): Promise<MeetingNativeCaptureCleanupReceipt> {
+    const result = await this.plugin.discardLocalCapture({ confirmedServerComplete })
+    if (!result.discarded || !result.cleanupReceipt) {
+      throw new Error('原生采集未返回可验证的清理回执。')
+    }
+    return result.cleanupReceipt
+  }
+
+  async recoverPendingCaptures() {
+    return (await this.plugin.recoverPendingCaptures()).captures
+  }
+
+  async rollover() {
+    return (await this.plugin.rollover()).rollover
+  }
+
+  async playLocalPlayback(handle: string): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.playLocalPlayback({ handle })).playback
+  }
+
+  async pausePlayback(): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.pausePlayback()).playback
+  }
+
+  async resumePlayback(): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.resumePlayback()).playback
+  }
+
+  async seekPlayback(positionMs: number): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.seekPlayback({ positionMs })).playback
+  }
+
+  async getPlaybackStatus(): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.getPlaybackStatus()).playback
+  }
+
+  async switchToServerPlayback(handle: string, serverUrl: string): Promise<MeetingNativePlaybackStatus> {
+    return (await this.plugin.switchToServerPlayback({ handle, serverUrl })).playback
   }
 
   async addListener<Name extends MeetingCaptureEventName>(

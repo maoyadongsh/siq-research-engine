@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from meeting_speech_service.adapters.base import (
+    INDEPENDENT_FINALIZATION_PROTOCOL,
     EngineSnapshot,
     SessionOptions,
     SpeakerEmbedding,
@@ -52,6 +53,7 @@ class MockSpeechEngine(SpeechEngine):
             configuration={
                 "speaker_adapter": speaker_adapter,
                 "clusterer": "mock-single-speaker-v1" if effective_adapter == "mock" else "disabled",
+                "finalization_protocol": INDEPENDENT_FINALIZATION_PROTOCOL,
             },
         )
 

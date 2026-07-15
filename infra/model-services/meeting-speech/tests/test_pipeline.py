@@ -108,6 +108,38 @@ def test_offline_session_skips_online_decode_but_keeps_final_decode() -> None:
     asyncio.run(scenario())
 
 
+def test_energy_onset_emits_real_partial_before_model_vad_confirms_speech() -> None:
+    class _DelayedVad:
+        speaking = False
+
+        def process(self, pcm: bytes, *, is_final: bool):
+            from meeting_speech_service.adapters.pipeline import VadDecision
+
+            return VadDecision(started=False, speaking=False, endpoint=is_final)
+
+        def reset(self) -> None:
+            return None
+
+    async def scenario() -> None:
+        decoder = _CountingDecoder()
+        session = BufferedRecognitionSession(
+            adapter_name="low-latency-test",
+            options=_options(),
+            vad=_DelayedVad(),
+            decoder=decoder,
+        )
+        pcm = (12_000).to_bytes(2, "little", signed=True) * 3_200
+        results = await session.ingest(pcm, capture_time_ms=0)
+
+        assert decoder.online_calls == 1
+        assert [result.kind for result in results] == ["partial"]
+        assert results[0].text == "partial"
+        assert results[0].end_ms == 200
+        await session.close()
+
+    asyncio.run(scenario())
+
+
 def test_speaker_metrics_distinguish_created_reused_unassigned_and_failed() -> None:
     class _NoAssignment:
         def assign(self, pcm: bytes, *, start_ms: int, end_ms: int):

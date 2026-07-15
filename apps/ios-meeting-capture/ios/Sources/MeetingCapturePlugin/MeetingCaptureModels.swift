@@ -26,6 +26,8 @@ enum MeetingCaptureError: Error {
     case serverConflict
     case serverResponseInvalid
     case userSessionUnavailable
+    case cleanupNotReady
+    case cleanupReceiptInvalid
 
     var code: String {
         switch self {
@@ -40,13 +42,15 @@ enum MeetingCaptureError: Error {
         case .serverConflict: return "native_capture.server_conflict"
         case .serverResponseInvalid: return "native_capture.server_response_invalid"
         case .userSessionUnavailable: return "native_capture.user_session_unavailable"
+        case .cleanupNotReady: return "native_capture.cleanup_not_ready"
+        case .cleanupReceiptInvalid: return "native_capture.cleanup_receipt_invalid"
         }
     }
 
     var recoverable: Bool {
         switch self {
         case .microphoneDenied, .storageQuotaExceeded, .corruptManifest, .serverConflict,
-             .serverResponseInvalid:
+             .serverResponseInvalid, .cleanupReceiptInvalid:
             return false
         default:
             return true
@@ -152,6 +156,34 @@ struct MeetingCapturePendingGap: Codable, Equatable {
     var manifestEntries: [MeetingCaptureCanonicalEntry]? = nil
 }
 
+struct MeetingCaptureCleanupReceipt: Codable, Equatable {
+    static let schemaValue = "siq.meeting.native_capture.cleanup_receipt.v1"
+
+    let schemaVersion: String
+    let captureId: String
+    let meetingId: String
+    let streamEpoch: Int
+    let recordedThroughSample: Int64
+    let manifestRevision: Int
+    let serverWAVSHA256: String
+    let serverWAVByteSize: Int64
+    let verifiedAt: Date
+
+    var dictionary: [String: Any] {
+        [
+            "schemaVersion": schemaVersion,
+            "captureId": captureId,
+            "meetingId": meetingId,
+            "streamEpoch": streamEpoch,
+            "recordedThroughSample": recordedThroughSample,
+            "manifestRevision": manifestRevision,
+            "serverWavSha256": serverWAVSHA256,
+            "serverWavByteSize": serverWAVByteSize,
+            "verifiedAt": ISO8601DateFormatter().string(from: verifiedAt)
+        ]
+    }
+}
+
 struct MeetingCaptureGapMaterialization {
     let gap: MeetingCaptureGap
     let entries: [MeetingCaptureCanonicalEntry]
@@ -181,6 +213,7 @@ struct MeetingCaptureManifest: Codable, Equatable {
     var pendingGap: MeetingCapturePendingGap? = nil
     var pendingRollover: MeetingCapturePendingRollover? = nil
     var finalSealBoundary: MeetingCaptureBoundary? = nil
+    var cleanupReceipt: MeetingCaptureCleanupReceipt? = nil
     var createdAt: Date
     var updatedAt: Date
 }

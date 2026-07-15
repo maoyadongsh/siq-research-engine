@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import MeetingCapturePlugin
@@ -313,6 +314,127 @@ final class MeetingCaptureStoreTests: XCTestCase {
         XCTAssertThrowsError(try store.pause(reason: "user", interrupted: false))
     }
 
+    func testCleanupRequiresReadyServerProofAndCompletesAfterCrashRecovery() throws {
+        let captureId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try MeetingCaptureStore(rootURL: root)
+        _ = try store.prepare(
+            meetingId: "meeting-cleanup",
+            captureId: captureId,
+            apiBaseURL: "https://example.test/api/meetings/v1",
+            trustedAPIOrigin: "https://example.test",
+            streamEpoch: 1,
+            audio: MeetingCaptureAudioConfiguration(batchDurationMs: 1_000),
+            limits: MeetingCaptureLimits(maxBatchBytes: 64_000, maxTotalBytes: 1_000_000, maxDurationSeconds: 60)
+        )
+        try store.startWriting()
+        _ = try store.appendPCM(Data(repeating: 8, count: 32_000), capturedMonotonicNs: 8)
+        _ = try store.stop()
+        let boundary = try store.beginFinalSealBoundary()
+        let playbackURL = try store.playbackURL(for: "capture-asset:\(captureId)")
+        let playbackData = try Data(contentsOf: playbackURL)
+        let playbackHash = SHA256.hash(data: playbackData).map { String(format: "%02x", $0) }.joined()
+        let captureDirectory = root.appendingPathComponent(captureId)
+
+        XCTAssertThrowsError(try store.stageCleanup(
+            afterAuthenticatedCheckpoint: serverCheckpoint(
+                captureId: captureId,
+                meetingId: "meeting-cleanup"
+            )
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: captureDirectory.path))
+
+        let ready = readyServerCheckpoint(
+            captureId: captureId,
+            meetingId: "meeting-cleanup",
+            boundary: boundary,
+            wavSHA256: playbackHash,
+            wavByteSize: Int64(playbackData.count)
+        )
+        let receipt = try store.stageCleanup(afterAuthenticatedCheckpoint: ready)
+        XCTAssertEqual(receipt.schemaVersion, "siq.meeting.native_capture.cleanup_receipt.v1")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: captureDirectory.path))
+
+        // Simulate a process death after staging the receipt but before the
+        // directory deletion. Recovery must not need a live recorder or token.
+        let recoveredStore = try MeetingCaptureStore(rootURL: root)
+        let recovered = try recoveredStore.recover(
+            captureId: captureId,
+            trustedAPIOrigin: "https://example.test"
+        )
+        XCTAssertNotNil(recovered.cleanupReceipt)
+        XCTAssertEqual(try recoveredStore.completeStagedCleanup(), receipt)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: captureDirectory.path))
+    }
+
+    func testCleanupAcceptsOnlyServerAudioMissingRangesBackedByDeclaredGaps() throws {
+        let captureId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try MeetingCaptureStore(rootURL: root)
+        _ = try store.prepare(
+            meetingId: "meeting-cleanup-gap",
+            captureId: captureId,
+            apiBaseURL: "https://example.test/api/meetings/v1",
+            trustedAPIOrigin: "https://example.test",
+            streamEpoch: 1,
+            audio: MeetingCaptureAudioConfiguration(batchDurationMs: 1_000),
+            limits: MeetingCaptureLimits(maxBatchBytes: 64_000, maxTotalBytes: 1_000_000, maxDurationSeconds: 60)
+        )
+        try store.startWriting()
+        _ = try store.appendPCM(Data(repeating: 9, count: 32_000), capturedMonotonicNs: 9)
+        try store.pause(reason: "audio_session_interruption", interrupted: true)
+        let materialized = try XCTUnwrap(try store.recordGap(
+            durationNs: 1_000_000_000,
+            reason: "audio_session_interruption"
+        ))
+        try store.startWriting()
+        _ = try store.appendPCM(Data(repeating: 10, count: 32_000), capturedMonotonicNs: 10)
+        _ = try store.stop()
+        let boundary = try store.beginFinalSealBoundary()
+        let pendingGap = try XCTUnwrap(try store.pendingServerGaps().first)
+        try store.markGapServerDeclared(idempotencyKey: try XCTUnwrap(pendingGap.idempotencyKey))
+        let playbackData = try Data(contentsOf: store.playbackURL(for: "capture-asset:\(captureId)"))
+        let playbackHash = SHA256.hash(data: playbackData).map { String(format: "%02x", $0) }.joined()
+
+        let unexpectedMissing = readyServerCheckpoint(
+            captureId: captureId,
+            meetingId: "meeting-cleanup-gap",
+            boundary: boundary,
+            wavSHA256: playbackHash,
+            wavByteSize: Int64(playbackData.count),
+            audioMissingSampleRanges: [["start": materialized.gap.startSample, "end": boundary.recordedThroughSample]],
+            acceptedGaps: 1,
+            hasUnrecoverableGaps: true,
+            receivedBatches: 2,
+            receivedBytes: 64_000
+        )
+        XCTAssertThrowsError(try store.stageCleanup(afterAuthenticatedCheckpoint: unexpectedMissing))
+
+        let expectedMissing = readyServerCheckpoint(
+            captureId: captureId,
+            meetingId: "meeting-cleanup-gap",
+            boundary: boundary,
+            wavSHA256: playbackHash,
+            wavByteSize: Int64(playbackData.count),
+            audioMissingSampleRanges: [[
+                "start": materialized.gap.startSample,
+                "end": materialized.gap.endSample,
+            ]],
+            acceptedGaps: 1,
+            hasUnrecoverableGaps: true,
+            receivedBatches: 2,
+            receivedBytes: 64_000
+        )
+        XCTAssertEqual(
+            try store.stageCleanup(afterAuthenticatedCheckpoint: expectedMissing).captureId,
+            captureId
+        )
+    }
+
     private func serverCheckpoint(
         captureId: String,
         meetingId: String,
@@ -366,6 +488,71 @@ final class MeetingCaptureStoreTests: XCTestCase {
                     declaredLastSequence: received ? nil : 0,
                     recordedThroughSample: nil,
                     missingSequenceRanges: received ? [] : [["start": 0, "end": 0]]
+                )
+            ]
+        )
+    }
+
+    private func readyServerCheckpoint(
+        captureId: String,
+        meetingId: String,
+        boundary: MeetingCaptureBoundary,
+        wavSHA256: String,
+        wavByteSize: Int64,
+        audioMissingSampleRanges: [[String: Int64]] = [],
+        acceptedGaps: Int = 0,
+        hasUnrecoverableGaps: Bool = false,
+        receivedBatches: Int = 1,
+        receivedBytes: Int64 = 32_000
+    ) -> MeetingServerCheckpoint {
+        MeetingServerCheckpoint(
+            schemaVersion: meetingCaptureSchemaVersion,
+            captureId: captureId,
+            meetingId: meetingId,
+            captureCheckpoint: MeetingServerCaptureCheckpoint(
+                state: "sealed",
+                recordedThroughSample: boundary.recordedThroughSample,
+                lastSealedEpoch: boundary.expectedEpoch,
+                manifestRevision: boundary.manifestRevision
+            ),
+            ingestCheckpoint: MeetingServerIngestCheckpoint(
+                persistedThroughSample: boundary.recordedThroughSample,
+                accountedThroughSample: boundary.recordedThroughSample,
+                highestReceivedSample: boundary.recordedThroughSample,
+                receivedBatches: receivedBatches,
+                receivedBytes: receivedBytes,
+                missingSampleRanges: [],
+                audioMissingSampleRanges: audioMissingSampleRanges,
+                acceptedGaps: acceptedGaps,
+                ingestComplete: true
+            ),
+            realtimeCheckpoint: MeetingServerRealtimeCheckpoint(
+                streamEpoch: boundary.expectedEpoch,
+                lastAckedSequence: boundary.finalSequence,
+                stableOrdinal: 0,
+                eventCursor: 8
+            ),
+            finalizationCheckpoint: MeetingServerFinalizationCheckpoint(
+                captureSealed: true,
+                ingestComplete: true,
+                hasUnrecoverableGaps: hasUnrecoverableGaps,
+                packagingState: "ready",
+                packagingAttempt: 1,
+                packagingErrorCode: nil,
+                wavSHA256: wavSHA256,
+                wavByteSize: wavByteSize,
+                serverPlaybackState: "ready",
+                postprocessState: "queued"
+            ),
+            epochs: [
+                MeetingServerEpochCheckpoint(
+                    streamEpoch: boundary.expectedEpoch,
+                    state: "sealed",
+                    highestContiguousSequence: boundary.finalSequence,
+                    highestReceivedSequence: boundary.finalSequence,
+                    declaredLastSequence: boundary.finalSequence,
+                    recordedThroughSample: boundary.recordedThroughSample,
+                    missingSequenceRanges: []
                 )
             ]
         )

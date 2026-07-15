@@ -42,12 +42,18 @@ async def _database():
     return engine
 
 
-def _segment(key: str = "provider-1", text: str = "欢迎张疆介绍项目") -> StableSegmentInput:
+def _segment(
+    key: str = "provider-1",
+    text: str = "欢迎张疆介绍项目",
+    *,
+    start_ms: int = 100,
+    end_ms: int = 1800,
+) -> StableSegmentInput:
     return StableSegmentInput(
         utterance_id=f"utterance-{key}",
         provider_segment_key=key,
-        start_ms=100,
-        end_ms=1800,
+        start_ms=start_ms,
+        end_ms=end_ms,
         raw_text=text,
         asr_final_text=text,
         asr_confidence=0.9,
@@ -89,9 +95,7 @@ def test_stable_segment_and_outbox_are_idempotent_and_monotonic():
         async with AsyncSession(engine, expire_on_commit=False) as session:
             repository = MeetingRepository(session)
             meeting, _, _ = await repository.create_session(7, MeetingCreateRequest(title="研发会"))
-            first, duplicate, event = await repository.append_stable_segment(
-                meeting.id, 7, _segment()
-            )
+            first, duplicate, event = await repository.append_stable_segment(meeting.id, 7, _segment())
             assert first.ordinal == 1
             assert duplicate is False
             assert event.event_type == "transcript.segment.stable"
@@ -100,9 +104,7 @@ def test_stable_segment_and_outbox_are_idempotent_and_monotonic():
             assert stable_payload["segment"]["id"] == first.id
             assert stable_payload["segment"]["text_state"] == "stable"
 
-            same, duplicate, duplicate_event = await repository.append_stable_segment(
-                meeting.id, 7, _segment()
-            )
+            same, duplicate, duplicate_event = await repository.append_stable_segment(meeting.id, 7, _segment())
             assert same.id == first.id
             assert duplicate is True
             assert duplicate_event is None
@@ -114,12 +116,57 @@ def test_stable_segment_and_outbox_are_idempotent_and_monotonic():
             assert second_event.cursor == 3
             events = (
                 await session.exec(
-                    select(MeetingEvent)
-                    .where(MeetingEvent.meeting_id == meeting.id)
-                    .order_by(MeetingEvent.cursor)
+                    select(MeetingEvent).where(MeetingEvent.meeting_id == meeting.id).order_by(MeetingEvent.cursor)
                 )
             ).all()
             assert [item.cursor for item in events] == [1, 2, 3]
+        await engine.dispose()
+
+    anyio.run(run)
+
+
+def test_transcript_window_at_centers_a_bounded_page_on_playback_time():
+    async def run():
+        engine = await _database()
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            repository = MeetingRepository(session)
+            meeting, _, _ = await repository.create_session(7, MeetingCreateRequest(title="回放会"))
+            await repository.append_stable_segment(
+                meeting.id,
+                7,
+                _segment("provider-1", "第一句", start_ms=1_000, end_ms=2_000),
+            )
+            await repository.append_stable_segment(
+                meeting.id,
+                7,
+                _segment("provider-2", "第二句", start_ms=10_000, end_ms=11_000),
+            )
+            await repository.append_stable_segment(
+                meeting.id,
+                7,
+                _segment("provider-3", "第三句", start_ms=20_000, end_ms=21_000),
+            )
+
+            page, next_ordinal = await repository.transcript_window_at(
+                meeting.id,
+                7,
+                at_ms=20_500,
+                limit=2,
+            )
+            assert [item.ordinal for item in page] == [2, 3]
+            assert next_ordinal is None
+
+            first_page, next_ordinal = await repository.transcript_window_at(
+                meeting.id,
+                7,
+                at_ms=0,
+                limit=2,
+            )
+            assert [item.ordinal for item in first_page] == [1, 2]
+            assert next_ordinal == 2
+
+            with pytest.raises(MeetingResourceNotFound):
+                await repository.transcript_window_at(meeting.id, 8, at_ms=1_500, limit=2)
         await engine.dispose()
 
     anyio.run(run)
@@ -176,9 +223,7 @@ def test_manual_correction_writes_revision_feedback_and_only_eligible_candidate(
             assert "asr.feedback.recorded" in event_types
             assert "lexicon.candidate.created" in event_types
 
-            second, _, _ = await repository.append_stable_segment(
-                meeting.id, 7, _segment("provider-2", "今天开会")
-            )
+            second, _, _ = await repository.append_stable_segment(meeting.id, 7, _segment("provider-2", "今天开会"))
             content_edit = await repository.correct_segment(
                 meeting.id,
                 second.id,

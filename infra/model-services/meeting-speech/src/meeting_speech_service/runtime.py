@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from meeting_speech_service.adapters import (
+    INDEPENDENT_FINALIZATION_PROTOCOL,
     FunASREngine,
     MockSpeechEngine,
     Recognition,
@@ -17,7 +18,7 @@ from meeting_speech_service.adapters import (
 )
 from meeting_speech_service.config import Settings
 from meeting_speech_service.metrics import Metrics
-from meeting_speech_service.protocol import ProtocolError, StreamStart
+from meeting_speech_service.protocol import ProtocolError, StreamHotwordsUpdate, StreamStart
 from meeting_speech_service.sequencing import FrameSequencer
 
 
@@ -35,6 +36,10 @@ class StreamSession:
     paused: bool
     created_monotonic: float
     last_activity_monotonic: float
+    hotwords: tuple[str, ...]
+    hotword_version: int | None
+    pending_hotword_updates: list[StreamHotwordsUpdate] = field(default_factory=list)
+    hotword_update_history: dict[str, tuple[int, int, tuple[str, ...], str]] = field(default_factory=dict)
     total_audio_bytes: int = 0
 
     @property
@@ -55,6 +60,13 @@ class FinalizationSession:
     completed: bool
     fingerprint: tuple[str | None, tuple[str, ...]]
     lock: asyncio.Lock
+
+
+@dataclass(slots=True)
+class IndependentFinalizationEntry:
+    checksum: str
+    task: asyncio.Task[tuple[str, tuple[Recognition, ...]]]
+    last_activity_monotonic: float
 
 
 class SessionRegistry:
@@ -89,6 +101,22 @@ class SessionRegistry:
                         raise ProtocolError(
                             "SESSION_RESUME_MISMATCH", "resumed stream settings differ from retained state"
                         )
+                    pending_matches = bool(
+                        any(
+                            tuple(update.hotwords) == tuple(start.hotwords)
+                            and update.hotword_version == start.hotword_version
+                            for update in entry.pending_hotword_updates
+                        )
+                    )
+                    current_matches = (
+                        entry.hotwords == tuple(start.hotwords)
+                        and entry.hotword_version == start.hotword_version
+                    )
+                    if not current_matches and not pending_matches:
+                        raise ProtocolError(
+                            "SESSION_RESUME_MISMATCH",
+                            "resumed stream hotword state differs from retained state",
+                        )
                     entry.sequencer.validate_resume(start.last_acked_sequence)
                     entry.active = True
                     entry.paused = False
@@ -116,6 +144,7 @@ class SessionRegistry:
                         vad_endpoint_silence_ms=self._settings.vad_endpoint_silence_ms,
                         vad_energy_threshold=self._settings.vad_energy_threshold,
                         inference_timeout_seconds=self._settings.inference_timeout_seconds,
+                        hotword_version=start.hotword_version,
                     )
                     now = time.monotonic()
                     entry = StreamSession(
@@ -140,6 +169,8 @@ class SessionRegistry:
                         paused=False,
                         created_monotonic=now,
                         last_activity_monotonic=now,
+                        hotwords=tuple(start.hotwords),
+                        hotword_version=start.hotword_version,
                     )
                     self._sessions[key] = entry
                 self._update_metrics_locked()
@@ -225,6 +256,8 @@ class SpeechRuntime:
         self._active_embedding_requests = 0
         self._finalization_lock = asyncio.Lock()
         self._finalization_sessions: dict[str, FinalizationSession] = {}
+        self._independent_finalization_windows: dict[tuple[str, int], IndependentFinalizationEntry] = {}
+        self._active_finalization_decodes = 0
 
     async def start(self) -> None:
         if not self.settings.enabled:
@@ -240,11 +273,18 @@ class SpeechRuntime:
         async with self._finalization_lock:
             finalization_sessions = list(self._finalization_sessions.values())
             self._finalization_sessions.clear()
+            independent_tasks = [entry.task for entry in self._independent_finalization_windows.values()]
+            self._independent_finalization_windows.clear()
         if finalization_sessions:
             await asyncio.gather(
                 *(entry.speech.close() for entry in finalization_sessions),
                 return_exceptions=True,
             )
+        for task in independent_tasks:
+            if not task.done():
+                task.cancel()
+        if independent_tasks:
+            await asyncio.gather(*independent_tasks, return_exceptions=True)
         if self._initialization_task is not None and not self._initialization_task.done():
             self._initialization_task.cancel()
             try:
@@ -294,6 +334,186 @@ class SpeechRuntime:
     async def release_embedding(self) -> None:
         async with self._embedding_lock:
             self._active_embedding_requests = max(0, self._active_embedding_requests - 1)
+
+    async def finalize_independent_window(
+        self,
+        *,
+        run_id: UUID,
+        window_index: int,
+        pcm: bytes,
+        start_ms: int,
+        discontinuity: bool,
+        language: str | None,
+        hotwords: tuple[str, ...],
+    ) -> tuple[str, tuple[Recognition, ...]]:
+        """Decode one self-contained window with durable-request idempotency."""
+
+        run_key = str(run_id)
+        cache_key = (run_key, window_index)
+        checksum = hashlib.sha256(
+            b"\0".join(
+                (
+                    INDEPENDENT_FINALIZATION_PROTOCOL.encode("ascii"),
+                    str(window_index).encode("ascii"),
+                    str(start_ms).encode("ascii"),
+                    b"1" if discontinuity else b"0",
+                    (language or "").encode("utf-8"),
+                    "\n".join(hotwords).encode("utf-8"),
+                    pcm,
+                )
+            )
+        ).hexdigest()
+        async with self._finalization_lock:
+            now = time.monotonic()
+            self._evict_independent_windows_locked(now)
+            entry = self._independent_finalization_windows.get(cache_key)
+            if entry is not None:
+                if entry.checksum != checksum:
+                    raise ProtocolError(
+                        "FINALIZATION_WINDOW_CONFLICT",
+                        "finalization window index was reused with different content",
+                    )
+                entry.last_activity_monotonic = now
+                task = entry.task
+            else:
+                self._make_independent_cache_room_locked()
+                task = asyncio.create_task(
+                    self._decode_independent_window(
+                        run_key=run_key,
+                        window_index=window_index,
+                        pcm=pcm,
+                        start_ms=start_ms,
+                        discontinuity=discontinuity,
+                        language=language,
+                        hotwords=hotwords,
+                    ),
+                    name=f"speech-finalization-{run_key}-window-{window_index}",
+                )
+                entry = IndependentFinalizationEntry(
+                    checksum=checksum,
+                    task=task,
+                    last_activity_monotonic=now,
+                )
+                self._independent_finalization_windows[cache_key] = entry
+
+        try:
+            result = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            async with self._finalization_lock:
+                if self._independent_finalization_windows.get(cache_key) is entry:
+                    self._independent_finalization_windows.pop(cache_key, None)
+            raise
+        async with self._finalization_lock:
+            current = self._independent_finalization_windows.get(cache_key)
+            if current is entry:
+                current.last_activity_monotonic = time.monotonic()
+        return result
+
+    async def _decode_independent_window(
+        self,
+        *,
+        run_key: str,
+        window_index: int,
+        pcm: bytes,
+        start_ms: int,
+        discontinuity: bool,
+        language: str | None,
+        hotwords: tuple[str, ...],
+    ) -> tuple[str, tuple[Recognition, ...]]:
+        await self._acquire_finalization_decode()
+        speech: SpeechSession | None = None
+        try:
+            options = self._finalization_options(language=language, hotwords=hotwords)
+            diarizer_ref = self.engine.diarizer_ref
+            speech = self.engine.create_session(
+                options,
+                speaker_track_namespace=f"finalization-{run_key}:window-{window_index}",
+            )
+            results: list[Recognition] = []
+            max_frame_bytes = self.settings.max_chunk_ms * self.settings.sample_rate * 2 // 1_000
+            for offset in range(0, len(pcm), max_frame_bytes):
+                block = pcm[offset : offset + max_frame_bytes]
+                is_last_block = offset + len(block) == len(pcm)
+                results.extend(
+                    await speech.ingest(
+                        block,
+                        capture_time_ms=start_ms + offset * 1_000 // (self.settings.sample_rate * 2),
+                        end_of_stream=is_last_block,
+                        discontinuity=discontinuity and offset == 0,
+                    )
+                )
+            return diarizer_ref, tuple(results)
+        finally:
+            if speech is not None:
+                await speech.close()
+            await self._release_finalization_decode()
+
+    def _finalization_options(
+        self,
+        *,
+        language: str | None,
+        hotwords: tuple[str, ...],
+    ) -> SessionOptions:
+        return SessionOptions(
+            sample_rate=self.settings.sample_rate,
+            hotwords=hotwords,
+            language=language,
+            max_segment_bytes=self.settings.max_segment_bytes,
+            pre_roll_ms=self.settings.pre_roll_ms,
+            vad_min_speech_ms=self.settings.vad_min_speech_ms,
+            vad_endpoint_silence_ms=self.settings.vad_endpoint_silence_ms,
+            vad_energy_threshold=self.settings.vad_energy_threshold,
+            inference_timeout_seconds=self.settings.inference_timeout_seconds,
+            online_decode_enabled=False,
+        )
+
+    async def _acquire_finalization_decode(self) -> None:
+        async with self._finalization_lock:
+            if self._active_finalization_decodes >= self.settings.finalization_max_sessions:
+                raise ProtocolError(
+                    "FINALIZATION_CAPACITY_REACHED",
+                    "finalization decode capacity reached",
+                    close_code=1013,
+                )
+            self._active_finalization_decodes += 1
+
+    async def _release_finalization_decode(self) -> None:
+        async with self._finalization_lock:
+            self._active_finalization_decodes = max(0, self._active_finalization_decodes - 1)
+
+    def _evict_independent_windows_locked(self, now: float) -> None:
+        expired = [
+            key
+            for key, entry in self._independent_finalization_windows.items()
+            if entry.task.done()
+            and now - entry.last_activity_monotonic >= self.settings.finalization_session_ttl_seconds
+        ]
+        for key in expired:
+            self._independent_finalization_windows.pop(key, None)
+
+    def _make_independent_cache_room_locked(self) -> None:
+        completed = sorted(
+            (
+                (key, entry)
+                for key, entry in self._independent_finalization_windows.items()
+                if entry.task.done()
+            ),
+            key=lambda value: value[1].last_activity_monotonic,
+        )
+        while (
+            len(self._independent_finalization_windows) >= self.settings.finalization_max_cached_windows
+            and completed
+        ):
+            key, _ = completed.pop(0)
+            self._independent_finalization_windows.pop(key, None)
+        if len(self._independent_finalization_windows) >= self.settings.finalization_max_cached_windows:
+            raise ProtocolError(
+                "FINALIZATION_CAPACITY_REACHED",
+                "finalization idempotency cache capacity reached",
+                close_code=1013,
+            )
 
     async def finalize_window(
         self,
@@ -353,18 +573,7 @@ class SpeechRuntime:
                 while len(self._finalization_sessions) >= self.settings.finalization_max_sessions * 2 and completed:
                     stale = completed.pop(0)
                     self._finalization_sessions.pop(stale.run_id, None)
-                options = SessionOptions(
-                    sample_rate=self.settings.sample_rate,
-                    hotwords=hotwords,
-                    language=language,
-                    max_segment_bytes=self.settings.max_segment_bytes,
-                    pre_roll_ms=self.settings.pre_roll_ms,
-                    vad_min_speech_ms=self.settings.vad_min_speech_ms,
-                    vad_endpoint_silence_ms=self.settings.vad_endpoint_silence_ms,
-                    vad_energy_threshold=self.settings.vad_energy_threshold,
-                    inference_timeout_seconds=self.settings.inference_timeout_seconds,
-                    online_decode_enabled=False,
-                )
+                options = self._finalization_options(language=language, hotwords=hotwords)
                 entry = FinalizationSession(
                     run_id=run_key,
                     diarizer_ref=self.engine.diarizer_ref,
@@ -405,9 +614,10 @@ class SpeechRuntime:
                     "finalization windows must be sent in contiguous order",
                 )
 
-            results: list[Recognition] = []
-            max_frame_bytes = self.settings.max_chunk_ms * self.settings.sample_rate * 2 // 1_000
+            await self._acquire_finalization_decode()
             try:
+                results: list[Recognition] = []
+                max_frame_bytes = self.settings.max_chunk_ms * self.settings.sample_rate * 2 // 1_000
                 for offset in range(0, len(pcm), max_frame_bytes):
                     block = pcm[offset : offset + max_frame_bytes]
                     is_last_block = offset + len(block) == len(pcm)
@@ -424,6 +634,8 @@ class SpeechRuntime:
                     self._finalization_sessions.pop(run_key, None)
                 await entry.speech.close()
                 raise
+            finally:
+                await self._release_finalization_decode()
             entry.last_window_index = window_index
             entry.next_window_index = window_index + 1
             entry.last_checksum = checksum
@@ -489,7 +701,6 @@ def _stream_fingerprint(start: StreamStart) -> tuple[Any, ...]:
         start.audio.sample_rate,
         start.audio.channels,
         start.audio.chunk_ms,
-        tuple(start.hotwords),
         start.language,
     )
 

@@ -40,16 +40,17 @@ The first message must be JSON:
     "encoding": "pcm_s16le",
     "sample_rate": 16000,
     "channels": 1,
-    "chunk_ms": 500
+    "chunk_ms": 200
   },
   "last_acked_sequence": -1,
-  "hotwords": []
+  "hotwords": [],
+  "hotword_version": 3
 }
 ```
 
 New epochs use `last_acked_sequence=-1`. A reconnect may reuse the same meeting/client/epoch tuple within `SIQ_MEETING_SPEECH_RESUME_TTL_SECONDS`; the client ACK cannot be ahead of retained server state. If state expired, the service returns `RESUME_STATE_NOT_FOUND`. The gateway must open a new epoch and replay its durably stored PCM rather than pretending ASR context survived.
 
-Audio is `16 kHz`, mono, signed `PCM16LE`. The recommended frame is 500 ms; v1 accepts 100-1000 ms by default. Binary payloads use a fixed 32-byte network-byte-order header:
+Audio is `16 kHz`, mono, signed `PCM16LE`. The recommended frame is 200 ms; v1 accepts 100-1000 ms by default. Binary payloads use a fixed 32-byte network-byte-order header:
 
 ```text
 struct !4sBBHIQQI
@@ -75,10 +76,30 @@ Text controls all use `siq.meeting.stream.v1`:
 - `stream.stop`
 - `stream.heartbeat`
 - `stream.resume_request` with `last_acked_sequence`
+- `stream.hotwords.update` with request, version, boundary sequence, and immutable terms
 
-Internal output uses `siq.meeting.speech.event.v1`. Important event types are `stream.ready`, `audio.ack`, `audio.gap.detected`, `flow.control`, `asr.partial`, `asr.final`, `speaker.track.observed`, `pipeline.degraded`, and `error`. ACK payloads contain `stream_epoch`, `ack_sequence`, `duplicate`, `buffered_frames`, and `buffered_bytes`.
+Internal output uses `siq.meeting.speech.event.v1`. Important event types are `stream.ready`, `audio.ack`, `audio.gap.detected`, `flow.control`, `asr.partial`, `asr.final`, `hotwords.update.ack`, `speaker.track.observed`, `pipeline.degraded`, and `error`. ACK payloads contain `stream_epoch`, `ack_sequence`, `duplicate`, `buffered_frames`, and `buffered_bytes`.
 
 `asr.partial` is ephemeral. `asr.final` deliberately carries `durability="gateway_pending"` and has no durable cursor. The stream gateway must atomically write the stable segment and outbox event, then publish the public `transcript.segment.stable` envelope with its database cursor. Treating a raw speech-service final as durable would violate the meeting taskbook.
+
+### Low-latency and live hotwords
+
+The browser captures 200 ms PCM frames and drains them every 160 ms when it needs to catch up. The outbox remains bounded to 600 frames, preserving the prior 120-second memory/durability window. Paraformer online defaults to `chunk_size=0,5,2`; for 200 ms input the advertised audio accumulation bound before a complete online window is 400 ms. Model inference and network time remain separately observable through partial latency metrics.
+
+An active meeting can update its immutable lexicon without reconnecting:
+
+```json
+{
+  "type": "stream.hotwords.update",
+  "schema_version": "siq.meeting.stream.v1",
+  "request_id": "11111111-1111-4111-8111-111111111111",
+  "hotword_version": 4,
+  "effective_sequence": 42,
+  "hotwords": ["Nemotron"]
+}
+```
+
+The service first emits `hotwords.update.ack` with `status="queued"`. Before decoding `effective_sequence`, it finalizes any buffered older segment, swaps the decoder vocabulary and cache, then emits `status="applied"` with `applied_sequence`. Frames below the boundary retain the previous version even when they arrive after the control message. Every partial and final carries `hotword_version`; the gateway persists that recognition-time value on the stable segment. Up to eight ordered updates can wait while paused, and request IDs are idempotent with conflicting reuse rejected.
 
 ## Bounded behavior
 
@@ -99,24 +120,32 @@ the durable meeting worker after capture stops. Each request contains one
 bounded 16 kHz mono PCM16 window and these headers:
 
 - `X-SIQ-Finalization-Id`: UUID for one durable processing attempt.
-- `X-SIQ-Window-Index`: contiguous index beginning at zero.
+- `X-SIQ-Finalization-Protocol`: ordered legacy mode or
+  `siq.meeting.final_asr.independent_window.v1`.
+- `X-SIQ-Window-Index`: stable window index beginning at zero.
 - `X-SIQ-Window-Start-Ms`: position on the meeting timeline.
 - `X-SIQ-Discontinuity`: whether a manifest gap precedes this window.
 - `X-SIQ-Final-Window`: whether this is the last window.
 - `X-SIQ-Language` and bounded JSON `X-SIQ-Hotwords`.
 
-The service retains only bounded decoder/anonymous-diarization state between
-windows. A repeated index with the same checksum returns the cached result;
-changed content or a missing prior state returns 409 so the durable job can
-restart from window zero. Completed/abandoned state has a bounded TTL and
-global session cap. Responses contain final text, timestamps and anonymous
-track keys, never audio or speaker embeddings.
+Independent mode requires `X-SIQ-Final-Window: true` because every overlapping
+window is a complete decoder domain. Windows may arrive and complete out of
+order up to `FINALIZATION_MAX_SESSIONS`. An exact repeated `(run ID, index)`
+shares or replays the checksum-bound task; changed content returns 409. Cached
+tasks have a bounded count and TTL. The ordered protocol remains available for
+older callers and retains bounded decoder/anonymous-diarization state between
+contiguous windows. Responses identify the accepted protocol and contain final
+text, timestamps and anonymous track keys, never audio or speaker embeddings.
 
 Relevant settings are
 `SIQ_MEETING_SPEECH_FINALIZATION_ENDPOINT_ENABLED` (default true),
 `SIQ_MEETING_SPEECH_FINALIZATION_MAX_WINDOW_SECONDS` (30),
-`SIQ_MEETING_SPEECH_FINALIZATION_MAX_SESSIONS` (2), and
+`SIQ_MEETING_SPEECH_FINALIZATION_MAX_SESSIONS` (2),
+`SIQ_MEETING_SPEECH_FINALIZATION_MAX_CACHED_WINDOWS` (2048), and
 `SIQ_MEETING_SPEECH_FINALIZATION_SESSION_TTL_SECONDS` (300).
+When the finalizer is `funasr_http`, also keep
+`SIQ_MEETING_SPEECH_HTTP_FINALIZER_MAX_CONCURRENCY` aligned with measured
+downstream model capacity.
 
 ## Start
 

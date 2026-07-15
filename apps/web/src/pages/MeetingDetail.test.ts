@@ -39,9 +39,19 @@ test('meeting detail exposes explicit versioned regeneration and evidence naviga
 
   assert.match(source, /regenerateMeetingArtifact\(meetingId, artifact\.id, session\.settings_version\)/)
   assert.match(source, /setActiveTab\('transcript'\)/)
-  assert.match(source, /setSeekToMs\(segment\.start_ms\)/)
+  assert.match(source, /seekPlayback\(segment\.start_ms\)/)
   assert.match(source, /setScrollToSegmentId\(segmentId\)/)
   assert.match(source, /scrollToSegmentId=\{scrollToSegmentId\}/)
   assert.match(source, /isMinutesArtifact\(artifact\) && artifact\.state === 'ready'/)
   assert.match(source, /minutesArtifact\?\.state === 'stale'/)
+})
+
+test('meeting detail binds audio time to bounded transcript playback tracking', () => {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'MeetingDetail.tsx'), 'utf-8')
+
+  assert.match(source, /onPlaybackPositionChange=\{handlePlaybackPosition\}/)
+  assert.match(source, /activePlaybackSegmentIds=\{activePlaybackSegments\}/)
+  assert.match(source, /followPlayback=\{followPlayback\}/)
+  assert.match(source, /atMs: positionMs/)
+  assert.match(source, /samePlaybackSegments\(current, active\)/)
 })

@@ -47,6 +47,7 @@ export function createMeetingStreamStartMessage(input: {
   lastAckedSequence?: number
   lastServerCursor?: number
   hotwords?: string[]
+  hotwordVersion?: number
   chunkMs?: number
 }) {
   const message: Record<string, unknown> = {
@@ -59,13 +60,40 @@ export function createMeetingStreamStartMessage(input: {
       encoding: 'pcm_s16le',
       sample_rate: 16000,
       channels: 1,
-      chunk_ms: input.chunkMs || 500,
+      chunk_ms: input.chunkMs || 200,
     },
     last_acked_sequence: input.lastAckedSequence ?? -1,
     hotwords: input.hotwords || [],
   }
+  if (input.hotwordVersion != null) message.hotword_version = input.hotwordVersion
   if (input.lastServerCursor != null) message.last_server_cursor = input.lastServerCursor
   return message
+}
+
+export function createMeetingHotwordUpdateMessage(input: {
+  requestId: string
+  hotwordVersion: number
+  effectiveSequence: number
+  hotwords: string[]
+}) {
+  if (!Number.isInteger(input.hotwordVersion) || input.hotwordVersion < 1) {
+    throw new Error('hotword version must be a positive integer')
+  }
+  if (!Number.isInteger(input.effectiveSequence) || input.effectiveSequence < 0) {
+    throw new Error('hotword boundary must be a non-negative sequence')
+  }
+  const hotwords = input.hotwords.map((value) => value.trim())
+  if (hotwords.some((value) => !value) || new Set(hotwords).size !== hotwords.length) {
+    throw new Error('hotwords must be non-empty and unique')
+  }
+  return {
+    type: 'stream.hotwords.update',
+    schema_version: 'siq.meeting.stream.v1',
+    request_id: input.requestId,
+    hotword_version: input.hotwordVersion,
+    effective_sequence: input.effectiveSequence,
+    hotwords,
+  }
 }
 
 export function floatSamplesToPcm16(samples: Float32Array) {

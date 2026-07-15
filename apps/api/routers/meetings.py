@@ -175,7 +175,9 @@ def _validate_model_request(request: MeetingCreateRequest) -> str | None:
 
 
 @router.get("/capabilities", response_model=MeetingCapabilitiesResponse)
-async def capabilities(current_user: User = Depends(get_current_user)) -> MeetingCapabilitiesResponse:
+async def capabilities(
+    current_user: User = Depends(get_current_user),
+) -> MeetingCapabilitiesResponse:
     _authorize(current_user, MEETING_READ)
     return MeetingCapabilitiesResponse.model_validate(meeting_capabilities())
 
@@ -214,7 +216,11 @@ async def refresh_models(
     return MeetingModelCatalogResponse(purpose=purpose, items=items)
 
 
-@router.post("/sessions", response_model=MeetingSessionResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/sessions",
+    response_model=MeetingSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_session(
     request: MeetingCreateRequest,
     response: Response,
@@ -355,9 +361,7 @@ async def stop_session(
 ) -> MeetingStopResponse:
     _require_enabled()
     owner_id = _authorize(current_user, MEETING_UPDATE)
-    result = await _repo_call(
-        MeetingStopFinalizationService(async_session).stop(meeting_id, owner_id)
-    )
+    result = await _repo_call(MeetingStopFinalizationService(async_session).stop(meeting_id, owner_id))
     return MeetingStopResponse(
         session=session_response(result.session),
         idempotent=result.idempotent,
@@ -430,20 +434,29 @@ async def list_events(
 async def transcript(
     meeting_id: str,
     after_ordinal: int = Query(default=0, ge=0),
+    at_ms: int | None = Query(default=None, ge=0, le=86_400_000),
     limit: int = Query(default=200, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     async_session: AsyncSession = Depends(get_async_session),
 ) -> TranscriptPage:
     _require_enabled()
     owner_id = _authorize(current_user, MEETING_READ)
-    items, next_ordinal = await _repo_call(
-        MeetingRepository(async_session).transcript_page(
+    repository = MeetingRepository(async_session)
+    if at_ms is None:
+        result = repository.transcript_page(
             meeting_id,
             owner_id,
             after_ordinal=after_ordinal,
             limit=limit,
         )
-    )
+    else:
+        result = repository.transcript_window_at(
+            meeting_id,
+            owner_id,
+            at_ms=at_ms,
+            limit=limit,
+        )
+    items, next_ordinal = await _repo_call(result)
     return TranscriptPage(items=items, next_ordinal=next_ordinal)
 
 
@@ -658,7 +671,10 @@ async def _set_feedback_excluded(
     return correction_response(value)
 
 
-@router.post("/correction-feedback/{feedback_id}/exclude", response_model=CorrectionFeedbackResponse)
+@router.post(
+    "/correction-feedback/{feedback_id}/exclude",
+    response_model=CorrectionFeedbackResponse,
+)
 async def correction_feedback_exclude(
     feedback_id: str,
     current_user: User = Depends(get_current_user),
@@ -667,7 +683,10 @@ async def correction_feedback_exclude(
     return await _set_feedback_excluded(feedback_id, True, current_user, async_session)
 
 
-@router.post("/correction-feedback/{feedback_id}/restore", response_model=CorrectionFeedbackResponse)
+@router.post(
+    "/correction-feedback/{feedback_id}/restore",
+    response_model=CorrectionFeedbackResponse,
+)
 async def correction_feedback_restore(
     feedback_id: str,
     current_user: User = Depends(get_current_user),
@@ -839,7 +858,11 @@ async def voiceprints(
     return [voice_profile_response(profile, consent_active=consent) for profile, consent in values]
 
 
-@router.post("/voiceprints", response_model=VoiceProfileResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/voiceprints",
+    response_model=VoiceProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_voiceprint(
     request: VoiceProfileCreateRequest,
     current_user: User = Depends(get_current_user),

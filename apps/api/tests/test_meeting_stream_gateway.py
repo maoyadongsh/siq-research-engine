@@ -104,6 +104,19 @@ class _FakeSpeech:
         assert sequence == 0
         await self.events.put(
             self._event(
+                "asr.partial",
+                {
+                    "segment_token": "segment-1",
+                    "text": "欢迎张江",
+                    "start_ms": capture_ms,
+                    "end_ms": capture_ms + 100,
+                    "adapter": "fake",
+                    "hotword_version": 7,
+                },
+            )
+        )
+        await self.events.put(
+            self._event(
                 "asr.final",
                 {
                     "segment_token": "segment-1",
@@ -117,6 +130,7 @@ class _FakeSpeech:
                     "speaker_confidence": 0.91,
                     "source_speaker_hints": [],
                     "degraded_reason": None,
+                    "hotword_version": 7,
                     "word_timestamps": [
                         {"token_index": 0, "start_ms": capture_ms, "end_ms": capture_ms + 100, "text": "欢迎"}
                     ],
@@ -264,6 +278,9 @@ def test_stream_gateway_persists_before_ack_and_durabilizes_final(tmp_path, monk
         assert received["transcript.segment.stable"]["cursor"] is not None
         assert received["speaker.track.created"]["cursor"] < received["transcript.segment.stable"]["cursor"]
         assert received["transcript.segment.stable"]["payload"]["text"] == "欢迎张江介绍项目"
+        assert received["transcript.partial"]["payload"]["utterance_id"] == "segment-1"
+        assert received["transcript.partial"]["payload"]["text"] == "欢迎张江"
+        assert received["transcript.partial"]["payload"]["hotword_version"] == 7
         assert received["audio.ack"]["payload"]["ack_sequence"] == 0
 
         checkpoint_ticket = client.post(
@@ -309,6 +326,7 @@ def test_stream_gateway_persists_before_ack_and_durabilizes_final(tmp_path, monk
             assert chunk_count == 1
             assert active_lease_count == 0
             assert segment.human_locked is False
+            assert segment.hotword_version == 7
             assert speaker.track_key == "epoch-1:speaker-1"
             assert json.loads(segment.word_timestamps_json)[0]["text"] == "欢迎"
 

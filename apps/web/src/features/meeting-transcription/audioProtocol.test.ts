@@ -5,6 +5,7 @@ import { test } from 'node:test'
 
 import {
   createMeetingStreamStartMessage,
+  createMeetingHotwordUpdateMessage,
   encodeMeetingAudioFrame,
   floatSamplesToPcm16,
   MEETING_AUDIO_HEADER_SIZE,
@@ -57,9 +58,25 @@ test('stream start declares the frozen audio contract and resume cursor', () => 
     meeting_id: 'meeting/alpha',
     client_stream_id: 'client-1',
     stream_epoch: 3,
-    audio: { encoding: 'pcm_s16le', sample_rate: 16000, channels: 1, chunk_ms: 500 },
+    audio: { encoding: 'pcm_s16le', sample_rate: 16000, channels: 1, chunk_ms: 200 },
     last_acked_sequence: 41,
     hotwords: ['海光信息'],
+  })
+})
+
+test('hotword update declares an immutable version and exact audio boundary', () => {
+  assert.deepEqual(createMeetingHotwordUpdateMessage({
+    requestId: '11111111-1111-4111-8111-111111111111',
+    hotwordVersion: 7,
+    effectiveSequence: 42,
+    hotwords: [' 海光信息 ', 'Nemotron'],
+  }), {
+    type: 'stream.hotwords.update',
+    schema_version: 'siq.meeting.stream.v1',
+    request_id: '11111111-1111-4111-8111-111111111111',
+    hotword_version: 7,
+    effective_sequence: 42,
+    hotwords: ['海光信息', 'Nemotron'],
   })
 })
 

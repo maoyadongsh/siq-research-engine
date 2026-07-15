@@ -361,6 +361,10 @@ final class MeetingCaptureController {
         playbackController.pause()
     }
 
+    func resumePlayback() throws -> MeetingPlaybackStatus {
+        try playbackController.resume()
+    }
+
     func seekPlayback(positionMs: Int64) throws -> MeetingPlaybackStatus {
         try playbackController.seek(positionMs: positionMs)
     }
@@ -387,11 +391,95 @@ final class MeetingCaptureController {
         )
     }
 
-    func discard(confirmedServerComplete: Bool) throws -> Bool {
+    func discard(
+        confirmedServerComplete: Bool,
+        completion: @escaping (Result<MeetingCaptureCleanupReceipt, MeetingCaptureError>) -> Void
+    ) {
         guard confirmedServerComplete else {
-            throw MeetingCaptureError.invalidState("server ingest is incomplete")
+            completion(.failure(.cleanupNotReady))
+            return
         }
-        throw MeetingCaptureError.invalidState("verified cleanup receipt is unavailable")
+        guard let store, let uploader else {
+            completion(.failure(.invalidState("prepare required")))
+            return
+        }
+
+        do {
+            let manifest = try store.currentManifest()
+            if manifest.cleanupReceipt != nil {
+                finishStagedCleanup(
+                    store: store,
+                    uploader: uploader,
+                    completion: completion
+                )
+                return
+            }
+            guard manifest.state == .stopped else {
+                completion(.failure(.cleanupNotReady))
+                return
+            }
+            try uploader.refreshCheckpointAndSchedule { [weak self, weak store, weak uploader] result in
+                DispatchQueue.meetingCapture.async {
+                    guard let self, let store, let uploader else {
+                        completion(.failure(.invalidState("capture changed during cleanup")))
+                        return
+                    }
+                    switch result {
+                    case .success(let checkpoint):
+                        do {
+                            _ = try store.stageCleanup(afterAuthenticatedCheckpoint: checkpoint)
+                            self.finishStagedCleanup(
+                                store: store,
+                                uploader: uploader,
+                                completion: completion
+                            )
+                        } catch let error as MeetingCaptureError {
+                            completion(.failure(error))
+                        } catch {
+                            completion(.failure(.storageUnavailable))
+                        }
+                    case .failure(let error):
+                        completion(.failure(error))
+                    }
+                }
+            }
+        } catch let error as MeetingCaptureError {
+            completion(.failure(error))
+        } catch {
+            completion(.failure(.storageUnavailable))
+        }
+    }
+
+    private func finishStagedCleanup(
+        store: MeetingCaptureStore,
+        uploader: MeetingCaptureUploader,
+        completion: @escaping (Result<MeetingCaptureCleanupReceipt, MeetingCaptureError>) -> Void
+    ) {
+        do {
+            let receipt = try store.validatedStagedCleanupReceipt()
+            playbackController.reset()
+            // Stop background tasks before deleting their source files. The
+            // staged receipt makes this retryable if deletion itself fails.
+            uploader.invalidate()
+            try keychain.remove(captureId: receipt.captureId)
+            _ = try store.completeStagedCleanup()
+            MeetingCaptureRecoveryCoordinator.shared.unregister(captureId: receipt.captureId)
+            recoveredStores.removeValue(forKey: receipt.captureId)
+            recoveredUploaders.removeValue(forKey: receipt.captureId)
+            serverCheckpoints.removeValue(forKey: receipt.captureId)
+            if self.store === store {
+                self.store = nil
+                self.uploader = nil
+                self.userStopped = false
+                self.stopRequested = false
+            }
+            emit("capture.discarded", receipt.dictionary)
+            completion(.success(receipt))
+        } catch let error as MeetingCaptureError {
+            completion(.failure(error))
+        } catch {
+            completion(.failure(.storageUnavailable))
+        }
     }
 
     private func consumePCM(_ data: Data, monotonicNs: UInt64) {

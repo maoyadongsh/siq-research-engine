@@ -17,13 +17,19 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from meeting_speech_service import __version__
-from meeting_speech_service.adapters import AdapterUnavailable, Recognition
+from meeting_speech_service.adapters import (
+    INDEPENDENT_FINALIZATION_PROTOCOL,
+    ORDERED_FINALIZATION_PROTOCOL,
+    AdapterUnavailable,
+    Recognition,
+)
 from meeting_speech_service.config import Settings
 from meeting_speech_service.protocol import (
     SPEECH_EVENT_SCHEMA_VERSION,
     AudioFlags,
     ProtocolError,
     StreamHeartbeat,
+    StreamHotwordsUpdate,
     StreamPause,
     StreamResume,
     StreamResumeRequest,
@@ -160,6 +166,10 @@ async def _serve_websocket(websocket: WebSocket, meeting_id: UUID, runtime: Spee
                 "adapter": snapshot.adapter,
                 "production_capable": snapshot.production_capable,
                 "resume_ttl_seconds": runtime.settings.resume_ttl_seconds,
+                "hotword_version": entry.hotword_version,
+                "first_partial_audio_budget_ms": runtime.settings.first_partial_audio_budget_ms(
+                    start.audio.chunk_ms
+                ),
             },
         )
         if snapshot.state == "degraded":
@@ -253,6 +263,12 @@ async def _message_loop(websocket: WebSocket, entry: StreamSession, runtime: Spe
                     "end-of-stream must be the final contiguous audio sequence",
                 )
             for ready_frame in offer.ready:
+                await _apply_hotword_update_if_due(
+                    websocket,
+                    entry,
+                    runtime,
+                    ready_frame.sequence,
+                )
                 runtime.registry.validate_audio_rate(entry, len(ready_frame.payload))
                 started = time.perf_counter()
                 recognitions = await entry.speech.ingest(
@@ -291,12 +307,18 @@ async def _message_loop(websocket: WebSocket, entry: StreamSession, runtime: Spe
         elif isinstance(control, StreamResumeRequest):
             entry.sequencer.validate_resume(control.last_acked_sequence)
             await _send_ack(websocket, entry, duplicate=True)
+        elif isinstance(control, StreamHotwordsUpdate):
+            await _queue_hotword_update(websocket, entry, runtime, control)
         elif isinstance(control, StreamHeartbeat):
             await _send_event(
                 websocket,
                 entry,
                 "stream.heartbeat",
-                {"ack_sequence": entry.ack_sequence, "server_monotonic_ms": int(time.monotonic() * 1_000)},
+                {
+                    "ack_sequence": entry.ack_sequence,
+                    "server_monotonic_ms": int(time.monotonic() * 1_000),
+                    "hotword_version": entry.hotword_version,
+                },
             )
         elif isinstance(control, StreamStop):
             recognitions = await entry.speech.flush()
@@ -322,7 +344,10 @@ async def _send_recognitions(
             "start_ms": recognition.start_ms,
             "end_ms": recognition.end_ms,
             "adapter": recognition.adapter,
+            "hotword_version": recognition.hotword_version,
         }
+        if recognition.kind == "partial":
+            payload["inference_ms"] = max(0, round(elapsed_seconds * 1_000))
         if recognition.kind == "final":
             payload.update(
                 {
@@ -356,6 +381,123 @@ async def _send_recognitions(
                     "confidence": recognition.speaker_confidence,
                 },
             )
+
+
+async def _queue_hotword_update(
+    websocket: WebSocket,
+    entry: StreamSession,
+    runtime: SpeechRuntime,
+    update: StreamHotwordsUpdate,
+) -> None:
+    request_id = str(update.request_id)
+    values = tuple(update.hotwords)
+    if len(values) > runtime.settings.max_hotwords:
+        raise ProtocolError("HOTWORD_LIMIT", "hotword count exceeds the configured limit")
+    if any(len(word) > runtime.settings.max_hotword_chars for word in values):
+        raise ProtocolError("HOTWORD_LENGTH_LIMIT", "hotword length exceeds the configured limit")
+
+    signature = (update.hotword_version, update.effective_sequence, values)
+    previous = entry.hotword_update_history.get(request_id)
+    if previous is not None:
+        if previous[:3] != signature:
+            raise ProtocolError("HOTWORD_UPDATE_CONFLICT", "hotword request ID was reused with different content")
+        await _send_hotword_ack(websocket, entry, update, status=previous[3])
+        return
+
+    for pending in entry.pending_hotword_updates:
+        if str(pending.request_id) == request_id:
+            await _send_hotword_ack(websocket, entry, update, status="queued")
+            return
+    if update.effective_sequence <= entry.ack_sequence:
+        raise ProtocolError("HOTWORD_BOUNDARY_STALE", "hotword boundary must be after acknowledged audio")
+    if len(entry.pending_hotword_updates) >= 8:
+        raise ProtocolError("HOTWORD_UPDATE_CAPACITY", "too many hotword updates are waiting for audio")
+    if (
+        entry.pending_hotword_updates
+        and update.effective_sequence < entry.pending_hotword_updates[-1].effective_sequence
+    ):
+        raise ProtocolError("HOTWORD_BOUNDARY_ORDER", "hotword boundaries must be queued in sequence order")
+    for known_version, known_hotwords in [
+        (entry.hotword_version, entry.hotwords),
+        *[
+            (pending.hotword_version, tuple(pending.hotwords))
+            for pending in entry.pending_hotword_updates
+        ],
+    ]:
+        if known_version == update.hotword_version and known_hotwords != values:
+            raise ProtocolError("HOTWORD_VERSION_CONFLICT", "hotword version has different immutable content")
+    if update.hotword_version == entry.hotword_version:
+        if values != entry.hotwords:
+            raise ProtocolError("HOTWORD_VERSION_CONFLICT", "hotword version has different immutable content")
+        entry.hotword_update_history[request_id] = (*signature, "applied")
+        _trim_hotword_history(entry)
+        await _send_hotword_ack(websocket, entry, update, status="applied")
+        return
+
+    entry.pending_hotword_updates.append(update)
+    entry.hotword_update_history[request_id] = (*signature, "queued")
+    _trim_hotword_history(entry)
+    await _send_hotword_ack(websocket, entry, update, status="queued")
+
+
+async def _apply_hotword_update_if_due(
+    websocket: WebSocket,
+    entry: StreamSession,
+    runtime: SpeechRuntime,
+    sequence: int,
+) -> None:
+    while (
+        entry.pending_hotword_updates
+        and sequence >= entry.pending_hotword_updates[0].effective_sequence
+    ):
+        update = entry.pending_hotword_updates.pop(0)
+        started = time.perf_counter()
+        recognitions = await entry.speech.update_hotwords(
+            tuple(update.hotwords),
+            hotword_version=update.hotword_version,
+        )
+        await _send_recognitions(
+            websocket,
+            entry,
+            runtime,
+            recognitions,
+            time.perf_counter() - started,
+        )
+        entry.hotwords = tuple(update.hotwords)
+        entry.hotword_version = update.hotword_version
+        request_id = str(update.request_id)
+        entry.hotword_update_history[request_id] = (
+            update.hotword_version,
+            update.effective_sequence,
+            tuple(update.hotwords),
+            "applied",
+        )
+        _trim_hotword_history(entry)
+        await _send_hotword_ack(websocket, entry, update, status="applied", applied_sequence=sequence)
+
+
+async def _send_hotword_ack(
+    websocket: WebSocket,
+    entry: StreamSession,
+    update: StreamHotwordsUpdate,
+    *,
+    status: str,
+    applied_sequence: int | None = None,
+) -> None:
+    payload: dict[str, Any] = {
+        "request_id": str(update.request_id),
+        "hotword_version": update.hotword_version,
+        "effective_sequence": update.effective_sequence,
+        "status": status,
+    }
+    if applied_sequence is not None:
+        payload["applied_sequence"] = applied_sequence
+    await _send_event(websocket, entry, "hotwords.update.ack", payload)
+
+
+def _trim_hotword_history(entry: StreamSession) -> None:
+    while len(entry.hotword_update_history) > 16:
+        entry.hotword_update_history.pop(next(iter(entry.hotword_update_history)))
 
 
 async def _send_ack(websocket: WebSocket, entry: StreamSession, *, duplicate: bool) -> None:
@@ -541,6 +683,23 @@ async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JS
         )
         discontinuity = _boolean_header(request, "x-siq-discontinuity", default=False)
         final_window = _boolean_header(request, "x-siq-final-window", default=False)
+        finalization_protocol = (
+            request.headers.get("x-siq-finalization-protocol", "").strip()
+            or ORDERED_FINALIZATION_PROTOCOL
+        )
+        if finalization_protocol not in {
+            ORDERED_FINALIZATION_PROTOCOL,
+            INDEPENDENT_FINALIZATION_PROTOCOL,
+        }:
+            raise ProtocolError(
+                "FINALIZATION_PROTOCOL_INVALID",
+                "finalization protocol is not supported",
+            )
+        if finalization_protocol == INDEPENDENT_FINALIZATION_PROTOCOL and not final_window:
+            raise ProtocolError(
+                "FINALIZATION_INDEPENDENT_WINDOW_INVALID",
+                "independent finalization windows must be self-contained",
+            )
         language = request.headers.get("x-siq-language", "").strip() or None
         if language is not None and len(language) > 32:
             raise ProtocolError("FINALIZATION_LANGUAGE_INVALID", "finalization language is invalid")
@@ -557,16 +716,27 @@ async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JS
                 "FINALIZATION_PCM_INVALID",
                 "finalization audio must contain aligned PCM16 samples",
             )
-        diarizer_ref, results = await runtime.finalize_window(
-            run_id=run_id,
-            window_index=window_index,
-            pcm=pcm,
-            start_ms=start_ms,
-            discontinuity=discontinuity,
-            final_window=final_window,
-            language=language,
-            hotwords=hotwords,
-        )
+        if finalization_protocol == INDEPENDENT_FINALIZATION_PROTOCOL:
+            diarizer_ref, results = await runtime.finalize_independent_window(
+                run_id=run_id,
+                window_index=window_index,
+                pcm=pcm,
+                start_ms=start_ms,
+                discontinuity=discontinuity,
+                language=language,
+                hotwords=hotwords,
+            )
+        else:
+            diarizer_ref, results = await runtime.finalize_window(
+                run_id=run_id,
+                window_index=window_index,
+                pcm=pcm,
+                start_ms=start_ms,
+                discontinuity=discontinuity,
+                final_window=final_window,
+                language=language,
+                hotwords=hotwords,
+            )
     except (TypeError, ValueError):
         return JSONResponse(
             {"detail": "Finalization headers are invalid", "code": "FINALIZATION_HEADERS_INVALID"},
@@ -602,6 +772,7 @@ async def _serve_finalize_window(request: Request, runtime: SpeechRuntime) -> JS
     return JSONResponse(
         {
             "schema_version": "siq.meeting.final_asr_window.v1",
+            "protocol_version": finalization_protocol,
             "finalization_id": str(run_id),
             "diarizer_ref": diarizer_ref,
             "window_index": window_index,

@@ -27,3 +27,12 @@ test('timeline uses measured windowing while pinning the active editor and isola
   assert.match(source, /aria-live="polite"/)
   assert.match(source, /aria-hidden="true"/)
 })
+
+test('timeline exposes accessible playback highlighting and resumable follow mode', () => {
+  assert.match(source, /data-playback-active=\{playbackActive \? 'true' : undefined\}/)
+  assert.match(source, /aria-current=\{playbackActive \? 'true' : undefined\}/)
+  assert.match(source, /onWheel=\{pausePlaybackFollowing\}/)
+  assert.match(source, /onTouchStart=\{pausePlaybackFollowing\}/)
+  assert.match(source, /回到播放位置/)
+  assert.match(source, /title="播放此段录音"/)
+})

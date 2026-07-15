@@ -50,11 +50,14 @@ final class MeetingCaptureKeychain {
         return (credentials.token, credentials.deviceInstallationId)
     }
 
-    func remove(captureId: String) {
-        SecItemDelete([
+    func remove(captureId: String) throws {
+        let status = SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: captureId
         ] as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw MeetingCaptureError.tokenUnavailable
+        }
     }
 }

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi.testclient import TestClient
+from meeting_speech_service.adapters import INDEPENDENT_FINALIZATION_PROTOCOL
 from meeting_speech_service.app import create_app
 from meeting_speech_service.config import Settings
 from meeting_speech_service.protocol import AudioFlags, AudioFrame, encode_audio_frame
@@ -89,7 +90,9 @@ def test_websocket_emits_partial_final_ack_and_idempotent_duplicate() -> None:
     with TestClient(create_app(_settings())) as client:
         with client.websocket_connect(f"/v1/stream/{MEETING_ID}", headers={"x-siq-service-token": TOKEN}) as websocket:
             websocket.send_json(_start())
-            assert websocket.receive_json()["type"] == "stream.ready"
+            ready = websocket.receive_json()
+            assert ready["type"] == "stream.ready"
+            assert ready["payload"]["first_partial_audio_budget_ms"] == 400
             assert websocket.receive_json()["type"] == "pipeline.degraded"
 
             websocket.send_bytes(_frame(0, 12_000))
@@ -113,6 +116,114 @@ def test_websocket_emits_partial_final_ack_and_idempotent_duplicate() -> None:
 
             websocket.send_json({"type": "stream.stop", "schema_version": "siq.meeting.stream.v1"})
             assert websocket.receive_json()["type"] == "stream.stopped"
+
+
+def test_hotword_update_is_acknowledged_and_applied_at_exact_sequence_boundary() -> None:
+    with TestClient(create_app(_settings())) as client:
+        with client.websocket_connect(
+            f"/v1/stream/{MEETING_ID}",
+            headers={"x-siq-service-token": TOKEN},
+        ) as websocket:
+            start = _start()
+            start["hotwords"] = ["旧术语"]
+            start["hotword_version"] = 1
+            websocket.send_json(start)
+            ready = websocket.receive_json()
+            assert ready["type"] == "stream.ready"
+            assert ready["payload"]["hotword_version"] == 1
+            assert websocket.receive_json()["type"] == "pipeline.degraded"
+
+            websocket.send_bytes(_frame(0, 12_000))
+            first = _receive_through_ack(websocket)
+            partial = next(event for event in first if event["type"] == "asr.partial")
+            assert partial["payload"]["hotword_version"] == 1
+
+            request_id = uuid4()
+            update = {
+                "type": "stream.hotwords.update",
+                "schema_version": "siq.meeting.stream.v1",
+                "request_id": str(request_id),
+                "hotword_version": 2,
+                "effective_sequence": 1,
+                "hotwords": ["新术语"],
+            }
+            websocket.send_json(update)
+            queued = websocket.receive_json()
+            assert queued["type"] == "hotwords.update.ack"
+            assert queued["payload"] == {
+                "request_id": str(request_id),
+                "hotword_version": 2,
+                "effective_sequence": 1,
+                "status": "queued",
+            }
+
+            websocket.send_bytes(_frame(1, 12_000))
+            second = _receive_through_ack(websocket)
+            old_final = next(event for event in second if event["type"] == "asr.final")
+            applied = next(event for event in second if event["type"] == "hotwords.update.ack")
+            new_partial = next(event for event in second if event["type"] == "asr.partial")
+            assert old_final["payload"]["hotword_version"] == 1
+            assert old_final["payload"]["finalization_reason"] == "hotword_update"
+            assert applied["payload"]["status"] == "applied"
+            assert applied["payload"]["applied_sequence"] == 1
+            assert new_partial["payload"]["hotword_version"] == 2
+
+            websocket.send_json(update)
+            replay = websocket.receive_json()
+            assert replay["type"] == "hotwords.update.ack"
+            assert replay["payload"]["status"] == "applied"
+
+
+def test_queued_hotword_versions_preserve_old_outbox_audio_and_apply_latest_before_boundary_frame() -> None:
+    with TestClient(create_app(_settings())) as client:
+        with client.websocket_connect(
+            f"/v1/stream/{MEETING_ID}",
+            headers={"x-siq-service-token": TOKEN},
+        ) as websocket:
+            start = _start()
+            start["hotwords"] = ["v1"]
+            start["hotword_version"] = 1
+            websocket.send_json(start)
+            assert websocket.receive_json()["type"] == "stream.ready"
+            assert websocket.receive_json()["type"] == "pipeline.degraded"
+
+            for version in (2, 3):
+                websocket.send_json(
+                    {
+                        "type": "stream.hotwords.update",
+                        "schema_version": "siq.meeting.stream.v1",
+                        "request_id": str(uuid4()),
+                        "hotword_version": version,
+                        "effective_sequence": 2,
+                        "hotwords": [f"v{version}"],
+                    }
+                )
+                queued = websocket.receive_json()
+                assert queued["type"] == "hotwords.update.ack"
+                assert queued["payload"]["status"] == "queued"
+
+            # These frames may have been captured before the control but reach
+            # speech afterwards. Their sequence is the authority, not arrival time.
+            for sequence in (0, 1):
+                websocket.send_bytes(_frame(sequence, 12_000))
+                events = _receive_through_ack(websocket)
+                partial = next(event for event in events if event["type"] == "asr.partial")
+                assert partial["payload"]["hotword_version"] == 1
+
+            websocket.send_bytes(_frame(2, 12_000))
+            boundary_events = _receive_through_ack(websocket)
+            old_final = next(event for event in boundary_events if event["type"] == "asr.final")
+            applied = [event for event in boundary_events if event["type"] == "hotwords.update.ack"]
+            new_partial = next(event for event in boundary_events if event["type"] == "asr.partial")
+            assert old_final["payload"]["hotword_version"] == 1
+            assert [event["payload"]["hotword_version"] for event in applied] == [2, 3]
+            assert all(event["payload"]["applied_sequence"] == 2 for event in applied)
+            assert new_partial["payload"]["hotword_version"] == 3
+
+            websocket.send_bytes(_frame(3, 0))
+            final_events = _receive_through_ack(websocket)
+            final = next(event for event in final_events if event["type"] == "asr.final")
+            assert final["payload"]["hotword_version"] == 3
 
 
 def test_speaker_track_keys_are_isolated_between_stream_epochs() -> None:
@@ -370,3 +481,58 @@ def test_finalize_window_is_bounded_authenticated_and_idempotent() -> None:
         )
         assert repeated.status_code == 200
         assert repeated.json()["diarizer_ref"] == diarizer_ref
+
+
+def test_independent_finalization_windows_are_out_of_order_and_content_idempotent() -> None:
+    settings = _settings(speaker_adapter="mock", finalization_max_window_seconds=2)
+    run_id = uuid4()
+
+    def headers(index: int, start_ms: int) -> dict[str, str]:
+        return {
+            "x-siq-service-token": TOKEN,
+            "x-siq-finalization-id": str(run_id),
+            "x-siq-finalization-protocol": INDEPENDENT_FINALIZATION_PROTOCOL,
+            "x-siq-window-index": str(index),
+            "x-siq-window-start-ms": str(start_ms),
+            "x-siq-final-window": "true",
+            "x-siq-discontinuity": "false",
+            "x-siq-language": "zh-CN",
+            "x-siq-hotwords": "[]",
+            "content-type": "application/octet-stream",
+        }
+
+    with TestClient(create_app(settings)) as client:
+        later = client.post(
+            "/v1/finalize-window",
+            content=_pcm(12_000),
+            headers=headers(2, 4_000),
+        )
+        assert later.status_code == 200
+        body = later.json()
+        assert body["protocol_version"] == INDEPENDENT_FINALIZATION_PROTOCOL
+        assert body["window_index"] == 2
+        assert body["segments"][0]["speaker_track_key"] == (
+            f"finalization-{run_id}:window-2:mock-speaker-0"
+        )
+
+        earlier = client.post(
+            "/v1/finalize-window",
+            content=_pcm(12_000),
+            headers=headers(0, 0),
+        )
+        assert earlier.status_code == 200
+        replay = client.post(
+            "/v1/finalize-window",
+            content=_pcm(12_000),
+            headers=headers(2, 4_000),
+        )
+        assert replay.status_code == 200
+        assert replay.json() == body
+
+        conflict = client.post(
+            "/v1/finalize-window",
+            content=_pcm(10_000),
+            headers=headers(2, 4_000),
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["code"] == "FINALIZATION_WINDOW_CONFLICT"

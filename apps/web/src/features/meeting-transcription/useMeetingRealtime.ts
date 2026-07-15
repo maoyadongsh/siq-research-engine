@@ -107,6 +107,10 @@ export function useMeetingRealtime(meetingId: string) {
     return await transportRef.current?.stop() ?? false
   }, [])
 
+  const updateHotwords = useCallback((hotwords: string[], hotwordVersion: number) => {
+    return transportRef.current?.updateHotwords(hotwords, hotwordVersion)
+  }, [])
+
   const hydrate = useCallback((payload: {
     segments?: MeetingTranscriptSegment[]
     speakers?: MeetingSpeakerTrack[]
@@ -126,6 +130,7 @@ export function useMeetingRealtime(meetingId: string) {
     pause,
     resume,
     stop,
+    updateHotwords,
     hydrate,
-  }), [connect, disconnect, hydrate, inputLevel, pause, prepareCapture, resume, state, stop, streamError])
+  }), [connect, disconnect, hydrate, inputLevel, pause, prepareCapture, resume, state, stop, streamError, updateHotwords])
 }

@@ -8,6 +8,7 @@ from meeting_speech_service.protocol import (
     ProtocolError,
     decode_audio_frame,
     encode_audio_frame,
+    parse_control_message,
     parse_stream_start,
 )
 
@@ -69,3 +70,10 @@ def test_stream_start_schema_is_strict() -> None:
             }"""
         )
     assert exc_info.value.code == "STREAM_START_INVALID"
+
+
+def test_heartbeat_carries_the_browser_next_sequence_for_hotword_boundaries() -> None:
+    heartbeat = parse_control_message(
+        '{"type":"stream.heartbeat","schema_version":"siq.meeting.stream.v1","next_sequence":9}'
+    )
+    assert heartbeat.next_sequence == 9

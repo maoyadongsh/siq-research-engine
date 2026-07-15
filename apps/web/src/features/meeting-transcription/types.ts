@@ -75,6 +75,20 @@ export interface MeetingCapabilities {
     chunk_ms?: number
     chunk_min_ms?: number
     chunk_max_ms?: number
+    capture_adapters?: {
+      web_audio_worklet?: {
+        available: boolean
+        background_recording?: boolean
+      }
+      ios_native?: {
+        available: boolean
+        adapter?: 'ios_native'
+        background_recording?: boolean
+        requires_native_runtime?: boolean
+        configuration_errors?: string[]
+        limits?: Record<string, number>
+      }
+    }
   }
   asr?: MeetingCapabilityStatus & {
     languages?: string[]

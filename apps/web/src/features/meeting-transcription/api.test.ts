@@ -298,6 +298,12 @@ test('transcript response maps backend revision and speaker fields', async () =>
   assert.equal(page.items[0].text_state, 'human_verified')
 })
 
+test('transcript playback lookup requests a bounded window around audio time', async () => {
+  const calls = installFetch({ items: [], next_ordinal: null })
+  await getMeetingTranscript('meeting-1', { atMs: 123_456, limit: 200 })
+  assert.equal(calls[0].url, '/api/meetings/v1/sessions/meeting-1/transcript?at_ms=123456&limit=200')
+})
+
 test('transcript response recognizes the backend llm_corrected display layer', async () => {
   installFetch({
     items: [{

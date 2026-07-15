@@ -11,7 +11,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         if let trustedAPIOrigin = Bundle.main.object(forInfoDictionaryKey: "SIQMeetingAPIOrigin") as? String,
-           !trustedAPIOrigin.isEmpty {
+           !trustedAPIOrigin.isEmpty,
+           !trustedAPIOrigin.contains("$(") {
             // Restores durable upload sessions only. It never starts or resumes the recorder.
             MeetingCaptureRecoveryCoordinator.shared.bootstrap(trustedAPIOrigin: trustedAPIOrigin)
         }

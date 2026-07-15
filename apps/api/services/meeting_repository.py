@@ -97,7 +97,12 @@ from services.meeting_correction_feedback import (
     contribution_is_eligible,
     validated_candidate_terms,
 )
-from services.meeting_event_store import MeetingEventStore, decode_json, encode_json, event_response
+from services.meeting_event_store import (
+    MeetingEventStore,
+    decode_json,
+    encode_json,
+    event_response,
+)
 from services.meeting_lexicon_service import assert_unambiguous_confusions, entries_hash
 from services.meeting_native_capture_contracts import (
     MeetingNativeCapture,
@@ -234,11 +239,7 @@ def transcript_event_payload(value: TranscriptSegmentResponse) -> dict[str, Any]
     segment["revision_no"] = value.current_revision_no
     segment["speaker_display_name"] = value.speaker_label
     segment["text_state"] = (
-        "human_verified"
-        if value.human_locked
-        else "optimized"
-        if value.display_layer == "llm_corrected"
-        else "stable"
+        "human_verified" if value.human_locked else "optimized" if value.display_layer == "llm_corrected" else "stable"
     )
     return segment
 
@@ -441,8 +442,7 @@ class MeetingRepository:
             "on",
         }
         configured = bool(
-            os.getenv("SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY")
-            or os.getenv("SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH")
+            os.getenv("SIQ_MEETING_VOICEPRINT_TOMBSTONE_HMAC_KEY") or os.getenv("SIQ_MEETING_VOICEPRINT_TOMBSTONE_PATH")
         )
         if not enabled and not configured:
             if required:
@@ -487,11 +487,7 @@ class MeetingRepository:
             latest = await asyncio.to_thread(ledger.latest)
         except VoiceprintTombstoneError as exc:
             raise MeetingInvalidOperation("voiceprint tombstone ledger is unreadable") from exc
-        entries = [
-            entry
-            for entry in latest.values()
-            if owner_user_id is None or entry.owner_user_id == owner_user_id
-        ]
+        entries = [entry for entry in latest.values() if owner_user_id is None or entry.owner_user_id == owner_user_id]
         if not entries:
             return {"seen": 0, "purged": 0, "remaining": 0}
         purged = 0
@@ -538,27 +534,21 @@ class MeetingRepository:
                 for consent in consents:
                     entry = entry_by_id[consent.voice_profile_id]
                     consent.revoked_at = entry.deleted_at
-                    consent_counts[consent.voice_profile_id] = (
-                        consent_counts.get(consent.voice_profile_id, 0) + 1
-                    )
+                    consent_counts[consent.voice_profile_id] = consent_counts.get(consent.voice_profile_id, 0) + 1
                     self.session.add(consent)
                 now = utcnow()
                 for profile in profiles:
                     entry = entry_by_id[profile.id]
                     desired_status = (
                         VoiceProfileStatus.DELETED.value
-                        if entry.reason == "deleted"
-                        or profile.status == VoiceProfileStatus.DELETED.value
+                        if entry.reason == "deleted" or profile.status == VoiceProfileStatus.DELETED.value
                         else VoiceProfileStatus.REVOKED.value
                     )
                     changed = (
                         profile.status != desired_status
                         or profile.encrypted_embedding is not None
                         or profile.key_id is not None
-                        or (
-                            desired_status == VoiceProfileStatus.DELETED.value
-                            and profile.deleted_at is None
-                        )
+                        or (desired_status == VoiceProfileStatus.DELETED.value and profile.deleted_at is None)
                     )
                     profile.status = desired_status
                     profile.encrypted_embedding = None
@@ -592,7 +582,10 @@ class MeetingRepository:
                     if profile.encrypted_embedding is not None
                     or profile.key_id is not None
                     or profile.status
-                    not in {VoiceProfileStatus.REVOKED.value, VoiceProfileStatus.DELETED.value}
+                    not in {
+                        VoiceProfileStatus.REVOKED.value,
+                        VoiceProfileStatus.DELETED.value,
+                    }
                 )
                 await self._commit()
         return {"seen": len(entries), "purged": purged, "remaining": remaining}
@@ -745,9 +738,7 @@ class MeetingRepository:
                 resource_id=resource_id,
                 response_status=response_status,
                 response_json=encode_json(
-                    {"resource_id": resource_id}
-                    if response_payload is None
-                    else response_payload
+                    {"resource_id": resource_id} if response_payload is None else response_payload
                 ),
             )
         )
@@ -805,9 +796,7 @@ class MeetingRepository:
                 requested_model_ref=value.requested_model_ref,
                 fallback_policy=value.fallback_policy,
                 effective_after_segment_ordinal=0,
-                cloud_data_boundary_confirmed_at=(
-                    utcnow() if selection.cloud_data_boundary_confirmed else None
-                ),
+                cloud_data_boundary_confirmed_at=(utcnow() if selection.cloud_data_boundary_confirmed else None),
                 changed_by=str(owner_user_id),
             )
         )
@@ -849,18 +838,16 @@ class MeetingRepository:
             if escaped:
                 filters.append(MeetingSession.title.ilike(f"%{escaped}%", escape="\\"))
         total = int(
-            (
-                await self.session.exec(
-                    select(func.count()).select_from(MeetingSession).where(*filters)
-                )
-            ).one()
-            or 0
+            (await self.session.exec(select(func.count()).select_from(MeetingSession).where(*filters))).one() or 0
         )
         started = func.coalesce(MeetingSession.started_at, MeetingSession.created_at)
         order_by = {
             "started_at_desc": (started.desc(), col(MeetingSession.id).desc()),
             "started_at_asc": (started.asc(), col(MeetingSession.id).asc()),
-            "updated_at_desc": (col(MeetingSession.updated_at).desc(), col(MeetingSession.id).desc()),
+            "updated_at_desc": (
+                col(MeetingSession.updated_at).desc(),
+                col(MeetingSession.id).desc(),
+            ),
         }.get(sort)
         if order_by is None:
             raise MeetingInvalidOperation("meeting session sort is unsupported")
@@ -1115,7 +1102,11 @@ class MeetingRepository:
         event = await self.events.append(
             meeting_id,
             "postprocess.queued",
-            {"session_id": meeting_id, "job_id": job.id, "input_watermark": job.input_watermark},
+            {
+                "session_id": meeting_id,
+                "job_id": job.id,
+                "input_watermark": job.input_watermark,
+            },
         )
         await self._commit()
         return value, False, job, event
@@ -1194,9 +1185,9 @@ class MeetingRepository:
                 track_count = int(
                     (
                         await self.session.exec(
-                            select(func.count()).select_from(MeetingSpeakerTrack).where(
-                                MeetingSpeakerTrack.meeting_id == meeting_id
-                            )
+                            select(func.count())
+                            .select_from(MeetingSpeakerTrack)
+                            .where(MeetingSpeakerTrack.meeting_id == meeting_id)
                         )
                     ).one()
                     or 0
@@ -1280,7 +1271,10 @@ class MeetingRepository:
             await self.session.exec(
                 select(MeetingSegmentRevision)
                 .where(col(MeetingSegmentRevision.segment_id).in_(segment_ids))
-                .order_by(MeetingSegmentRevision.segment_id, col(MeetingSegmentRevision.revision_no).desc())
+                .order_by(
+                    MeetingSegmentRevision.segment_id,
+                    col(MeetingSegmentRevision.revision_no).desc(),
+                )
             )
         ).all()
         latest: dict[str, MeetingSegmentRevision] = {}
@@ -1370,9 +1364,7 @@ class MeetingRepository:
         tracks: dict[str, MeetingSpeakerTrack] = {}
         if track_ids:
             track_values = (
-                await self.session.exec(
-                    select(MeetingSpeakerTrack).where(col(MeetingSpeakerTrack.id).in_(track_ids))
-                )
+                await self.session.exec(select(MeetingSpeakerTrack).where(col(MeetingSpeakerTrack.id).in_(track_ids)))
             ).all()
             tracks = {item.id: item for item in track_values}
         responses = [
@@ -1380,6 +1372,38 @@ class MeetingRepository:
             for item in page
         ]
         return responses, page[-1].ordinal if has_more and page else None
+
+    async def transcript_window_at(
+        self,
+        meeting_id: str,
+        owner_user_id: int,
+        *,
+        at_ms: int,
+        limit: int = 200,
+    ) -> tuple[list[TranscriptSegmentResponse], int | None]:
+        await self._owned_session(meeting_id, owner_user_id)
+        anchor_ordinal = (
+            await self.session.exec(
+                select(MeetingTranscriptSegment.ordinal)
+                .where(
+                    MeetingTranscriptSegment.meeting_id == meeting_id,
+                    MeetingTranscriptSegment.start_ms <= max(0, at_ms),
+                )
+                .order_by(
+                    MeetingTranscriptSegment.start_ms.desc(),
+                    MeetingTranscriptSegment.ordinal.desc(),
+                )
+                .limit(1)
+            )
+        ).first()
+        before_anchor = max(1, limit // 2)
+        after_ordinal = 0 if anchor_ordinal is None else max(0, int(anchor_ordinal) - before_anchor - 1)
+        return await self.transcript_page(
+            meeting_id,
+            owner_user_id,
+            after_ordinal=after_ordinal,
+            limit=limit,
+        )
 
     async def list_speakers(
         self,
@@ -1433,18 +1457,14 @@ class MeetingRepository:
                     )
                 )
             except ValueError as exc:
-                raise MeetingIdempotencyConflict(
-                    "stored speaker rename response snapshot is invalid"
-                ) from exc
+                raise MeetingIdempotencyConflict("stored speaker rename response snapshot is invalid") from exc
             if (
                 replay.resource_id != meeting_id
                 or response.id != track_id
                 or response.meeting_id != meeting_id
                 or response.version < 1
             ):
-                raise MeetingIdempotencyConflict(
-                    "stored speaker rename response snapshot identity is invalid"
-                )
+                raise MeetingIdempotencyConflict("stored speaker rename response snapshot identity is invalid")
             return response, None
         track = await self._owned_track(meeting_id, track_id, owner_user_id, lock=True)
         if track.version != request.expected_version:
@@ -1520,14 +1540,8 @@ class MeetingRepository:
                     )
                 )
             except ValueError as exc:
-                raise MeetingIdempotencyConflict(
-                    "stored segment speaker rename response snapshot is invalid"
-                ) from exc
-            expected_operation = (
-                "rename_speaker"
-                if request.scope == SpeakerRenameScope.SPEAKER
-                else "rename_segment"
-            )
+                raise MeetingIdempotencyConflict("stored segment speaker rename response snapshot is invalid") from exc
+            expected_operation = "rename_speaker" if request.scope == SpeakerRenameScope.SPEAKER else "rename_segment"
             track_ids = {track.id for track in response.tracks}
             if (
                 replay.resource_id != meeting_id
@@ -1541,9 +1555,7 @@ class MeetingRepository:
                 or response.segment.speaker_track_id not in track_ids
                 or any(track.meeting_id != meeting_id for track in response.tracks)
             ):
-                raise MeetingIdempotencyConflict(
-                    "stored segment speaker rename response snapshot identity is invalid"
-                )
+                raise MeetingIdempotencyConflict("stored segment speaker rename response snapshot identity is invalid")
             return response
         segment = await self._owned_segment(meeting_id, segment_id, owner_user_id, lock=True)
         if not segment.speaker_track_id:
@@ -1894,9 +1906,7 @@ class MeetingRepository:
             track_key=f"manual-split-{uuid4().hex}",
             anonymous_label=f"发言人 {track_count + 1}",
             display_name=display_name,
-            label_source=(
-                SpeakerLabelSource.MANUAL.value if display_name else SpeakerLabelSource.ANONYMOUS.value
-            ),
+            label_source=(SpeakerLabelSource.MANUAL.value if display_name else SpeakerLabelSource.ANONYMOUS.value),
         )
         self.session.add(target)
         await self.session.flush()
@@ -1963,9 +1973,7 @@ class MeetingRepository:
             ).first()
             if existing_feedback is not None:
                 if existing_feedback.meeting_id != meeting_id or existing_feedback.segment_id != segment_id:
-                    raise MeetingIdempotencyConflict(
-                        "idempotency key was already used for another correction"
-                    )
+                    raise MeetingIdempotencyConflict("idempotency key was already used for another correction")
                 segment = await self._owned_segment(meeting_id, segment_id, owner_user_id)
                 revision = (
                     await self.session.exec(
@@ -1976,9 +1984,7 @@ class MeetingRepository:
                     )
                 ).first()
                 if revision is None or revision.text != request.text:
-                    raise MeetingIdempotencyConflict(
-                        "idempotency key was already used for a different correction"
-                    )
+                    raise MeetingIdempotencyConflict("idempotency key was already used for a different correction")
                 latest = (await self._latest_revisions([segment.id])).get(segment.id)
                 return SegmentCorrectionResponse(
                     segment=self._segment_response(segment, latest, None),
@@ -2046,11 +2052,7 @@ class MeetingRepository:
             edit_intent=_value(request.edit_intent),
             error_class=_value(error_class),
             contribute_to_accuracy=eligible,
-            status=(
-                CorrectionStatus.ACTIVE.value
-                if correction_learning_enabled
-                else CorrectionStatus.EXCLUDED.value
-            ),
+            status=(CorrectionStatus.ACTIVE.value if correction_learning_enabled else CorrectionStatus.EXCLUDED.value),
             asr_provider=segment.asr_provider,
             asr_model=segment.asr_model,
             asr_version=segment.asr_version,
@@ -2087,9 +2089,7 @@ class MeetingRepository:
                         canonical_term=submitted.canonical_term,
                         misrecognition=submitted.misrecognition,
                         language="zh-CN",
-                        candidate_type=(
-                            "confusion_pair" if submitted.misrecognition else "hotword"
-                        ),
+                        candidate_type=("confusion_pair" if submitted.misrecognition else "hotword"),
                         confidence=0.5,
                     )
                     self.session.add(candidate)
@@ -2122,13 +2122,9 @@ class MeetingRepository:
                 candidate_ids.append(candidate.id)
 
         speaker = (
-            await self.session.get(MeetingSpeakerTrack, segment.speaker_track_id)
-            if segment.speaker_track_id
-            else None
+            await self.session.get(MeetingSpeakerTrack, segment.speaker_track_id) if segment.speaker_track_id else None
         )
-        segment_snapshot = transcript_event_payload(
-            self._segment_response(segment, revision, speaker)
-        )
+        segment_snapshot = transcript_event_payload(self._segment_response(segment, revision, speaker))
         await self.events.append(
             meeting_id,
             "transcript.segment.human_edited",
@@ -2189,7 +2185,10 @@ class MeetingRepository:
         if current_revision != expected_revision:
             raise MeetingVersionConflict(
                 "segment revision does not match",
-                current={"revision": current_revision, "text": latest.text if latest else segment.asr_final_text},
+                current={
+                    "revision": current_revision,
+                    "text": latest.text if latest else segment.asr_final_text,
+                },
             )
         if revision_no >= current_revision:
             raise MeetingInvalidOperation("revert target must be older than the current revision")
@@ -2222,10 +2221,12 @@ class MeetingRepository:
                         MeetingASRCorrectionEvent.owner_user_id == owner_user_id,
                         MeetingASRCorrectionEvent.segment_id == segment_id,
                         MeetingASRCorrectionEvent.result_revision_no > revision_no,
-                        MeetingASRCorrectionEvent.status.in_([
-                            CorrectionStatus.ACTIVE.value,
-                            CorrectionStatus.PROMOTED.value,
-                        ]),
+                        MeetingASRCorrectionEvent.status.in_(
+                            [
+                                CorrectionStatus.ACTIVE.value,
+                                CorrectionStatus.PROMOTED.value,
+                            ]
+                        ),
                     )
                 )
             ).all()
@@ -2255,13 +2256,9 @@ class MeetingRepository:
         self.session.add(segment)
         self.session.add(revert_revision)
         speaker = (
-            await self.session.get(MeetingSpeakerTrack, segment.speaker_track_id)
-            if segment.speaker_track_id
-            else None
+            await self.session.get(MeetingSpeakerTrack, segment.speaker_track_id) if segment.speaker_track_id else None
         )
-        segment_snapshot = transcript_event_payload(
-            self._segment_response(segment, revert_revision, speaker)
-        )
+        segment_snapshot = transcript_event_payload(self._segment_response(segment, revert_revision, speaker))
         await self.events.append(
             meeting_id,
             "transcript.segment.human_edited",
@@ -2290,9 +2287,7 @@ class MeetingRepository:
         meeting_id: str | None = None,
         limit: int = 100,
     ) -> list[MeetingASRCorrectionEvent]:
-        statement = select(MeetingASRCorrectionEvent).where(
-            MeetingASRCorrectionEvent.owner_user_id == owner_user_id
-        )
+        statement = select(MeetingASRCorrectionEvent).where(MeetingASRCorrectionEvent.owner_user_id == owner_user_id)
         if status:
             statement = statement.where(MeetingASRCorrectionEvent.status == status)
         if meeting_id:
@@ -2333,7 +2328,10 @@ class MeetingRepository:
     ) -> MeetingASRCorrectionEvent:
         value = await self.get_correction_feedback(feedback_id, owner_user_id)
         if excluded:
-            if value.status in {CorrectionStatus.REVERTED.value, CorrectionStatus.EXCLUDED.value}:
+            if value.status in {
+                CorrectionStatus.REVERTED.value,
+                CorrectionStatus.EXCLUDED.value,
+            }:
                 return value
             value.status = CorrectionStatus.EXCLUDED.value
             value.contribute_to_accuracy = False
@@ -2363,18 +2361,10 @@ class MeetingRepository:
         *,
         status: str | None = None,
     ) -> list[MeetingTermCandidate]:
-        statement = select(MeetingTermCandidate).where(
-            MeetingTermCandidate.owner_user_id == owner_user_id
-        )
+        statement = select(MeetingTermCandidate).where(MeetingTermCandidate.owner_user_id == owner_user_id)
         if status:
             statement = statement.where(MeetingTermCandidate.status == status)
-        return list(
-            (
-                await self.session.exec(
-                    statement.order_by(col(MeetingTermCandidate.updated_at).desc())
-                )
-            ).all()
-        )
+        return list((await self.session.exec(statement.order_by(col(MeetingTermCandidate.updated_at).desc()))).all())
 
     async def _owned_candidate(
         self,
@@ -2418,9 +2408,8 @@ class MeetingRepository:
         meeting_id: str | None = None,
     ) -> list[MeetingLexiconEntry]:
         future_scope = (
-            (MeetingLexiconEntry.scope == LexiconScope.USER_FUTURE_MEETINGS.value)
-            & MeetingLexiconEntry.meeting_id.is_(None)
-        )
+            MeetingLexiconEntry.scope == LexiconScope.USER_FUTURE_MEETINGS.value
+        ) & MeetingLexiconEntry.meeting_id.is_(None)
         scope_filter = (
             future_scope
             if meeting_id is None
@@ -2455,16 +2444,20 @@ class MeetingRepository:
         meeting_id: str | None,
         lock: bool = False,
     ) -> MeetingLexiconVersion | None:
-        statement = select(MeetingLexiconVersion).where(
-            MeetingLexiconVersion.owner_user_id == owner_user_id,
-            MeetingLexiconVersion.language == language,
-            MeetingLexiconVersion.is_active.is_(True),
-            (
-                MeetingLexiconVersion.meeting_id.is_(None)
-                if meeting_id is None
-                else MeetingLexiconVersion.meeting_id == meeting_id
-            ),
-        ).order_by(col(MeetingLexiconVersion.version).desc())
+        statement = (
+            select(MeetingLexiconVersion)
+            .where(
+                MeetingLexiconVersion.owner_user_id == owner_user_id,
+                MeetingLexiconVersion.language == language,
+                MeetingLexiconVersion.is_active.is_(True),
+                (
+                    MeetingLexiconVersion.meeting_id.is_(None)
+                    if meeting_id is None
+                    else MeetingLexiconVersion.meeting_id == meeting_id
+                ),
+            )
+            .order_by(col(MeetingLexiconVersion.version).desc())
+        )
         if lock:
             statement = statement.with_for_update()
         return (await self.session.exec(statement)).first()
@@ -2652,7 +2645,10 @@ class MeetingRepository:
                 )
                 await self._commit()
             return candidate, existing, current_version
-        if candidate.status in {TermCandidateStatus.REJECTED.value, TermCandidateStatus.DEPRECATED.value}:
+        if candidate.status in {
+            TermCandidateStatus.REJECTED.value,
+            TermCandidateStatus.DEPRECATED.value,
+        }:
             raise MeetingInvalidOperation("rejected or deprecated candidates cannot be confirmed")
 
         entry = existing or MeetingLexiconEntry(
@@ -2660,9 +2656,7 @@ class MeetingRepository:
             language=candidate.language,
             canonical_term=candidate.canonical_term,
             aliases_json="[]",
-            misrecognitions_json=encode_json(
-                [candidate.misrecognition] if candidate.misrecognition else []
-            ),
+            misrecognitions_json=encode_json([candidate.misrecognition] if candidate.misrecognition else []),
             entry_type="confusion_pair" if candidate.misrecognition else "hotword",
             weight=min(10.0, 4.0 + candidate.confidence * 4.0),
             scope="user_future_meetings",
@@ -2929,10 +2923,7 @@ class MeetingRepository:
             if isinstance(item, dict)
             and (
                 item.get("scope") == LexiconScope.USER_FUTURE_MEETINGS.value
-                or (
-                    item.get("scope") == LexiconScope.CURRENT_MEETING.value
-                    and item.get("meeting_id") == meeting_id
-                )
+                or (item.get("scope") == LexiconScope.CURRENT_MEETING.value and item.get("meeting_id") == meeting_id)
             )
         ]
         return version.version, entries
@@ -3085,7 +3076,12 @@ class MeetingRepository:
         )
         values: list[tuple[MeetingVoiceProfile, bool]] = []
         for profile in profiles:
-            values.append((profile, await self._active_consent(profile.id, owner_user_id) is not None))
+            values.append(
+                (
+                    profile,
+                    await self._active_consent(profile.id, owner_user_id) is not None,
+                )
+            )
         return values
 
     async def set_voice_profile_status(
@@ -3168,9 +3164,7 @@ class MeetingRepository:
             raise MeetingInvalidOperation("source_track_id must match the route track")
         profile = await self._owned_voice_profile(request.voice_profile_id, owner_user_id, lock=True)
         existing_job = (
-            await self.session.exec(
-                select(MeetingJob).where(MeetingJob.idempotency_key == idempotency_key)
-            )
+            await self.session.exec(select(MeetingJob).where(MeetingJob.idempotency_key == idempotency_key))
         ).first()
         if existing_job is not None:
             payload = decode_json(existing_job.input_json, {})
@@ -3302,7 +3296,10 @@ class MeetingRepository:
         value = (
             await self.session.exec(
                 select(MeetingVoiceprintMatch)
-                .join(MeetingVoiceProfile, MeetingVoiceProfile.id == MeetingVoiceprintMatch.voice_profile_id)
+                .join(
+                    MeetingVoiceProfile,
+                    MeetingVoiceProfile.id == MeetingVoiceprintMatch.voice_profile_id,
+                )
                 .where(
                     MeetingVoiceprintMatch.id == match_id,
                     MeetingVoiceprintMatch.meeting_id == meeting_id,
@@ -3332,10 +3329,7 @@ class MeetingRepository:
         self.session.add(value)
         track = await self._owned_track(meeting_id, value.speaker_track_id, owner_user_id, lock=True)
         speaker_changed = False
-        if (
-            requested_decision == VoiceMatchDecision.CONFIRMED
-            and track.label_source != SpeakerLabelSource.MANUAL.value
-        ):
+        if requested_decision == VoiceMatchDecision.CONFIRMED and track.label_source != SpeakerLabelSource.MANUAL.value:
             assert profile is not None
             track.display_name = profile.display_name
             track.voice_profile_id = profile.id
@@ -3345,10 +3339,7 @@ class MeetingRepository:
             track.updated_at = utcnow()
             self.session.add(track)
             speaker_changed = True
-        elif (
-            requested_decision == VoiceMatchDecision.UNDONE
-            and track.label_source != SpeakerLabelSource.MANUAL.value
-        ):
+        elif requested_decision == VoiceMatchDecision.UNDONE and track.label_source != SpeakerLabelSource.MANUAL.value:
             track.display_name = None
             track.voice_profile_id = None
             track.match_confidence = None
@@ -3415,9 +3406,7 @@ class MeetingRepository:
             requested_model_ref=meeting.requested_model_ref,
             fallback_policy=meeting.fallback_policy,
             effective_after_segment_ordinal=meeting.last_segment_ordinal,
-            cloud_data_boundary_confirmed_at=(
-                utcnow() if selection.cloud_data_boundary_confirmed else None
-            ),
+            cloud_data_boundary_confirmed_at=(utcnow() if selection.cloud_data_boundary_confirmed else None),
             changed_by=str(owner_user_id),
         )
         self.session.add(meeting)
@@ -3495,7 +3484,10 @@ class MeetingRepository:
                 await self.session.exec(
                     select(MeetingArtifact)
                     .where(MeetingArtifact.meeting_id == meeting_id)
-                    .order_by(MeetingArtifact.artifact_type, col(MeetingArtifact.version).desc())
+                    .order_by(
+                        MeetingArtifact.artifact_type,
+                        col(MeetingArtifact.version).desc(),
+                    )
                 )
             ).all()
         )
@@ -3574,8 +3566,7 @@ class MeetingRepository:
             meeting_id=meeting_id,
             job_kind=job_kind,
             idempotency_key=(
-                f"{meeting_id}:artifact:{previous.artifact_type}:{artifact.version}:"
-                f"settings:{meeting.settings_version}"
+                f"{meeting_id}:artifact:{previous.artifact_type}:{artifact.version}:settings:{meeting.settings_version}"
             ),
             input_watermark=meeting.last_segment_ordinal,
             settings_version=meeting.settings_version,
@@ -3586,7 +3577,11 @@ class MeetingRepository:
         await self.events.append(
             meeting_id,
             "artifact.regeneration.queued",
-            {"artifact_id": artifact.id, "supersedes_id": previous.id, "job_id": job.id},
+            {
+                "artifact_id": artifact.id,
+                "supersedes_id": previous.id,
+                "job_id": job.id,
+            },
         )
         await self._commit()
         return artifact, job
@@ -3732,10 +3727,7 @@ class MeetingRepository:
                 MeetingJob.attempt < MeetingJob.max_attempts,
                 or_(
                     MeetingJob.state == MeetingJobState.QUEUED.value,
-                    (
-                        (MeetingJob.state == MeetingJobState.RETRY_WAIT.value)
-                        & (MeetingJob.updated_at <= retry_before)
-                    ),
+                    ((MeetingJob.state == MeetingJobState.RETRY_WAIT.value) & (MeetingJob.updated_at <= retry_before)),
                     (
                         (MeetingJob.state == MeetingJobState.LEASED.value)
                         & (MeetingJob.lease_until.is_not(None))
@@ -3776,14 +3768,8 @@ class MeetingRepository:
         )
         if lock:
             job_statement = job_statement.with_for_update()
-        job = (
-            await self.session.exec(job_statement)
-        ).first()
-        if (
-            job is None
-            or job.lease_until is None
-            or _aware_datetime(job.lease_until) <= _aware_datetime(now)
-        ):
+        job = (await self.session.exec(job_statement)).first()
+        if job is None or job.lease_until is None or _aware_datetime(job.lease_until) <= _aware_datetime(now):
             raise MeetingVersionConflict("voiceprint job lease is no longer owned by this worker")
         payload = decode_json(job.input_json, {})
         profile_id = str(payload.get("voice_profile_id") or "")
@@ -3833,7 +3819,10 @@ class MeetingRepository:
                         MeetingTranscriptSegment.meeting_id == meeting.id,
                         MeetingTranscriptSegment.speaker_track_id == track.id,
                     )
-                    .order_by(MeetingTranscriptSegment.start_ms, MeetingTranscriptSegment.ordinal)
+                    .order_by(
+                        MeetingTranscriptSegment.start_ms,
+                        MeetingTranscriptSegment.ordinal,
+                    )
                 )
             ).all()
         )
@@ -3854,8 +3843,7 @@ class MeetingRepository:
             chunk
             for chunk in all_chunks
             if any(
-                chunk.start_ms < end_ms
-                and chunk.start_ms + chunk.duration_ms > start_ms
+                chunk.start_ms < end_ms and chunk.start_ms + chunk.duration_ms > start_ms
                 for start_ms, end_ms in segment_ranges
             )
         ]
@@ -3911,11 +3899,10 @@ class MeetingRepository:
         profile: MeetingVoiceProfile = context["profile"]
         consent: MeetingVoiceprintConsent = context["consent"]
         track: MeetingSpeakerTrack = context["track"]
-        if (
-            consent.revoked_at is not None
-            or profile.status
-            not in {VoiceProfileStatus.COLLECTING.value, VoiceProfileStatus.ACTIVE.value}
-        ):
+        if consent.revoked_at is not None or profile.status not in {
+            VoiceProfileStatus.COLLECTING.value,
+            VoiceProfileStatus.ACTIVE.value,
+        }:
             raise MeetingInvalidOperation("voiceprint enrollment authorization changed before publication")
         profile.encoder_name = encoder_name
         profile.encoder_version = encoder_version
@@ -3978,11 +3965,7 @@ class MeetingRepository:
         if lock:
             job_statement = job_statement.with_for_update()
         job = (await self.session.exec(job_statement)).first()
-        if (
-            job is None
-            or job.lease_until is None
-            or _aware_datetime(job.lease_until) <= _aware_datetime(now)
-        ):
+        if job is None or job.lease_until is None or _aware_datetime(job.lease_until) <= _aware_datetime(now):
             raise MeetingVersionConflict("voiceprint match job lease is no longer owned by this worker")
         payload = decode_json(job.input_json, {})
         if (
@@ -4050,11 +4033,7 @@ class MeetingRepository:
         quality_grade: str,
     ) -> MeetingJob:
         context = await self.voiceprint_match_job_context(job_id, worker_id, lock=True)
-        if (
-            not reason_code.strip()
-            or effective_duration_ms < 0
-            or not quality_grade.strip()
-        ):
+        if not reason_code.strip() or effective_duration_ms < 0 or not quality_grade.strip():
             raise MeetingInvalidOperation("voiceprint match outcome is invalid")
         job = await self._mark_voiceprint_match_job_succeeded(
             context,
@@ -4080,9 +4059,7 @@ class MeetingRepository:
                 .where(
                     MeetingJob.id == job_id,
                     MeetingJob.lease_owner == worker_id,
-                    col(MeetingJob.state).in_(
-                        [MeetingJobState.LEASED.value, MeetingJobState.RUNNING.value]
-                    ),
+                    col(MeetingJob.state).in_([MeetingJobState.LEASED.value, MeetingJobState.RUNNING.value]),
                 )
                 .with_for_update()
             )
@@ -4182,9 +4159,7 @@ class MeetingRepository:
                     "profile_id": profile.id,
                     "profile_updated_at": _aware_datetime(profile.updated_at).isoformat(),
                     "key_id": profile.key_id,
-                    "encrypted_embedding_sha256": hashlib.sha256(
-                        encrypted_embedding.encode("utf-8")
-                    ).hexdigest(),
+                    "encrypted_embedding_sha256": hashlib.sha256(encrypted_embedding.encode("utf-8")).hexdigest(),
                     "consent_id": consent.id,
                     "consent_granted_at": _aware_datetime(consent.granted_at).isoformat(),
                 }
@@ -4209,7 +4184,10 @@ class MeetingRepository:
                         MeetingTranscriptSegment.meeting_id == meeting_id,
                         MeetingTranscriptSegment.speaker_track_id == track_id,
                     )
-                    .order_by(MeetingTranscriptSegment.start_ms, MeetingTranscriptSegment.ordinal)
+                    .order_by(
+                        MeetingTranscriptSegment.start_ms,
+                        MeetingTranscriptSegment.ordinal,
+                    )
                 )
             ).all()
         )
@@ -4230,9 +4208,7 @@ class MeetingRepository:
             chunk
             for chunk in all_chunks
             if any(
-                chunk.start_ms < end_ms
-                and chunk.start_ms + chunk.duration_ms > start_ms
-                for start_ms, end_ms in ranges
+                chunk.start_ms < end_ms and chunk.start_ms + chunk.duration_ms > start_ms for start_ms, end_ms in ranges
             )
         ]
         return {
@@ -4328,13 +4304,9 @@ class MeetingRepository:
         if expected_profile_updated_at is not None:
             if isinstance(expected_profile_updated_at, str):
                 try:
-                    expected_updated_at = datetime.fromisoformat(
-                        expected_profile_updated_at.replace("Z", "+00:00")
-                    )
+                    expected_updated_at = datetime.fromisoformat(expected_profile_updated_at.replace("Z", "+00:00"))
                 except ValueError as exc:
-                    raise MeetingInvalidOperation(
-                        "voiceprint profile concurrency evidence is invalid"
-                    ) from exc
+                    raise MeetingInvalidOperation("voiceprint profile concurrency evidence is invalid") from exc
             else:
                 expected_updated_at = expected_profile_updated_at
             if _aware_datetime(profile.updated_at) != _aware_datetime(expected_updated_at):
@@ -4342,9 +4314,7 @@ class MeetingRepository:
         if expected_key_id is not None and profile.key_id != expected_key_id:
             raise MeetingVersionConflict("voice profile key changed after matching")
         if expected_encrypted_embedding_sha256 is not None:
-            current_ciphertext_hash = hashlib.sha256(
-                (profile.encrypted_embedding or "").encode("utf-8")
-            ).hexdigest()
+            current_ciphertext_hash = hashlib.sha256((profile.encrypted_embedding or "").encode("utf-8")).hexdigest()
             if current_ciphertext_hash != expected_encrypted_embedding_sha256:
                 raise MeetingVersionConflict("voice profile embedding changed after matching")
         if expected_candidate_set_fingerprint is not None:
@@ -4474,14 +4444,15 @@ class MeetingRepository:
         await self._owned_session(meeting_id, owner_user_id)
         job = (
             await self.session.exec(
-                select(MeetingJob)
-                .where(MeetingJob.id == job_id, MeetingJob.meeting_id == meeting_id)
-                .with_for_update()
+                select(MeetingJob).where(MeetingJob.id == job_id, MeetingJob.meeting_id == meeting_id).with_for_update()
             )
         ).first()
         if job is None:
             raise MeetingResourceNotFound("meeting resource not found")
-        if job.state not in {MeetingJobState.FAILED.value, MeetingJobState.RETRY_WAIT.value}:
+        if job.state not in {
+            MeetingJobState.FAILED.value,
+            MeetingJobState.RETRY_WAIT.value,
+        }:
             raise MeetingInvalidOperation("job is not retryable")
         if job.attempt >= job.max_attempts:
             raise MeetingInvalidOperation("job retry limit has been reached")
@@ -4574,9 +4545,7 @@ class MeetingRepository:
                 or existing.start_ms != start_ms
                 or existing.duration_ms != duration_ms
             ):
-                raise MeetingIdempotencyConflict(
-                    "audio sequence was reused with different content"
-                )
+                raise MeetingIdempotencyConflict("audio sequence was reused with different content")
             return existing, True
         value = MeetingAudioChunk(
             meeting_id=meeting_id,
@@ -4615,7 +4584,9 @@ class MeetingRepository:
         count = int(
             (
                 await self.session.exec(
-                    select(func.count()).select_from(MeetingAudioChunk).where(
+                    select(func.count())
+                    .select_from(MeetingAudioChunk)
+                    .where(
                         MeetingAudioChunk.meeting_id == meeting_id,
                         MeetingAudioChunk.stream_epoch == stream_epoch,
                         MeetingAudioChunk.sequence > meeting.last_audio_sequence,
@@ -4648,7 +4619,11 @@ class MeetingRepository:
                         MeetingAudioChunk.meeting_id == meeting_id,
                         MeetingAudioChunk.state != "deleted",
                     )
-                    .order_by(MeetingAudioChunk.start_ms, MeetingAudioChunk.stream_epoch, MeetingAudioChunk.sequence)
+                    .order_by(
+                        MeetingAudioChunk.start_ms,
+                        MeetingAudioChunk.stream_epoch,
+                        MeetingAudioChunk.sequence,
+                    )
                 )
             ).all()
         )
@@ -4681,12 +4656,7 @@ class MeetingRepository:
                     }
                 )
             previous_by_epoch[chunk.stream_epoch] = chunk.sequence
-        formats = sorted(
-            {
-                (item.codec, item.sample_rate, item.channels)
-                for item in chunks
-            }
-        )
+        formats = sorted({(item.codec, item.sample_rate, item.channels) for item in chunks})
         return AudioManifestResponse(
             meeting_id=meeting_id,
             chunk_count=len(chunks),

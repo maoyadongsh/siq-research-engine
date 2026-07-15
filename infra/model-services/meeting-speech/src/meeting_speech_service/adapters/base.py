@@ -6,6 +6,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Literal, Mapping
 
+INDEPENDENT_FINALIZATION_PROTOCOL = "siq.meeting.final_asr.independent_window.v1"
+ORDERED_FINALIZATION_PROTOCOL = "siq.meeting.final_asr.ordered_window.v1"
+
 
 def build_diarizer_ref(
     *,
@@ -62,6 +65,7 @@ class SessionOptions:
     vad_energy_threshold: float
     inference_timeout_seconds: float
     online_decode_enabled: bool = True
+    hotword_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +97,7 @@ class Recognition:
     degraded_reason: str | None = None
     inference_ms: int | None = None
     source_speaker_hints: tuple[str, ...] = ()
+    hotword_version: int | None = None
 
 
 class SpeechSession(ABC):
@@ -109,6 +114,16 @@ class SpeechSession(ABC):
 
     @abstractmethod
     async def flush(self) -> tuple[Recognition, ...]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def update_hotwords(
+        self,
+        hotwords: tuple[str, ...],
+        *,
+        hotword_version: int,
+    ) -> tuple[Recognition, ...]:
+        """Apply a new immutable lexicon after finalizing prior buffered audio."""
         raise NotImplementedError
 
     @abstractmethod

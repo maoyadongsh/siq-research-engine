@@ -37,6 +37,15 @@ public final class MeetingCaptureRecoveryCoordinator {
                         captureId: captureId,
                         trustedAPIOrigin: trustedAPIOrigin
                     )
+                    if manifest.cleanupReceipt != nil {
+                        // A cleanup receipt is written before credentials are
+                        // removed. Finish the already-authorized deletion
+                        // without starting an uploader or microphone.
+                        _ = try store.validatedStagedCleanupReceipt()
+                        try keychain.remove(captureId: captureId)
+                        _ = try store.completeStagedCleanup()
+                        continue
+                    }
                     stores[captureId] = store
                     do {
                         let uploader = try MeetingCaptureUploader(store: store, keychain: keychain)
@@ -69,6 +78,11 @@ public final class MeetingCaptureRecoveryCoordinator {
         let captureId = try store.currentManifest().captureId
         stores[captureId] = store
         uploaders[captureId] = uploader
+    }
+
+    func unregister(captureId: String) {
+        uploaders.removeValue(forKey: captureId)?.invalidate()
+        stores.removeValue(forKey: captureId)
     }
 
     private func snapshot() -> [(store: MeetingCaptureStore, uploader: MeetingCaptureUploader?)] {

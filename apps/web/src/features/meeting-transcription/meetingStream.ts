@@ -1,6 +1,7 @@
 import { buildMeetingWebSocketUrl, createMeetingStreamTicket } from './api'
 import { createMeetingAudioCapture, describeMeetingMicrophoneError, type MeetingAudioCapture } from './audioCapture'
 import {
+  createMeetingHotwordUpdateMessage,
   createMeetingStreamStartMessage,
   encodeMeetingAudioFrame,
   MEETING_AUDIO_HEADER_SIZE,
@@ -26,15 +27,20 @@ export interface MeetingStreamConnectOptions {
   deviceId?: string
   audioSource?: string
   hotwords?: string[]
+  hotwordVersion?: number
 }
 
-const MAX_OUTBOX_FRAMES = 240
-const OUTBOX_RESUME_FRAMES = 120
+export const MEETING_REALTIME_CHUNK_MS = 200
+export const MEETING_REALTIME_SEND_INTERVAL_MS = 160
+export const MEETING_OUTBOX_CAPACITY_FRAMES = 600
+const MAX_OUTBOX_FRAMES = MEETING_OUTBOX_CAPACITY_FRAMES
+const OUTBOX_RESUME_FRAMES = MEETING_OUTBOX_CAPACITY_FRAMES / 2
 const INITIAL_CONNECTION_TIMEOUT_MS = 15_000
 const STREAM_STOP_CONFIRM_TIMEOUT_MS = 12_000
 const DEFAULT_RECONNECT_WINDOW_MS = 60_000
-const AUDIO_FRAME_SEND_INTERVAL_MS = 250
-const MAX_IN_FLIGHT_AUDIO_FRAMES = 8
+const DEFAULT_AUDIO_FRAME_SEND_INTERVAL_MS = 250
+const REALTIME_AUDIO_FRAME_SEND_INTERVAL_MS = MEETING_REALTIME_SEND_INTERVAL_MS
+const MAX_IN_FLIGHT_AUDIO_FRAMES = 12
 const MAX_SOCKET_BUFFERED_BYTES = 64 * 1024
 const SOCKET_BUFFER_RECHECK_MS = 50
 const SOCKET_CONNECTING = 0
@@ -84,7 +90,7 @@ export class MeetingFrameDrainScheduler {
       now: options.now ?? (() => Date.now()),
       setTimer: options.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs)),
       clearTimer: options.clearTimer ?? ((timer) => clearTimeout(timer)),
-      frameIntervalMs: options.frameIntervalMs ?? AUDIO_FRAME_SEND_INTERVAL_MS,
+      frameIntervalMs: options.frameIntervalMs ?? DEFAULT_AUDIO_FRAME_SEND_INTERVAL_MS,
       maxInFlightFrames: options.maxInFlightFrames ?? MAX_IN_FLIGHT_AUDIO_FRAMES,
       maxBufferedBytes: options.maxBufferedBytes ?? MAX_SOCKET_BUFFERED_BYTES,
     }
@@ -318,7 +324,7 @@ export class MeetingStreamTransport {
     this.createSocket = dependencies.createSocket ?? ((url) => new WebSocket(url))
     this.performanceNow = dependencies.performanceNow ?? (() => performance.now())
     this.stopAckTimeoutMs = dependencies.stopAckTimeoutMs
-      ?? ((pendingFrames) => Math.max(2_500, pendingFrames * AUDIO_FRAME_SEND_INTERVAL_MS + 2_500))
+      ?? ((pendingFrames) => Math.max(2_500, pendingFrames * REALTIME_AUDIO_FRAME_SEND_INTERVAL_MS + 2_500))
     this.frameDrain = new MeetingFrameDrainScheduler({
       frames: () => this.outbox,
       isReady: (sequence) => this.readySequences.has(sequence),
@@ -331,6 +337,7 @@ export class MeetingStreamTransport {
       bufferedAmount: () => this.socket?.bufferedAmount ?? 0,
       send: (frame) => this.socket?.send(frame),
       onError: (error) => this.callbacks.onError?.(error),
+      frameIntervalMs: REALTIME_AUDIO_FRAME_SEND_INTERVAL_MS,
     })
   }
 
@@ -414,6 +421,8 @@ export class MeetingStreamTransport {
           lastAckedSequence: this.lastAckedSequence,
           lastServerCursor: this.options.lastServerCursor,
           hotwords: this.options.hotwords,
+          hotwordVersion: this.options.hotwordVersion,
+          chunkMs: MEETING_REALTIME_CHUNK_MS,
         })))
         if (reconnecting) {
           socket.send(JSON.stringify({
@@ -524,7 +533,7 @@ export class MeetingStreamTransport {
       const capture = this.captureFactory({
         deviceId: this.options.deviceId,
         source: this.options.audioSource,
-        chunkMs: 500,
+        chunkMs: MEETING_REALTIME_CHUNK_MS,
         onLevel: this.callbacks.onLevel,
         onChunk: (pcm, capturedAt) => this.sendAudioChunk(pcm, capturedAt),
       })
@@ -769,6 +778,23 @@ export class MeetingStreamTransport {
     return true
   }
 
+  updateHotwords(hotwords: string[], hotwordVersion: number) {
+    if (this.socket?.readyState !== SOCKET_OPEN || !this.streamReady) {
+      throw new Error('会议实时连接尚未就绪，无法更新术语')
+    }
+    const requestId = randomId()
+    const effectiveSequence = this.sequence
+    const message = createMeetingHotwordUpdateMessage({
+      requestId,
+      hotwordVersion,
+      effectiveSequence,
+      hotwords,
+    })
+    this.socket.send(JSON.stringify(message))
+    this.options = { ...this.options, hotwords: message.hotwords, hotwordVersion }
+    return { requestId, effectiveSequence }
+  }
+
   private sendControl(type: string) {
     if (this.socket?.readyState !== SOCKET_OPEN) return
     const message: Record<string, unknown> = {
@@ -776,6 +802,7 @@ export class MeetingStreamTransport {
       schema_version: 'siq.meeting.stream.v1',
     }
     if (type === 'stream.resume_request') message.last_acked_sequence = this.lastAckedSequence
+    if (type === 'stream.heartbeat') message.next_sequence = this.sequence
     this.socket.send(JSON.stringify(message))
   }
 

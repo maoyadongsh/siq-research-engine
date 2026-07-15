@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 
 import anyio
@@ -9,6 +10,7 @@ from services.auth_service import User
 from services.meeting_audio_store import MeetingAudioStore
 from services.meeting_contracts import MEETING_TABLES, MeetingAudioChunk, MeetingSession
 from services.meeting_finalization import (
+    FINAL_ASR_INDEPENDENT_PROTOCOL,
     FinalASRSegment,
     FinalASRWindowResult,
     FinalizationWindow,
@@ -77,7 +79,7 @@ async def _database():
     return engine, async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def _settings() -> MeetingFinalizationSettings:
+def _settings(*, max_concurrency: int = 2, window_overlap_ms: int = 0) -> MeetingFinalizationSettings:
     return MeetingFinalizationSettings(
         endpoint=None,
         service_token=None,
@@ -87,6 +89,8 @@ def _settings() -> MeetingFinalizationSettings:
         timeout_seconds=5,
         max_response_bytes=64_000,
         max_result_segments=100,
+        max_concurrency=max_concurrency,
+        window_overlap_ms=window_overlap_ms,
     )
 
 
@@ -148,7 +152,7 @@ def test_manifest_is_paged_and_audio_windows_stay_bounded(tmp_path):
         assert len(result.segments) == 2
         assert [len(call[0].pcm) for call in client.calls] == [64_000, 16_000]
         assert all(len(call[0].pcm) <= service.settings.max_window_bytes for call in client.calls)
-        assert [call[1] for call in client.calls] == [False, True]
+        assert [call[1] for call in client.calls] == [True, True]
         assert len({call[2] for call in client.calls}) == 1
         assert result.gaps == ()
         rendered = render_meeting_process_metrics()
@@ -162,6 +166,203 @@ def test_manifest_is_paged_and_audio_windows_stay_bounded(tmp_path):
         assert _metric_value(rendered, "meeting_final_asr_window_total", counter_labels) == (
             _metric_value(before_metrics, "meeting_final_asr_window_total", counter_labels) + 2
         )
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_final_asr_processes_independent_windows_with_bounded_concurrency(tmp_path):
+    class ConcurrencyProbeClient(FakeFinalASRClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = 0
+            self.peak = 0
+
+        async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                await asyncio.sleep(0.03 if window.index % 2 == 0 else 0.005)
+                return await super().finalize_window(
+                    window,
+                    run_id=run_id,
+                    language=language,
+                    hotwords=hotwords,
+                    final_window=final_window,
+                )
+            finally:
+                self.active -= 1
+
+    async def scenario():
+        engine, factory = await _database()
+        store = MeetingAudioStore(tmp_path / "audio")
+        meeting = await _seed_audio(factory, store, starts=tuple(range(0, 8_000, 500)))
+        client = ConcurrencyProbeClient()
+        service = MeetingFinalizationService(
+            factory,
+            audio_store=store,
+            client=client,
+            settings=_settings(),
+        )
+
+        result = await service.analyze(meeting.id)
+
+        assert result.window_count == 4
+        assert client.peak == 2
+        assert [segment.window_index for segment in result.segments] == [0, 1, 2, 3]
+        assert result.max_concurrency == 2
+        assert result.protocol_version == FINAL_ASR_INDEPENDENT_PROTOCOL
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_overlap_uses_word_timestamps_for_deterministic_boundary_deduplication(tmp_path):
+    class OverlapClient(FakeFinalASRClient):
+        async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
+            self.calls.append((window, final_window, run_id))
+            words = tuple(
+                FinalWord(
+                    token_index=index,
+                    start_ms=start_ms,
+                    end_ms=start_ms + 500,
+                    text=f"词{start_ms}",
+                )
+                for index, start_ms in enumerate(range(window.start_ms, window.end_ms, 500))
+            )
+            return FinalASRWindowResult(
+                diarizer_ref=TEST_DIARIZER_REF,
+                segments=(
+                    FinalASRSegment(
+                        segment_token=f"overlap-{window.index}",
+                        text="".join(word.text or "" for word in words),
+                        start_ms=words[0].start_ms,
+                        end_ms=words[-1].end_ms,
+                        adapter="fake-final-asr",
+                        speaker_track_key="spk-f0",
+                        speaker_confidence=0.91,
+                        word_timestamps=words,
+                        degraded_reason=None,
+                        window_index=window.index,
+                        diarizer_ref=TEST_DIARIZER_REF,
+                    ),
+                ),
+            )
+
+    async def scenario():
+        engine, factory = await _database()
+        store = MeetingAudioStore(tmp_path / "audio")
+        meeting = await _seed_audio(factory, store, starts=tuple(range(0, 4_500, 500)))
+        client = OverlapClient()
+        service = MeetingFinalizationService(
+            factory,
+            audio_store=store,
+            client=client,
+            settings=_settings(window_overlap_ms=500),
+        )
+
+        result = await service.analyze(meeting.id)
+
+        assert sorted((call[0].start_ms, call[0].end_ms) for call in client.calls) == [
+            (0, 2_000),
+            (1_500, 3_500),
+            (3_000, 4_500),
+        ]
+        kept_words = [word for segment in result.segments for word in segment.word_timestamps]
+        assert [word.start_ms for word in kept_words] == list(range(0, 4_500, 500))
+        assert len({word.start_ms for word in kept_words}) == len(kept_words)
+        assert result.boundary_trimmed_segment_count == 2
+        assert result.window_overlap_ms == 500
+        assert result.segments[0].segment_token.endswith(":w0-boundary-0-2")
+        assert result.segments[1].segment_token.endswith(":w1-boundary-0-2")
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_overlap_assigns_segment_without_words_to_one_window(tmp_path):
+    class SegmentOverlapClient(FakeFinalASRClient):
+        async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
+            self.calls.append((window, final_window, run_id))
+            return FinalASRWindowResult(
+                diarizer_ref=TEST_DIARIZER_REF,
+                segments=(
+                    FinalASRSegment(
+                        segment_token=f"duplicate-{window.index}",
+                        text="同一边界片段",
+                        start_ms=1_600,
+                        end_ms=1_900,
+                        adapter="fake-final-asr",
+                        speaker_track_key="spk-f0",
+                        speaker_confidence=0.91,
+                        word_timestamps=(),
+                        degraded_reason=None,
+                        window_index=window.index,
+                        diarizer_ref=TEST_DIARIZER_REF,
+                    ),
+                ),
+            )
+
+    async def scenario():
+        engine, factory = await _database()
+        store = MeetingAudioStore(tmp_path / "audio")
+        meeting = await _seed_audio(factory, store, starts=tuple(range(0, 3_500, 500)))
+        service = MeetingFinalizationService(
+            factory,
+            audio_store=store,
+            client=SegmentOverlapClient(),
+            settings=_settings(window_overlap_ms=500),
+        )
+
+        result = await service.analyze(meeting.id)
+
+        assert [(segment.segment_token, segment.window_index) for segment in result.segments] == [
+            ("duplicate-1", 1)
+        ]
+        assert result.boundary_trimmed_segment_count == 1
+        await engine.dispose()
+
+    anyio.run(scenario)
+
+
+def test_retry_reuses_stable_finalization_run_id(tmp_path):
+    class RetryClient(FakeFinalASRClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.failed = False
+
+        async def finalize_window(self, window, *, run_id, language, hotwords, final_window):
+            self.calls.append((window, final_window, run_id))
+            if window.index == 1 and not self.failed:
+                self.failed = True
+                raise MeetingFinalizationUnavailable("transient")
+            return await super().finalize_window(
+                window,
+                run_id=run_id,
+                language=language,
+                hotwords=hotwords,
+                final_window=final_window,
+            )
+
+    async def scenario():
+        engine, factory = await _database()
+        store = MeetingAudioStore(tmp_path / "audio")
+        meeting = await _seed_audio(factory, store)
+        client = RetryClient()
+        service = MeetingFinalizationService(
+            factory,
+            audio_store=store,
+            client=client,
+            settings=_settings(),
+        )
+
+        with pytest.raises(MeetingFinalizationUnavailable, match="transient"):
+            await service.analyze(meeting.id, run_id="durable-job-id")
+        result = await service.analyze(meeting.id, run_id="durable-job-id")
+
+        assert result.window_count == 2
+        assert len({run_id for _, _, run_id in client.calls}) == 1
+        assert all(re.fullmatch(r"[0-9a-f-]{36}", run_id) for _, _, run_id in client.calls)
         await engine.dispose()
 
     anyio.run(scenario)
@@ -198,6 +399,7 @@ def test_http_final_asr_contract_requires_a_valid_diarizer_ref():
     async def scenario():
         response_payload = {
             "schema_version": "siq.meeting.final_asr_window.v1",
+            "protocol_version": FINAL_ASR_INDEPENDENT_PROTOCOL,
             "diarizer_ref": TEST_DIARIZER_REF,
             "segments": [],
         }
@@ -215,6 +417,8 @@ def test_http_final_asr_contract_requires_a_valid_diarizer_ref():
             timeout_seconds=5,
             max_response_bytes=64_000,
             max_result_segments=100,
+            max_concurrency=2,
+            window_overlap_ms=0,
         )
         client = HttpFinalASRClient(settings, client=raw_client)
         window = FinalizationWindow(index=0, start_ms=0, end_ms=1_000, pcm=b"\0\0", discontinuity=False)

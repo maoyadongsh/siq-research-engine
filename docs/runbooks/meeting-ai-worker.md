@@ -3,9 +3,10 @@
 Meeting post-processing runs outside the API process. Production uses three
 independent lease lanes: bounded final ASR plus speaker reclustering, rolling and
 final minutes, and stable-text correction. Final ASR reads verified audio chunks
-in fixed-size sequential windows; it never loads a complete meeting into memory,
-sends filesystem paths to the speech service, or parallelizes windows in a way
-that would break continuous speaker state.
+into overlapping, fixed-size windows and sends at most a configured number of
+independent requests concurrently. It never loads a complete meeting into
+memory, sends filesystem paths to the speech service, or relies on mutable
+cross-window decoder state.
 
 ## Prerequisites
 
@@ -84,6 +85,11 @@ correction request cannot occupy the minutes worker.
 | `SIQ_MEETING_FINAL_ASR_TIMEOUT_SECONDS` | `60` | Timeout for one bounded speech request. |
 | `SIQ_MEETING_FINAL_ASR_MAX_RESPONSE_BYTES` | `2097152` | Maximum response bytes accepted per window. |
 | `SIQ_MEETING_FINAL_ASR_MAX_SEGMENTS` | `50000` | Maximum final segments accepted for one meeting job. |
+| `SIQ_MEETING_FINAL_ASR_MAX_CONCURRENCY` | `2` | Maximum independent windows held and decoded concurrently by one API worker; allowed range is 1 to 8. Keep this at or below speech-service and downstream model capacity. |
+| `SIQ_MEETING_FINAL_ASR_WINDOW_OVERLAP_MS` | `2000` | Audio overlap between adjacent independent windows. It may not exceed half the window duration. |
+| `SIQ_MEETING_SPEECH_FINALIZATION_MAX_SESSIONS` | `2` | Global speech-service cap shared by ordered and independent finalization decodes. Capacity exhaustion is retryable. |
+| `SIQ_MEETING_SPEECH_FINALIZATION_MAX_CACHED_WINDOWS` | `2048` | Maximum completed/in-flight independent-window idempotency entries retained by one speech-service process. |
+| `SIQ_MEETING_SPEECH_HTTP_FINALIZER_MAX_CONCURRENCY` | `2` | Downstream FunASR HTTP decode cap. This must have measured model capacity before being raised. |
 | `SIQ_MEETING_SPEAKER_RECLUSTER_EMBEDDING_URL` | derived | Internal `/v1/speaker/embedding` endpoint for whole-meeting diarization. HTTPS is required except on loopback. |
 | `SIQ_MEETING_SPEAKER_RECLUSTER_FINAL_DIARIZER_REF` | none | Exact identity from the speech service `/health` `diarizer_ref`. Required and report-bound only for validated cross-key auto-merge. |
 | `SIQ_MEETING_SPEAKER_RECLUSTER_ENCODER_REF` | `iic/speech_eres2netv2_sv_zh-cn_16k-common` | Exact encoder identity required in every scoped embedding response. |
@@ -178,14 +184,30 @@ two raw annotation inputs, `evidence_manifest_sha256` binds that metadata, and t
 the release record. Do not put the private annotations or validation report in
 general CI artifacts.
 
-Final-ASR windows currently share one ordered speech session so speaker state
-and the final flush remain correct. Do not send windows concurrently under one
-run ID: the speech contract rejects out-of-order windows and the loaded FunASR
-decoder is serialized. Real acceleration requires a versioned independent-
-window protocol, boundary overlap/deduplication, and measured multi-instance
-model capacity. Until that work and an authorized rerun exist, the historical
-21-minute sample's approximately 13-minute final-ASR time remains a release
-performance blocker.
+The durable worker uses
+`siq.meeting.final_asr.independent_window.v1`. Every request is self-contained,
+uses the durable job ID as its stable run ID, sets `final_window=true`, and may
+complete out of order. The speech service caches `(run_id, window_index)` by
+content checksum: an exact retry shares or replays the original task, while
+changed content under the same key fails with a conflict. The API restores
+timestamp order after all bounded requests complete.
+
+Adjacent windows overlap by the configured duration. Word timestamp midpoints
+determine ownership at the midpoint of each overlap; a segment without word
+timestamps is assigned by its own midpoint. Boundary words are trimmed and
+segment tokens include the source window so retries and cross-window token
+indices cannot collide. Manifest gaps reset overlap ownership. Each independent
+window has an anonymous speaker namespace; the following whole-meeting
+recluster stage is responsible for evidence-gated cross-window speaker mapping.
+
+The checked-in defaults align API concurrency, speech decode capacity, and the
+HTTP finalizer at two. A 2026-07-15 read-only rerun of the same authorized long
+recording processed 1019.873 seconds of verified PCM as 37 overlapping windows
+in 272.560 seconds (RTF 0.2672), down from the historical 331.494 seconds / RTF
+0.325 by about 17.8%. This proves that the independent-window path produces a
+real speedup on the current HTTP finalizer, but it still misses the RTF 0.25
+release threshold and one recording is not a P95 report. More model-instance
+capacity must be measured before raising concurrency above two.
 
 Embedding-based cross-key automatic merge requires all three controls at the same time:
 

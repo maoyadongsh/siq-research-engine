@@ -128,6 +128,7 @@ class StreamStart(BaseModel):
     last_acked_sequence: int = Field(default=-1, ge=-1)
     language: str | None = Field(default=None, min_length=1, max_length=32)
     hotwords: list[Hotword] = Field(default_factory=list, max_length=1_000)
+    hotword_version: int | None = Field(default=None, ge=1)
     trace_id: UUID | None = None
 
     @field_validator("hotwords")
@@ -158,6 +159,7 @@ class StreamStop(BaseControl):
 
 class StreamHeartbeat(BaseControl):
     type: Literal["stream.heartbeat"]
+    next_sequence: int | None = Field(default=None, ge=0)
 
 
 class StreamResumeRequest(BaseControl):
@@ -165,13 +167,36 @@ class StreamResumeRequest(BaseControl):
     last_acked_sequence: int = Field(ge=-1)
 
 
-ControlMessage = StreamPause | StreamResume | StreamStop | StreamHeartbeat | StreamResumeRequest
+class StreamHotwordsUpdate(BaseControl):
+    type: Literal["stream.hotwords.update"]
+    request_id: UUID
+    hotword_version: int = Field(ge=1)
+    effective_sequence: int = Field(ge=0)
+    hotwords: list[Hotword] = Field(default_factory=list, max_length=1_000)
+
+    @field_validator("hotwords")
+    @classmethod
+    def unique_hotwords(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("hotwords must be unique")
+        return values
+
+
+ControlMessage = (
+    StreamPause
+    | StreamResume
+    | StreamStop
+    | StreamHeartbeat
+    | StreamResumeRequest
+    | StreamHotwordsUpdate
+)
 CONTROL_MODELS: dict[str, type[ControlMessage]] = {
     "stream.pause": StreamPause,
     "stream.resume": StreamResume,
     "stream.stop": StreamStop,
     "stream.heartbeat": StreamHeartbeat,
     "stream.resume_request": StreamResumeRequest,
+    "stream.hotwords.update": StreamHotwordsUpdate,
 }
 
 

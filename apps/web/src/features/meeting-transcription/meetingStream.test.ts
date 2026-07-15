@@ -11,6 +11,9 @@ import {
 import { MemoryMeetingOutboxStore, type MeetingOutboxStore } from './meetingOutbox.ts'
 import {
   MeetingFrameDrainScheduler,
+  MEETING_OUTBOX_CAPACITY_FRAMES,
+  MEETING_REALTIME_CHUNK_MS,
+  MEETING_REALTIME_SEND_INTERVAL_MS,
   MeetingStreamTransport,
   meetingCaptureWindow,
   meetingReconnectPlan,
@@ -109,6 +112,7 @@ function createCaptureHarness() {
   let onChunk: MeetingAudioCaptureOptions['onChunk'] = () => undefined
   let stops = 0
   let pauses = 0
+  let chunkMs: number | undefined
   const capture: MeetingAudioCapture = {
     async start() {},
     async pause() { pauses += 1 },
@@ -121,10 +125,12 @@ function createCaptureHarness() {
     emit(pcm: ArrayBuffer, capturedAt: number) { onChunk(pcm, capturedAt) },
     factory(options: MeetingAudioCaptureOptions) {
       onChunk = options.onChunk
+      chunkMs = options.chunkMs
       return capture
     },
     stops: () => stops,
     pauses: () => pauses,
+    chunkMs: () => chunkMs,
   }
 }
 
@@ -203,6 +209,66 @@ test('capture is prepared from the user action once and released on disconnect',
   assert.equal(starts, 1)
   await transport.disconnect()
   assert.equal(stops, 1)
+})
+
+test('realtime capture and ACK queue keep a bounded 200 ms low-latency contract', async () => {
+  const sockets: FakeMeetingSocket[] = []
+  const capture = createCaptureHarness()
+  const transport = new MeetingStreamTransport(
+    'meeting-1',
+    { onEvent() {}, onStatus() {} },
+    new MemoryMeetingOutboxStore(),
+    capture.factory,
+    {
+      createTicket: async () => streamTicket(),
+      createSocket: () => {
+        const socket = new FakeMeetingSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    },
+  )
+
+  await transport.connect()
+  const start = JSON.parse(sockets[0].sent.find((value) => typeof value === 'string') as string)
+  assert.equal(capture.chunkMs(), MEETING_REALTIME_CHUNK_MS)
+  assert.equal(start.audio.chunk_ms, MEETING_REALTIME_CHUNK_MS)
+  assert.ok(MEETING_REALTIME_SEND_INTERVAL_MS < MEETING_REALTIME_CHUNK_MS)
+  assert.equal(MEETING_OUTBOX_CAPACITY_FRAMES * MEETING_REALTIME_CHUNK_MS, 120_000)
+  await transport.disconnect()
+})
+
+test('live transport sends a versioned hotword update at the next uncaptured sequence', async () => {
+  const sockets: FakeMeetingSocket[] = []
+  const capture = createCaptureHarness()
+  const transport = new MeetingStreamTransport(
+    'meeting-1',
+    { onEvent() {}, onStatus() {} },
+    new MemoryMeetingOutboxStore(),
+    capture.factory,
+    {
+      createTicket: async () => streamTicket(),
+      createSocket: () => {
+        const socket = new FakeMeetingSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    },
+  )
+
+  await transport.connect()
+  capture.emit(new ArrayBuffer(6_400), performance.now() + 200)
+  const boundary = transport.updateHotwords([' 海光信息 '], 2)
+  const update = sockets[0].sent
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => JSON.parse(value))
+    .find((message) => message.type === 'stream.hotwords.update')
+
+  assert.equal(boundary.effectiveSequence, 1)
+  assert.equal(update.hotword_version, 2)
+  assert.equal(update.effective_sequence, 1)
+  assert.deepEqual(update.hotwords, ['海光信息'])
+  await transport.disconnect()
 })
 
 test('manual reconnect cancels the pending automatic producer attempt', async () => {

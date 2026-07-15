@@ -1,4 +1,6 @@
 from meeting_speech_service.adapters.base import (
+    INDEPENDENT_FINALIZATION_PROTOCOL,
+    ORDERED_FINALIZATION_PROTOCOL,
     AdapterUnavailable,
     EngineSnapshot,
     Recognition,
@@ -13,6 +15,8 @@ from meeting_speech_service.adapters.mock import MockSpeechEngine
 __all__ = [
     "AdapterUnavailable",
     "EngineSnapshot",
+    "INDEPENDENT_FINALIZATION_PROTOCOL",
+    "ORDERED_FINALIZATION_PROTOCOL",
     "FunASREngine",
     "MockSpeechEngine",
     "Recognition",

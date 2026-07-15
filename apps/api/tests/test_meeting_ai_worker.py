@@ -27,6 +27,7 @@ from services.meeting_contracts import (
 from services.meeting_event_store import decode_json, encode_json
 from services.meeting_finalization import (
     FINAL_ALIGNMENT_SCHEMA,
+    FINAL_ASR_INDEPENDENT_PROTOCOL,
     FinalASRSegment,
     FinalizationAnalysis,
     MeetingFinalizationUnavailable,
@@ -128,8 +129,8 @@ class FakeFinalizationService:
         self.failure = failure
         self.calls = []
 
-    async def analyze(self, meeting_id):
-        self.calls.append(meeting_id)
+    async def analyze(self, meeting_id, *, run_id=None):
+        self.calls.append((meeting_id, run_id))
         if self.failure is not None:
             raise self.failure
         return self.analysis
@@ -1104,6 +1105,9 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
                 ),
             ),
             diarizer_ref="diarizer-test-v1",
+            protocol_version=FINAL_ASR_INDEPENDENT_PROTOCOL,
+            window_overlap_ms=500,
+            max_concurrency=2,
         )
         finalization = FakeFinalizationService(analysis)
         worker = _worker(
@@ -1135,9 +1139,14 @@ def test_final_asr_creates_aligned_revisions_and_recluster_preserves_human_locks
             ).one()
             alignment_payload = decode_json(alignment.content_json, {})
             assert alignment_payload["diarizer_ref"] == "diarizer-test-v1"
+            assert alignment_payload["manifest"]["protocol_version"] == FINAL_ASR_INDEPENDENT_PROTOCOL
+            assert alignment_payload["manifest"]["window_overlap_ms"] == 500
+            assert alignment_payload["manifest"]["max_concurrency"] == 2
+            assert alignment_payload["manifest"]["boundary_trimmed_segment_count"] == 0
             assert alignment_payload["revised_segment_count"] == 2
             assert alignment_payload["human_protected_segment_count"] == 1
             assert "embedding" not in alignment.content_json
+        assert finalization.calls == [(meeting.id, job.id)]
 
         assert await worker.run_once() is True
         async with factory() as session:

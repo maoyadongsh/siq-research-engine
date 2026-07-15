@@ -19,6 +19,7 @@ public final class MeetingCapturePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "rollover", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "playLocalPlayback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "pausePlayback", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resumePlayback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "seekPlayback", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPlaybackStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "switchToServerPlayback", returnType: CAPPluginReturnPromise),
@@ -198,6 +199,10 @@ public final class MeetingCapturePlugin: CAPPlugin, CAPBridgedPlugin {
         resolvePlaybackStatus(call) { controller.pausePlayback() }
     }
 
+    @objc func resumePlayback(_ call: CAPPluginCall) {
+        resolvePlaybackStatus(call) { try controller.resumePlayback() }
+    }
+
     @objc func seekPlayback(_ call: CAPPluginCall) {
         guard let positionMs = call.getInt("positionMs"), positionMs >= 0 else {
             reject(call, .invalidArgument("playback position"))
@@ -238,11 +243,18 @@ public final class MeetingCapturePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         DispatchQueue.meetingCapture.async {
-            do {
-                let discarded = try self.controller.discard(confirmedServerComplete: confirmed)
-                DispatchQueue.main.async { call.resolve(["discarded": discarded]) }
-            } catch {
-                DispatchQueue.main.async { self.reject(call, self.captureError(error)) }
+            self.controller.discard(confirmedServerComplete: confirmed) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let receipt):
+                        call.resolve([
+                            "discarded": true,
+                            "cleanupReceipt": receipt.dictionary
+                        ])
+                    case .failure(let error):
+                        self.reject(call, error)
+                    }
+                }
             }
         }
     }

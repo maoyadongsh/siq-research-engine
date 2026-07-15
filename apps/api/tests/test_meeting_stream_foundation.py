@@ -1,3 +1,4 @@
+import json
 import struct
 import wave
 from datetime import timedelta
@@ -20,12 +21,13 @@ from services.meeting_contracts import (
 )
 from services.meeting_repository import MeetingInvalidOperation, MeetingRepository, MeetingVersionConflict
 from services.meeting_stream_limits import MeetingAudioRateLimiter
-from services.meeting_stream_protocol import MeetingStreamProtocolError, decode_audio_frame
+from services.meeting_stream_protocol import MeetingStreamProtocolError, decode_audio_frame, parse_control
 from services.meeting_stream_ticket import MeetingStreamTicketService, StreamTicketError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from starlette.websockets import WebSocketDisconnect
 
 
 async def _database():
@@ -72,6 +74,108 @@ def test_gateway_audio_frame_contract_is_strict():
     with pytest.raises(MeetingStreamProtocolError) as error:
         decode_audio_frame(bytes(broken), max_payload_bytes=10_000)
     assert error.value.code == "AUDIO_MAGIC_INVALID"
+
+
+def test_gateway_hotword_control_requires_version_request_and_sequence_boundary():
+    value = parse_control(
+        """{
+          "type":"stream.hotwords.update",
+          "schema_version":"siq.meeting.stream.v1",
+          "request_id":"11111111-1111-4111-8111-111111111111",
+          "hotword_version":4,
+          "effective_sequence":18,
+          "hotwords":[" 海光信息 "]
+        }"""
+    )
+    assert value["hotword_version"] == 4
+    assert value["effective_sequence"] == 18
+    assert value["hotwords"] == ["海光信息"]
+
+    with pytest.raises(MeetingStreamProtocolError) as error:
+        parse_control(
+            """{
+              "type":"stream.hotwords.update",
+              "schema_version":"siq.meeting.stream.v1",
+              "request_id":"11111111-1111-4111-8111-111111111111",
+              "hotword_version":4,
+              "hotwords":["海光信息"]
+            }"""
+        )
+    assert error.value.code == "CONTROL_MESSAGE_INVALID"
+
+
+def test_gateway_heartbeat_queues_consecutive_lexicon_versions_at_next_audio_sequence(
+    tmp_path,
+    monkeypatch,
+):
+    class Browser:
+        def __init__(self):
+            self.messages = iter(
+                [
+                    {
+                        "type": "websocket.receive",
+                        "text": '{"type":"stream.heartbeat","schema_version":"siq.meeting.stream.v1","next_sequence":9}',
+                    },
+                    {
+                        "type": "websocket.receive",
+                        "text": '{"type":"stream.heartbeat","schema_version":"siq.meeting.stream.v1","next_sequence":9}',
+                    },
+                    {"type": "websocket.disconnect", "code": 1000},
+                ]
+            )
+
+        async def receive(self):
+            return next(self.messages)
+
+    class Speech:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, message):
+            self.sent.append(message)
+
+    versions = iter([(["v2"], 2), (["v3"], 3)])
+
+    async def load_hotwords(_owner_user_id, _meeting_id):
+        return next(versions)
+
+    async def renew_lease(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(meeting_stream, "_load_hotwords", load_hotwords)
+    monkeypatch.setattr(MeetingStreamTicketService, "renew_lease", renew_lease)
+
+    async def run():
+        speech = Speech()
+        with pytest.raises(WebSocketDisconnect):
+            await meeting_stream._browser_to_speech(
+                Browser(),
+                speech,
+                meeting_id="meeting-1",
+                owner_user_id=7,
+                stream_epoch=1,
+                connection_id="connection-1",
+                settings=MeetingSettings(enabled=True, asr_enabled=True),
+                audio_store=MeetingAudioStore(tmp_path / "audio"),
+                rate_limiter=MeetingAudioRateLimiter(
+                    max_frames_per_second=20,
+                    max_bytes_per_second=128_000,
+                    burst_seconds=1,
+                ),
+                initial_acked_sequence=4,
+                initial_hotword_version=1,
+            )
+        sent = [json.loads(message) for message in speech.sent]
+        assert [message["type"] for message in sent] == [
+            "stream.hotwords.update",
+            "stream.heartbeat",
+            "stream.hotwords.update",
+            "stream.heartbeat",
+        ]
+        assert [sent[0]["hotword_version"], sent[2]["hotword_version"]] == [2, 3]
+        assert sent[0]["effective_sequence"] == sent[2]["effective_sequence"] == 9
+
+    anyio.run(run)
 
 
 def test_stream_ticket_contract_requires_resume_checkpoint_fields():

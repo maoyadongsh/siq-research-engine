@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: '../web/dist',
   ios: {
     contentInset: 'automatic',
-    scheme: 'SIQMeeting',
+    scheme: 'App',
   },
 }
 

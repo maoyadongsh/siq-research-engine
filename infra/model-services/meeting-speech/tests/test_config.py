@@ -10,6 +10,9 @@ def test_defaults_are_disabled_and_use_funasr() -> None:
     assert settings.adapter == "funasr"
     assert settings.host == "127.0.0.1"
     assert settings.port == 8901
+    assert settings.http_finalizer_max_concurrency == 2
+    assert settings.finalization_max_sessions == 2
+    assert settings.finalization_max_cached_windows == 2_048
 
 
 def test_mock_requires_explicit_opt_in() -> None:

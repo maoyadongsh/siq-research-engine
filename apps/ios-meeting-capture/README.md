@@ -15,15 +15,17 @@ This directory is the isolated M8 native-capture build target. It contains a Cap
 - `getCheckpoints` performs an authenticated server read and combines four explicit authorities: the local capture manifest and the server ingest, realtime, and finalization checkpoints. It does not substitute local upload-task completion for server durability. Foreground rollover first reconciles and drains the old epoch, persists one replayable request boundary/key, uses the WebView user session for the control-plane call, and fences new local batches behind the new epoch until the server reply is validated.
 - An audio interruption first persists a pending gap. The local playback WAV receives deterministic silence so playback time stays continuous, while the upload manifest receives virtual, non-uploaded sequence entries. Rollover/seal freezes those entries and the server receives an explicit `system_interruption` gap only after final seal. The UI receives the exact sample and sequence range.
 - The playback bridge consumes only `capture-asset:<capture-id>`. `AVAudioPlayer` owns local playback; once an authenticated server Range URL is ready, `AVPlayer` prepares it, seeks to the current local position, and switches only if the latest generation is still current. A failed or stale switch preserves the local player.
-- Local deletion is deliberately disabled in this skeleton. The bridge boolean is only user intent and cannot prove server durability. Deletion must remain fail-closed until the native layer validates an authenticated server checkpoint or signed cleanup receipt.
+- Local deletion is fail-closed behind an authenticated cleanup receipt. The bridge boolean is only user intent; native code first refreshes the capture-token checkpoint, requires sealed ingest, ready server packaging/playback, an empty server missing range, and an exact local/server WAV SHA-256 and byte-size match. It atomically persists the receipt before cancelling uploads, removing the capture token, and deleting the protected directory. A cold-start recovery completes any staged cleanup before it creates an uploader.
 - `gap` and `rollover` are foreground, user-session APIs. Capture-token scope remains limited to batch upload, checkpoint read, and seal; it is not expanded to meeting control. Parent-domain session cookies are copied only for the configured trusted API host.
 - Foreground control calls support either the trusted WebView cookie session plus a matching CSRF header, or the current user bearer supplied by the shell. The bearer is memory-only: it is not written to Keychain, manifests, filenames, background tasks, events, or crash payloads. A cold recovery can resume capture-token uploads and seal, but waits for foreground reauthentication before any pending user-session gap call.
+- The checked-in bridge validates `SIQMeetingAPIOrigin` as an origin-only HTTPS URL and injects it at document start as an immutable `__SIQ_NATIVE_CONFIG__`. The shared Web API client accepts that override only from the `capacitor://localhost` shell; ordinary Web deployments retain their existing same-origin `/api` behavior.
 
 ## Source layout
 
 - `src/`: the typed Capacitor bridge consumed by the native shell.
 - `ios/Sources/MeetingCapturePlugin/`: recorder, durable store/outbox, Keychain, background uploader, controller, and Capacitor plugin.
-- `ios/App/App/`: host integration templates for microphone disclosure, background audio, privacy manifest, and background-session completion forwarding.
+- `ios/App/App.xcodeproj`: a checked-in, standalone Capacitor SPM application target linked to the repository's local `SIQMeetingCapture` Swift package.
+- `ios/App/App/`: the native host, explicit plugin bridge registration, microphone/background declarations, privacy manifest, and background-session completion forwarding.
 - `ios/Tests/`: simulator/Xcode unit tests for persistence and opaque playback handles.
 - `scripts/contract.test.mjs`: Linux-safe static contract checks. These checks do not claim that iOS background recording works.
 
@@ -32,9 +34,11 @@ This directory is the isolated M8 native-capture build target. It contains a Cap
 ```bash
 npm install --ignore-scripts
 npm run check
+npm --prefix ../web run build
+npm run ios:sync
 ```
 
-On macOS, attach `Package.swift` to the dedicated Capacitor iOS target, set the `SIQ_MEETING_API_ORIGIN` build setting to the exact trusted HTTPS origin, add the host template keys and AppDelegate forwarding, then run the Swift tests from Xcode. The plugin rejects API URLs with another origin, user info, query, fragment, or path. The checked-in `capacitor.config.ts` freezes the application identity and web bundle location; generation and signing of the Xcode project remain release-environment work.
+`ios:sync` copies the current `apps/web/dist` bundle and refreshes Capacitor's generated runtime files; these generated files remain ignored. On macOS, open `ios/App/App.xcodeproj`, set the `SIQ_MEETING_API_ORIGIN` build setting to the exact trusted HTTPS origin, choose a signing team, and run the app plus Swift tests from Xcode. The app target already links the local Swift package, registers `MeetingCapturePlugin` explicitly, includes the privacy manifest, and declares background audio. The plugin rejects API URLs with another origin, user info, query, fragment, or path. The checked-in `capacitor.config.ts` freezes the application identity and web bundle location.
 
 ## Parameters requiring real-device freeze
 
@@ -48,4 +52,4 @@ Before enabling `SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED`, retain per-device evid
 
 The privacy manifest and microphone/background-audio wording are review inputs, not App Store approval. Legal/privacy review, signing, provisioning, supported-device matrix, Xcode compilation, and physical-device results are mandatory release gates.
 
-This remains an isolated implementation candidate, not an M8 release claim. Linux checks now cover the bridge contract and Swift syntax tree; they do not type-check Apple frameworks. The checked-in XCTest suite covers idempotent stop, opaque playback handles, canonical digests, open-batch crash recovery, persistent rollover boundaries, bidirectional server checkpoint reconciliation, and interruption-gap materialization, but it still must run under Xcode. A verified cleanup receipt/server deletion contract is not yet available, so local cleanup intentionally remains disabled. Signing, provisioning, supported-device Xcode compilation, security/privacy review, App Store review, and the physical-device matrix below still block enabling the feature flag.
+This remains an isolated implementation candidate, not an M8 release claim. Linux checks cover the bridge contract and Swift source invariants; they do not type-check Apple frameworks. The checked-in XCTest suite covers idempotent stop, opaque playback handles, canonical digests, open-batch crash recovery, persistent rollover boundaries, bidirectional server checkpoint reconciliation, interruption-gap materialization, and staged cleanup recovery, but it still must run under Xcode. The cleanup receipt is an authenticated durability proof derived from the existing checkpoint contract; a separately signed server deletion endpoint is not currently part of the backend contract. Signing, provisioning, supported-device Xcode compilation, security/privacy review, App Store review, and the physical-device matrix below still block enabling the feature flag.

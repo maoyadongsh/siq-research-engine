@@ -3,7 +3,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 
-const { apiFetch, authCookieModeEnabled } = await import('./client.ts')
+const { apiFetch, authCookieModeEnabled, resolveSiqApiUrl } = await import('./client.ts')
 
 function installMemoryLocalStorage() {
   const values = new Map<string, string>()
@@ -62,12 +62,24 @@ function installFetchInitRecorder() {
 }
 
 function installWindow(origin: string, storage: Storage) {
+  const parsed = new URL(origin)
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
-      location: { origin },
+      location: {
+        origin: parsed.origin,
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+      },
       localStorage: storage,
     },
+  })
+}
+
+function installNativeConfig(apiBase: unknown) {
+  Object.defineProperty(globalThis, '__SIQ_NATIVE_CONFIG__', {
+    configurable: true,
+    value: Object.freeze({ SIQ_API_BASE: apiBase }),
   })
 }
 
@@ -221,4 +233,102 @@ test('apiFetch does not attach auth to non-SIQ absolute URLs', async (t) => {
   const request = captured()
   const headers = request?.init?.headers as Headers
   assert.equal(headers.has('Authorization'), false)
+})
+
+test('native WebView resolves SIQ API paths to the injected HTTPS origin and keeps credentials scoped', async (t) => {
+  const originalFetch = globalThis.fetch
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalConfig = Object.getOwnPropertyDescriptor(globalThis, '__SIQ_NATIVE_CONFIG__')
+  const storage = installMemoryLocalStorage()
+  const captured = installFetchRecorder()
+  installWindow('capacitor://localhost', storage)
+  installNativeConfig('https://api.example.test')
+  t.after(() => {
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, value: originalFetch })
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+    if (originalConfig) Object.defineProperty(globalThis, '__SIQ_NATIVE_CONFIG__', originalConfig)
+    else Reflect.deleteProperty(globalThis, '__SIQ_NATIVE_CONFIG__')
+  })
+
+  storage.setItem('access_token', 'native-bearer-token')
+  storage.setItem('SIQ_AUTH_COOKIE_MODE', '1')
+  await apiFetch('/api/meetings/v1/capabilities')
+
+  const request = captured()
+  assert.equal(request?.input, 'https://api.example.test/api/meetings/v1/capabilities')
+  assert.equal((request?.init?.headers as Headers).get('Authorization'), 'Bearer native-bearer-token')
+  assert.equal(request?.init?.credentials, 'include')
+
+  await apiFetch(new URL('capacitor://localhost/api/meetings/v1/models?purpose=meeting_postprocess'))
+  assert.equal(
+    String(captured()?.input),
+    'https://api.example.test/api/meetings/v1/models?purpose=meeting_postprocess',
+  )
+
+  await apiFetch('capacitor://localhost/api/meetings/v1/capabilities')
+  assert.equal(captured()?.input, 'https://api.example.test/api/meetings/v1/capabilities')
+
+  await apiFetch(new Request('capacitor://localhost/api/meetings/v1/capabilities'))
+  const requestInput = captured()?.input
+  assert.equal(requestInput instanceof Request, true)
+  assert.equal((requestInput as Request).url, 'https://api.example.test/api/meetings/v1/capabilities')
+})
+
+test('native API resolution fails closed before fetch without an exact HTTPS origin', async (t) => {
+  const originalFetch = globalThis.fetch
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalConfig = Object.getOwnPropertyDescriptor(globalThis, '__SIQ_NATIVE_CONFIG__')
+  const storage = installMemoryLocalStorage()
+  const captured = installFetchRecorder()
+  installWindow('capacitor://localhost', storage)
+  t.after(() => {
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, value: originalFetch })
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+    if (originalConfig) Object.defineProperty(globalThis, '__SIQ_NATIVE_CONFIG__', originalConfig)
+    else Reflect.deleteProperty(globalThis, '__SIQ_NATIVE_CONFIG__')
+  })
+
+  assert.throws(() => resolveSiqApiUrl('/api/example'), /SIQ_NATIVE_API_CONFIGURATION_INVALID/)
+  await assert.rejects(() => apiFetch('/api/example'), /SIQ_NATIVE_API_CONFIGURATION_INVALID/)
+  await assert.rejects(
+    () => apiFetch('capacitor://localhost/api/example'),
+    /SIQ_NATIVE_API_CONFIGURATION_INVALID/,
+  )
+  assert.equal(captured(), undefined)
+  for (const invalid of [
+    'http://api.example.test',
+    'https://user:secret@api.example.test',
+    'https://api.example.test/base',
+    'https://api.example.test?tenant=1',
+  ]) {
+    installNativeConfig(invalid)
+    assert.throws(() => resolveSiqApiUrl('/api/example'), /SIQ_NATIVE_API_CONFIGURATION_INVALID/)
+  }
+})
+
+test('ordinary Web never rewrites relative SIQ API paths from native config', (t) => {
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const originalConfig = Object.getOwnPropertyDescriptor(globalThis, '__SIQ_NATIVE_CONFIG__')
+  const storage = installMemoryLocalStorage()
+  installWindow('https://app.example.test', storage)
+  installNativeConfig('https://api.example.test')
+  t.after(() => {
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+    if (originalConfig) Object.defineProperty(globalThis, '__SIQ_NATIVE_CONFIG__', originalConfig)
+    else Reflect.deleteProperty(globalThis, '__SIQ_NATIVE_CONFIG__')
+  })
+
+  assert.equal(resolveSiqApiUrl('/api/example'), '/api/example')
 })

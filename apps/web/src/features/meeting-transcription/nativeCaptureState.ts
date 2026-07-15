@@ -2,7 +2,18 @@ import type {
   MeetingCaptureCheckpoints,
   MeetingCaptureStatus,
   MeetingLocalPlaybackAsset,
+  MeetingNativePlaybackStatus,
 } from './nativeCapture'
+
+export type NativePlaybackToggleAction = 'pause' | 'resume' | 'play_local'
+
+export function nativePlaybackToggleAction(
+  playback: MeetingNativePlaybackStatus | null,
+): NativePlaybackToggleAction {
+  if (playback?.playing) return 'pause'
+  if (playback?.source === 'local' || playback?.source === 'server') return 'resume'
+  return 'play_local'
+}
 
 export type NativeCaptureIngestPhase =
   | 'idle'
@@ -165,6 +176,10 @@ export interface NativeCaptureRecoveryResult {
   steps: NativeCaptureRecoveryStep[]
   outcome: NativeCaptureRecoveryOutcome
   rollover: { streamEpoch: number } | null
+}
+
+export function retainNativeRecoveryRequest(outcome: NativeCaptureRecoveryOutcome) {
+  return outcome === 'waiting_for_upload'
 }
 
 export async function recoverNativeCaptureAfterForeground(

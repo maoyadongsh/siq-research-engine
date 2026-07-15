@@ -47,14 +47,95 @@ function toUrlString(input: RequestInfo | URL): string {
   return input.url
 }
 
+interface SiqNativeConfig {
+  SIQ_API_BASE?: unknown
+}
+
+function isNativeAssetShell() {
+  return typeof window !== 'undefined'
+    && window.location.protocol === 'capacitor:'
+    && window.location.hostname === 'localhost'
+}
+
+function trustedNativeApiOrigin(): string | null {
+  if (!isNativeAssetShell()) return null
+  const config = (globalThis as typeof globalThis & {
+    __SIQ_NATIVE_CONFIG__?: SiqNativeConfig
+  }).__SIQ_NATIVE_CONFIG__
+  if (!config || typeof config.SIQ_API_BASE !== 'string') return null
+  try {
+    const parsed = new URL(config.SIQ_API_BASE)
+    if (
+      parsed.protocol !== 'https:'
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== '/'
+      || parsed.search
+      || parsed.hash
+    ) return null
+    return parsed.origin
+  } catch {
+    return null
+  }
+}
+
+/** Resolve only SIQ API paths in the trusted native WebView; ordinary Web stays relative and same-origin. */
+export function resolveSiqApiUrl(url: string): string {
+  if (!(url === '/api' || url.startsWith('/api/'))) return url
+  if (!isNativeAssetShell()) return url
+  const nativeOrigin = trustedNativeApiOrigin()
+  if (!nativeOrigin) throw new Error('SIQ_NATIVE_API_CONFIGURATION_INVALID')
+  return new URL(url, `${nativeOrigin}/`).toString()
+}
+
+function nativeApiPath(input: URL) {
+  if (
+    input.protocol !== 'capacitor:'
+    || input.hostname !== 'localhost'
+    || !(input.pathname === '/api' || input.pathname.startsWith('/api/'))
+  ) return null
+  return `${input.pathname}${input.search}${input.hash}`
+}
+
+function resolveApiRequestInput(input: RequestInfo | URL): RequestInfo | URL {
+  if (typeof input === 'string') {
+    if (input === '/api' || input.startsWith('/api/')) return resolveSiqApiUrl(input)
+    let parsed: URL
+    try {
+      parsed = new URL(input)
+    } catch {
+      return input
+    }
+    const path = nativeApiPath(parsed)
+    return path ? resolveSiqApiUrl(path) : input
+  }
+  if (input instanceof URL) {
+    const path = nativeApiPath(input)
+    return path ? new URL(resolveSiqApiUrl(path)) : input
+  }
+  const path = nativeApiPath(new URL(input.url))
+  return path ? new Request(resolveSiqApiUrl(path), input) : input
+}
+
+function parseApiUrl(url: string): URL {
+  try {
+    return new URL(url)
+  } catch {
+    return new URL(url, window.location.origin)
+  }
+}
+
 export function shouldAttachAuth(url: string): boolean {
   if (url.startsWith('/api/') || url === '/api') return true
   if (typeof window === 'undefined') return false
   try {
-    const parsed = new URL(url, window.location.origin)
+    const parsed = parseApiUrl(url)
     const isSiqApiPath = parsed.pathname.startsWith('/api/') || parsed.pathname === '/api'
     if (!isSiqApiPath) return false
     if (parsed.origin === window.location.origin) return true
+
+    const nativeOrigin = trustedNativeApiOrigin()
+    if (nativeOrigin && parsed.origin === nativeOrigin) return true
 
     const apiBase = window.localStorage.getItem('api_base') || ''
     if (!apiBase) return false
@@ -88,7 +169,7 @@ function notifySessionInvalidated(url: string, status: number) {
   if (status !== 401 || !shouldAttachAuth(url) || typeof window === 'undefined') return
   let pathname: string
   try {
-    pathname = new URL(url, window.location.origin).pathname
+    pathname = parseApiUrl(url).pathname
   } catch {
     return
   }
@@ -243,17 +324,18 @@ function buildErrorMessage(response: Response, responseText: string): { message:
 }
 
 export async function apiFetch(input: RequestInfo | URL, init: ApiRequestInit = {}) {
-  const url = toUrlString(input)
-  const headers = new Headers(init.headers || (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined))
+  const resolvedInput = resolveApiRequestInput(input)
+  const url = toUrlString(resolvedInput)
+  const headers = new Headers(init.headers || (typeof resolvedInput !== 'string' && !(resolvedInput instanceof URL) ? resolvedInput.headers : undefined))
   attachAuthorization(headers, url)
 
   const body = prepareBodyAndHeaders(init, headers)
-  attachCsrfHeader(headers, url, requestMethod(input, init))
+  attachCsrfHeader(headers, url, requestMethod(resolvedInput, init))
   const requestInit: RequestInit = { ...init, headers, body }
   if (requestInit.credentials === undefined && authCookieModeEnabled() && shouldAttachAuth(url)) {
     requestInit.credentials = 'include'
   }
-  const response = await globalThis.fetch(input, requestInit)
+  const response = await globalThis.fetch(resolvedInput, requestInit)
   notifySessionInvalidated(url, response.status)
   return response
 }

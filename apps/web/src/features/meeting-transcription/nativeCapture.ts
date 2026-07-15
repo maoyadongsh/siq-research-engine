@@ -28,6 +28,8 @@ export interface MeetingCapturePrepareOptions {
 export interface MeetingNativeCapturePrepareOptions extends MeetingCapturePrepareOptions {
   captureId: string
   captureToken: string
+  /** Foreground session token. Native code keeps it in memory only. */
+  userBearerToken?: string
   deviceInstallationId: string
   apiBaseUrl: string
   streamEpoch: number
@@ -47,6 +49,8 @@ export interface MeetingCaptureStatus {
   lastSealedSequence: number
   manifestRevision: number
   pendingUploadCount: number
+  gapCount?: number
+  materializedGapSamples?: number
   localPlaybackReady: boolean
   interruptionReason: string | null
   errorCode: string | null
@@ -67,6 +71,7 @@ export interface MeetingIngestCheckpoint {
 
 export interface MeetingRealtimeCheckpoint {
   streamEpoch: number
+  lastAckedSequence?: number
   consumedThroughSample: number | null
   stableOrdinal: number
   eventCursor: number | null
@@ -85,6 +90,12 @@ export interface MeetingCaptureCheckpoints {
   ingest: MeetingIngestCheckpoint
   realtime: MeetingRealtimeCheckpoint
   finalization: MeetingFinalizationCheckpoint
+  authority?: {
+    capture: 'local_manifest'
+    ingest: 'authenticated_server_checkpoint'
+    realtime: 'authenticated_server_checkpoint'
+    finalization: 'authenticated_server_checkpoint'
+  }
 }
 
 export interface MeetingLocalPlaybackAsset {
@@ -93,6 +104,40 @@ export interface MeetingLocalPlaybackAsset {
   webUrl?: string
   mediaType: string
   durationMs: number
+}
+
+export interface MeetingNativePlaybackStatus {
+  handle: string | null
+  source: 'none' | 'local' | 'server'
+  positionMs: number
+  durationMs: number
+  playing: boolean
+  serverReady: boolean
+}
+
+export interface MeetingNativeCaptureCleanupReceipt {
+  schemaVersion: 'siq.meeting.native_capture.cleanup_receipt.v1'
+  captureId: string
+  meetingId: string
+  streamEpoch: number
+  recordedThroughSample: number
+  manifestRevision: number
+  serverWavSha256: string
+  serverWavByteSize: number
+  verifiedAt: string
+}
+
+export interface MeetingNativeCaptureRolloverResult {
+  captureId: string
+  previousEpoch: number
+  streamEpoch: number
+  streamTicket: string
+  streamTicketExpiresAt: string
+  wsUrl: string
+  lastAckedSequence: number
+  captureOffsetMs: number
+  reconnectWindowSeconds: number
+  replayed: boolean
 }
 
 export interface MeetingCaptureProgressEvent {
@@ -122,7 +167,10 @@ export interface MeetingCaptureEventMap {
   'batch.sealed': MeetingCaptureBatchEvent
   'batch.uploaded': MeetingCaptureBatchEvent
   'capture.stopped': MeetingCaptureStatus
+  'capture.checkpoint': MeetingCaptureCheckpoints
+  'capture.synced': { captureId: string; ingestComplete: boolean; serverPlaybackState: string }
   'local.playback.ready': MeetingLocalPlaybackAsset
+  'capture.discarded': MeetingNativeCaptureCleanupReceipt
   'capture.error': MeetingCaptureErrorEvent
 }
 
@@ -142,7 +190,21 @@ export interface MeetingCapturePluginBridge {
   getCheckpoints(): Promise<{ checkpoints: MeetingCaptureCheckpoints }>
   getLocalPlaybackAsset(): Promise<{ playbackAsset: MeetingLocalPlaybackAsset | null }>
   retryPendingUploads(): Promise<{ status: MeetingCaptureStatus }>
-  discardLocalCapture(options: { confirmedServerComplete: boolean }): Promise<{ discarded: boolean }>
+  recoverPendingCaptures(): Promise<{ captures: MeetingCaptureStatus[] }>
+  rollover(): Promise<{ rollover: MeetingNativeCaptureRolloverResult }>
+  playLocalPlayback(options: { handle: string }): Promise<{ playback: MeetingNativePlaybackStatus }>
+  pausePlayback(): Promise<{ playback: MeetingNativePlaybackStatus }>
+  resumePlayback(): Promise<{ playback: MeetingNativePlaybackStatus }>
+  seekPlayback(options: { positionMs: number }): Promise<{ playback: MeetingNativePlaybackStatus }>
+  getPlaybackStatus(): Promise<{ playback: MeetingNativePlaybackStatus }>
+  switchToServerPlayback(options: {
+    handle: string
+    serverUrl: string
+  }): Promise<{ playback: MeetingNativePlaybackStatus }>
+  discardLocalCapture(options: { confirmedServerComplete: boolean }): Promise<{
+    discarded: boolean
+    cleanupReceipt?: MeetingNativeCaptureCleanupReceipt
+  }>
   addListener<Name extends MeetingCaptureEventName>(
     eventName: Name,
     listener: (event: MeetingCaptureEventMap[Name]) => void,

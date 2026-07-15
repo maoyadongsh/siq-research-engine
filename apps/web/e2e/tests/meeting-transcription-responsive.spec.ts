@@ -155,6 +155,7 @@ function silentWav(durationMs = 250) {
 
 interface MeetingMockOptions {
   audioTicketFailures?: number
+  audioDurationMs?: number
   transcriptSegments?: Array<Record<string, unknown>>
   lastSegmentOrdinal?: number
   durableEvents?: Array<Record<string, unknown> & { cursor: number }>
@@ -324,7 +325,7 @@ async function mockMeetingApis(page: Page, options: MeetingMockOptions = {}) {
       }] }))
     }
     if (path.endsWith('/audio') && requestUrl.searchParams.has('ticket')) {
-      return route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav() })
+      return route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav(options.audioDurationMs) })
     }
     return route.fulfill(json({ items: [] }))
   })
@@ -349,6 +350,33 @@ test('meeting player automatically becomes playable after delayed WAV finalizati
     { timeout: 10_000 },
   ).toBeGreaterThan(0)
   await expect(page.getByText(/HTTP 404/)).toHaveCount(0)
+})
+
+test('meeting playback highlights and follows the active transcript without trapping manual scroll', async ({ page }) => {
+  const playbackSegments = [
+    { ...segments[0], start_ms: 500, end_ms: 1_500 },
+    { ...segments[1], start_ms: 2_000, end_ms: 3_000 },
+  ]
+  await mockMeetingApis(page, { audioDurationMs: 4_000, transcriptSegments: playbackSegments })
+  await page.goto(`/meetings/${meeting.id}`)
+  await page.getByRole('tab', { name: '逐字稿', exact: true }).click()
+
+  const player = page.getByLabel('会议录音播放器')
+  await expect.poll(() => player.evaluate((audio: HTMLAudioElement) => audio.duration)).toBeGreaterThan(3.9)
+  await page.getByRole('button', { name: '本季度收入质量明显改善。' }).click()
+  await expect.poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThanOrEqual(0.5)
+
+  const first = page.locator('[data-transcript-segment="segment-1"]')
+  await expect(first).toHaveAttribute('data-playback-active', 'true')
+  await expect(first).toHaveAttribute('aria-current', 'true')
+
+  await page.getByTestId('transcript-scroll').dispatchEvent('wheel')
+  await expect(page.getByRole('button', { name: '回到播放位置' })).toBeVisible()
+  await player.evaluate((audio: HTMLAudioElement) => {
+    audio.currentTime = 2.3
+  })
+  await expect(page.locator('[data-transcript-segment="segment-2"]')).toHaveAttribute('data-playback-active', 'true')
+  await page.getByRole('button', { name: '回到播放位置' }).click()
 })
 
 async function expectNoHorizontalOverflow(page: Page) {

@@ -23,7 +23,7 @@ from services.meeting_contracts import (
     utcnow,
 )
 from services.meeting_database import get_meeting_async_session as get_async_session
-from services.meeting_finalization import FinalASRSegment, FinalizationAnalysis
+from services.meeting_finalization import FINAL_ASR_INDEPENDENT_PROTOCOL, FinalASRSegment, FinalizationAnalysis
 from services.meeting_hermes_runner import MeetingHermesRunner, MeetingHermesTargetPool
 from services.meeting_import_config import MeetingImportSettings
 from services.meeting_import_contracts import (
@@ -285,7 +285,7 @@ def test_import_router_hides_cross_owner_uploads(tmp_path, monkeypatch):
 
 
 class _FakeFinalization:
-    async def analyze(self, meeting_id: str) -> FinalizationAnalysis:
+    async def analyze(self, meeting_id: str, *, run_id: str | None = None) -> FinalizationAnalysis:
         del meeting_id
         diarizer_ref = "diarizer-import-test-v1"
         return FinalizationAnalysis(
@@ -310,6 +310,8 @@ class _FakeFinalization:
                 ),
             ),
             diarizer_ref=diarizer_ref,
+            protocol_version=FINAL_ASR_INDEPENDENT_PROTOCOL,
+            max_concurrency=2,
         )
 
 

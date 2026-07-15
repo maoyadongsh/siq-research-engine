@@ -9,6 +9,7 @@ from typing import Any, Callable
 import numpy as np
 
 from meeting_speech_service.adapters.base import (
+    INDEPENDENT_FINALIZATION_PROTOCOL,
     AdapterUnavailable,
     EngineSnapshot,
     SessionOptions,
@@ -116,12 +117,16 @@ class FunASREngine(SpeechEngine):
                 "max_prototypes": speaker_max_prototypes,
                 "min_rms": speaker_min_rms,
                 "max_clipping_ratio": speaker_max_clipping_ratio,
+                "finalization_protocol": INDEPENDENT_FINALIZATION_PROTOCOL,
             },
         )
         self._disabled_diarizer_ref = build_diarizer_ref(
             adapter="none",
             model_ref="disabled",
-            configuration={"speaker_adapter": speaker_adapter},
+            configuration={
+                "speaker_adapter": speaker_adapter,
+                "finalization_protocol": INDEPENDENT_FINALIZATION_PROTOCOL,
+            },
         )
         self._state = "initializing"
         self._reason_code: str | None = None
@@ -434,6 +439,10 @@ class _FunASRDecoder:
         if isinstance(result, FinalDecode):
             return result
         return FinalDecode(text=_extract_text(result), word_timings=_extract_word_timings(result))
+
+    def update_hotwords(self, hotwords: tuple[str, ...]) -> None:
+        self._hotwords = tuple(hotwords)
+        self._hotword = " ".join(self._hotwords) or None
 
 
 def _pcm_to_float32(pcm: bytes) -> np.ndarray:

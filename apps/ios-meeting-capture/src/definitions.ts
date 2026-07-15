@@ -92,6 +92,18 @@ export interface LocalPlaybackAsset {
   durationMs: number
 }
 
+export interface CleanupReceipt {
+  schemaVersion: 'siq.meeting.native_capture.cleanup_receipt.v1'
+  captureId: string
+  meetingId: string
+  streamEpoch: number
+  recordedThroughSample: number
+  manifestRevision: number
+  serverWavSha256: string
+  serverWavByteSize: number
+  verifiedAt: string
+}
+
 export interface PlaybackStatus {
   handle: string | null
   source: 'none' | 'local' | 'server'
@@ -147,6 +159,7 @@ export interface MeetingCaptureEventMap {
     serverPlaybackState: string
   }
   'local.playback.ready': LocalPlaybackAsset
+  'capture.discarded': CleanupReceipt
   'capture.error': { code: string; recoverable: boolean }
 }
 
@@ -164,13 +177,16 @@ export interface MeetingCapturePlugin {
   rollover(): Promise<{ rollover: RolloverResult }>
   playLocalPlayback(options: { handle: string }): Promise<{ playback: PlaybackStatus }>
   pausePlayback(): Promise<{ playback: PlaybackStatus }>
+  resumePlayback(): Promise<{ playback: PlaybackStatus }>
   seekPlayback(options: { positionMs: number }): Promise<{ playback: PlaybackStatus }>
   getPlaybackStatus(): Promise<{ playback: PlaybackStatus }>
   switchToServerPlayback(options: {
     handle: string
     serverUrl: string
   }): Promise<{ playback: PlaybackStatus }>
-  discardLocalCapture(options: { confirmedServerComplete: boolean }): Promise<{ discarded: boolean }>
+  discardLocalCapture(options: {
+    confirmedServerComplete: boolean
+  }): Promise<{ discarded: true; cleanupReceipt: CleanupReceipt }>
   addListener<Name extends keyof MeetingCaptureEventMap>(
     eventName: Name,
     listener: (event: MeetingCaptureEventMap[Name]) => void,

@@ -35,6 +35,7 @@ test('Capacitor bridge freezes the complete native capture lifecycle', () => {
     'rollover',
     'playLocalPlayback',
     'pausePlayback',
+    'resumePlayback',
     'seekPlayback',
     'getPlaybackStatus',
     'switchToServerPlayback',
@@ -105,6 +106,7 @@ test('capture token is Keychain-only and background uploads use file tasks', () 
   )
 
   assert.match(keychain, /kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly/)
+  assert.match(keychain, /status == errSecSuccess \|\| status == errSecItemNotFound/)
   assert.match(uploader, /URLSessionConfiguration\.background/)
   assert.match(uploader, /sessionSendsLaunchEvents = true/)
   assert.match(uploader, /uploadTask\(with: request, fromFile: fileURL\)/)
@@ -153,11 +155,16 @@ test('playback stays behind an opaque handle and never crosses the bridge as a f
   assert.match(player, /candidate\.seek\(to: CMTime\(seconds: switchAtSeconds/)
   assert.match(player, /query\[0\]\.name == "playback_ticket"/)
   assert.match(player, /self\.localPlayer\?\.pause\(\)/)
+  assert.match(player, /func resume\(\) throws[\s\S]*source == "server"[\s\S]*serverPlayer\.play\(\)[\s\S]*source == "local"/)
 })
 
 test('host declares honest microphone and background audio capabilities', () => {
+  const capacitorConfig = read('capacitor.config.ts')
   const info = read('ios/App/App/Info.plist')
   const appDelegate = read('ios/App/App/AppDelegate.swift')
+  const bridgeController = read('ios/App/App/MeetingCaptureBridgeViewController.swift')
+  const storyboard = read('ios/App/App/Base.lproj/Main.storyboard')
+  const project = read('ios/App/App.xcodeproj/project.pbxproj')
   const privacy = read('ios/App/App/PrivacyInfo.xcprivacy')
   assert.match(info, /<key>NSMicrophoneUsageDescription<\/key>/)
   assert.match(info, /<key>SIQMeetingAPIOrigin<\/key>/)
@@ -165,19 +172,40 @@ test('host declares honest microphone and background audio capabilities', () => 
   assert.match(info, /<key>UIBackgroundModes<\/key>[\s\S]*<string>audio<\/string>/)
   assert.match(appDelegate, /handleEventsForBackgroundURLSession/)
   assert.match(appDelegate, /MeetingCaptureBackgroundEvents\.shared/)
+  assert.match(bridgeController, /registerPluginInstance\(MeetingCapturePlugin\(\)\)/)
+  assert.match(bridgeController, /webViewConfiguration\(for instanceConfiguration:/)
+  assert.match(bridgeController, /injectionTime: \.atDocumentStart/)
+  assert.match(bridgeController, /__SIQ_NATIVE_CONFIG__/)
+  assert.match(bridgeController, /components\.scheme\?\.lowercased\(\) == "https"/)
+  assert.match(bridgeController, /components\.user == nil/)
+  assert.match(bridgeController, /components\.path\.isEmpty \|\| components\.path == "\/"/)
+  assert.match(capacitorConfig, /scheme: 'App'/)
+  assert.doesNotMatch(capacitorConfig, /server:\s*\{[\s\S]*url:/)
+  assert.match(storyboard, /customClass="MeetingCaptureBridgeViewController"/)
+  assert.match(project, /productName = SIQMeetingCapture/)
+  assert.match(project, /relativePath = "\.\.\/\.\."/)
+  assert.match(project, /MeetingCaptureBridgeViewController\.swift in Sources/)
+  assert.match(project, /PrivacyInfo\.xcprivacy in Resources/)
   assert.match(privacy, /NSPrivacyCollectedDataTypeAudioData/)
   assert.match(privacy, /<key>NSPrivacyTracking<\/key>\s*<false\/>/)
   assert.match(privacy, /NSPrivacyAccessedAPICategoryDiskSpace[\s\S]*85F4\.1/)
   assert.match(privacy, /NSPrivacyAccessedAPICategorySystemBootTime[\s\S]*35F9\.1/)
 })
 
-test('cleanup and server readiness stay fail-closed without authenticated server proof', () => {
+test('cleanup requires an authenticated ready checkpoint and is crash-retryable', () => {
   const controller = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureController.swift')
   const store = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureStore.swift')
+  const models = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureModels.swift')
   const uploader = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureUploader.swift')
   const serverClient = read('ios/Sources/MeetingCapturePlugin/MeetingCaptureServerClient.swift')
 
-  assert.match(controller, /verified cleanup receipt is unavailable/)
+  assert.match(controller, /stageCleanup\(afterAuthenticatedCheckpoint:/)
+  assert.match(controller, /finishStagedCleanup\(/)
+  assert.match(
+    controller,
+    /validatedStagedCleanupReceipt\(\)[\s\S]*try keychain\.remove\(captureId:/,
+  )
+  assert.match(controller, /capture\.discarded/)
   assert.match(controller, /stopAndDrain/)
   assert.match(controller, /try uploader\.refreshCheckpointAndSchedule/)
   assert.match(
@@ -189,6 +217,14 @@ test('cleanup and server readiness stay fail-closed without authenticated server
     store,
     /"serverPlaybackState": server\.finalizationCheckpoint\.serverPlaybackState/,
   )
+  assert.match(models, /cleanup_receipt\.v1/)
+  assert.match(store, /stageCleanup\(afterAuthenticatedCheckpoint\s+checkpoint:/)
+  assert.match(store, /completeStagedCleanup\(/)
+  assert.match(store, /manifest = current[\s\S]*throw error/)
+  assert.match(store, /packagingState == "ready"/)
+  assert.match(store, /localPlaybackFingerprint/)
+  assert.match(store, /serverWAVSHA256/)
+  assert.match(store, /serverWAVByteSize/)
   assert.match(store, /"finalization": "authenticated_server_checkpoint"/)
   assert.doesNotMatch(store, /"ingestComplete": (?:true|false)/)
   assert.match(
@@ -215,6 +251,8 @@ test('cold-start recovery restores durable sessions without starting the recorde
   assert.match(recovery, /recoverableCaptureIds\(\)/)
   assert.match(recovery, /MeetingCaptureUploader\(store: store, keychain: keychain\)/)
   assert.match(recovery, /schedulePendingUploads\(\)/)
+  assert.match(recovery, /cleanupReceipt != nil/)
+  assert.match(recovery, /completeStagedCleanup\(\)/)
   assert.doesNotMatch(recovery, /MeetingCaptureRecorder|requestPermission|recorder\.|\.start\(\)/)
   assert.match(store, /recovered\.state = \.interrupted/)
   assert.match(store, /recovered\.interruptionReason = "process_recovered"/)

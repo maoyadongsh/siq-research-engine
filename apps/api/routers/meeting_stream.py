@@ -327,7 +327,11 @@ async def _browser_to_speech(
     settings: MeetingSettings,
     audio_store: MeetingAudioStore,
     rate_limiter: MeetingAudioRateLimiter,
+    initial_acked_sequence: int = -1,
+    initial_hotword_version: int | None = None,
 ) -> str:
+    highest_forwarded_sequence = initial_acked_sequence
+    forwarded_hotword_version = initial_hotword_version
     while True:
         message = await browser.receive()
         if message.get("type") == "websocket.disconnect":
@@ -372,10 +376,40 @@ async def _browser_to_speech(
                     raise
                 record_meeting_counter("audio_frame", "persisted")
             await speech.send(binary)
+            highest_forwarded_sequence = max(highest_forwarded_sequence, frame.sequence)
             continue
         if not isinstance(text, str):
             raise MeetingStreamProtocolError("WEBSOCKET_MESSAGE_INVALID", "message must be text or binary")
         control = parse_control(text)
+        if control["type"] == "stream.hotwords.update":
+            hotwords, version = await _load_hotwords(owner_user_id, meeting_id)
+            if version != control["hotword_version"] or hotwords != control["hotwords"]:
+                raise MeetingStreamProtocolError(
+                    "HOTWORD_SNAPSHOT_MISMATCH",
+                    "hotword update does not match the active meeting lexicon",
+                )
+            if control["effective_sequence"] <= highest_forwarded_sequence:
+                raise MeetingStreamProtocolError(
+                    "HOTWORD_BOUNDARY_STALE",
+                    "hotword boundary must follow all forwarded audio",
+                )
+            forwarded_hotword_version = version
+        elif control["type"] == "stream.heartbeat":
+            hotwords, version = await _load_hotwords(owner_user_id, meeting_id)
+            if version is not None and version != forwarded_hotword_version:
+                update = {
+                    "type": "stream.hotwords.update",
+                    "schema_version": control["schema_version"],
+                    "request_id": str(uuid4()),
+                    "hotword_version": version,
+                    "effective_sequence": max(
+                        highest_forwarded_sequence + 1,
+                        int(control.get("next_sequence") or 0),
+                    ),
+                    "hotwords": hotwords,
+                }
+                await speech.send(json.dumps(update, separators=(",", ":")))
+                forwarded_hotword_version = version
         if control["type"] == "stream.heartbeat":
             async with _database_session() as session:
                 await MeetingStreamTicketService(session, settings).renew_lease(
@@ -413,6 +447,12 @@ async def _persist_final(
             "degraded_reason",
         )
     }
+    payload_hotword_version = payload.get("hotword_version")
+    segment_hotword_version = (
+        payload_hotword_version
+        if isinstance(payload_hotword_version, int) and not isinstance(payload_hotword_version, bool)
+        else hotword_version
+    )
     request = StableSegmentInput(
         utterance_id=segment_token,
         provider_segment_key=f"{stream_epoch}:{segment_token}",
@@ -423,7 +463,7 @@ async def _persist_final(
         asr_provider="meeting-speech",
         asr_model=str(payload.get("adapter") or "configured-adapter"),
         asr_version=str(event.get("schema_version") or "siq.meeting.speech.event.v1"),
-        hotword_version=hotword_version,
+        hotword_version=segment_hotword_version,
         word_timestamps=list(payload.get("word_timestamps") or []),
         asr_metadata=metadata,
     )
@@ -523,11 +563,32 @@ async def _speech_to_browser(
         if event_type == "speaker.track.observed":
             continue
         if event_type == "asr.partial":
+            payload = event["payload"]
+            segment_token = str(payload.get("segment_token") or "").strip()
+            partial_text = str(payload.get("text") or "").strip()
+            if not segment_token or not partial_text:
+                raise MeetingStreamProtocolError(
+                    "ASR_PARTIAL_INVALID",
+                    "ASR partial is missing text or identity",
+                    close_code=1011,
+                )
             observe_meeting_latency(
                 "asr_partial_latency_seconds",
-                max(0.0, float(event["payload"].get("inference_ms") or 0) / 1_000),
+                max(0.0, float(payload.get("inference_ms") or 0) / 1_000),
             )
-            await browser.send_json(_public_ephemeral(event, event_type="transcript.partial"))
+            await browser.send_json(
+                _public_ephemeral(
+                    {
+                        **event,
+                        "payload": {
+                            **payload,
+                            "utterance_id": segment_token,
+                            "text": partial_text,
+                        },
+                    },
+                    event_type="transcript.partial",
+                )
+            )
             continue
         if event_type == "audio.gap.detected":
             record_meeting_counter(
@@ -699,6 +760,7 @@ async def meeting_audio_stream(
         internal_start["meeting_id"] = meeting_id
         internal_start["language"] = meeting.language
         internal_start["hotwords"] = hotwords
+        internal_start["hotword_version"] = hotword_version
         internal_start["last_acked_sequence"] = meeting.last_audio_sequence
         rate_limiter = MeetingAudioRateLimiter(
             max_frames_per_second=settings.audio_max_frames_per_second,
@@ -734,6 +796,8 @@ async def meeting_audio_stream(
                     settings=settings,
                     audio_store=audio_store,
                     rate_limiter=rate_limiter,
+                    initial_acked_sequence=meeting.last_audio_sequence,
+                    initial_hotword_version=hotword_version,
                 )
             )
             speech_task = asyncio.create_task(

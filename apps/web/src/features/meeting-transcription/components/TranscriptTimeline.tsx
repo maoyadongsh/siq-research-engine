@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useVirtualizer, type Range } from '@tanstack/react-virtual'
-import { BookOpenText, Check, ChevronDown, ChevronUp, CornerDownLeft, Loader2, Pencil, RotateCcw, Save, X } from 'lucide-react'
+import { BookOpenText, Check, ChevronDown, ChevronUp, CornerDownLeft, Loader2, Pencil, RotateCcw, Save, Volume2, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -46,6 +46,9 @@ interface TranscriptTimelineProps {
   onLoadEarlier?: () => Promise<void> | void
   onLoadLater?: () => Promise<void> | void
   scrollToSegmentId?: string | null
+  activePlaybackSegmentIds?: string[]
+  followPlayback?: boolean
+  onFollowPlaybackChange?: (following: boolean) => void
   onSeek?: (offsetMs: number) => void
   onCorrect?: (segment: MeetingTranscriptSegment, request: SegmentCorrectionRequest) => Promise<void>
   onRevert?: (segment: MeetingTranscriptSegment) => Promise<void>
@@ -99,6 +102,9 @@ export function TranscriptTimeline({
   onLoadEarlier,
   onLoadLater,
   scrollToSegmentId,
+  activePlaybackSegmentIds = [],
+  followPlayback = true,
+  onFollowPlaybackChange,
   onSeek,
   onCorrect,
   onRevert,
@@ -121,6 +127,8 @@ export function TranscriptTimeline({
   const [speakerError, setSpeakerError] = useState('')
   const [following, setFollowing] = useState(true)
   const containerRef = useRef<HTMLDivElement>(null)
+  const activePlaybackSet = useMemo(() => new Set(activePlaybackSegmentIds), [activePlaybackSegmentIds])
+  const primaryPlaybackSegmentId = activePlaybackSegmentIds.at(-1) || ''
   const speakerById = useMemo(() => new Map(speakers.map((speaker) => [speaker.id, speaker])), [speakers])
   const partialList = useMemo(() => Object.values(partials), [partials])
   const announcement = latestStableAnnouncement(segments)
@@ -160,6 +168,14 @@ export function TranscriptTimeline({
     const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: 'center' }))
     return () => window.cancelAnimationFrame(frame)
   }, [scrollToSegmentId, segments, virtualizer])
+
+  useEffect(() => {
+    if (!followPlayback || !primaryPlaybackSegmentId) return
+    const index = segments.findIndex((segment) => segment.id === primaryPlaybackSegmentId)
+    if (index < 0) return
+    const frame = window.requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: 'center' }))
+    return () => window.cancelAnimationFrame(frame)
+  }, [followPlayback, primaryPlaybackSegmentId, segments, virtualizer])
 
   function beginEdit(segment: MeetingTranscriptSegment) {
     setEditingId(segment.id)
@@ -247,6 +263,21 @@ export function TranscriptTimeline({
     setFollowing((current) => current === nextFollowing ? current : nextFollowing)
   }
 
+  function pausePlaybackFollowing() {
+    if (followPlayback && activePlaybackSegmentIds.length) onFollowPlaybackChange?.(false)
+  }
+
+  function handleTimelineKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (['ArrowDown', 'ArrowUp', 'End', 'Home', 'PageDown', 'PageUp', ' '].includes(event.key)) {
+      pausePlaybackFollowing()
+    }
+  }
+
+  function seekSegment(segment: MeetingTranscriptSegment) {
+    onFollowPlaybackChange?.(true)
+    onSeek?.(segment.start_ms)
+  }
+
   return (
     <div className="relative min-h-0">
       <div aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</div>
@@ -268,6 +299,10 @@ export function TranscriptTimeline({
       <div
         ref={containerRef}
         onScroll={handleScroll}
+        onWheel={pausePlaybackFollowing}
+        onTouchStart={pausePlaybackFollowing}
+        onPointerDown={pausePlaybackFollowing}
+        onKeyDown={handleTimelineKeyDown}
         role="region"
         aria-label="逐字稿时间线"
         data-testid="transcript-scroll"
@@ -284,6 +319,7 @@ export function TranscriptTimeline({
           const label = speaker?.display_name || speaker?.anonymous_label || segment.speaker_display_name || '发言人'
           const status = stateLabel(segment)
           const editing = editingId === segment.id
+          const playbackActive = activePlaybackSet.has(segment.id)
           return (
             <article
               id={`meeting-segment-${segment.id}`}
@@ -291,16 +327,22 @@ export function TranscriptTimeline({
               ref={virtualizer.measureElement}
               data-index={virtualRow.index}
               data-transcript-segment={segment.id}
-              className="group absolute left-0 top-0 grid min-h-20 w-full grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-border/70 px-1 py-4"
+              data-playback-active={playbackActive ? 'true' : undefined}
+              aria-current={playbackActive ? 'true' : undefined}
+              className={cn(
+                'group absolute left-0 top-0 grid min-h-20 w-full grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-border/70 px-1 py-4 transition-colors duration-200 motion-reduce:transition-none',
+                playbackActive && 'bg-primary/10',
+              )}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <div>
                 <button
                   type="button"
-                  className="min-h-11 rounded-md px-1 font-mono text-xs tabular-nums text-primary hover:bg-primary/5 focus-visible:ring-3 focus-visible:ring-ring/50"
-                  onClick={() => onSeek?.(segment.start_ms)}
+                  className="inline-flex min-h-11 items-center rounded-md px-1 font-mono text-xs tabular-nums text-primary hover:bg-primary/5 focus-visible:ring-3 focus-visible:ring-ring/50"
+                  onClick={() => seekSegment(segment)}
                   aria-label={`跳转到 ${formatMeetingTimestamp(segment.start_ms)}`}
                 >
+                  <span className="inline-flex w-4 shrink-0" aria-hidden="true">{playbackActive ? <Volume2 className="h-3.5 w-3.5" /> : null}</span>
                   {formatMeetingTimestamp(segment.start_ms)}
                 </button>
               </div>
@@ -395,7 +437,21 @@ export function TranscriptTimeline({
                   </div>
                 ) : (
                   <>
-                    <p className={cn('mt-1 whitespace-pre-wrap break-words text-[15px] leading-7 text-text', segment.text_state === 'review_required' && 'decoration-warning underline decoration-wavy')}>{segmentDisplayText(segment)}</p>
+                    <button
+                      type="button"
+                      className={cn(
+                        'mt-1 block min-h-11 w-full cursor-pointer whitespace-pre-wrap break-words rounded-sm text-left text-[15px] leading-7 text-text focus-visible:ring-3 focus-visible:ring-ring/50',
+                        segment.text_state === 'review_required' && 'decoration-warning underline decoration-wavy',
+                      )}
+                      onClick={(event) => {
+                        const selection = window.getSelection()
+                        if (selection && !selection.isCollapsed && event.currentTarget.contains(selection.anchorNode)) return
+                        seekSegment(segment)
+                      }}
+                      title="播放此段录音"
+                    >
+                      {segmentDisplayText(segment)}
+                    </button>
                     <DiffPreview segment={segment} />
                   </>
                 )}
@@ -432,6 +488,11 @@ export function TranscriptTimeline({
       {live && !following ? (
         <Button type="button" size="sm" className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-lg max-sm:h-11" onClick={() => setFollowing(true)}>
           <CornerDownLeft />回到实时
+        </Button>
+      ) : null}
+      {!live && activePlaybackSegmentIds.length && !followPlayback ? (
+        <Button type="button" size="sm" className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-lg max-sm:h-11" onClick={() => onFollowPlaybackChange?.(true)}>
+          <CornerDownLeft />回到播放位置
         </Button>
       ) : null}
 

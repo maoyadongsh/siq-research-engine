@@ -3,11 +3,24 @@ import { FastForward, Rewind, Volume2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { resolveSiqApiUrl } from '@/shared/api/client'
 
 import { createMeetingAudioTicket } from '../api'
 import { parseMeetingDate } from '../formatters'
 
-export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string; seekToMs?: number | null }) {
+interface MeetingAudioPlayerProps {
+  meetingId: string
+  seekToMs?: number | null
+  seekRequestId?: number
+  onPlaybackPositionChange?: (positionMs: number, playing: boolean) => void
+}
+
+export function MeetingAudioPlayer({
+  meetingId,
+  seekToMs,
+  seekRequestId = 0,
+  onPlaybackPositionChange,
+}: MeetingAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const lastRetryRef = useRef(0)
   const retryCountRef = useRef(0)
@@ -20,6 +33,13 @@ export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string;
   const [error, setError] = useState('')
   const [playbackRate, setPlaybackRate] = useState('1')
 
+  const reportPlaybackPosition = useCallback((audio: HTMLAudioElement) => {
+    onPlaybackPositionChange?.(
+      Math.max(0, Math.round(audio.currentTime * 1_000)),
+      !audio.paused && !audio.ended,
+    )
+  }, [onPlaybackPositionChange])
+
   const refreshTicket = useCallback(async (preservePlayback = false) => {
     const audio = audioRef.current
     const restoreTime = preservePlayback ? audio?.currentTime || 0 : 0
@@ -30,7 +50,7 @@ export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string;
       const ticket = await createMeetingAudioTicket(meetingId)
       if (!mountedRef.current) return
       restoreRef.current = preservePlayback ? { time: restoreTime, resume } : null
-      setAudioUrl(ticket.audio_url)
+      setAudioUrl(resolveSiqApiUrl(ticket.audio_url))
       setExpiresAt(ticket.expires_at)
       setError('')
       retryCountRef.current = 0
@@ -86,9 +106,11 @@ export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string;
 
   useEffect(() => {
     if (seekToMs == null || !audioRef.current) return
-    audioRef.current.currentTime = Math.max(0, seekToMs / 1000)
-    void audioRef.current.play().catch(() => undefined)
-  }, [seekToMs])
+    const audio = audioRef.current
+    audio.currentTime = Math.max(0, seekToMs / 1000)
+    reportPlaybackPosition(audio)
+    void audio.play().catch(() => undefined)
+  }, [reportPlaybackPosition, seekRequestId, seekToMs])
 
   return (
     <div className="min-w-0">
@@ -102,6 +124,12 @@ export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string;
             src={audioUrl || undefined}
             className="h-10 min-w-0 flex-1"
             aria-label="会议录音播放器"
+            onTimeUpdate={(event) => reportPlaybackPosition(event.currentTarget)}
+            onPlay={(event) => reportPlaybackPosition(event.currentTarget)}
+            onPause={(event) => reportPlaybackPosition(event.currentTarget)}
+            onSeeking={(event) => reportPlaybackPosition(event.currentTarget)}
+            onSeeked={(event) => reportPlaybackPosition(event.currentTarget)}
+            onEnded={(event) => reportPlaybackPosition(event.currentTarget)}
             onLoadedMetadata={(event) => {
               const audio = event.currentTarget
               audio.playbackRate = Number(playbackRate)
@@ -112,6 +140,7 @@ export function MeetingAudioPlayer({ meetingId, seekToMs }: { meetingId: string;
                 if (restore.resume) void audio.play().catch(() => undefined)
               }
               setError('')
+              reportPlaybackPosition(audio)
             }}
             onCanPlay={() => setError('')}
             onError={() => {

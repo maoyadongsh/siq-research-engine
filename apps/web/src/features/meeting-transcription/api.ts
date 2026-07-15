@@ -198,11 +198,11 @@ function normalizeTranscriptSegment(value: Record<string, unknown>): import('./t
 
 export async function getMeetingTranscript(
   meetingId: string,
-  options: { afterOrdinal?: number; limit?: number } = {},
+  options: { afterOrdinal?: number; atMs?: number; limit?: number } = {},
   signal?: AbortSignal,
 ) {
   const payload = await apiJson<MeetingTranscriptResponse & { items: Array<Record<string, unknown>> }>(
-    meetingPath(meetingId, `/transcript${queryString({ after_ordinal: options.afterOrdinal, limit: options.limit ?? 500 })}`),
+    meetingPath(meetingId, `/transcript${queryString({ after_ordinal: options.afterOrdinal, at_ms: options.atMs, limit: options.limit ?? 500 })}`),
     { signal },
   )
   return { ...payload, items: payload.items.map(normalizeTranscriptSegment) }
