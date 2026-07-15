@@ -58,6 +58,7 @@ import {
   parseMeetingMinutes,
   selectPreferredMinutesArtifact,
 } from '@/features/meeting-transcription/meetingArtifacts'
+import { latestMeetingJobsByType } from '@/features/meeting-transcription/meetingJobs'
 import {
   earlierSegmentsFromPage,
   earlierTranscriptAfterOrdinal,
@@ -123,6 +124,7 @@ export default function MeetingDetail() {
   const playbackLookupControllerRef = useRef<AbortController | null>(null)
   const minutesArtifact = useMemo(() => selectPreferredMinutesArtifact(artifacts), [artifacts])
   const minutesContent = useMemo(() => parseMeetingMinutes(minutesArtifact?.content_json), [minutesArtifact])
+  const latestJobs = useMemo(() => latestMeetingJobsByType(jobs), [jobs])
   const segmentById = useMemo(() => new Map(segments.map((segment) => [segment.id, segment])), [segments])
 
   useEffect(() => {
@@ -573,10 +575,10 @@ export default function MeetingDetail() {
         />
       </PageSection>
 
-      {jobs.length ? (
+      {latestJobs.length ? (
         <Surface kind="muted" padding="sm">
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-            {jobs.map((job) => (
+            {latestJobs.map((job) => (
               <div key={job.id} className="flex min-w-0 items-center gap-2 rounded-md bg-white/70 px-3 py-2">
                 {job.state === 'running' ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" /> : job.state === 'failed' ? <AlertTriangle className="h-4 w-4 shrink-0 text-error" /> : <CheckSquare className="h-4 w-4 shrink-0 text-success" />}
                 <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-text">{job.job_type}</p><p className="text-[11px] text-text-muted">{job.state}{job.progress != null ? ` · ${Math.round(job.progress * 100)}%` : ''}</p></div>

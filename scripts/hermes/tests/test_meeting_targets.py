@@ -147,6 +147,29 @@ def test_builtin_kimi_target_declares_only_its_provider_key_name():
     assert "credential-value" not in str(target)
 
 
+def test_builtin_minimax_target_declares_cn_provider_key_name():
+    module = load_module()
+    target = module.build_targets(
+        [
+            {
+                "provider": "minimax-cn",
+                "model": "MiniMax-M3",
+                "provider_name": "MiniMax China",
+                "base_url": "",
+                "api_mode": "",
+                "key_env": "",
+                "context_length": 204800,
+                "temperature": 0.2,
+            }
+        ],
+        port_base=18710,
+        allowlist=set(),
+    )[0]
+
+    assert target["runtime"]["provider_key_env"] == "MINIMAX_CN_API_KEY"
+    assert "credential-value" not in str(target)
+
+
 def test_provider_credential_bridge_loads_only_required_key(tmp_path):
     module = load_module()
     credential_file = tmp_path / ".env"
@@ -221,7 +244,7 @@ def test_rendered_target_has_no_tools_or_fallbacks():
 
     assert config["fallback_providers"] == []
     assert config["toolsets"] == []
-    assert config["agent"]["max_turns"] == 1
+    assert config["agent"]["max_turns"] == 2
     assert set(config["agent"]["disabled_toolsets"]) >= {
         "terminal",
         "file",

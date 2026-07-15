@@ -55,3 +55,11 @@ test('meeting detail binds audio time to bounded transcript playback tracking', 
   assert.match(source, /atMs: positionMs/)
   assert.match(source, /samePlaybackSegments\(current, active\)/)
 })
+
+test('meeting detail collapses processing history to the latest job per type', () => {
+  const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'MeetingDetail.tsx'), 'utf-8')
+
+  assert.match(source, /latestMeetingJobsByType\(jobs\)/)
+  assert.match(source, /latestJobs\.map\(\(job\) =>/)
+  assert.doesNotMatch(source, /jobs\.map\(\(job\) =>/)
+})

@@ -24,7 +24,7 @@ ExecStart=/usr/bin/bash /home/maoyd/siq-research-engine/start_all.sh
 Restart=always
 RestartSec=5
 KillMode=control-group
-TimeoutStopSec=120
+TimeoutStopSec=240
 StandardOutput=journal
 StandardError=journal
 

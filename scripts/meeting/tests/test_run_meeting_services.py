@@ -57,6 +57,14 @@ def test_service_group_is_config_driven_and_shell_syntax_is_valid():
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True, timeout=5)
 
 
+def test_frontend_receives_native_capture_feature_flag():
+    start_script = (PROJECT_ROOT / "start_all.sh").read_text(encoding="utf-8")
+    assert (
+        'export VITE_SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED='
+        '"${SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED:-0}"'
+    ) in start_script
+
+
 def test_worker_cli_keeps_compatible_defaults_and_exposes_isolated_modes():
     ai_help = subprocess.run(
         [sys.executable, str(AI_WORKER), "--help"],

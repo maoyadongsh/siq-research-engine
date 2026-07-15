@@ -34,6 +34,8 @@ _ENV_KEY_RE = re.compile(r"[A-Z][A-Z0-9_]{1,127}")
 _BUILTIN_PROVIDER_KEY_ENVS = {
     "kimi-coding": "KIMI_API_KEY",
     "kimi-coding-cn": "KIMI_CN_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+    "minimax-cn": "MINIMAX_CN_API_KEY",
 }
 _MAX_PROVIDER_ENV_BYTES = 1024 * 1024
 
@@ -429,7 +431,10 @@ def _target_config(target: dict[str, Any], port: int) -> dict[str, Any]:
         "credential_pool_strategies": {},
         "toolsets": [],
         "agent": {
-            "max_turns": 1,
+            # Hermes evaluates the terminal state after consuming an API-call
+            # budget slot. A budget of one marks a valid first text response as
+            # incomplete even when the provider returned finish_reason=stop.
+            "max_turns": 2,
             "gateway_timeout": int(os.getenv("SIQ_MEETINGS_HERMES_TIMEOUT_SECONDS", "180")),
             "api_max_retries": 1,
             "tool_use_enforcement": False,

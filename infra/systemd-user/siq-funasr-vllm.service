@@ -1,0 +1,21 @@
+[Unit]
+Description=SIQ FunASR Nano vLLM service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/maoyd/services/FunASR/examples/industrial_data_pretraining/fun_asr_nano
+ExecStart=/home/maoyd/miniconda3/envs/funasr-vllm/bin/python serve_vllm.py --host 0.0.0.0 --port 8899 --model FunAudioLLM/Fun-ASR-Nano-2512 --hub ms --device cuda:0 --dtype bf16 --max-model-len 4096 --gpu-memory-utilization 0.05 --vad-model fsmn-vad --spk-model iic/speech_eres2netv2_sv_zh-cn_16k-common --enforce-eager
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=600
+TimeoutStopSec=120
+KillMode=control-group
+Environment=HOME=/home/maoyd
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

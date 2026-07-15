@@ -469,6 +469,24 @@ class MeetingAIWorker:
             )
             event_store = MeetingEventStore(session)
             for meeting in meetings:
+                pending_correction = (
+                    await session.exec(
+                        select(MeetingJob.id)
+                        .where(
+                            MeetingJob.meeting_id == meeting.id,
+                            MeetingJob.job_kind == MeetingJobKind.CORRECTION.value,
+                            MeetingJob.state.in_(
+                                [
+                                    MeetingJobState.QUEUED.value,
+                                    MeetingJobState.LEASED.value,
+                                    MeetingJobState.RUNNING.value,
+                                    MeetingJobState.RETRY_WAIT.value,
+                                ]
+                            ),
+                        )
+                        .limit(1)
+                    )
+                ).first()
                 correction_watermark = int(
                     (
                         await session.exec(
@@ -492,12 +510,17 @@ class MeetingAIWorker:
                             )
                         )
                     ).one()
-                correction_due = MeetingJobKind.CORRECTION.value in self.job_kinds and (
-                    remaining >= 3
-                    or (
-                        remaining > 0
-                        and oldest_unscheduled is not None
-                        and _utc(oldest_unscheduled) <= now - timedelta(seconds=self.config.correction_debounce_seconds)
+                correction_due = (
+                    MeetingJobKind.CORRECTION.value in self.job_kinds
+                    and pending_correction is None
+                    and (
+                        remaining >= 3
+                        or (
+                            remaining > 0
+                            and oldest_unscheduled is not None
+                            and _utc(oldest_unscheduled)
+                            <= now - timedelta(seconds=self.config.correction_debounce_seconds)
+                        )
                     )
                 )
                 if correction_due:

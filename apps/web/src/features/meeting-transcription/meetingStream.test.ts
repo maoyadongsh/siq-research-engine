@@ -545,6 +545,8 @@ test('ticket reconnect deadline pauses capture, stops retries, and preserves the
   assert.equal(capture.pauses(), 1)
   assert.equal(sockets.length, 1)
   assert.equal(outbox.persisted.length, 1)
+  assert.equal(await transport.recoverAfterForeground(), true)
+  assert.equal(sockets.length, 2)
   await transport.disconnect()
 })
 

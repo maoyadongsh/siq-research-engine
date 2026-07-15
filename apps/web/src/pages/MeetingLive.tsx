@@ -124,6 +124,8 @@ export default function MeetingLive() {
   const [stopOpen, setStopOpen] = useState(false)
   const [now, setNow] = useState(0)
   const nativeTranscriptRefreshPending = useRef(false)
+  const reconnectOnLoadAttempted = useRef(false)
+  const connectRef = useRef<() => Promise<void>>(async () => undefined)
   const desktopWorkspace = useMediaQuery(DESKTOP_WORKSPACE_QUERY)
   const wideWorkspace = useMediaQuery(WIDE_WORKSPACE_QUERY)
 
@@ -267,6 +269,20 @@ export default function MeetingLive() {
       setBusy(false)
     }
   }
+  useEffect(() => {
+    connectRef.current = connect
+  })
+
+  useEffect(() => {
+    if (
+      reconnectOnLoadAttempted.current
+      || session?.state !== 'reconnecting'
+      || nativeCapture.state.mode !== 'web'
+      || !['offline', 'error'].includes(realtime.state.connectionStatus)
+    ) return
+    reconnectOnLoadAttempted.current = true
+    void connectRef.current()
+  }, [nativeCapture.state.mode, realtime.state.connectionStatus, session?.state])
 
   async function pause() {
     if (!session) return
@@ -472,7 +488,12 @@ export default function MeetingLive() {
   const serverStatus = realtime.state.sessionState === 'draft' && session ? session.state : realtime.state.sessionState
   const nativeMode = nativeCapture.state.mode === 'native'
   const nativeLifecycle = nativeCapture.state.status?.state
-  const status = meetingDisplayStatus(serverStatus, nativeMode, nativeLifecycle)
+  const webConnectionInterrupted = !nativeMode
+    && serverStatus === 'reconnecting'
+    && ['error', 'offline'].includes(realtime.state.connectionStatus)
+  const status = webConnectionInterrupted
+    ? 'interrupted'
+    : meetingDisplayStatus(serverStatus, nativeMode, nativeLifecycle)
   const statusLabel = nativeMode && nativeLifecycle === 'recording'
     ? '录音中'
     : meetingStateLabels[status] || status
@@ -483,6 +504,9 @@ export default function MeetingLive() {
     ? nativeCapture.state.bound && ['recording', 'paused', 'interrupted', 'stopping', 'stopped'].includes(nativeLifecycle ?? '')
     : realtime.state.connectionStatus === 'connected'
   const nativeNeedsStart = nativeMode && !nativeCapture.state.bound
+  const webNeedsReconnect = !nativeMode
+    && ['live', 'reconnecting', 'interrupted'].includes(serverStatus)
+    && realtime.state.connectionStatus !== 'connected'
   const selectedModel = models.find((model) => model.model_ref === modelRef)
   const savedSegmentCount = Math.max(session?.last_segment_ordinal ?? 0, latestTranscriptOrdinal(realtime.state.segments) ?? 0)
 
@@ -548,7 +572,7 @@ export default function MeetingLive() {
             <div className="min-w-0"><h1 className="truncate text-base font-semibold text-text">{session.title}</h1><div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-muted"><StatusBadge tone={active ? 'success' : status === 'paused' ? 'warning' : 'neutral'} icon={active ? Radio : undefined}>{statusLabel}</StatusBadge><span className="font-mono tabular-nums">{formatMeetingDuration(duration)}</span><span className="inline-flex items-center gap-1">{captureConnected ? <Wifi className="h-3.5 w-3.5 text-success" /> : <WifiOff className="h-3.5 w-3.5" />}{nativeMode ? 'iPhone 原生采集' : connectionLabel(realtime.state.connectionStatus)}</span>{!nativeMode && realtime.state.asrLatencyMs != null ? <span>延迟 {(realtime.state.asrLatencyMs / 1000).toFixed(1)}s</span> : null}</div></div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {status === 'draft' || nativeNeedsStart || (!nativeMode && active && realtime.state.connectionStatus !== 'connected') ? <Button type="button" onClick={() => void connect()} disabled={busy || nativeCapture.state.busy}>{busy ? <Loader2 className="animate-spin" /> : <Mic2 />}{status === 'draft' ? '开始会议' : nativeMode && nativeLifecycle ? '载入原生采集' : nativeMode ? '启动原生采集' : '连接麦克风'}</Button> : null}
+            {status === 'draft' || nativeNeedsStart || webNeedsReconnect ? <Button type="button" onClick={() => void connect()} disabled={busy || nativeCapture.state.busy}>{busy ? <Loader2 className="animate-spin" /> : <Mic2 />}{status === 'draft' ? '开始会议' : nativeMode && nativeLifecycle ? '载入原生采集' : nativeMode ? '启动原生采集' : '重新连接'}</Button> : null}
             {active && captureConnected ? <Button type="button" variant="secondary" onClick={() => void pause()} disabled={busy || nativeCapture.state.busy}><Pause />暂停</Button> : null}
             {(nativeMode && nativeCapture.state.bound && ['paused', 'interrupted'].includes(nativeLifecycle ?? '')) || (!nativeMode && ['paused', 'interrupted'].includes(status)) ? <Button type="button" onClick={() => void resume()} disabled={busy || nativeCapture.state.busy}><Play />恢复</Button> : null}
             {!['stopped', 'stopping', 'archived'].includes(status) && nativeLifecycle !== 'stopped' ? <Button type="button" variant="danger" onClick={() => setStopOpen(true)} disabled={busy || nativeCapture.state.busy}><CircleStop />结束</Button> : null}

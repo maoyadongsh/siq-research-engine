@@ -615,12 +615,28 @@ def test_incremental_scheduler_batches_imported_recording_corrections():
 
         worker = _worker(factory, FakeRunner())
         assert await worker.schedule_incremental_jobs() == 1
+        assert await worker.schedule_incremental_jobs() == 0
         async with factory() as session:
             correction = (
                 await session.exec(select(MeetingJob).where(MeetingJob.job_kind == MeetingJobKind.CORRECTION.value))
             ).one()
             assert ":correction:range:1-50:" in correction.idempotency_key
             assert correction.input_watermark == 50
+            correction.state = MeetingJobState.SUCCEEDED.value
+            session.add(correction)
+            await session.commit()
+        assert await worker.schedule_incremental_jobs() == 1
+        async with factory() as session:
+            corrections = list(
+                (
+                    await session.exec(
+                        select(MeetingJob)
+                        .where(MeetingJob.job_kind == MeetingJobKind.CORRECTION.value)
+                        .order_by(MeetingJob.input_watermark)
+                    )
+                ).all()
+            )
+            assert [value.input_watermark for value in corrections] == [50, 60]
         await engine.dispose()
 
     anyio.run(scenario)

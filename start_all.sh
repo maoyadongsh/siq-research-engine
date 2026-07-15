@@ -443,6 +443,7 @@ log "启动 Vite 前端 (端口 $FRONTEND_PORT)..."
     install_node_dependencies
     export VITE_SIQ_MEETINGS_ENABLED="${SIQ_MEETINGS_ENABLED:-0}"
     export VITE_SIQ_MEETING_IMPORT_ENABLED="${SIQ_MEETING_IMPORT_ENABLED:-0}"
+    export VITE_SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED="${SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED:-0}"
     npm run dev -- --host 0.0.0.0 --port "$FRONTEND_PORT"
 ) &
 pids+=($!)

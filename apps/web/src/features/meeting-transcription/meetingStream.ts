@@ -747,6 +747,16 @@ export class MeetingStreamTransport {
   }
 
   async recoverAfterForeground() {
+    if (this.reconnectExpired) {
+      try {
+        await this.connect(this.options)
+        return true
+      } catch (error) {
+        this.callbacks.onError?.(error instanceof Error ? error : new Error('会议流恢复失败'))
+        this.callbacks.onStatus('error')
+        return false
+      }
+    }
     if (!this.desired || this.paused) return false
     this.discontinuityPending = true
     try {
