@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
+  Activity,
+  ArrowRightLeft,
   Bot,
   CheckCircle2,
   Eye,
@@ -9,6 +11,7 @@ import {
   History,
   Loader2,
   MessageSquareText,
+  Network,
   Play,
   Plus,
   RefreshCw,
@@ -81,7 +84,6 @@ import {
   deriveMeetingPreparationPlan,
   deriveMeetingAgentReadinessRows,
   deriveMeetingAgenda,
-  deriveMeetingEventQualityChips,
   deriveMeetingReceiptRows,
   deriveMeetingScoreRows,
   deriveMeetingScoringSummary,
@@ -285,6 +287,8 @@ export default function PrimaryMarketMeeting() {
   const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedDealId = searchParams.get('dealId') || ''
+  const detailView = searchParams.get('view') || ''
+  const detailsMode = ['readiness', 'workflow-status', 'handoff', 'quality', 'minutes'].includes(detailView)
   const [deals, setDeals] = useState<DealSummary[]>([])
   const [dealsLoading, setDealsLoading] = useState(true)
   const [dealsError, setDealsError] = useState('')
@@ -574,7 +578,6 @@ export default function PrimaryMarketMeeting() {
   const humanStatus = String(humanConfirmation?.status || (humanConfirmation?.confirmed ? 'confirmed' : 'pending'))
   const humanConfirmed = humanConfirmation?.confirmed === true || ['confirmed', 'approved', 'overridden'].includes(humanStatus.toLowerCase())
   const decisionReadyForHuman = Boolean(bundle.decision?.report_path || decisionContract?.decision || decisionContract?.artifacts?.markdown?.available)
-  const recentTranscriptEvents = useMemo(() => laneEvents.slice(-4).reverse(), [laneEvents])
   const chatMessages = useMemo(() => chatMessagesByLane[activeLane] || [], [activeLane, chatMessagesByLane])
   const chatSessions = useMemo(
     () => (chatSessionsByLane[activeLane] || []).map((session) => ({
@@ -1306,14 +1309,14 @@ export default function PrimaryMarketMeeting() {
       />
 
       <PageSection title="会议控制台" compact>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.38fr)_minmax(220px,0.38fr)]">
-          <label className="min-w-0 space-y-1.5">
-            <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">项目</span>
+        <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(320px,1.35fr)_minmax(180px,0.65fr)_minmax(260px,0.9fr)]">
+          <label className="flex min-w-0 flex-col justify-center rounded-md border border-border/70 bg-surface/70 px-4 py-3">
+            <span className="mb-2 text-xs font-semibold text-text-muted">会议项目</span>
             <select
               value={selectedDealId}
               onChange={(event) => updateDealParam(setSearchParams, event.target.value)}
               disabled={dealsLoading || !deals.length || Boolean(chatBusy)}
-              className="h-10 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
               aria-label="选择会议项目"
             >
               <option value="">选择项目</option>
@@ -1321,13 +1324,13 @@ export default function PrimaryMarketMeeting() {
             </select>
             {dealsError ? <p className="text-xs text-destructive">{dealsError}</p> : null}
           </label>
-          <Surface kind="muted" padding="sm">
-            <p className="text-xs text-text-muted">当前阶段</p>
-            <p className="mt-1 text-xl font-semibold text-text">{phaseLabel(currentPhase)}</p>
-            <p className="mt-2 text-xs text-text-muted">{selectedDeal?.company_name || selectedDealId || '-'}</p>
+          <Surface kind="muted" padding="sm" className="flex min-h-[92px] flex-col justify-center">
+            <p className="text-xs font-medium text-text-muted">当前阶段</p>
+            <p className="mt-2 text-lg font-semibold text-text">{phaseLabel(currentPhase)}</p>
+            <p className="mt-1 truncate text-xs text-text-muted">{selectedDeal?.company_name || selectedDealId || '-'}</p>
           </Surface>
-          <Surface kind="muted" padding="sm">
-            <p className="text-xs text-text-muted">决策窗口</p>
+          <Surface kind="muted" padding="sm" className="flex min-h-[92px] flex-col justify-center">
+            <p className="text-xs font-medium text-text-muted">决策窗口</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <StatusBadge tone={chatBusy ? 'warning' : 'success'}>{chatBusy ? `${agentLabel(chatBusy)} 发言中` : activeWindowTitle}</StatusBadge>
               <StatusBadge tone="info">{activeLane}</StatusBadge>
@@ -1350,8 +1353,8 @@ export default function PrimaryMarketMeeting() {
           <div className="h-96 animate-pulse rounded-lg bg-muted/60" />
         </div>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
-          <div className="space-y-5">
+        <div className={detailsMode ? 'space-y-4' : 'grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]'}>
+          <div className={detailsMode ? 'hidden' : 'space-y-5'}>
             <PageSection title="R0-R4 议程" compact contentClassName="space-y-3">
               {agenda.map((item) => (
                 <Surface key={item.phase} kind="row" padding="sm" className="relative overflow-hidden">
@@ -1367,6 +1370,36 @@ export default function PrimaryMarketMeeting() {
             </PageSection>
 
             <PageSection title="快速入口" compact contentClassName="grid gap-2">
+              <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
+                <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=readiness`}>
+                  <span className="flex min-w-0 items-center gap-2"><Activity />智能体就绪与检索</span>
+                  <StatusBadge tone={readinessRows.every((row) => row.readyForFormalTask) ? 'success' : 'warning'}>{readinessRows.filter((row) => row.readyForFormalTask).length}/{readinessRows.length}</StatusBadge>
+                </Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
+                <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=workflow-status`}>
+                  <span className="flex min-w-0 items-center gap-2"><Network />正式工作流状态</span>
+                  <StatusBadge tone={phaseObservability.some((row) => row.blocking) ? 'error' : 'info'}>{phaseObservability.filter((row) => row.blocking).length} 阻断</StatusBadge>
+                </Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
+                <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=handoff`}>
+                  <span className="flex min-w-0 items-center gap-2"><ArrowRightLeft />智能体交接记录</span>
+                  <StatusBadge tone={handoffRows.length ? 'success' : 'neutral'}>{handoffRows.length}</StatusBadge>
+                </Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
+                <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=quality`}>
+                  <span className="flex min-w-0 items-center gap-2"><ShieldAlert />分歧与质量状态</span>
+                  <StatusBadge tone={r4Quality.missingRequired.length ? 'error' : 'info'}>R1.5-R4</StatusBadge>
+                </Link>
+              </Button>
+              <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
+                <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=minutes`}>
+                  <span className="flex min-w-0 items-center gap-2"><MessageSquareText />会议纪要</span>
+                  <StatusBadge tone="neutral">{laneEvents.length}</StatusBadge>
+                </Link>
+              </Button>
               <Button asChild variant="secondary" className="justify-start">
                 <Link to={`/deals/${encodeURIComponent(selectedDealId)}/workflow`}><GitBranch />现有 Workflow</Link>
               </Button>
@@ -1377,13 +1410,18 @@ export default function PrimaryMarketMeeting() {
           </div>
 
           <div className="space-y-4">
+            {detailsMode ? <div className="mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+              <div><h2 className="text-lg font-semibold text-text">{detailView === 'minutes' ? '会议纪要' : '智能体与会议详情'}</h2><p className="mt-1 text-sm text-text-muted">按需查看会议状态，不干扰投研决策主流程。</p></div>
+              <Button asChild variant="secondary"><Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}`}><MessageSquareText />返回投研决策</Link></Button>
+            </div> : null}
+            {detailsMode ? <div className="space-y-4">
             {Object.keys(partialErrors).length ? (
               <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-warning">
                 部分会议上下文加载失败：{Object.entries(partialErrors).map(([key, value]) => `${key}: ${value}`).join(' / ')}
               </div>
             ) : null}
 
-            <PageSection
+            {detailView === 'readiness' ? <PageSection
               title="Agent Readiness 与双库检索"
               actions={<StatusBadge tone={readinessRows.every((row) => row.readyForFormalTask) ? 'success' : 'warning'}>{readinessRows.filter((row) => row.readyForFormalTask).length}/{readinessRows.length} ready</StatusBadge>}
             >
@@ -1422,9 +1460,9 @@ export default function PrimaryMarketMeeting() {
                   </div>
                 ))}
               </div>
-            </PageSection>
+            </PageSection> : null}
 
-            <PageSection
+            {detailView === 'workflow-status' ? <PageSection
               title="Hybrid DAG 正式工作流"
               actions={<StatusBadge tone={phaseObservability.some((row) => row.blocking) ? 'error' : 'info'}>{phaseObservability.filter((row) => row.blocking).length} blocking</StatusBadge>}
             >
@@ -1444,9 +1482,9 @@ export default function PrimaryMarketMeeting() {
                   </div>
                 ))}
               </div>
-            </PageSection>
+            </PageSection> : null}
 
-            <PageSection
+            {detailView === 'handoff' ? <PageSection
               title="结构化 Agent Handoff"
               actions={<StatusBadge tone={handoffRows.length ? 'success' : 'warning'}>{handoffRows.length} persisted</StatusBadge>}
             >
@@ -1469,9 +1507,9 @@ export default function PrimaryMarketMeeting() {
               ) : (
                 <p className="text-sm text-text-muted">尚无已持久化 handoff；正式智能体任务只应读取经合同校验的 handoff 输入。</p>
               )}
-            </PageSection>
+            </PageSection> : null}
 
-            <PageSection title="R1.5 分歧 · R2 Delta · R3 Timeline · R4 Quality" contentClassName="divide-y divide-border/70">
+            {detailView === 'quality' ? <PageSection title="R1.5 分歧 · R2 Delta · R3 Timeline · R4 Quality" contentClassName="divide-y divide-border/70">
               <section className="pb-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-text">R1.5 分歧与主席裁决</h3>
@@ -1543,9 +1581,18 @@ export default function PrimaryMarketMeeting() {
                 {r4Quality.missingAdvisory.length ? <p className="mt-1 break-words text-xs text-warning">Advisory missing: {r4Quality.missingAdvisory.join(' / ')}</p> : null}
                 {r4Quality.findings.length ? <div className="mt-2 grid gap-1">{r4Quality.findings.slice(0, 6).map((finding, index) => <p key={`${finding}-${index}`} className="break-words text-xs text-warning">{finding}</p>)}</div> : null}
               </section>
-            </PageSection>
+            </PageSection> : null}
+            {detailView === 'minutes' ? <PageSection title="会议纪要" actions={<StatusBadge tone="neutral">{laneEvents.length} events</StatusBadge>}>
+              {laneEvents.length ? <div className="space-y-2">{[...laneEvents].reverse().map((event) => (
+                <div key={event.id} className="rounded-md border border-border/70 bg-surface/70 p-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2"><StatusBadge tone={event.tone}>{phaseLabel(event.phase)}</StatusBadge><span className="font-semibold text-text">{event.speaker}</span><span className="text-sm text-text-muted">{event.title}</span><span className="ml-auto text-xs text-text-muted">{formatTime(event.createdAt)}</span></div>
+                  {event.body ? <p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-muted">{event.body}</p> : null}
+                </div>
+              ))}</div> : <EmptyState icon={MessageSquareText} title="暂无会议纪要" description="会议发言和工作流事件将在这里集中展示。" />}
+            </PageSection> : null}
+            </div> : null}
 
-            <PageSection
+            {!detailsMode ? <PageSection
               title="投委会会议室"
               actions={<StatusBadge tone={statusTone(bundle.workflow?.workflow.status)}>{text(bundle.workflow?.workflow.status, '未加载')}</StatusBadge>}
               contentClassName="space-y-4"
@@ -1715,38 +1762,6 @@ export default function PrimaryMarketMeeting() {
                 </div>
               ) : null}
 
-              {recentTranscriptEvents.length ? (
-                <div className="rounded-md border border-border/70 bg-white/55 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-text">会议纪要</p>
-                    <StatusBadge tone={recentTranscriptEvents.some((event) => event.type === 'quality_check' && event.tone !== 'success') ? 'warning' : 'neutral'}>
-                      {laneEvents.length} events
-                    </StatusBadge>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {recentTranscriptEvents.map((event) => {
-                      const qualityChips = deriveMeetingEventQualityChips(event)
-                      return (
-                        <div key={event.id} className="rounded-md border border-border/60 bg-surface/70 p-2">
-                          <div className="flex min-w-0 flex-wrap items-center gap-2">
-                            <StatusBadge tone={event.tone}>{phaseLabel(event.phase)}</StatusBadge>
-                            <span className="truncate text-xs font-semibold text-text">{event.speaker}</span>
-                            <span className="truncate text-xs text-text-muted">{event.title}</span>
-                            {qualityChips.map((chip) => (
-                              <span key={chip.id} title={chip.detail}>
-                                <StatusBadge tone={chip.tone}>{chip.label}</StatusBadge>
-                              </span>
-                            ))}
-                            <span className="ml-auto text-[11px] text-text-muted">{formatTime(event.createdAt)}</span>
-                          </div>
-                          {event.body ? <p className="mt-1 line-clamp-2 whitespace-pre-line text-xs leading-5 text-text-muted">{event.body}</p> : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
               <ChatShell
                 className="primary-market-meeting-chat chat-page-shell premium-shell h-[calc(100dvh-220px)] min-h-[620px] max-h-[980px] rounded-lg border border-border bg-white/68 lg:min-h-[720px]"
                 header={
@@ -1852,7 +1867,7 @@ export default function PrimaryMarketMeeting() {
               />
 
               {actionError ? <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{actionError}</div> : null}
-            </PageSection>
+            </PageSection> : null}
           </div>
         </div>
       )}
