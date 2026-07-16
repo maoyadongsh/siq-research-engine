@@ -141,6 +141,11 @@ X-Document-Parser-Token: <token>
 | `SIQ_DOCUMENT_PARSE_MAX_FILES_PER_UPLOAD` | `50` | 单次上传数量上限 |
 | `SIQ_DOCUMENT_PARSE_WORKER_AUTOSTART` | `true` | 是否自动拉起后台 worker |
 | `SIQ_PDF2MD_API_BASE` | `http://127.0.0.1:15000` | PDF bridge 上游地址 |
+| `SIQ_DOCUMENT_PARSE_PDF_ARTIFACT_TRANSPORT` | `auto` | `api` 强制经认证 Artifact API 拉取，`shared_fs` 仅使用共享盘，`auto` 先校验共享盘再回退 API |
+| `SIQ_DOCUMENT_PARSE_PDF_STAGE_MAX_FILE_BYTES` | `134217728` | API staging 单文件上限 |
+| `SIQ_DOCUMENT_PARSE_PDF_STAGE_MAX_TOTAL_BYTES` | `1073741824` | 单任务 API staging 总量上限 |
+| `SIQ_DOCUMENT_PARSE_PDF_STAGE_MAX_FILES` | `4096` | 单任务 API staging 文件数上限 |
+| `SIQ_DOCUMENT_PARSE_PDF_STAGE_MAX_JSON_BYTES` | `16777216` | manifest、索引等 JSON 单文件上限 |
 
 ## 验证方式
 

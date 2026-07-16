@@ -90,6 +90,27 @@ def test_build_images_index_payload_handles_empty_names():
     }
 
 
+def test_safe_artifact_paths_reject_symlink_components(tmp_path):
+    result_dir = tmp_path / "task"
+    result_dir.mkdir()
+    real_file = result_dir / "result.md"
+    real_file.write_text("# safe\n", encoding="utf-8")
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret\n", encoding="utf-8")
+    linked_file = result_dir / "quality_report.json"
+    linked_file.symlink_to(outside)
+
+    assert artifacts.is_safe_artifact_file(str(real_file), str(result_dir)) is True
+    assert artifacts.is_safe_artifact_file(str(linked_file), str(result_dir)) is False
+
+    outside_images = tmp_path / "outside-images"
+    outside_images.mkdir()
+    linked_images = result_dir / "images"
+    linked_images.symlink_to(outside_images, target_is_directory=True)
+
+    assert artifacts.is_safe_artifact_directory(str(linked_images), str(result_dir)) is False
+
+
 def test_classify_open_artifact_allowed_file_uses_sanitized_allowlist_name(tmp_path):
     calls = []
 

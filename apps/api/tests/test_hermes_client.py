@@ -87,6 +87,41 @@ def test_profile_model_name_allows_explicit_model_override(tmp_path, monkeypatch
     assert hermes_client._profile_model_name("siq_assistant", "ASSISTANT") == "siq_assistant"
 
 
+def test_profile_auth_header_prefers_profile_specific_key(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "global-key")
+    monkeypatch.setenv("SIQ_HERMES_ANALYSIS_API_KEY", "analysis-key")
+
+    assert hermes_client._hermes_auth_header("analysis") == "Bearer analysis-key"
+    assert hermes_client._hermes_auth_header("siq_assistant") == "Bearer global-key"
+
+
+def test_profile_auth_header_keeps_existing_bearer_prefix(monkeypatch):
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    monkeypatch.delenv("HERMES_TOKEN", raising=False)
+    monkeypatch.setenv("HERMES_ANALYSIS_TOKEN", "Bearer analysis-token")
+
+    assert hermes_client._hermes_auth_header("siq_analysis") == "Bearer analysis-token"
+
+
+def test_profile_auth_header_fails_closed_without_a_key(monkeypatch):
+    for name in (
+        "SIQ_HERMES_ANALYSIS_API_KEY",
+        "HERMES_ANALYSIS_API_KEY",
+        "SIQ_HERMES_ANALYSIS_TOKEN",
+        "HERMES_ANALYSIS_TOKEN",
+        "HERMES_API_KEY",
+        "HERMES_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    try:
+        hermes_client._hermes_auth_header("siq_analysis")
+    except RuntimeError as exc:
+        assert str(exc) == "Hermes API key is not configured for profile siq_analysis."
+    else:
+        raise AssertionError("missing profile key must fail closed")
+
+
 def test_terminal_accumulator_keeps_first_terminal_and_received_text():
     accumulator = hermes_client.RunTerminalAccumulator("run-terminal-contract")
 

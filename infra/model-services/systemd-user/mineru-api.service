@@ -1,6 +1,7 @@
 [Unit]
 Description=MinerU API service
 After=network.target mineru-vllm.service
+Wants=mineru-vllm.service
 
 [Service]
 Type=simple

@@ -15,6 +15,9 @@ const {
   fetchPrimaryMarketProjectStatus,
   fetchPrimaryMarketMaterialParseStatus,
   fetchPrimaryMarketMaterials,
+  fetchPrimaryMarketWiki,
+  indexPrimaryMarketEvidenceMilvus,
+  parsePrimaryMarketMaterial,
   postPrimaryMarketMeetingChat,
   primaryMarketMaterialOriginalUrl,
   preparePrimaryMarketMeetingAgent,
@@ -77,6 +80,7 @@ test('primary-market meeting chat uses isolated route and project context', asyn
       method: 'POST',
       body: {
         message: '请审阅财务质量',
+        retrieval_query: '请审阅财务质量',
         display_message: '@财务审计委员 请审阅财务质量',
         deal_id: 'DEAL/Alpha 001',
         company_name: 'Alpha Robotics',
@@ -116,6 +120,14 @@ test('primary-market meeting model catalog and chat selection use the backend co
     modelMode: 'qwen36',
   })
   assert.equal((calls[0]?.body as Record<string, unknown>).model_mode, 'qwen36')
+})
+
+test('primary-market meeting model catalog tolerates an incomplete response', async () => {
+  installFetchRecorder({})
+
+  const catalog = await fetchPrimaryMarketMeetingModels()
+
+  assert.deepEqual(catalog, { options: [], profiles: {} })
 })
 
 test('primary-market meeting chat can target an agent window with attachments', async () => {
@@ -323,6 +335,8 @@ test('primary-market meeting readiness normalizes snake case response', async ()
         startup_receipt: {
           present: true,
           receipt_id: 'startup-finance-R1-001',
+          shared_connected: true,
+          private_connected: true,
           shared_hits: 6,
           private_hits: 1,
           collections: ['siq_deal_shared', 'siq_ic_finance_auditor'],
@@ -343,12 +357,17 @@ test('primary-market meeting readiness normalizes snake case response', async ()
           blocking_reasons: ['r1_report_missing'],
           warnings: ['receipt hit is low'],
         },
+        service_ready_for_chat: true,
+        chat_blocking_reasons: [],
+        content_warnings: ['evidence_snapshot_unavailable'],
       },
     ],
     summary: {
       runtime_running: 1,
       receipt_present: 1,
       r1_reports_present: 0,
+      service_ready_for_chat: 1,
+      formal_task_ready: 0,
       blocking_profiles: ['siq_ic_finance_auditor'],
     },
   })
@@ -362,11 +381,17 @@ test('primary-market meeting readiness normalizes snake case response', async ()
   assert.equal(readiness.profiles[0]?.startupReceipt.present, true)
   assert.equal(readiness.profiles[0]?.startupReceipt.receiptId, 'startup-finance-R1-001')
   assert.equal(readiness.profiles[0]?.startupReceipt.privateCollection, 'ic_finance_auditor')
+  assert.equal(readiness.profiles[0]?.startupReceipt.sharedConnected, true)
+  assert.equal(readiness.profiles[0]?.startupReceipt.privateConnected, true)
   assert.equal(readiness.profiles[0]?.startupReceipt.retrievalStatus, 'degraded')
   assert.deepEqual(readiness.profiles[0]?.startupReceipt.physicalCollections, ['ic_collaboration_shared', 'ic_finance_auditor'])
   assert.deepEqual(readiness.profiles[0]?.startupReceipt.capabilityRestrictions, ['financial_facts:review_required'])
   assert.equal(readiness.profiles[0]?.r1Report.present, false)
   assert.equal(readiness.profiles[0]?.quality.readyForFormalTask, false)
+  assert.equal(readiness.profiles[0]?.serviceReadyForChat, true)
+  assert.deepEqual(readiness.profiles[0]?.contentWarnings, ['evidence_snapshot_unavailable'])
+  assert.equal(readiness.summary.serviceReadyForChat, 1)
+  assert.equal(readiness.summary.formalTaskReady, 0)
   assert.deepEqual(readiness.summary.blockingProfiles, ['siq_ic_finance_auditor'])
   assert.deepEqual(calls.map((call) => ({ url: call.url, method: call.method })), [
     { url: '/api/primary-market/meeting/DEAL%2FAlpha%20001/agents/readiness', method: 'GET' },
@@ -494,7 +519,7 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
         limit: 12,
         include_external: false,
         include_vector: true,
-        include_rerank: false,
+        include_rerank: true,
       },
     },
     {
@@ -505,7 +530,7 @@ test('primary-market meeting task APIs use facade routes and defaults', async ()
         limit: 10,
         include_external: false,
         include_vector: true,
-        include_rerank: false,
+        include_rerank: true,
         profile_ids: ['siq_ic_finance_auditor'],
       },
     },
@@ -595,7 +620,9 @@ test('primary-market material facade uses encoded project and material routes', 
   const calls = installFetchRecorder({ deal_id: 'DEAL/Alpha 001', materials: [] })
 
   await fetchPrimaryMarketMaterials('DEAL/Alpha 001')
+  await fetchPrimaryMarketWiki('DEAL/Alpha 001')
   await fetchPrimaryMarketMaterialParseStatus('DEAL/Alpha 001', 'DOC/001')
+  await parsePrimaryMarketMaterial('DEAL/Alpha 001', 'DOC/001')
   await reparsePrimaryMarketMaterial('DEAL/Alpha 001', 'DOC/001', {
     reason: 'quality_retry',
     parseMethod: 'auto',
@@ -617,7 +644,9 @@ test('primary-market material facade uses encoded project and material routes', 
 
   assert.deepEqual(calls, [
     { url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials', method: 'GET', body: undefined },
+    { url: '/api/deals/DEAL%2FAlpha%20001/wiki', method: 'GET', body: undefined },
     { url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/parse-status', method: 'GET', body: undefined },
+    { url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/parse', method: 'POST', body: undefined },
     {
       url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/reparse',
       method: 'POST',
@@ -637,6 +666,27 @@ test('primary-market material facade uses encoded project and material routes', 
       url: '/api/primary-market/projects/DEAL%2FAlpha%20001/materials/DOC%2F001/supersede',
       method: 'POST',
       body: { superseding_document_id: 'DOC-NEW' },
+    },
+  ])
+})
+
+test('primary-market Milvus retry uses the deal-scoped Evidence index route', async () => {
+  const calls = installFetchRecorder({
+    milvus_index: {
+      status: 'unchanged',
+      snapshot_hash: 'a'.repeat(64),
+      counts: { items: 3, existing: 3, inserted: 0, deleted: 0 },
+    },
+  })
+
+  const payload = await indexPrimaryMarketEvidenceMilvus('DEAL/Alpha 001')
+
+  assert.equal(payload.milvus_index.status, 'unchanged')
+  assert.deepEqual(calls, [
+    {
+      url: '/api/deals/DEAL%2FAlpha%20001/evidence/index-milvus',
+      method: 'POST',
+      body: undefined,
     },
   ])
 })

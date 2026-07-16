@@ -11,29 +11,26 @@ from typing import Any
 
 from contracts import (
     APP_VERSION,
-    ParseConfig,
-    ParseOutput,
     SCHEMA_BLOCKS,
     SCHEMA_COMPARISON_MAP,
     SCHEMA_DOCUMENT_FULL,
     SCHEMA_FIGURES,
     SCHEMA_LAYOUT_BLOCKS,
-    SCHEMA_LOGICAL_TABLES,
     SCHEMA_MANIFEST,
     SCHEMA_QUALITY,
     SCHEMA_READING_ORDER,
     SCHEMA_SOURCE_MAP,
     SCHEMA_TABLES,
+    ParseConfig,
+    ParseOutput,
     SourceFile,
 )
 from figures import figures_with_missing_bbox
+from file_utils import safe_client_filename, sha256_file
 from page_metadata import merge_layout_page_metadata
 from quality import ratio, warning_status
-from source_map import evidence_id as make_evidence_id
-from source_map import source_map_coverage
+from source_map import evidence_id as make_evidence_id, source_map_coverage
 from table_merge import build_logical_tables, build_table_relations
-from file_utils import safe_client_filename
-
 
 CORE_ARTIFACTS = [
     "manifest.json",
@@ -98,7 +95,16 @@ def build_artifacts(
         if raw_source_dir.exists() and raw_source_dir.is_dir():
             raw_target_dir = result_dir / "raw" / "mineru"
             shutil.rmtree(raw_target_dir, ignore_errors=True)
-            shutil.copytree(raw_source_dir, raw_target_dir, ignore=shutil.ignore_patterns("*.tmp", "__pycache__", ".pytest_cache"))
+            shutil.copytree(
+                raw_source_dir,
+                raw_target_dir,
+                ignore=shutil.ignore_patterns(
+                    "*.tmp",
+                    "__pycache__",
+                    ".pytest_cache",
+                    ".siq_pdf_parser_stage.json",
+                ),
+            )
             _copy_upstream_images(raw_source_dir, result_dir)
 
     blocks = _normalize_blocks(task_id, output.blocks, source)
@@ -191,11 +197,15 @@ def artifact_summary(task_id: str, result_dir: Path) -> dict[str, dict[str, Any]
     summary: dict[str, dict[str, Any]] = {}
     for name in CORE_ARTIFACTS + ["exports/full.zip"]:
         path = result_dir / name
+        exists = path.is_file()
+        size_bytes = path.stat().st_size if exists else 0
         summary[name] = {
-            "exists": path.exists(),
+            "exists": exists,
             "path": name,
             "url": f"/api/artifact/{task_id}/{name}",
-            "size": path.stat().st_size if path.exists() else 0,
+            "size": size_bytes,
+            "size_bytes": size_bytes,
+            "sha256": sha256_file(path) if exists else "",
         }
     images_dir = result_dir / "images"
     summary["images"] = {

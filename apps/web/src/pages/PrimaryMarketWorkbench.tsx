@@ -41,6 +41,27 @@ function projectHref(path: string, dealId: string) {
   return `${path}?${params.toString()}`
 }
 
+function nextActionLabel(value: string) {
+  const labels: Record<string, string> = {
+    resolve_blocking_contracts: '补齐阻断项并重新校验',
+    review_decision: '复核项目决策',
+    continue_execution: '继续推进项目',
+  }
+  return labels[value] || value.replaceAll('_', ' ')
+}
+
+function blockingMessageLabel(value: string) {
+  if (!value) return ''
+  if (/preflight status:\s*warn/i.test(value)) {
+    const blockers = [
+      value.includes('retrieval.receipt_contract') ? '检索回执未满足要求' : '',
+      value.includes('evidence.gate') ? '证据门禁未通过' : '',
+    ].filter(Boolean)
+    return blockers.length ? `预检存在阻断：${blockers.join('；')}。` : '预检存在阻断，请补齐材料后重试。'
+  }
+  return value
+}
+
 function sortRows(rows: PrimaryMarketProjectRow[]) {
   const rank: Record<PrimaryMarketProjectRow['category'], number> = {
     blocked: 0,
@@ -259,7 +280,7 @@ export default function PrimaryMarketWorkbench() {
                   <div className="grid gap-3">
                     {rows.map((row) => (
                       <Surface key={row.deal.deal_id} kind="row" padding="md" className="overflow-hidden">
-                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                         <div className="min-w-0 flex-1 space-y-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div className="min-w-0">
@@ -276,10 +297,10 @@ export default function PrimaryMarketWorkbench() {
                             </div>
                           </div>
 
-                          <div className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_minmax(220px,0.9fr)_minmax(150px,0.55fr)]">
+                          <div className="grid gap-3 lg:grid-cols-[minmax(180px,1fr)_minmax(220px,1.2fr)_minmax(150px,0.7fr)]">
                             <div className="rounded-lg bg-muted/35 px-3 py-2.5">
                               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">下一步</p>
-                              <p className="mt-1 break-words text-sm leading-6 text-text">{row.nextAction}</p>
+                              <p className="mt-1 break-words text-sm leading-6 text-text">{nextActionLabel(row.nextAction)}</p>
                             </div>
                             <div className="rounded-lg bg-muted/35 px-3 py-2.5">
                               <div className="flex items-start justify-between gap-3">
@@ -290,7 +311,7 @@ export default function PrimaryMarketWorkbench() {
                                 <p className="shrink-0 text-xs leading-5 text-text-muted">warn {row.warningCount} · missing {row.missingCount}</p>
                               </div>
                               {row.blockingMessages[0] ? (
-                                <p className="mt-2 break-words text-xs leading-5 text-warning">{row.blockingMessages[0]}</p>
+                                <p className="mt-2 break-words text-xs leading-5 text-warning">{blockingMessageLabel(row.blockingMessages[0])}</p>
                               ) : null}
                             </div>
                             <div className="rounded-lg bg-muted/35 px-3 py-2.5">
@@ -307,7 +328,7 @@ export default function PrimaryMarketWorkbench() {
                             <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs leading-5 text-warning">{statusErrors[row.deal.deal_id]}</p>
                           ) : null}
                         </div>
-                        <ProjectActions deal={row.deal} className="xl:w-[240px]" />
+                        <ProjectActions deal={row.deal} className="2xl:w-[240px]" />
                       </div>
                       </Surface>
                     ))}
@@ -359,7 +380,9 @@ export default function PrimaryMarketWorkbench() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="font-semibold text-text">{row.deal.company_name}</p>
-                                <p className="mt-1 break-words text-xs text-text-muted">{row.blockingMessages[0] || row.nextAction}</p>
+                                <p className="mt-1 break-words text-xs text-text-muted">
+                                  {row.blockingMessages[0] ? blockingMessageLabel(row.blockingMessages[0]) : nextActionLabel(row.nextAction)}
+                                </p>
                               </div>
                               <StatusBadge tone="error">{row.blockingCount}</StatusBadge>
                             </div>

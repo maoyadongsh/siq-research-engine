@@ -7,7 +7,6 @@ from typing import Any
 
 from services import ic_policy
 
-
 IC_AGENT_OUTPUT_QUALITY_SCHEMA = "siq_ic_agent_output_quality_v1"
 
 
@@ -63,6 +62,23 @@ def _with_legacy_check_aliases(checks: list[dict[str, Any]]) -> list[dict[str, A
     return expanded
 
 
+def _project_evidence_available(context: dict[str, Any] | None) -> bool | None:
+    if not isinstance(context, dict):
+        return None
+    receipt = context.get("startup_receipt")
+    if not isinstance(receipt, dict):
+        return None
+    counts: list[int] = []
+    for key in ("shared_vector_hit_count", "evidence_hit_count", "shared_hits"):
+        if key not in receipt or receipt.get(key) is None:
+            continue
+        try:
+            counts.append(int(receipt[key]))
+        except (TypeError, ValueError):
+            continue
+    return any(value > 0 for value in counts) if counts else None
+
+
 def evaluate_ic_agent_reply(
     profile_id: str,
     message: str,
@@ -71,6 +87,7 @@ def evaluate_ic_agent_reply(
 ) -> dict[str, Any]:
     canonical = _canonical_profile_id(profile_id)
     text = str(reply or "")
+    normalized_text = re.sub(r"[*_`]", "", text)
     checks: list[dict[str, Any]] = []
 
     if text.strip():
@@ -88,6 +105,53 @@ def evaluate_ic_agent_reply(
             else "缺少可解析的证据或来源引用线索。"
         )
         checks.append(_check("evidence.reference", "warn", detail))
+
+    evidence_available = _project_evidence_available(context)
+    if evidence_available is False and re.search(
+        r"私有(?:库)?证据|private\s+(?:kb\s+)?evidence",
+        normalized_text,
+        re.IGNORECASE,
+    ):
+        checks.append(
+            _check(
+                "evidence.private_background_boundary",
+                "fail",
+                "当前项目 Evidence 为空，但回复把角色私库背景误称为项目证据。",
+            )
+        )
+    else:
+        checks.append(
+            _check(
+                "evidence.private_background_boundary",
+                "pass",
+                "未发现把角色私库背景冒充项目证据。",
+            )
+        )
+
+    unsupported_project_rating = evidence_available is False and bool(
+        re.search(
+            r"(?:当前|综合|本项目|法律|合规).{0,16}(?:指数|评分|得分).{0,8}\d+(?:\.\d+)?\s*分?"
+            r"|风险评级\s*[：:]\s*(?:🟢|🟡|🔴)?\s*(?:低|中|高)",
+            normalized_text,
+            re.IGNORECASE,
+        )
+    )
+    if unsupported_project_rating:
+        checks.append(
+            _check(
+                "evidence.project_rating_support",
+                "fail",
+                "当前项目 Evidence 为空，不能输出项目专属分数或风险评级。",
+            )
+        )
+    else:
+        checks.append(
+            _check(
+                "evidence.project_rating_support",
+                "pass",
+                "未发现无项目 Evidence 支撑的项目分数或风险评级。",
+            )
+        )
 
     if re.search(r"verified|assumed|待核验|已核验|已验证|假设|未知|未返回", text, re.IGNORECASE):
         checks.append(_check("verified_assumed", "pass", "区分了 verified/assumed 或待核验状态。"))

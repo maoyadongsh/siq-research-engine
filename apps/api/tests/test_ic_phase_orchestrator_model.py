@@ -16,6 +16,15 @@ EVIDENCE_ID = "EVID-DEAL-IC-MODEL-001-000001"
 SNAPSHOT = "a" * 64
 KBREF_ID = "KBREF-STRATEGY-0001"
 R2_AGENTS = tuple(ic_phase_orchestrator.R2_AGENT_IDS)
+IC_PROFILES = (
+    "siq_ic_master_coordinator",
+    "siq_ic_chairman",
+    "siq_ic_strategist",
+    "siq_ic_sector_expert",
+    "siq_ic_finance_auditor",
+    "siq_ic_legal_scanner",
+    "siq_ic_risk_controller",
+)
 
 
 def _write_json(path, payload) -> None:
@@ -494,6 +503,24 @@ def test_phase_and_repair_prompts_include_authoritative_r0_json_schema():
     assert "at most 12000 characters" in repair_prompt
 
 
+@pytest.mark.parametrize("profile_id", IC_PROFILES)
+def test_formal_phase_prompt_injects_profile_derived_role_contract(profile_id):
+    task = {
+        "task_id": f"ICTASK-ROLE-{profile_id}",
+        "agent_id": profile_id,
+        "output_schema": "siq_ic_r0_readiness_v1",
+    }
+
+    prompt = ic_phase_orchestrator._phase_prompt(task, None)
+
+    assert f"- profile_id: {profile_id}" in prompt
+    for source_name in ("IDENTITY.md", "AGENTS.md", "SOUL.md", "TOOLS.md"):
+        assert f"agents/hermes/profiles/{profile_id}/{source_name}" in prompt
+    assert "数据 namespace: primary_market" in prompt
+    assert "data/wiki/companies" in prompt
+    assert "背景知识只用于评价框架，不能伪装成项目事实" in prompt
+
+
 @pytest.mark.parametrize(
     "schema_version",
     [
@@ -614,7 +641,7 @@ def test_repair_prompt_projects_only_minimal_trusted_context_and_bounds_invalid_
         "evidence_snapshot_hash": SNAPSHOT,
         "input_digest": "b" * 64,
         "output_schema": ic_report_contracts.IC_EXPERT_REPORT_SCHEMA,
-        "prompt_contract_version": "siq_ic_phase_prompt_v5",
+        "prompt_contract_version": "siq_ic_phase_prompt_v6",
         "role_objectives": ["TASK-SENSITIVE-REDUNDANCY"],
         "background_knowledge_refs": [{"ref_id": KBREF_ID, "secret": "TASK-SECRET"}],
         "methodology_refs": [{"ref_id": "KBREF-METHOD-0001", "secret": "METHOD-SECRET"}],
@@ -1299,7 +1326,7 @@ def test_r1_model_task_uses_v2_contract_private_kb_and_server_renderer(monkeypat
     assert result["report"]["phase"] == "R1A"
     assert result["report"]["background_knowledge_refs"][0]["ref_id"] == KBREF_ID
     assert result["report"]["generation_mode"] == "model"
-    assert result["execution"]["task"]["prompt_contract_version"] == "siq_ic_phase_prompt_v5"
+    assert result["execution"]["task"]["prompt_contract_version"] == "siq_ic_phase_prompt_v6"
     model_audit = result["execution"]["task"]["model_execution_audit"]
     assert model_audit["runtime_metadata_status"] == "verified"
     assert model_audit["attempt_count"] == 1
@@ -1474,7 +1501,7 @@ def test_r1_model_task_repairs_invalid_contract_once(monkeypatch, tmp_path):
     ).hexdigest()
     assert repair_event["model_execution_attempt"] == model_audit["attempts"][1]
     completion = next(event for event in audit["events"] if event["event_type"] == "ic_phase_hermes_task_completed")
-    assert completion["prompt_contract_version"] == "siq_ic_phase_prompt_v5"
+    assert completion["prompt_contract_version"] == "siq_ic_phase_prompt_v6"
     assert completion["handoff_digest"] == task["handoff_digest"]
     assert completion["output_artifact_hashes"] == task["output_artifact_hashes"]
     assert completion["contract_validation"]["passed"] is True
@@ -3074,7 +3101,7 @@ def test_r4_model_factchecks_r1_and_r2_then_allows_human_confirmation(monkeypatc
     assert factcheck_task["report_id"] == result["decision"]["report_id"]
     assert factcheck_task["report_revision"] == result["decision"]["revision"]
     assert factcheck_task["evidence_snapshot_hash"] == SNAPSHOT
-    assert factcheck_task["prompt_contract_version"] == "siq_ic_phase_prompt_v5"
+    assert factcheck_task["prompt_contract_version"] == "siq_ic_phase_prompt_v6"
     assert factcheck_task["profile_contract_version"] == "hermes_profile_authority_v1"
     assert factcheck_task["output_schema"] == "siq_ic_report_factcheck_v1"
     raw_path = package_dir / factcheck_task["output_artifact_path"]

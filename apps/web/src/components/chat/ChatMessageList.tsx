@@ -123,7 +123,7 @@ export default function ChatMessageList({
               className={`flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               {streamingAvatar}
-              <div className={`flex flex-col max-w-[85%] ${isUser ? 'items-end' : 'items-start'}`}>
+              <div className={`chat-message-column flex min-w-0 flex-col max-w-[85%] ${isUser ? 'chat-message-column-user items-end' : 'chat-message-column-assistant items-start'}`}>
                 {renderMessageHeader?.(msg, i)}
                 <div className={`chat-message-row ${isUser ? 'chat-message-row-user' : ''}`}>
                   <div className={isUser ? userBubbleClass : assistantBubbleClass}>

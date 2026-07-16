@@ -92,7 +92,10 @@ def test_receipt_and_task_payload_bind_current_primary_market_snapshot(tmp_path:
     assert receipt["private_hits"] == 0
     assert receipt["retrieval_status"] == "blocked"
     assert receipt["gate"]["allowed_to_speak"] is False
-    assert receipt["gate"]["blocking_reasons"] == ["embedding_endpoint_not_configured"]
+    assert receipt["gate"]["blocking_reasons"] == [
+        "embedding_endpoint_not_configured",
+        "rerank_endpoint_not_configured",
+    ]
     assert receipt["source_ids"] == [SOURCE_ID]
     assert receipt["evidence_snapshot_hash"] == "a" * 64
     assert receipt["capability_restrictions"][SOURCE_ID] == ["financial_facts", "semantic_index"]
@@ -166,6 +169,36 @@ def test_receipt_freshness_detects_active_source_set_change():
 
     assert freshness["status"] == "stale"
     assert freshness["reasons"] == ["active_source_set_changed"]
+
+
+def test_legacy_ic_receipt_key_is_read_through_canonical_profile(tmp_path: Path):
+    deal_store.create_deal_package(
+        deal_id=DEAL_ID,
+        company_name="Legacy Receipt Issuer",
+        wiki_root=tmp_path,
+    )
+    package = tmp_path / "deals" / DEAL_ID
+    _write_json(
+        package / "phases" / "startup_receipts.json",
+        {
+            "agents": {
+                "ic_finance_auditor": {
+                    "receipt_id": "legacy-finance-receipt",
+                    "round_name": "R1",
+                    "source_ids": [],
+                    "evidence_snapshot_hash": None,
+                }
+            }
+        },
+    )
+
+    loaded = ic_startup_retrieval.read_startup_retrieval_receipt(
+        DEAL_ID,
+        "siq_ic_finance_auditor",
+        wiki_root=tmp_path,
+    )
+
+    assert loaded["receipt"]["receipt_id"] == "legacy-finance-receipt"
 
 
 def test_workflow_write_action_rejects_expected_snapshot_mismatch(monkeypatch):
@@ -262,6 +295,21 @@ def _retrieval_result(*, methodology: bool, domain: bool) -> dict:
             }
         ],
         "hybrid_hits": [],
+        "shared_vector_hits": [
+            {
+                "source_id": "shared-project-1",
+                "collection": "siq_deal_shared",
+                "project_tag": DEAL_ID,
+                "metadata": {
+                    "domain": "primary_market",
+                    "source_class": "project_evidence",
+                    "project_fact": True,
+                    "deal_id": DEAL_ID,
+                    "project_tag": DEAL_ID,
+                    "snapshot_hash": "a" * 64,
+                },
+            }
+        ],
         "background_knowledge_hits": background_hits,
         "methodology_hits": methodology_hits,
         "domain_background_hits": domain_hits,
@@ -277,9 +325,18 @@ def _retrieval_result(*, methodology: bool, domain: bool) -> dict:
                 "siq_deal_shared": "ic_collaboration_shared",
                 profile_id: "ic_legal_scanner",
             },
+            "shared_filter_applied": True,
+            "shared_project_tag": DEAL_ID,
         },
         "matched_evidence_count": 1,
         "milvus_used": True,
+        "rerank": {
+            "status": "completed",
+            "reason": None,
+            "candidate_count": len(background_hits) + 1,
+            "result_count": len(background_hits) + 1,
+        },
+        "reranker_used": True,
         "gaps": [],
         "dynamic_queries": [],
     }
@@ -339,3 +396,54 @@ def test_startup_receipt_accepts_methodology_only_and_types_refs(tmp_path: Path,
     assert receipt["domain_background_hit_count"] == 0
     assert receipt["methodology_refs"][0]["usage"] == "methodology"
     assert receipt["background_knowledge_refs"][0]["usage"] == "methodology"
+
+
+def test_startup_receipt_separates_empty_shared_content_from_collection_connectivity(
+    tmp_path: Path,
+    monkeypatch,
+):
+    deal_store.create_deal_package(
+        deal_id=DEAL_ID,
+        company_name="Snapshot Issuer",
+        wiki_root=tmp_path,
+    )
+    retrieval = _retrieval_result(methodology=True, domain=False)
+    retrieval["evidence_hits"] = []
+    retrieval["shared_vector_hits"] = []
+    retrieval["matched_evidence_count"] = 0
+    retrieval["vector_retrieval"]["collection_candidate_counts"] = {
+        "siq_deal_shared": 0,
+        "siq_ic_legal_scanner": 4,
+    }
+    monkeypatch.setattr(
+        ic_startup_retrieval.deal_retrieval,
+        "retrieve_for_agent",
+        lambda *_args, **_kwargs: retrieval,
+    )
+
+    receipt = ic_startup_retrieval.generate_startup_retrieval_receipt(
+        DEAL_ID,
+        "siq_ic_legal_scanner",
+        wiki_root=tmp_path,
+    )
+
+    assert receipt["shared_connected"] is True
+    assert receipt["private_connected"] is True
+    assert receipt["collections_connected"] is True
+    assert receipt["dual_kb_connected"] is True
+    assert receipt["connection_status"] == "connected"
+    assert receipt["connection_errors"] == []
+    assert receipt["connection_checked_at"] == receipt["created_at"]
+    assert receipt["chat_retrieval_ready"] is True
+    assert receipt["chat_retrieval_status"] == "ready"
+    assert receipt["shared_ready"] is False
+    assert receipt["retrieval_status"] == "blocked"
+    assert receipt["gate"]["allowed_to_speak"] is False
+    assert receipt["gate"]["blocking_reasons"] == ["deal_scoped_shared_kb_empty"]
+    assert "deal_scoped_shared_kb_empty" in receipt["gaps"]
+    assert "deal_scoped_shared_kb_unavailable" not in receipt["gaps"]
+    assert receipt["collection_connections"]["shared"]["connected"] is True
+    assert receipt["collection_connections"]["shared"]["hit_count"] == 0
+    assert receipt["shared_vector_hit_count"] == 0
+    assert receipt["local_evidence_hit_count"] == 0
+    assert receipt["private_selected_hit_count"] == 1

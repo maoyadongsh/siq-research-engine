@@ -74,7 +74,7 @@ def fake_pymilvus(monkeypatch):
 def test_agent_memory_schema_mismatch_refuses_drop_by_default(monkeypatch, fake_pymilvus):
     client = _FakeMilvusClient(existing_fields={"id", agent_memory_milvus.VECTOR_FIELD})
     monkeypatch.setattr(agent_memory_milvus, "_client", lambda: client)
-    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_prod")
+    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_active")
     monkeypatch.delenv("SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH", raising=False)
     monkeypatch.delenv("SIQ_AGENT_MEMORY_MILVUS_ALLOW_DESTRUCTIVE_SCHEMA_RECREATE", raising=False)
 
@@ -88,7 +88,7 @@ def test_agent_memory_schema_mismatch_refuses_drop_by_default(monkeypatch, fake_
 def test_agent_memory_schema_mismatch_requires_destructive_recreate_opt_in(monkeypatch, fake_pymilvus):
     client = _FakeMilvusClient(existing_fields={"id", agent_memory_milvus.VECTOR_FIELD})
     monkeypatch.setattr(agent_memory_milvus, "_client", lambda: client)
-    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_prod")
+    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_active")
     monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH", "true")
     monkeypatch.delenv("SIQ_AGENT_MEMORY_MILVUS_ALLOW_DESTRUCTIVE_SCHEMA_RECREATE", raising=False)
 
@@ -179,6 +179,9 @@ def test_agent_memory_milvus_project_shared_requires_same_agent_group():
     )
 
     assert 'visibility == "system_shared"' in expr
+    assert 'agent_group == "secondary_market"' in expr
+    assert 'profile == "siq_assistant"' in expr
+    assert 'profile == "shared"' in expr
     assert (
         '(visibility == "project_shared" and agent_group == "secondary_market" '
         'and (deal_id == "deal-a"))'
@@ -194,8 +197,38 @@ def test_agent_memory_milvus_project_shared_fails_closed_without_agent_group():
         profile="siq_assistant",
     )
 
-    assert 'visibility == "system_shared"' in expr
+    assert 'visibility == "system_shared"' not in expr
     assert 'visibility == "project_shared"' not in expr
+
+
+def test_agent_memory_milvus_primary_system_memory_allows_only_role_and_ic_shared():
+    expr = agent_memory_milvus.acl_expr(
+        tenant_id="tenant-a",
+        user_id=7,
+        deal_id="deal-a",
+        profile="siq_ic_chairman",
+        agent_group="primary_market",
+    )
+
+    assert 'agent_group == "primary_market"' in expr
+    assert 'profile == "siq_ic_chairman"' in expr
+    assert 'profile == "siq_ic_shared"' in expr
+    assert 'agent_group == "secondary_market"' not in expr
+    assert 'profile == "shared"' not in expr
+
+
+def test_agent_memory_milvus_requires_deal_and_project_to_match_together():
+    expr = agent_memory_milvus.acl_expr(
+        tenant_id="tenant-a",
+        user_id=7,
+        deal_id="deal-a",
+        project_id="project-a",
+        profile="siq_ic_chairman",
+        agent_group="primary_market",
+    )
+
+    assert '(deal_id == "deal-a" and project_id == "project-a")' in expr
+    assert 'deal_id == "deal-a" or project_id == "project-a"' not in expr
 
 
 def test_agent_memory_milvus_payload_carries_identity_scalar_fields():
@@ -219,17 +252,31 @@ def test_agent_memory_milvus_payload_carries_identity_scalar_fields():
 def test_agent_memory_schema_mismatch_recreate_is_explicitly_destructive(monkeypatch, fake_pymilvus):
     client = _FakeMilvusClient(existing_fields={"id", agent_memory_milvus.VECTOR_FIELD})
     monkeypatch.setattr(agent_memory_milvus, "_client", lambda: client)
-    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_dev")
+    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", "siq_agent_memory_active")
     monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_RECREATE_ON_SCHEMA_MISMATCH", "true")
     monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_ALLOW_DESTRUCTIVE_SCHEMA_RECREATE", "true")
 
     result = agent_memory_milvus.ensure_collection()
 
     assert result is client
-    assert client.dropped == ["siq_agent_memory_dev"]
+    assert client.dropped == ["siq_agent_memory_active"]
     assert client.created
-    assert client.created[0]["collection_name"] == "siq_agent_memory_dev"
-    assert client.loaded == ["siq_agent_memory_dev"]
+    assert client.created[0]["collection_name"] == "siq_agent_memory_active"
+    assert client.loaded == ["siq_agent_memory_active"]
+
+
+@pytest.mark.parametrize(
+    "collection",
+    ["siq_agent_memory", "siq_agent_memory__v2", "siq_documents", "ic_master_coordinator"],
+)
+def test_runtime_memory_collection_rejects_non_allowlisted_physical_or_knowledge_names(
+    monkeypatch,
+    collection,
+):
+    monkeypatch.setenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", collection)
+
+    with pytest.raises(RuntimeError, match="not allowlisted"):
+        agent_memory_milvus.collection_name()
 
 
 def test_create_versioned_collection_rejects_invalid_vector_dimensions(monkeypatch, fake_pymilvus):

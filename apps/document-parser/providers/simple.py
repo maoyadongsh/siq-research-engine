@@ -11,22 +11,34 @@ import re
 import shutil
 import subprocess
 import time
-from pathlib import Path
-from typing import Any
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path
+from typing import Any, Mapping
 
 from contracts import ParseConfig, ParseOutput, SourceFile
 from file_utils import guess_mime_type, safe_client_filename, sha256_file
 from page_ranges import parse_page_ranges
-
+from pdf_parser_artifact_transport import (
+    ArtifactTransportError,
+    artifact_transport_mode,
+    cleanup_staged_pdf_parser_artifacts,
+    stage_pdf_parser_artifacts,
+)
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 HTML_BLOCK_BREAK_RE = re.compile(r"</(?:p|div|section|article|h[1-6]|li|tr|table)>", re.I)
 PDF_BRIDGE_SUPPORTED_MARKETS = {"CN", "HK", "US", "JP", "KR", "EU", "DOC"}
+PDF_PARSER_TASK_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,120}$")
+IDENTITY_SCOPE_VALUE_RE = re.compile(r"[^A-Za-z0-9_.@:-]+")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
+        return None
 
 
 def _blocks_to_markdown(blocks: list[dict[str, Any]]) -> str:
@@ -58,10 +70,31 @@ def _pdf_parser_access_token() -> str:
     ).strip()
 
 
-def _pdf_parser_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+def _identity_scope_header_value(value: Any) -> str:
+    text = IDENTITY_SCOPE_VALUE_RE.sub("_", str(value or "").strip())[:120]
+    return text.strip("._:-")
+
+
+def _pdf_parser_headers(
+    extra: Mapping[str, str] | None = None,
+    *,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
     headers = dict(extra or {})
     if _pdf_parser_access_token():
         headers.setdefault("X-PDF2MD-Token", _pdf_parser_access_token())
+    scope = identity_scope if isinstance(identity_scope, Mapping) else {}
+    for key, header_name in (
+        ("owner_id", "X-SIQ-User-Id"),
+        ("tenant_id", "X-SIQ-Tenant-Id"),
+        ("user_role", "X-SIQ-User-Role"),
+    ):
+        value = _identity_scope_header_value(scope.get(key))
+        if value:
+            headers[header_name] = value
+    market_scope = str(scope.get("market_scope") or "").strip().upper()
+    if market_scope in PDF_BRIDGE_SUPPORTED_MARKETS:
+        headers["X-SIQ-Market-Scope"] = market_scope
     return headers
 
 
@@ -74,8 +107,9 @@ def _json_request(url: str, method: str = "GET", data: dict[str, Any] | None = N
         payload = json.dumps(data).encode("utf-8")
         req_headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=payload, headers=req_headers, method=method)
+    opener = urllib.request.build_opener(_NoRedirectHandler())
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             body = response.read().decode("utf-8")
             return json.loads(body) if body else {}
     except urllib.error.HTTPError as exc:
@@ -162,29 +196,131 @@ def _stream_multipart_post(
         connection.close()
 
 
-def _pdf_parser_results_root() -> Path:
-    data_dir = Path(
+def _pdf_parser_project_root() -> Path:
+    return Path(
+        os.environ.get("SIQ_PROJECT_ROOT")
+        or Path(__file__).resolve().parents[3]
+    ).expanduser().resolve()
+
+
+def _pdf_parser_data_dir() -> Path:
+    return Path(
         os.environ.get("SIQ_PDF2MD_DATA_DIR")
         or os.environ.get("PDF2MD_DATA_DIR")
-        or (Path(__file__).resolve().parents[3] / "data" / "pdf-parser")
-    )
-    return data_dir / "results"
+        or (_pdf_parser_project_root() / "data" / "pdf-parser")
+    ).expanduser().resolve()
+
+
+def _pdf_parser_results_roots() -> tuple[Path, ...]:
+    project_root = _pdf_parser_project_root()
+    configured_results = os.environ.get("SIQ_PDF_RESULTS_ROOT") or os.environ.get("RESULTS_FOLDER")
+    artifacts_root = os.environ.get("SIQ_ARTIFACTS_ROOT")
+    candidates = [
+        Path(configured_results).expanduser() if configured_results else None,
+        Path(artifacts_root).expanduser() / "pdf-parser" / "results" if artifacts_root else None,
+        _pdf_parser_data_dir() / "results",
+        project_root / "data" / "pdf-parser" / "results",
+        project_root / "apps" / "pdf-parser" / "results",
+    ]
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        resolved = candidate.resolve()
+        key = str(resolved)
+        if key not in seen:
+            roots.append(resolved)
+            seen.add(key)
+    return tuple(roots)
+
+
+def _pdf_parser_task_dir(root: Path, task_id: str) -> Path | None:
+    task_id = str(task_id or "")
+    if task_id in {".", ".."} or not PDF_PARSER_TASK_ID_RE.fullmatch(task_id):
+        return None
+    candidate = (root / task_id).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+def _pdf_parser_results_root() -> Path:
+    return _pdf_parser_results_roots()[0]
 
 
 def _pdf_parser_result_dir(task_id: str) -> Path:
-    return _pdf_parser_results_root() / task_id
+    candidates = [
+        candidate
+        for root in _pdf_parser_results_roots()
+        if (candidate := _pdf_parser_task_dir(root, task_id)) is not None
+    ]
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        if not candidate.is_dir() or not _pdf_parser_result_identity_matches(candidate, task_id):
+            raise RuntimeError(f"PDF parser artifact manifest task identity mismatch: {task_id}")
+        return candidate
+    if not candidates:
+        raise ValueError(f"Invalid PDF parser task id or no safe result root is configured: {task_id}")
+    return candidates[0]
 
 
-def _pdf_parser_upload_path(task_id: str) -> Path:
-    return _pdf_parser_results_root().parent / "uploads" / f"{task_id}.pdf"
-
-
-def _path_is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
+def _pdf_parser_result_identity_matches(result_dir: Path, task_id: str) -> bool:
+    manifest_path = result_dir / "artifact_manifest.json"
+    if not manifest_path.exists():
         return True
-    except ValueError:
+    if manifest_path.resolve().parent != result_dir.resolve():
         return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(manifest, dict) and str(manifest.get("task_id") or "") == str(task_id)
+
+
+def _pdf_parser_result_dir_from_payload(task_id: str, payload: dict[str, Any]) -> Path | None:
+    artifacts = payload.get("artifacts") if isinstance(payload, dict) else None
+    if not isinstance(artifacts, dict):
+        return None
+    required_names = ["document_full.json"]
+    markdown_name = next(
+        (
+            name
+            for name in ("result_complete.md", "result.md")
+            if isinstance(artifacts.get(name), dict) and artifacts[name].get("exists")
+        ),
+        None,
+    )
+    if markdown_name is None:
+        raise RuntimeError("PDF parser result payload is missing a completed Markdown artifact")
+    required_names.append(markdown_name)
+
+    parents: set[Path] = set()
+    allowed_task_dirs = {
+        candidate
+        for root in _pdf_parser_results_roots()
+        if (candidate := _pdf_parser_task_dir(root, task_id)) is not None
+    }
+    for name in required_names:
+        artifact = artifacts.get(name)
+        if not isinstance(artifact, dict) or not artifact.get("exists"):
+            raise RuntimeError(f"PDF parser result payload is missing required artifact: {name}")
+        raw_path = str(artifact.get("path") or "").strip()
+        if not raw_path:
+            raise RuntimeError(f"PDF parser result payload omitted artifact path: {name}")
+        artifact_path = Path(raw_path).expanduser().resolve()
+        if artifact_path.name != name or artifact_path.parent not in allowed_task_dirs:
+            raise RuntimeError(f"PDF parser result artifact path is outside allowlisted roots: {name}")
+        parents.add(artifact_path.parent)
+    if len(parents) != 1:
+        raise RuntimeError("PDF parser result artifacts do not share one task directory")
+    result_dir = parents.pop()
+    if not _pdf_parser_result_identity_matches(result_dir, task_id):
+        raise RuntimeError(f"PDF parser artifact manifest task identity mismatch: {task_id}")
+    return result_dir if _result_dir_looks_ready(result_dir) else None
 
 
 def _bridge_task_id(task_id: str) -> str:
@@ -359,10 +495,78 @@ def _filter_parse_output_pages(output: ParseOutput, page_numbers: list[int]) -> 
     )
 
 
-def _parse_pdf_via_pdf_parser(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
+def _pdf_parser_staging_root(source: SourceFile) -> Path:
+    source_parent = source.path.resolve().parent
+    if source_parent.name == ".converted":
+        source_parent = source_parent.parent
+    return source_parent / ".pdf-parser-staging"
+
+
+def _materialize_pdf_parser_result(
+    task_id: str,
+    upstream_task_id: str,
+    source: SourceFile,
+    *,
+    result_payload: Mapping[str, Any] | None = None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> Path:
+    mode = artifact_transport_mode()
+    bridge_headers = _pdf_parser_headers(identity_scope=identity_scope)
+    encoded_task_id = urllib.parse.quote(upstream_task_id, safe="")
+    if result_payload is None:
+        result_payload = _json_request(
+            f"{_pdf_parser_api_base()}/api/result/{encoded_task_id}",
+            headers=bridge_headers,
+            timeout=int(os.environ.get("SIQ_DOCUMENT_PARSE_PDF_STATUS_TIMEOUT", "120")),
+        )
+    if not isinstance(result_payload, Mapping) or result_payload.get("_error"):
+        detail = result_payload.get("detail") if isinstance(result_payload, Mapping) else None
+        raise ArtifactTransportError(
+            str(detail or "PDF parser result API did not return an artifact contract")
+        )
+
+    shared_error: Exception | None = None
+    if mode != "api":
+        try:
+            shared_dir = _pdf_parser_result_dir_from_payload(
+                upstream_task_id,
+                dict(result_payload),
+            )
+            if shared_dir is None:
+                shared_dir = _pdf_parser_result_dir(upstream_task_id)
+            if _result_dir_looks_ready(shared_dir):
+                return shared_dir
+            shared_error = RuntimeError(
+                f"Upstream parser result directory is not ready: {shared_dir}"
+            )
+        except Exception as exc:
+            shared_error = exc
+        if mode == "shared_fs":
+            raise ArtifactTransportError(
+                f"PDF parser shared filesystem transport is unavailable: {shared_error}"
+            ) from shared_error
+
+    staged = stage_pdf_parser_artifacts(
+        task_id=upstream_task_id,
+        result_payload=result_payload,
+        api_base=_pdf_parser_api_base(),
+        headers=bridge_headers,
+        staging_root=_pdf_parser_staging_root(source),
+    )
+    return staged.result_dir
+
+
+def _parse_pdf_via_pdf_parser(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
     submit_url = f"{_pdf_parser_api_base()}/api/upload"
     upstream_requested_task_id = _bridge_task_id(task_id)
     fields = _config_to_pdf_parser_submit_fields(upstream_requested_task_id, config, source)
+    bridge_headers = _pdf_parser_headers(identity_scope=identity_scope)
     result = _stream_multipart_post(
         submit_url,
         fields=fields,
@@ -370,7 +574,7 @@ def _parse_pdf_via_pdf_parser(task_id: str, source: SourceFile, config: ParseCon
         filename=source.filename,
         file_path=source.path,
         content_type=source.mime_type or "application/pdf",
-        headers=_pdf_parser_headers(),
+        headers=bridge_headers,
         timeout=600,
     )
     if result.get("_error"):
@@ -382,9 +586,10 @@ def _parse_pdf_via_pdf_parser(task_id: str, source: SourceFile, config: ParseCon
     status_timeout = int(os.environ.get("SIQ_DOCUMENT_PARSE_PDF_STATUS_TIMEOUT", "120"))
     deadline = time.time() + max(600, max_wait_seconds)
     while time.time() < deadline:
+        encoded_task_id = urllib.parse.quote(upstream_task_id, safe="")
         status = _json_request(
-            f"{_pdf_parser_api_base()}/api/status/{upstream_task_id}",
-            headers=_pdf_parser_headers(),
+            f"{_pdf_parser_api_base()}/api/status/{encoded_task_id}",
+            headers=bridge_headers,
             timeout=status_timeout,
         )
         if status.get("_error"):
@@ -405,63 +610,210 @@ def _parse_pdf_via_pdf_parser(task_id: str, source: SourceFile, config: ParseCon
         time.sleep(1.0)
     else:
         raise TimeoutError(f"Upstream parser did not finish within {max_wait_seconds} seconds: {upstream_task_id}")
-    result_dir = _pdf_parser_result_dir(upstream_task_id)
-    if not _result_dir_looks_ready(result_dir):
-        raise RuntimeError(f"Upstream parser result directory is not ready: {result_dir}")
-    from mineru_import import parse_mineru_output_dir
-    from mineru_import import rewrite_image_paths_to_result
+    result_payload = _json_request(
+        f"{_pdf_parser_api_base()}/api/result/{encoded_task_id}",
+        headers=bridge_headers,
+        timeout=status_timeout,
+    )
+    result_dir = _materialize_pdf_parser_result(
+        task_id,
+        upstream_task_id,
+        source,
+        result_payload=result_payload,
+        identity_scope=identity_scope,
+    )
+    from mineru_import import parse_mineru_output_dir, rewrite_image_paths_to_result
 
-    source_file, output = parse_mineru_output_dir(task_id, result_dir, config)
-    rewrite_image_paths_to_result(output)
-    if source_file.path.exists():
-        source_file.source_type = "pdf_parser_import"
-    page_numbers = parse_page_ranges(config.page_ranges or "", page_count=output.page_count) if config.page_ranges else []
-    if page_numbers:
-        output = _filter_parse_output_pages(output, page_numbers)
-    if fields.get("page_ranges_warning") == "non_contiguous":
-        output.warnings.append("非连续 page_ranges 已由上游整页解析后在本地过滤。")
-    output.upstream_task_id = upstream_task_id
-    return output
-
-
-def _call_pdf_parser_bridge(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
     try:
-        return _parse_pdf_via_pdf_parser(task_id, source, config, on_status=on_status)
+        source_file, output = parse_mineru_output_dir(task_id, result_dir, config)
+        rewrite_image_paths_to_result(output)
+        if source_file.path.exists():
+            source_file.source_type = "pdf_parser_import"
+        page_numbers = (
+            parse_page_ranges(config.page_ranges or "", page_count=output.page_count)
+            if config.page_ranges
+            else []
+        )
+        if page_numbers:
+            output = _filter_parse_output_pages(output, page_numbers)
+        if fields.get("page_ranges_warning") == "non_contiguous":
+            output.warnings.append("非连续 page_ranges 已由上游整页解析后在本地过滤。")
+        output.upstream_task_id = upstream_task_id
+        return output
+    except Exception:
+        cleanup_staged_pdf_parser_artifacts(
+            result_dir,
+            task_id=upstream_task_id,
+            staging_root=_pdf_parser_staging_root(source),
+        )
+        raise
+
+
+def _call_pdf_parser_bridge(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
+    try:
+        return _parse_pdf_via_pdf_parser(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     except TypeError:
-        if on_status is None:
+        if on_status is None and identity_scope is None:
             return _parse_pdf_via_pdf_parser(task_id, source, config)
         raise
 
 
-def cleanup_pdf_parser_bridge_output(output: ParseOutput) -> str | None:
+def cleanup_pdf_parser_bridge_resources(
+    upstream_task_id: str,
+    *,
+    raw_artifacts_dir: Path | str | None,
+    identity_scope: Mapping[str, Any] | None = None,
+    staging_root: Path | None = None,
+) -> dict[str, Any]:
     if os.environ.get("SIQ_DOCUMENT_PARSE_KEEP_PDF_BRIDGE_OUTPUT", "").lower() in {"1", "true", "yes", "on"}:
-        return None
-    raw_dir = Path(str(output.raw_artifacts_dir or ""))
-    if not raw_dir.name.startswith("doc-"):
-        return None
-    results_root = _pdf_parser_results_root()
-    if not _path_is_relative_to(raw_dir, results_root):
-        return None
-
-    upstream_task_id = raw_dir.name
+        return {"state": "retained", "cleaned": True, "staged_cleaned": False}
+    upstream_task_id = str(upstream_task_id or "")
+    if upstream_task_id in {".", ".."} or not PDF_PARSER_TASK_ID_RE.fullmatch(upstream_task_id):
+        return {"state": "invalid", "cleaned": False, "staged_cleaned": False}
+    raw_dir = Path(str(raw_artifacts_dir or ""))
     encoded_task_id = urllib.parse.quote(upstream_task_id, safe="")
     response = _json_request(
         f"{_pdf_parser_api_base()}/api/tasks/{encoded_task_id}",
         method="DELETE",
-        headers=_pdf_parser_headers(),
+        headers=_pdf_parser_headers(identity_scope=identity_scope),
         timeout=30,
     )
+    staged_cleaned = cleanup_staged_pdf_parser_artifacts(
+        raw_dir,
+        task_id=upstream_task_id,
+        staging_root=staging_root,
+    )
     if response.get("_error"):
-        shutil.rmtree(raw_dir, ignore_errors=True)
-        _pdf_parser_upload_path(upstream_task_id).unlink(missing_ok=True)
-        (results_root / f"{upstream_task_id}.md").unlink(missing_ok=True)
-        return f"已清理临时 pdf-parser 文档解析目录: {upstream_task_id}"
-    return f"已删除临时 pdf-parser 文档解析任务: {upstream_task_id}"
+        try:
+            status_code = int(response.get("status") or 0)
+        except (TypeError, ValueError):
+            status_code = 0
+        if status_code == 404:
+            return {"state": "not_found", "cleaned": True, "staged_cleaned": staged_cleaned}
+        return {"state": "deferred", "cleaned": False, "staged_cleaned": staged_cleaned}
+    return {"state": "deleted", "cleaned": True, "staged_cleaned": staged_cleaned}
 
 
-def _parse_via_converted_pdf(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str, converter, on_status=None) -> ParseOutput:
+def cleanup_pdf_parser_bridge_output(
+    output: ParseOutput,
+    identity_scope: Mapping[str, Any] | None = None,
+    *,
+    staging_root: Path | None = None,
+) -> str | None:
+    if os.environ.get("SIQ_DOCUMENT_PARSE_KEEP_PDF_BRIDGE_OUTPUT", "").lower() in {"1", "true", "yes", "on"}:
+        return None
+    upstream_task_id = str(output.upstream_task_id or "")
+    if upstream_task_id in {"", ".", ".."} or not PDF_PARSER_TASK_ID_RE.fullmatch(upstream_task_id):
+        return None
+    result = cleanup_pdf_parser_bridge_resources(
+        upstream_task_id,
+        raw_artifacts_dir=output.raw_artifacts_dir,
+        identity_scope=identity_scope,
+        staging_root=staging_root,
+    )
+    staged_cleaned = bool(result.get("staged_cleaned"))
+    suffix = "；本地 staging 已清理" if staged_cleaned else ""
+    if result.get("state") == "not_found":
+        return f"pdf-parser 临时任务已不存在: {upstream_task_id}{suffix}"
+    if not result.get("cleaned"):
+        return f"pdf-parser 临时任务清理延期，等待上游 API 重试: {upstream_task_id}{suffix}"
+    return f"已删除临时 pdf-parser 文档解析任务: {upstream_task_id}{suffix}"
+
+
+def cancel_pdf_parser_bridge_task(
+    upstream_task_id: str,
+    *,
+    raw_artifacts_dir: Path | str | None = None,
+    identity_scope: Mapping[str, Any] | None = None,
+    staging_root: Path | None = None,
+) -> dict[str, Any]:
+    """Stop and remove one temporary PDF bridge task without exposing upstream details."""
+    upstream_task_id = str(upstream_task_id or "")
+    if upstream_task_id in {"", ".", ".."} or not PDF_PARSER_TASK_ID_RE.fullmatch(upstream_task_id):
+        return {"state": "invalid", "cancelled": False, "staged_cleaned": False}
+
+    raw_dir = Path(str(raw_artifacts_dir or ""))
+    encoded_task_id = urllib.parse.quote(upstream_task_id, safe="")
+    headers = _pdf_parser_headers(identity_scope=identity_scope)
+    cancel_response = _json_request(
+        f"{_pdf_parser_api_base()}/api/cancel/{encoded_task_id}",
+        method="POST",
+        headers=headers,
+        timeout=30,
+    )
+    try:
+        cancel_status = int(cancel_response.get("status") or 0)
+    except (TypeError, ValueError):
+        cancel_status = 0
+
+    if cancel_response.get("_error") and cancel_status == 404:
+        staged_cleaned = cleanup_staged_pdf_parser_artifacts(
+            raw_dir,
+            task_id=upstream_task_id,
+            staging_root=staging_root,
+        )
+        return {"state": "not_found", "cancelled": True, "staged_cleaned": staged_cleaned}
+    if cancel_response.get("_error") and cancel_status not in {400, 409}:
+        staged_cleaned = cleanup_staged_pdf_parser_artifacts(
+            raw_dir,
+            task_id=upstream_task_id,
+            staging_root=staging_root,
+        )
+        return {"state": "deferred", "cancelled": False, "staged_cleaned": staged_cleaned}
+
+    delete_response = _json_request(
+        f"{_pdf_parser_api_base()}/api/tasks/{encoded_task_id}",
+        method="DELETE",
+        headers=headers,
+        timeout=30,
+    )
+    staged_cleaned = cleanup_staged_pdf_parser_artifacts(
+        raw_dir,
+        task_id=upstream_task_id,
+        staging_root=staging_root,
+    )
+    try:
+        delete_status = int(delete_response.get("status") or 0)
+    except (TypeError, ValueError):
+        delete_status = 0
+    if delete_response.get("_error") and delete_status != 404:
+        return {"state": "deferred", "cancelled": False, "staged_cleaned": staged_cleaned}
+    return {
+        "state": "not_found" if delete_status == 404 else "deleted",
+        "cancelled": True,
+        "staged_cleaned": staged_cleaned,
+    }
+
+
+def _parse_via_converted_pdf(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    document_kind: str,
+    converter,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
     pdf_source = converter(source)
-    output = _call_pdf_parser_bridge(task_id, pdf_source, config, on_status=on_status)
+    output = _call_pdf_parser_bridge(
+        task_id,
+        pdf_source,
+        config,
+        on_status=on_status,
+        identity_scope=identity_scope,
+    )
     output.provider_name = f"pdf_parser_bridge:{document_kind}_to_pdf"
     output.document_kind = document_kind
     return output
@@ -607,9 +959,21 @@ def parse_html_document(task_id: str, source: SourceFile, config: ParseConfig) -
     )
 
 
-def parse_pdf_document(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
+def parse_pdf_document(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
     try:
-        output = _call_pdf_parser_bridge(task_id, source, config, on_status=on_status)
+        output = _call_pdf_parser_bridge(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
         output.provider_name = output.provider_name or "pdf_parser_bridge"
         return output
     except Exception as exc:
@@ -623,20 +987,77 @@ def _raise_mineru_only_unsupported(source: SourceFile, document_kind: str) -> No
     )
 
 
-def parse_docx_document(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
-    return _parse_via_converted_pdf(task_id, source, config, "word", _convert_office_to_pdf_source, on_status=on_status)
+def parse_docx_document(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
+    return _parse_via_converted_pdf(
+        task_id,
+        source,
+        config,
+        "word",
+        _convert_office_to_pdf_source,
+        on_status=on_status,
+        identity_scope=identity_scope,
+    )
 
 
-def parse_spreadsheet_document(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
-    return _parse_via_converted_pdf(task_id, source, config, "excel", _convert_office_to_pdf_source, on_status=on_status)
+def parse_spreadsheet_document(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
+    return _parse_via_converted_pdf(
+        task_id,
+        source,
+        config,
+        "excel",
+        _convert_office_to_pdf_source,
+        on_status=on_status,
+        identity_scope=identity_scope,
+    )
 
 
-def parse_image_document(task_id: str, source: SourceFile, config: ParseConfig, on_status=None) -> ParseOutput:
-    return _parse_via_converted_pdf(task_id, source, config, "image", _convert_image_to_pdf_source, on_status=on_status)
+def parse_image_document(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
+    return _parse_via_converted_pdf(
+        task_id,
+        source,
+        config,
+        "image",
+        _convert_image_to_pdf_source,
+        on_status=on_status,
+        identity_scope=identity_scope,
+    )
 
 
-def parse_office_placeholder(task_id: str, source: SourceFile, config: ParseConfig, kind: str, on_status=None) -> ParseOutput:
-    return _parse_via_converted_pdf(task_id, source, config, kind, _convert_office_to_pdf_source, on_status=on_status)
+def parse_office_placeholder(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    kind: str,
+    on_status=None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
+    return _parse_via_converted_pdf(
+        task_id,
+        source,
+        config,
+        kind,
+        _convert_office_to_pdf_source,
+        on_status=on_status,
+        identity_scope=identity_scope,
+    )
 
 
 def parse_json_schema_excerpt(schema: dict[str, Any], markdown: str) -> dict[str, Any]:

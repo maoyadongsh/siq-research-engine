@@ -3919,6 +3919,7 @@ def _health_payload():
         "ready": ready,
         "flask": True,
         "queue_worker_ready": worker_ready,
+        "artifact_api_contract_version": artifact_service.ARTIFACT_API_CONTRACT_VERSION,
         "quality_schema_version": QUALITY_SCHEMA_VERSION,
         "content_list_enhanced_schema_version": CONTENT_LIST_ENHANCED_SCHEMA_VERSION,
         "document_full_schema_version": DOCUMENT_FULL_SCHEMA_VERSION,
@@ -4375,6 +4376,8 @@ def open_artifact(task_id, artifact_name):
     if not task:
         return jsonify({"error": "Task not found"}), 404
     result_dir = _result_dir(task)
+    if not artifact_service.is_safe_artifact_directory(result_dir, RESULTS_FOLDER):
+        return jsonify({"error": "Artifact directory not found"}), 404
     artifact_descriptor = artifact_service.classify_open_artifact_name(
         task_id,
         artifact_name,
@@ -4385,12 +4388,15 @@ def open_artifact(task_id, artifact_name):
     kind = artifact_descriptor["kind"]
     if kind == "images_download":
         images_dir = artifact_descriptor["images_dir"]
-        if not os.path.isdir(images_dir):
+        if not artifact_service.is_safe_artifact_directory(images_dir, result_dir):
             return jsonify({"error": "Images artifact not found"}), 404
         image_names = _image_artifact_names(images_dir)
         if not image_names:
             return jsonify({"error": "No downloadable images found"}), 404
-        archive = artifact_service.build_images_zip(images_dir, image_names)
+        try:
+            archive = artifact_service.build_images_zip(images_dir, image_names)
+        except (OSError, ValueError):
+            return jsonify({"error": "Images artifact not found"}), 404
         filename = _safe_download_name(artifact_descriptor["download_name"])
         response = send_file(
             archive,
@@ -4402,19 +4408,31 @@ def open_artifact(task_id, artifact_name):
         return response
     if kind == "images_index":
         images_dir = artifact_descriptor["images_dir"]
-        if not os.path.isdir(images_dir):
+        if not artifact_service.is_safe_artifact_directory(images_dir, result_dir):
             return jsonify({"error": "Images artifact not found"}), 404
         image_names = _image_artifact_names(images_dir)
-        return jsonify(artifact_service.build_images_index_payload(task_id, image_names))
+        try:
+            return jsonify(
+                artifact_service.build_images_index_payload(
+                    task_id,
+                    image_names,
+                    images_dir=images_dir,
+                )
+            )
+        except (OSError, ValueError):
+            return jsonify({"error": "Images artifact not found"}), 404
     if kind == "image_file":
         image_path = artifact_descriptor["path"]
-        if not os.path.exists(image_path):
+        images_dir = artifact_descriptor["images_dir"] if "images_dir" in artifact_descriptor else os.path.dirname(image_path)
+        if not artifact_service.is_safe_artifact_directory(images_dir, result_dir):
+            return jsonify({"error": "Image artifact not found"}), 404
+        if not artifact_service.is_safe_artifact_file(image_path, images_dir):
             return jsonify({"error": "Image artifact not found"}), 404
         return _artifact_file_response(image_path, artifact_descriptor["mimetype"])
     if kind == "forbidden":
         return jsonify({"error": "Artifact is not openable"}), 403
     path = artifact_descriptor["path"]
-    if not os.path.exists(path):
+    if not artifact_service.is_safe_artifact_file(path, result_dir):
         return jsonify({"error": "Artifact not found"}), 404
     return _artifact_file_response(path, artifact_descriptor["mimetype"])
 

@@ -222,6 +222,8 @@ test('meeting readiness chips show present and missing formal task state', () =>
           startupReceipt: {
             present: true,
             receiptId: 'startup-finance-R1-001',
+            sharedConnected: true,
+            privateConnected: true,
             sharedHits: 6,
             privateHits: 1,
             evidenceHits: 7,
@@ -238,6 +240,9 @@ test('meeting readiness chips show present and missing formal task state', () =>
             blockingReasons: [],
             warnings: [],
           },
+          serviceReadyForChat: true,
+          chatBlockingReasons: [],
+          contentWarnings: [],
         },
         {
           profileId: 'siq_ic_legal_scanner',
@@ -253,6 +258,8 @@ test('meeting readiness chips show present and missing formal task state', () =>
           startupReceipt: {
             present: false,
             receiptId: '',
+            sharedConnected: false,
+            privateConnected: false,
             sharedHits: 0,
             privateHits: 0,
             evidenceHits: 0,
@@ -269,6 +276,9 @@ test('meeting readiness chips show present and missing formal task state', () =>
             blockingReasons: ['startup_receipt_missing'],
             warnings: ['profile source missing'],
           },
+          serviceReadyForChat: false,
+          chatBlockingReasons: ['gateway_not_running', 'role_contract_unavailable'],
+          contentWarnings: ['deal_scoped_shared_kb_empty'],
         },
       ],
       summary: {
@@ -289,12 +299,14 @@ test('meeting readiness chips show present and missing formal task state', () =>
 
   assert.equal(finance?.receiptPresent, true)
   assert.equal(legal?.receiptPresent, false)
-  assert.deepEqual(financeChips.map((chip) => chip.label), ['Hermes running', 'Receipt present', 'R1 report missing', 'Profile loaded'])
+  assert.deepEqual(financeChips.map((chip) => chip.label), ['Hermes running', 'Chat ready', 'Milvus connected', 'Formal ready', 'Profile loaded'])
   assert.equal(legalChips.find((chip) => chip.id === 'runtime')?.tone, 'error')
-  assert.equal(legalChips.find((chip) => chip.id === 'receipt')?.label, 'Receipt missing')
+  assert.equal(legalChips.find((chip) => chip.id === 'chat-service')?.label, 'Chat unavailable')
+  assert.equal(legalChips.find((chip) => chip.id === 'dual-kb')?.label, 'Milvus degraded')
   assert.equal(legalChips.find((chip) => chip.id === 'profile')?.label, 'Profile missing')
-  assert.equal(committeeChips.find((chip) => chip.id === 'receipt')?.label, 'Receipts 1/6')
-  assert.match(deriveAgentReadinessLine(bundle, 'siq_ic_finance_auditor'), /Receipt present/)
+  assert.equal(committeeChips.find((chip) => chip.id === 'chat-service')?.label, 'Chat 1/7')
+  assert.equal(committeeChips.find((chip) => chip.id === 'formal-task')?.label, 'Formal 1/7')
+  assert.match(deriveAgentReadinessLine(bundle, 'siq_ic_finance_auditor'), /Chat ready/)
 })
 
 test('meeting quality transcript events derive compact warning chips', () => {
@@ -733,11 +745,83 @@ test('agent readiness separates project Evidence from private background retriev
   assert.equal(finance?.backgroundKnowledgeHits, 3)
   assert.equal(finance?.sharedCollection, 'ic_collaboration_shared')
   assert.equal(finance?.privateCollection, 'ic_finance_auditor')
+  assert.equal(finance?.sharedConnected, false)
+  assert.equal(finance?.privateConnected, false)
   assert.equal(finance?.retrievalStatus, 'degraded')
   assert.equal(finance?.retrievalTone, 'warning')
   assert.equal(finance?.contractVersion, 'siq_ic_profile_v2')
   assert.equal(finance?.phaseTaskStatus, 'queued')
   assert.deepEqual(finance?.capabilityRestrictions, ['financial_facts:review_required'])
+})
+
+test('connected collections with zero Deal hits keep chat service ready while formal task stays blocked', () => {
+  const rows = deriveMeetingAgentReadinessRows({
+    meetingReadiness: {
+      schemaVersion: 'siq_primary_market_meeting_readiness_v2',
+      dealId: 'DEAL-EMPTY',
+      profiles: [{
+        profileId: 'siq_ic_legal_scanner',
+        label: '法务合规委员',
+        role: 'legal',
+        runtime: { health: 'running', port: 18665 },
+        contract: {
+          version: 'siq_ic_profile_matrix_v2',
+          responsibilities: ['法律尽调'],
+          sourceFiles: ['IDENTITY.md', 'AGENTS.md', 'SOUL.md', 'TOOLS.md'],
+          outputs: ['法律红旗清单'],
+          boundaries: ['不替主席下结论'],
+        },
+        startupReceipt: {
+          present: false,
+          receiptId: '',
+          sharedConnected: true,
+          privateConnected: true,
+          sharedHits: 0,
+          privateHits: 4,
+          evidenceHits: 0,
+          gaps: ['deal_scoped_shared_kb_empty'],
+          physicalCollections: ['ic_collaboration_shared', 'ic_legal_scanner'],
+          sharedCollection: 'ic_collaboration_shared',
+          privateCollection: 'ic_legal_scanner',
+          retrievalStatus: 'blocked',
+          rerankReady: false,
+          rerankStatus: 'skipped',
+          rerankCandidateCount: 0,
+          rerankResultCount: 0,
+          retrievalStrategy: 'dense_bm25_rrf',
+        },
+        r1Report: { present: false, score: null, recommendation: '', artifactPath: '' },
+        quality: {
+          readyForFormalTask: false,
+          blockingReasons: ['deal_scoped_shared_kb_empty'],
+          warnings: [],
+          status: 'blocked',
+        },
+        serviceReadyForChat: true,
+        chatBlockingReasons: [],
+        contentWarnings: ['deal_scoped_shared_kb_empty', 'evidence_snapshot_unavailable'],
+      }],
+      summary: {
+        runtimeRunning: 1,
+        receiptPresent: 0,
+        r1ReportsPresent: 0,
+        serviceReadyForChat: 1,
+        formalTaskReady: 0,
+        blockingProfiles: ['siq_ic_legal_scanner'],
+      },
+    },
+  })
+
+  const legal = rows.find((row) => row.agentId === 'siq_ic_legal_scanner')
+  assert.equal(legal?.serviceReadyForChat, true)
+  assert.equal(legal?.sharedConnected, true)
+  assert.equal(legal?.privateConnected, true)
+  assert.equal(legal?.projectEvidenceHits, 0)
+  assert.equal(legal?.backgroundKnowledgeHits, 4)
+  assert.equal(legal?.readyForFormalTask, false)
+  assert.equal(legal?.rerankTone, 'neutral')
+  assert.deepEqual(legal?.chatBlockingReasons, [])
+  assert.deepEqual(legal?.contentWarnings, ['deal_scoped_shared_kb_empty', 'evidence_snapshot_unavailable'])
 })
 
 test('workflow observability exposes disputes, R2 delta, R3 timeline and R4 fallback quality', () => {

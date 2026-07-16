@@ -357,6 +357,14 @@ export function matchCjkHeading(trimmed: string) {
   )
 }
 
+export function matchBoldHeading(trimmed: string) {
+  const match = trimmed.match(/^\*\*([^*\n]+)\*\*[:：]?\s*$/)
+  if (!match) return null
+  const value = match[1].trim().replace(/[:：]\s*$/, '').trim()
+  if (!value || value.length > 64 || /[。！？.!?]$/.test(value)) return null
+  return value
+}
+
 export function isMarkdownBoundary(lines: string[], index: number) {
   const trimmed = lines[index]?.trim() || ''
   return (
@@ -369,6 +377,7 @@ export function isMarkdownBoundary(lines: string[], index: number) {
     /^[▸›]\s+/.test(trimmed) ||
     /^[-*+]\s+/.test(trimmed) ||
     /^\d+\.\s+/.test(trimmed) ||
+    Boolean(matchBoldHeading(trimmed)) ||
     Boolean(matchCjkHeading(trimmed))
   )
 }

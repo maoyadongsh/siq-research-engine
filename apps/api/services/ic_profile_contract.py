@@ -11,7 +11,7 @@ from services import ic_policy
 
 
 IC_PROFILE_CONTRACT_SCHEMA = "siq_ic_profile_contract_v1"
-ROLE_SOURCE_FILES = ("IDENTITY.md", "AGENTS.md", "SOUL.md", "USER.md")
+ROLE_SOURCE_FILES = ("IDENTITY.md", "AGENTS.md", "SOUL.md", "TOOLS.md", "USER.md")
 
 
 def _canonical_profile_id(profile_id: str) -> str:
@@ -96,6 +96,12 @@ def _matrix_profile(profile_id: str, matrix: dict[str, Any] | None = None) -> di
     return {}
 
 
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
 def _source_files(profile_dir: Path, profile_id: str) -> list[str]:
     files: list[str] = []
     for name in ROLE_SOURCE_FILES:
@@ -131,11 +137,7 @@ def get_ic_profile_contract(
     agents = _read_text(profile_dir / "AGENTS.md")
     matrix_contract = ic_policy.read_ic_profile_matrix()
     matrix = _matrix_profile(canonical, matrix_contract)
-    responsibilities = [
-        str(item).strip()
-        for item in matrix.get("responsibilities", [])
-        if str(item or "").strip()
-    ] if isinstance(matrix.get("responsibilities"), list) else []
+    responsibilities = _string_list(matrix.get("responsibilities"))
 
     role_name = (
         _markdown_field(identity, "角色名称")
@@ -151,11 +153,7 @@ def get_ic_profile_contract(
     mission = _markdown_field(identity, "核心使命")
     output_features = _bullets_after_markdown_field(identity, "输出特征")
     profile_boundaries = _section_bullets(agents, "红线") or _section_bullets(agents, "禁止")
-    matrix_boundaries = [
-        str(item).strip()
-        for item in matrix.get("boundaries", [])
-        if str(item or "").strip()
-    ] if isinstance(matrix.get("boundaries"), list) else []
+    matrix_boundaries = _string_list(matrix.get("boundaries"))
     boundaries = list(dict.fromkeys([*matrix_boundaries, *profile_boundaries]))
     if not boundaries and canonical != "siq_ic_master_coordinator":
         boundaries = ["不越权代替其他投委会 profile 的专业判断或最终投决。"]
@@ -165,13 +163,15 @@ def get_ic_profile_contract(
     phase_capabilities = matrix.get("phase_capabilities") if isinstance(matrix.get("phase_capabilities"), dict) else {}
     output_schemas = matrix.get("output_schemas") if isinstance(matrix.get("output_schemas"), dict) else {}
     retrieval = matrix.get("retrieval") if isinstance(matrix.get("retrieval"), dict) else {}
-    logical_collections = [
-        str(item) for item in retrieval.get("logical_collections", []) if str(item or "").strip()
-    ]
-    physical_collections = [
-        str(item) for item in retrieval.get("physical_collections", []) if str(item or "").strip()
-    ]
+    logical_collections = _string_list(retrieval.get("logical_collections"))
+    physical_collections = _string_list(retrieval.get("physical_collections"))
     retrieval_required = bool(retrieval.get("required", canonical != "siq_ic_master_coordinator"))
+    independent_services = _string_list(matrix.get("independent_services"))
+    skill_ids = _string_list(matrix.get("skill_ids"))
+    raw_namespace_policy = matrix_contract.get("namespace_policy")
+    namespace_policy = raw_namespace_policy if isinstance(raw_namespace_policy, dict) else {}
+    allowed_roots = _string_list(namespace_policy.get("allowed_roots"))
+    forbidden_roots = _string_list(namespace_policy.get("forbidden_roots"))
     shared_logical = str((matrix_contract.get("shared_collection") or {}).get("logical") or "siq_deal_shared")
     shared_physical = str((matrix_contract.get("shared_collection") or {}).get("physical") or "")
     private_logical = next((item for item in logical_collections if item != shared_logical), canonical)
@@ -201,6 +201,14 @@ def get_ic_profile_contract(
         "output_features": outputs,
         "outputs": outputs,
         "boundaries": boundaries,
+        "independent_services": independent_services,
+        "skill_ids": skill_ids,
+        "namespace_policy": {
+            "namespace": str(namespace_policy.get("namespace") or "primary_market"),
+            "allowed_roots": allowed_roots,
+            "forbidden_roots": forbidden_roots,
+            "rule": str(namespace_policy.get("rule") or ""),
+        },
         "phase_capabilities": phase_capabilities,
         "output_schemas": output_schemas,
         "retrieval": {
@@ -248,6 +256,13 @@ def render_meeting_role_guard(profile_id: str | dict[str, Any]) -> str:
     responsibilities = "；".join(contract.get("responsibilities") or [])
     outputs = "；".join(contract.get("output_features") or [])
     boundaries = "；".join(contract.get("boundaries") or [])
+    independent_services = "、".join(contract.get("independent_services") or [])
+    skill_ids = "、".join(contract.get("skill_ids") or [])
+    namespace_policy = contract.get("namespace_policy") or {}
+    namespace = str(namespace_policy.get("namespace") or "primary_market")
+    allowed_roots = "、".join(namespace_policy.get("allowed_roots") or [])
+    forbidden_roots = "、".join(namespace_policy.get("forbidden_roots") or [])
+    namespace_rule = str(namespace_policy.get("rule") or "").strip()
     special_duty = str(contract.get("special_duty") or "").strip()
     focus_parts = [str(contract.get("core_focus") or "").strip()]
     if special_duty:
@@ -263,10 +278,16 @@ def render_meeting_role_guard(profile_id: str | dict[str, Any]) -> str:
             f"- 职责来源: {source_paths}",
             f"- startup_retrieval_required: {str(bool(contract.get('startup_retrieval_required'))).lower()}",
             f"- r1_sequence_index: {contract.get('r1_sequence_index') if contract.get('r1_sequence_index') is not None else '-'}",
+            f"- 后端独立服务: {independent_services or '-'}",
+            f"- 角色技能白名单: {skill_ids or '-'}",
+            f"- 数据 namespace: {namespace}",
+            f"- 允许数据根: {allowed_roots or '-'}",
+            f"- 禁止数据根: {forbidden_roots or '-'}",
             f"- 本轮只按该 profile 的职责回答: {'；'.join(part for part in focus_parts if part)}",
             f"- 应输出: {outputs or '结构化观点、证据引用、verified/assumed 区分、下一步建议。'}",
             f"- 角色边界: {boundaries or '不得越权替代其他 IC profile 的专业判断。'}",
             "- 若主持人问题要求越权，先声明角色边界，再只回答本 profile 职责内的部分，并建议应由哪个 SIQ IC profile 接手。",
+            f"- 一级市场 namespace 禁止读取 {forbidden_roots or 'data/wiki/companies'}；{namespace_rule or '只允许读取当前 deal 的项目知识包。'}",
             "- 涉及事实、评分、投决或风险判断时，必须优先使用 Deal OS evidence、startup-retrieval receipt、R0-R4 产物和用户附件；信息不足时标注 verified/assumed/待核验，不得编造。",
         ]
     )

@@ -182,6 +182,36 @@ function resultWarnings(result: unknown) {
   return stringArray(record.warnings)
 }
 
+function readinessIssueLabel(value: string) {
+  const labels: Record<string, string> = {
+    gateway_not_running: 'Hermes 网关未就绪',
+    hermes_runtime_not_running: 'Hermes 网关未就绪',
+    role_contract_unavailable: '角色契约未加载',
+    role_contract_incomplete: '角色契约不完整',
+    dual_kb_connection_not_checked: '尚未完成共享/私有 collection 连通检查',
+    startup_receipt_missing: '尚未生成启动检索收据',
+    shared_collection_disconnected: '共享 collection 未连接',
+    shared_collection_unavailable: '共享 collection 未连接',
+    private_collection_disconnected: '私有 collection 未连接',
+    private_collection_unavailable: '私有 collection 未连接',
+    reranker_unavailable: 'reranker 未就绪',
+    startup_receipt_stale: '启动检索收据已过期',
+    deal_scoped_shared_kb_empty: '当前项目尚未上传或索引可检索材料',
+    evidence_snapshot_unavailable: '当前项目尚未生成 Evidence snapshot',
+    evidence_snapshot_missing: '当前项目尚未生成 Evidence snapshot',
+    private_background_hits_empty: '本次查询未命中私有背景知识',
+    startup_retrieval_not_ready: '正式启动检索尚未满足证据门禁',
+    'preflight_warn:evidence.gate': '预检警告：项目 Evidence 门禁未通过',
+    'preflight_warn:retrieval.receipt_contract': '预检警告：启动检索收据合同未通过',
+    'startup_receipt_gate_blocked:receipt_gate_missing': '正式任务收据门禁未通过',
+  }
+  if (value.startsWith('workflow_phase_not_r1_ready:')) return `当前流程阶段不适用于 R1（${value.split(':').slice(1).join(':')}）`
+  if (value.startsWith('workflow_status_closed:')) return `流程已关闭（${value.split(':').slice(1).join(':')}）`
+  if (value.startsWith('r1a_reports_waiting_for:')) return `R1A 报告待补齐：${value.split(':').slice(1).join(':')}`
+  if (value.startsWith('r1b_reports_waiting_for:')) return `R1B 报告待补齐：${value.split(':').slice(1).join(':')}`
+  return labels[value] || value
+}
+
 function resultArtifactPath(result: unknown) {
   const record = resultRecord(result)
   const nestedReport = resultRecord(record.report || record.r1_report || record.r1Report)
@@ -618,6 +648,10 @@ export default function PrimaryMarketMeeting() {
   const missingDimensions = sortedMissingDimensions(evidenceReport)
   const receiptRows = useMemo(() => deriveMeetingReceiptRows(bundle), [bundle])
   const readinessRows = useMemo(() => deriveMeetingAgentReadinessRows(bundle), [bundle])
+  const chatServiceReadyCount = bundle.meetingReadiness?.summary.serviceReadyForChat
+    ?? readinessRows.filter((row) => row.serviceReadyForChat).length
+  const formalTaskReadyCount = bundle.meetingReadiness?.summary.formalTaskReady
+    ?? readinessRows.filter((row) => row.readyForFormalTask).length
   const scoreRows = useMemo(() => deriveMeetingScoreRows(bundle), [bundle])
   const scoringSummary = useMemo(() => deriveMeetingScoringSummary(scoreRows), [scoreRows])
   const coordinatorActions = useMemo(() => deriveCoordinatorNextActions(bundle), [bundle])
@@ -674,6 +708,40 @@ export default function PrimaryMarketMeeting() {
     if (!readiness) return
     setBundle((current) => ({ ...current, meetingReadiness: readiness }))
   }, [])
+
+  useEffect(() => {
+    if (!selectedDealId) return
+    let refreshing = false
+    let controller: AbortController | null = null
+    const refreshReadiness = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return
+      refreshing = true
+      controller?.abort()
+      controller = new AbortController()
+      try {
+        applyMeetingReadiness(
+          await fetchPrimaryMarketMeetingAgentReadiness(selectedDealId, controller.signal),
+        )
+      } catch {
+        // The full-page refresh path owns visible errors; background freshness is best effort.
+      } finally {
+        refreshing = false
+      }
+    }
+    const handleFocus = () => void refreshReadiness()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshReadiness()
+    }
+    const intervalId = window.setInterval(() => void refreshReadiness(), 20_000)
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      controller?.abort()
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [applyMeetingReadiness, selectedDealId])
 
   const appendMeetingEvent = useCallback((
     event: Omit<MeetingEvent, 'id' | 'createdAt'> & { id?: string; createdAt?: string | null },
@@ -935,6 +1003,7 @@ export default function PrimaryMarketMeeting() {
             agentId,
             agentLabel: agentLabel(agentId),
             message: prompt,
+            retrievalQuery: promptContent,
             displayMessage: `@${agentLabel(agentId)} ${visibleContent}`,
             dealId: selectedDeal?.deal_id || selectedDealId,
             companyName: selectedDeal?.company_name,
@@ -1149,7 +1218,7 @@ export default function PrimaryMarketMeeting() {
         round_name: preparationPlan.roundName,
         limit: 10,
         include_vector: true,
-        include_rerank: false,
+        include_rerank: true,
       })
       applyMeetingReadiness(response.readiness)
       toast({
@@ -1176,7 +1245,7 @@ export default function PrimaryMarketMeeting() {
         round_name: preparationPlan.roundName,
         limit: 10,
         include_vector: true,
-        include_rerank: false,
+        include_rerank: true,
         profile_ids: preparationPlan.profileIds,
       })
       applyMeetingReadiness(response.readiness)
@@ -1431,8 +1500,8 @@ export default function PrimaryMarketMeeting() {
           <div className="h-96 animate-pulse rounded-lg bg-muted/60" />
         </div>
       ) : (
-        <div className={detailsMode ? 'space-y-4' : 'grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]'}>
-          <div className={detailsMode ? 'hidden' : 'space-y-5'}>
+        <div className={detailsMode ? 'min-w-0 space-y-4' : 'grid min-w-0 gap-5 xl:grid-cols-[280px_minmax(0,1fr)]'}>
+          <div className={detailsMode ? 'hidden' : 'min-w-0 space-y-5'}>
             <PageSection title="R0-R4 议程" compact contentClassName="space-y-3">
               {agenda.map((item) => (
                 <Surface key={item.phase} kind="row" padding="sm" className="relative overflow-hidden">
@@ -1451,7 +1520,7 @@ export default function PrimaryMarketMeeting() {
               <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
                 <Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}&view=readiness`}>
                   <span className="flex min-w-0 items-center gap-2"><Activity />智能体就绪与检索</span>
-                  <StatusBadge tone={readinessRows.every((row) => row.readyForFormalTask) ? 'success' : 'warning'}>{readinessRows.filter((row) => row.readyForFormalTask).length}/{readinessRows.length}</StatusBadge>
+                  <StatusBadge tone={chatServiceReadyCount === readinessRows.length ? 'success' : 'warning'}>{chatServiceReadyCount}/{readinessRows.length} 服务</StatusBadge>
                 </Link>
               </Button>
               <Button asChild variant="secondary" className="h-auto min-h-11 justify-between py-2.5">
@@ -1487,7 +1556,7 @@ export default function PrimaryMarketMeeting() {
             </PageSection>
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {detailsMode ? <div className="mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
               <div><h2 className="text-lg font-semibold text-text">{detailView === 'minutes' ? '会议纪要' : '智能体与会议详情'}</h2><p className="mt-1 text-sm text-text-muted">按需查看会议状态，不干扰投研决策主流程。</p></div>
               <Button asChild variant="secondary"><Link to={`/primary-market/meeting?dealId=${encodeURIComponent(selectedDealId)}`}><MessageSquareText />返回投研决策</Link></Button>
@@ -1500,8 +1569,11 @@ export default function PrimaryMarketMeeting() {
             ) : null}
 
             {detailView === 'readiness' ? <PageSection
-              title="Agent Readiness 与双库检索"
-              actions={<StatusBadge tone={readinessRows.every((row) => row.readyForFormalTask) ? 'success' : 'warning'}>{readinessRows.filter((row) => row.readyForFormalTask).length}/{readinessRows.length} ready</StatusBadge>}
+              title="智能体服务状态与双库检索"
+              actions={<div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={chatServiceReadyCount === readinessRows.length ? 'success' : 'warning'}>{chatServiceReadyCount}/{readinessRows.length} 聊天服务可用</StatusBadge>
+                <StatusBadge tone={formalTaskReadyCount === readinessRows.length ? 'success' : 'warning'}>{formalTaskReadyCount}/{readinessRows.length} 正式任务可执行</StatusBadge>
+              </div>}
             >
               <div className="divide-y divide-border/70">
                 {readinessRows.map((row) => (
@@ -1511,29 +1583,51 @@ export default function PrimaryMarketMeeting() {
                       <p className="mt-1 truncate font-mono text-[11px] text-text-muted">{row.agentId}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <StatusBadge tone={row.runtimeTone}>gateway {row.runtimeHealth}</StatusBadge>
-                        <StatusBadge tone={row.readyForFormalTask ? 'success' : 'error'}>{row.readyForFormalTask ? 'formal ready' : 'blocked'}</StatusBadge>
+                        <StatusBadge tone={row.serviceReadyForChat ? 'success' : 'error'}>{row.serviceReadyForChat ? '聊天服务可用' : '聊天服务不可用'}</StatusBadge>
+                        <StatusBadge tone={row.readyForFormalTask ? 'success' : 'warning'}>{row.readyForFormalTask ? '正式任务可执行' : '正式任务受阻'}</StatusBadge>
                         {row.stale ? <StatusBadge tone="error">stale</StatusBadge> : null}
                       </div>
+                      {row.chatBlockingReasons.length ? <p className="mt-1.5 break-words text-[11px] text-destructive">{row.chatBlockingReasons.map(readinessIssueLabel).join(' / ')}</p> : null}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-text">项目 Evidence</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-semibold text-text">项目 Evidence</p>
+                        <StatusBadge tone={row.sharedConnected ? 'success' : 'error'}>shared {row.sharedConnected ? 'connected' : 'disconnected'}</StatusBadge>
+                      </div>
                       <p className="mt-1 break-all font-mono text-[11px] text-text-muted">{row.sharedCollection}</p>
-                      <p className="mt-1 text-xs text-text-muted">{row.projectEvidenceHits} hits · snapshot {row.evidenceSnapshotHash ? row.evidenceSnapshotHash.slice(0, 12) : 'unavailable'}</p>
+                      <p className={`mt-1 text-xs ${row.projectEvidenceHits > 0 ? 'text-text-muted' : 'text-warning'}`}>{row.projectEvidenceHits > 0 ? `${row.projectEvidenceHits} hits` : '0 hits · 当前项目暂无可检索 Evidence'}</p>
+                      <p className="mt-1 text-[11px] text-text-muted">snapshot {row.evidenceSnapshotHash ? row.evidenceSnapshotHash.slice(0, 12) : '尚未生成'}</p>
+                      {row.contentWarnings.length ? <p className="mt-1 break-words text-[11px] text-warning">{row.contentWarnings.map(readinessIssueLabel).join(' / ')}</p> : null}
                     </div>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-xs font-semibold text-text">私有背景知识</p>
-                        <StatusBadge tone={row.retrievalTone}>{row.retrievalStatus}</StatusBadge>
+                        <StatusBadge tone={row.privateConnected ? 'success' : 'error'}>private {row.privateConnected ? 'connected' : 'disconnected'}</StatusBadge>
                       </div>
                       <p className="mt-1 break-all font-mono text-[11px] text-text-muted">{row.privateCollection}</p>
                       <p className="mt-1 text-xs text-text-muted">{row.backgroundKnowledgeHits} background hits</p>
-                      {row.degradedReasons.length ? <p className="mt-1 break-words text-[11px] text-warning">{row.degradedReasons.join(' / ')}</p> : null}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <StatusBadge tone={row.rerankTone}>rerank {row.rerankStatus}</StatusBadge>
+                        <span className="text-[11px] text-text-muted">{row.retrievalStrategy} · {row.rerankCandidateCount}→{row.rerankResultCount}</span>
+                      </div>
+                      {row.degradedReasons.some((reason) => !row.contentWarnings.includes(reason)) ? (
+                        <p className="mt-1 break-words text-[11px] text-warning">
+                          {row.degradedReasons
+                            .filter((reason) => !row.contentWarnings.includes(reason))
+                            .map(readinessIssueLabel)
+                            .join(' / ')}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-text">Contract / Task / Quality</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <StatusBadge tone={row.contractSourceCount ? 'success' : 'error'}>contract {row.contractSourceCount ? 'loaded' : 'missing'}</StatusBadge>
+                        <StatusBadge tone={row.retrievalTone}>formal retrieval {row.retrievalStatus}</StatusBadge>
+                      </div>
                       <p className="mt-1 break-words text-[11px] text-text-muted">{row.contractVersion} · {row.phaseTaskStatus} · {row.qualityStatus}</p>
                       {row.capabilityRestrictions.length ? <p className="mt-1 break-words text-[11px] text-warning">限制：{row.capabilityRestrictions.join(' / ')}</p> : null}
-                      {row.blockingReasons.length ? <p className="mt-1 break-words text-[11px] text-destructive">{row.blockingReasons.join(' / ')}</p> : null}
+                      {row.blockingReasons.length ? <p className="mt-1 break-words text-[11px] text-destructive">{row.blockingReasons.map(readinessIssueLabel).join(' / ')}</p> : null}
                     </div>
                   </div>
                 ))}

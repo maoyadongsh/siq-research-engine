@@ -1303,6 +1303,10 @@ class ApiLayerTest(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["flask"])
         self.assertTrue(payload["submit_ready"])
+        self.assertEqual(
+            payload["artifact_api_contract_version"],
+            "pdf_parser_artifact_api_v1",
+        )
         self.assertEqual(payload["mineru_stats"], {"status": "healthy"})
 
     def test_ready_endpoint_fails_closed_when_submit_or_worker_is_unavailable(self):
@@ -1350,6 +1354,10 @@ class ApiLayerTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.get_json()["ready"])
+            self.assertEqual(
+                response.get_json()["artifact_api_contract_version"],
+                "pdf_parser_artifact_api_v1",
+            )
         finally:
             app.APP_ACCESS_TOKEN = old_token
             request_utils.APP_ACCESS_TOKEN = old_utils_token

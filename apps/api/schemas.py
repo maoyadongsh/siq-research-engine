@@ -102,6 +102,10 @@ class ChatContextResearchTarget(BaseModel):
 class ChatContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
+    domain: Optional[str] = None
+    deal_id: Optional[str] = None
+    profile_id: Optional[str] = None
+    retrieval_query: Optional[str] = None
     company: Optional[ChatContextCompany] = None
     report: Optional[ChatContextReport] = None
     page: Optional[ChatContextPage] = None

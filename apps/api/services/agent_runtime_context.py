@@ -557,6 +557,9 @@ def forced_context_company_dir(context: Any | None, *, wiki_root: Path) -> Path 
     wiki_root = wiki_root.resolve()
     if path == wiki_root or wiki_root not in path.parents:
         return None
+    relative = path.relative_to(wiki_root)
+    if not relative.parts or relative.parts[0] != "companies":
+        return None
     return path if path.exists() else None
 
 
@@ -576,8 +579,19 @@ def analysis_completed_artifacts(
         candidate = Path(company_dir_value)
         if not candidate.is_absolute():
             candidate = wiki_root / candidate
-        if candidate.exists():
-            company_dir = candidate
+        try:
+            resolved_candidate = candidate.resolve()
+            resolved_root = wiki_root.resolve()
+            relative = resolved_candidate.relative_to(resolved_root)
+        except (OSError, ValueError):
+            relative = None
+        if (
+            relative is not None
+            and relative.parts
+            and relative.parts[0] == "companies"
+            and resolved_candidate.exists()
+        ):
+            company_dir = resolved_candidate
     if not company_dir and code:
         matches = sorted((wiki_root / "companies").glob(f"{code}-*"))
         if matches:

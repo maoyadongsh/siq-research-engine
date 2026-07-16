@@ -451,18 +451,29 @@ export interface MeetingAgentReadinessRow {
   contractVersion: string
   sharedCollection: string
   privateCollection: string
+  sharedConnected: boolean
+  privateConnected: boolean
   logicalCollections: string[]
   physicalCollections: string[]
   projectEvidenceHits: number
   backgroundKnowledgeHits: number
   retrievalStatus: string
   retrievalTone: BadgeTone
+  rerankReady: boolean
+  rerankStatus: string
+  rerankTone: BadgeTone
+  rerankCandidateCount: number
+  rerankResultCount: number
+  retrievalStrategy: string
   degradedReasons: string[]
   evidenceSnapshotHash: string
   capabilityRestrictions: string[]
   phaseTaskStatus: string
   qualityStatus: string
   stale: boolean
+  serviceReadyForChat: boolean
+  chatBlockingReasons: string[]
+  contentWarnings: string[]
   readyForFormalTask: boolean
   blockingReasons: string[]
   warnings: string[]
@@ -1117,6 +1128,14 @@ function retrievalStatusTone(status: string): BadgeTone {
   return 'neutral'
 }
 
+function rerankStatusTone(ready: boolean, status: string, candidateCount: number): BadgeTone {
+  if (ready) return 'success'
+  const value = status.trim().toLowerCase()
+  if (!value || value === 'unknown' || (value === 'skipped' && candidateCount === 0)) return 'neutral'
+  if (['failed', 'error', 'unavailable', 'degraded'].includes(value)) return 'warning'
+  return 'info'
+}
+
 export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingAgentReadinessRow[] {
   const receiptByAgent = new Map(deriveMeetingReceiptRows(bundle).map((row) => [row.agentId, row]))
   const scoreByAgent = new Map(deriveMeetingScoreRows(bundle).map((row) => [row.agentId, row]))
@@ -1152,6 +1171,16 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
       || text(rawReceipt?.private_collection, '')
       || physicalCollections.find((item) => item !== 'ic_collaboration_shared')
       || expectedPrivateCollection
+    const rawSharedConnected = rawReceipt?.shared_connected
+    const rawPrivateConnected = rawReceipt?.private_connected
+    const sharedConnected = readiness?.startupReceipt.sharedConnected
+      ?? (typeof rawSharedConnected === 'boolean'
+        ? rawSharedConnected
+        : false)
+    const privateConnected = readiness?.startupReceipt.privateConnected
+      ?? (typeof rawPrivateConnected === 'boolean'
+        ? rawPrivateConnected
+        : false)
     const projectEvidenceHits = numericValue(rawReceipt?.project_evidence_hits)
       ?? numericValue(rawReceipt?.shared_hits)
       ?? readiness?.startupReceipt.sharedHits
@@ -1164,6 +1193,13 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
       || text(rawReceipt?.retrieval_status, '')
     const retrievalStatus = explicitRetrievalStatus
       || (!receiptPresent ? 'blocked' : backgroundKnowledgeHits > 0 ? 'ready' : 'degraded')
+    const rawRerank = asRecord(rawReceipt?.rerank) || {}
+    const rawStrategy = asRecord(rawReceipt?.retrieval_strategy) || {}
+    const rerankStatus = readiness?.startupReceipt.rerankStatus || text(rawRerank.status, 'unknown')
+    const rerankReady = readiness?.startupReceipt.rerankReady
+      ?? Boolean(rawReceipt?.rerank_ready ?? rerankStatus === 'completed')
+    const rerankCandidateCount = readiness?.startupReceipt.rerankCandidateCount ?? numericValue(rawRerank.candidate_count) ?? 0
+    const rerankResultCount = readiness?.startupReceipt.rerankResultCount ?? numericValue(rawRerank.result_count) ?? 0
     const degradedReasons = [
       ...(readiness?.startupReceipt.degradedReasons || []),
       ...asStringArray(rawReceipt?.degraded_reasons),
@@ -1181,6 +1217,24 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
       ? readiness.startupReceipt.capabilityRestrictions
       : asStringArray(rawReceipt?.capability_restrictions))
     const stale = Boolean(readiness?.startupReceipt.stale || readiness?.quality.stale || rawReceipt?.stale)
+    const runtimeReady = runtimeHealthTone(runtimeHealth) === 'success'
+    const fallbackChatBlockingReasons = [
+      ...(!runtimeReady ? ['gateway_not_running'] : []),
+      ...(sourceFiles.length === 0 ? ['role_contract_unavailable'] : []),
+      ...(!sharedConnected ? ['shared_collection_disconnected'] : []),
+      ...(!privateConnected ? ['private_collection_disconnected'] : []),
+    ]
+    const chatBlockingReasons = (readiness?.chatBlockingReasons?.length
+      ? readiness.chatBlockingReasons
+      : fallbackChatBlockingReasons)
+      .filter((item, index, values) => item && values.indexOf(item) === index)
+    const serviceReadyForChat = readiness?.serviceReadyForChat
+      ?? (runtimeReady && sourceFiles.length > 0 && sharedConnected && privateConnected && chatBlockingReasons.length === 0)
+    const contentWarnings = [
+      ...(readiness?.contentWarnings || []),
+      ...(sharedConnected && projectEvidenceHits === 0 ? ['deal_scoped_shared_kb_empty'] : []),
+      ...(sharedConnected && !evidenceSnapshotHash ? ['evidence_snapshot_unavailable'] : []),
+    ].filter((item, index, values) => item && values.indexOf(item) === index)
     return {
       agentId,
       label: readiness?.label || agent?.label || agentOption.label,
@@ -1196,18 +1250,29 @@ export function deriveMeetingAgentReadinessRows(bundle: MeetingBundle): MeetingA
       contractVersion: readiness?.contract.version || 'unversioned',
       sharedCollection,
       privateCollection,
+      sharedConnected,
+      privateConnected,
       logicalCollections,
       physicalCollections,
       projectEvidenceHits,
       backgroundKnowledgeHits,
       retrievalStatus,
       retrievalTone: retrievalStatusTone(retrievalStatus),
+      rerankReady,
+      rerankStatus,
+      rerankTone: rerankStatusTone(rerankReady, rerankStatus, rerankCandidateCount),
+      rerankCandidateCount,
+      rerankResultCount,
+      retrievalStrategy: readiness?.startupReceipt.retrievalStrategy || text(rawStrategy.mode, 'dense_bm25_rrf'),
       degradedReasons,
       evidenceSnapshotHash,
       capabilityRestrictions,
       phaseTaskStatus: readiness?.phaseTaskStatus || 'unavailable',
       qualityStatus: readiness?.quality.status || (allBlockingReasons.length ? 'blocked' : readiness?.quality.warnings.length ? 'warning' : 'ready'),
       stale,
+      serviceReadyForChat,
+      chatBlockingReasons,
+      contentWarnings,
       readyForFormalTask: (readiness?.quality.readyForFormalTask ?? (receipt?.allowed !== false && receiptPresent))
         && retrievalStatus.toLowerCase() !== 'blocked'
         && !stale,
@@ -1490,9 +1555,9 @@ function readinessSummaryChips(bundle: MeetingBundle): MeetingReadinessChip[] {
   const rows = deriveMeetingAgentReadinessRows(bundle)
   const r1Rows = rows.filter((row) => R1_AGENT_SEQUENCE.includes(row.agentId))
   const runtimeRunning = bundle.meetingReadiness?.summary.runtimeRunning ?? rows.filter((row) => runtimeHealthLabel(row.runtimeHealth) === 'running').length
-  const receiptsPresent = bundle.meetingReadiness?.summary.receiptPresent ?? r1Rows.filter((row) => row.receiptPresent).length
+  const serviceReadyForChat = bundle.meetingReadiness?.summary.serviceReadyForChat ?? rows.filter((row) => row.serviceReadyForChat).length
+  const formalTaskReady = bundle.meetingReadiness?.summary.formalTaskReady ?? rows.filter((row) => row.readyForFormalTask).length
   const reportsPresent = bundle.meetingReadiness?.summary.r1ReportsPresent ?? r1Rows.filter((row) => row.r1ReportPresent).length
-  const blockingProfiles = bundle.meetingReadiness?.summary.blockingProfiles || r1Rows.filter((row) => row.blockingReasons.length).map((row) => row.agentId)
   return [
     {
       id: 'runtime',
@@ -1501,22 +1566,22 @@ function readinessSummaryChips(bundle: MeetingBundle): MeetingReadinessChip[] {
       detail: 'Hermes runtime running count',
     },
     {
-      id: 'receipt',
-      label: `Receipts ${receiptsPresent}/${R1_AGENT_SEQUENCE.length}`,
-      tone: receiptsPresent >= R1_AGENT_SEQUENCE.length ? 'success' : receiptsPresent > 0 ? 'warning' : 'error',
-      detail: 'R1 startup-retrieval receipt readiness',
+      id: 'chat-service',
+      label: `Chat ${serviceReadyForChat}/${IC_AGENT_OPTIONS.length}`,
+      tone: serviceReadyForChat >= IC_AGENT_OPTIONS.length ? 'success' : serviceReadyForChat > 0 ? 'warning' : 'error',
+      detail: 'Gateway, role contract, shared collection and private collection readiness',
+    },
+    {
+      id: 'formal-task',
+      label: `Formal ${formalTaskReady}/${IC_AGENT_OPTIONS.length}`,
+      tone: formalTaskReady >= IC_AGENT_OPTIONS.length ? 'success' : formalTaskReady > 0 ? 'warning' : 'neutral',
+      detail: 'Current Deal formal-task gate readiness',
     },
     {
       id: 'report',
       label: `R1 reports ${reportsPresent}/${R1_AGENT_SEQUENCE.length}`,
       tone: reportsPresent >= R1_AGENT_SEQUENCE.length ? 'success' : reportsPresent > 0 ? 'warning' : 'neutral',
       detail: 'Formal R1 report readiness',
-    },
-    {
-      id: 'blocking',
-      label: `Blocking ${blockingProfiles.length}`,
-      tone: blockingProfiles.length ? 'error' : 'success',
-      detail: blockingProfiles.length ? blockingProfiles.map((agentId) => agentLabel(agentId)).join(' / ') : 'No blocking profiles reported',
     },
   ]
 }
@@ -1537,16 +1602,22 @@ export function deriveAgentReadinessChips(
       detail: `${row.label} runtime: ${row.runtimeHealth}`,
     },
     {
-      id: 'receipt',
-      label: row.receiptPresent === null ? 'Receipt n/a' : `Receipt ${row.receiptPresent ? 'present' : 'missing'}`,
-      tone: row.receiptPresent === null ? 'neutral' : row.receiptPresent ? 'success' : 'warning',
-      detail: row.receiptId || (row.receiptPresent === null ? 'This profile does not require R1 startup retrieval' : 'Startup retrieval receipt status'),
+      id: 'chat-service',
+      label: `Chat ${row.serviceReadyForChat ? 'ready' : 'unavailable'}`,
+      tone: row.serviceReadyForChat ? 'success' : 'error',
+      detail: row.chatBlockingReasons.length ? row.chatBlockingReasons.join(' / ') : 'Gateway, role contract and both Milvus collections are connected',
     },
     {
-      id: 'report',
-      label: row.r1ReportPresent === null ? 'R1 report n/a' : `R1 report ${row.r1ReportPresent ? 'present' : 'missing'}`,
-      tone: row.r1ReportPresent === null ? 'neutral' : row.r1ReportPresent ? 'success' : 'warning',
-      detail: row.r1ReportRecommendation || (row.r1ReportScore === null ? 'Formal R1 report status' : `score ${row.r1ReportScore}`),
+      id: 'dual-kb',
+      label: `Milvus ${row.sharedConnected && row.privateConnected ? 'connected' : 'degraded'}`,
+      tone: row.sharedConnected && row.privateConnected ? 'success' : 'error',
+      detail: `${row.sharedCollection}: ${row.sharedConnected ? 'connected' : 'disconnected'} / ${row.privateCollection}: ${row.privateConnected ? 'connected' : 'disconnected'}`,
+    },
+    {
+      id: 'formal-task',
+      label: `Formal ${row.readyForFormalTask ? 'ready' : 'blocked'}`,
+      tone: row.readyForFormalTask ? 'success' : 'neutral',
+      detail: row.blockingReasons.length ? row.blockingReasons.join(' / ') : 'Current Deal formal-task gate readiness',
     },
     {
       id: 'profile',

@@ -47,6 +47,15 @@ test('MarkdownBlocks routes audit detail sections before normal headings', () =>
   assert.ok(genericHeadingBranch > auditBranch)
 })
 
+test('MarkdownBlocks uses the shared heading renderer for compact bold-only labels', () => {
+  const markdownBlocks = source('MarkdownBlocks.tsx')
+
+  assert.match(markdownBlocks, /matchBoldHeading/)
+  assert.match(markdownBlocks, /<h3 key=\{`bold-heading-/)
+  assert.match(markdownBlocks, /className=\{`chat-heading chat-heading-3/)
+  assert.match(markdownBlocks, /!matchBoldHeading\(lines\[i\]\.trim\(\)\)/)
+})
+
 test('ChatMessageList exposes structured audit trace ids without audit detail body text', () => {
   const chatList = readFileSync(resolve(rendererDir, '../ChatMessageList.tsx'), 'utf-8')
   const structuredTraceBranch = chatList.indexOf('const structuredAuditTraceId')

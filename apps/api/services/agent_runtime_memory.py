@@ -29,6 +29,30 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]{1,120})\]\((?:/api/[^)]+|https?://[^)]+)\)")
 
 
+def memory_context_kwargs(
+    profile: str,
+    request_context: Any | None,
+) -> dict[str, Any]:
+    """Build the canonical agent-memory scope from a runtime request context."""
+
+    raw = agent_runtime_context.context_dict(request_context)
+    kwargs: dict[str, Any] = {"profile": profile}
+    identity = agent_runtime_context.research_identity(raw)
+    if identity:
+        kwargs["research_identity"] = identity
+
+    if agent_memory_service.infer_agent_group(profile) == "primary_market":
+        domain = str(raw.get("domain") or "").strip().lower().replace("-", "_")
+        deal_id = str(raw.get("deal_id") or "").strip()
+        if domain == "primary_market" and deal_id:
+            kwargs["deal_id"] = deal_id
+            project_id = str(raw.get("project_id") or "").strip()
+            if project_id:
+                kwargs["project_id"] = project_id
+            kwargs["visibility"] = "project_shared"
+    return kwargs
+
+
 def _strip_local_memory_blocks(text: str) -> str:
     return _LOCAL_MEMORY_BLOCK_RE.sub("", text or "")
 
@@ -192,6 +216,7 @@ async def refresh_session_memory(
     enabled_profiles: Collection[str],
     session_id_matches_profile: Callable[[str, str], bool],
     build_summary: Callable[[Sequence[MemoryMessage]], str],
+    request_context: Any | None = None,
     load_record: Callable[
         [AsyncSession, str, str],
         Awaitable[ChatSessionMemory | None],
@@ -237,7 +262,10 @@ async def refresh_session_memory(
         record.updated_at = clock()
         async_session.add(record)
     await async_session.commit()
-    context = agent_memory_service.context_from_session_id(session_id, profile=profile)
+    context = agent_memory_service.context_from_session_id(
+        session_id,
+        **memory_context_kwargs(profile, request_context),
+    )
     if context is None:
         return
     try:
@@ -287,10 +315,19 @@ async def ensure_local_memory_context(
     profile: str,
     session_id: str,
     *,
-    refresh_memory: Callable[[AsyncSession, str, str], Awaitable[None]],
+    request_context: Any | None = None,
+    refresh_memory: Callable[..., Awaitable[None]],
     load_context: Callable[[AsyncSession, str, str], Awaitable[str | None]],
 ) -> str | None:
-    await refresh_memory(async_session, profile, session_id)
+    if request_context is None:
+        await refresh_memory(async_session, profile, session_id)
+    else:
+        await refresh_memory(
+            async_session,
+            profile,
+            session_id,
+            request_context=request_context,
+        )
     return await load_context(async_session, profile, session_id)
 
 
@@ -310,10 +347,12 @@ async def ensure_agent_memory_context(
 ) -> str | None:
     if len(str(message or "").strip()) < max(0, min_query_chars):
         return None
-    identity = agent_runtime_context.research_identity(research_context)
-    context_kwargs: dict[str, Any] = {"profile": profile}
-    if identity:
-        context_kwargs["research_identity"] = identity
+    context_kwargs = memory_context_kwargs(profile, research_context)
+    if (
+        agent_memory_service.infer_agent_group(profile) == "primary_market"
+        and not context_kwargs.get("deal_id")
+    ):
+        return None
     context = context_from_session_id(session_id, **context_kwargs)
     if context is None:
         return None
@@ -350,6 +389,7 @@ __all__ = [
     "load_local_memory_context",
     "load_session_memory_record",
     "local_memory_is_available",
+    "memory_context_kwargs",
     "refresh_session_memory",
     "select_local_memory_source_messages",
 ]

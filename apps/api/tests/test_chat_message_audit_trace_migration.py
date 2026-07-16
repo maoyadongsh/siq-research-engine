@@ -1,7 +1,9 @@
+import asyncio
 from types import SimpleNamespace
 
 import anyio
 import database
+import pytest
 from models import ChatMessage
 from services.agent_runtime_message_identity import decode_research_identity_snapshot
 from sqlalchemy import create_engine, inspect, text
@@ -34,6 +36,7 @@ def test_save_message_adds_nullable_audit_trace_column_to_legacy_sqlite(tmp_path
 
             monkeypatch.setattr(runtime.agent_memory_service, "context_from_session_id", lambda *_args, **_kwargs: None)
             monkeypatch.setattr(runtime, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
+            monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
             async with AsyncSession(engine) as session:
                 await runtime.save_message(
                     session,
@@ -146,6 +149,9 @@ def test_runtime_migration_uses_idempotent_postgresql_identity_column_ddl(monkey
 
         async def exec(self, statement):
             self.statements.append(str(statement))
+            if "information_schema.columns" in str(statement):
+                return SimpleNamespace(all=lambda: [])
+            return SimpleNamespace(all=lambda: [])
 
         async def commit(self):
             self.commits += 1
@@ -167,6 +173,148 @@ def test_runtime_migration_uses_idempotent_postgresql_identity_column_ddl(monkey
     )
     assert session.commits == 1
     assert session.rollbacks == 0
+
+
+def test_runtime_migration_skips_postgresql_ddl_when_columns_exist(monkeypatch):
+    columns = [("attachments_json",), ("audit_trace_id",), ("research_identity_json",)]
+
+    class FakeAsyncSession:
+        def __init__(self):
+            self.statements = []
+            self.commits = 0
+
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        async def exec(self, statement):
+            value = str(statement)
+            self.statements.append(value)
+            return SimpleNamespace(all=lambda: columns if "information_schema.columns" in value else [])
+
+        async def commit(self):
+            self.commits += 1
+
+        async def rollback(self):
+            raise AssertionError("rollback should not be called")
+
+    async def run_case():
+        session = FakeAsyncSession()
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK", None)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP", None)
+        await agent_runtime_attachments._ensure_chatmessage_attachments_column(session)
+        return session
+
+    session = anyio.run(run_case)
+
+    assert len(session.statements) == 1
+    assert "information_schema.columns" in session.statements[0]
+    assert not any(statement.startswith("ALTER TABLE") for statement in session.statements)
+    assert session.commits == 0
+
+
+def test_runtime_wrapper_does_not_reset_attachment_owner_readiness(monkeypatch):
+    class NoDatabaseSession:
+        def get_bind(self):
+            raise AssertionError("ready owner must not touch the database")
+
+    async def run_case():
+        monkeypatch.setattr(runtime, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", True)
+        await runtime._ensure_chatmessage_attachments_column(NoDatabaseSession())
+
+    anyio.run(run_case)
+
+    assert runtime._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY is True
+    assert agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY is True
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_runtime_migration_is_single_flight_for_concurrent_sessions(dialect, monkeypatch):
+    state = SimpleNamespace(ddl=[], probes=0, commits=0, rollbacks=0)
+
+    class FakeAsyncSession:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name=dialect))
+
+        async def exec(self, statement):
+            value = str(statement)
+            await anyio.sleep(0)
+            if value.startswith("PRAGMA"):
+                state.probes += 1
+                return SimpleNamespace(all=lambda: [])
+            if "information_schema.columns" in value:
+                state.probes += 1
+                return SimpleNamespace(all=lambda: [])
+            if value.startswith("ALTER TABLE"):
+                state.ddl.append(value)
+            return SimpleNamespace(all=lambda: [])
+
+        async def commit(self):
+            state.commits += 1
+
+        async def rollback(self):
+            state.rollbacks += 1
+
+    async def run_case():
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK", None)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP", None)
+        await asyncio.gather(
+            *(agent_runtime_attachments._ensure_chatmessage_attachments_column(FakeAsyncSession()) for _ in range(7))
+        )
+
+    anyio.run(run_case)
+
+    assert state.probes == 1
+    assert len(state.ddl) == 3
+    assert len(set(state.ddl)) == 3
+    assert state.commits == 1
+    assert state.rollbacks == 0
+    assert agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY is True
+
+
+@pytest.mark.parametrize("dialect", ["sqlite", "postgresql"])
+def test_runtime_migration_can_retry_after_failure(dialect, monkeypatch):
+    state = SimpleNamespace(fail_next_ddl=True, ddl=0, commits=0, rollbacks=0)
+
+    class FakeAsyncSession:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name=dialect))
+
+        async def exec(self, statement):
+            value = str(statement)
+            if value.startswith("PRAGMA") or "information_schema.columns" in value:
+                return SimpleNamespace(all=lambda: [])
+            if value.startswith("ALTER TABLE"):
+                state.ddl += 1
+                if state.fail_next_ddl:
+                    state.fail_next_ddl = False
+                    raise RuntimeError("simulated ddl failure")
+            return SimpleNamespace(all=lambda: [])
+
+        async def commit(self):
+            state.commits += 1
+
+        async def rollback(self):
+            state.rollbacks += 1
+
+    async def run_case():
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY", False)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK", None)
+        monkeypatch.setattr(agent_runtime_attachments, "_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP", None)
+        with pytest.raises(RuntimeError, match="simulated ddl failure"):
+            await agent_runtime_attachments._ensure_chatmessage_attachments_column(FakeAsyncSession())
+        assert agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY is False
+        assert not agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK.locked()
+        await agent_runtime_attachments._ensure_chatmessage_attachments_column(FakeAsyncSession())
+
+    anyio.run(run_case)
+
+    assert state.ddl == 4
+    assert state.commits == 1
+    assert state.rollbacks == 1
+    assert agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY is True
 
 
 def test_startup_migration_adds_query_indexes_to_legacy_tables(tmp_path, monkeypatch):

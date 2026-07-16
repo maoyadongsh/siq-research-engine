@@ -485,11 +485,20 @@ def _get_profile(profile: HermesProfile | str) -> dict:
     return hermes_profile_config(profile)
 
 
-def _hermes_auth_header() -> str:
-    raw = os.getenv("HERMES_API_KEY") or os.getenv("HERMES_TOKEN") or ""
+def _hermes_auth_header(profile: HermesProfile | str) -> str:
+    canonical = normalize_profile(profile)
+    env_prefix = HERMES_ENV_PREFIXES[canonical]
+    raw = _env_value(
+        f"SIQ_HERMES_{env_prefix}_API_KEY",
+        f"HERMES_{env_prefix}_API_KEY",
+        f"SIQ_HERMES_{env_prefix}_TOKEN",
+        f"HERMES_{env_prefix}_TOKEN",
+        "HERMES_API_KEY",
+        "HERMES_TOKEN",
+    )
     token = raw.strip()
     if not token:
-        raise RuntimeError("HERMES_API_KEY or HERMES_TOKEN must be set before calling Hermes.")
+        raise RuntimeError(f"Hermes API key is not configured for profile {canonical}.")
     return token if token.lower().startswith("bearer ") else f"Bearer {token}"
 
 
@@ -525,7 +534,7 @@ async def create_run(
     """POST /v1/runs, return run_id."""
     cfg = _get_profile(profile)
     headers = {
-        "Authorization": _hermes_auth_header(),
+        "Authorization": _hermes_auth_header(profile),
         "Content-Type": "application/json",
     }
     payload = _build_run_payload(
@@ -551,7 +560,7 @@ async def stream_run(
 ) -> AsyncGenerator[StreamEvent, None]:
     """Subscribe to run SSE events, yield structured StreamEvent objects."""
     cfg = _get_profile(profile)
-    headers = {"Authorization": _hermes_auth_header()}
+    headers = {"Authorization": _hermes_auth_header(profile)}
     url = f"{cfg['base']}/{run_id}/events"
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -631,7 +640,7 @@ async def stop_run(
 ) -> dict:
     """POST /v1/runs/{run_id}/stop and return the Hermes response."""
     cfg = _get_profile(profile)
-    headers = {"Authorization": _hermes_auth_header()}
+    headers = {"Authorization": _hermes_auth_header(profile)}
     url = f"{cfg['base']}/{run_id}/stop"
 
     async with httpx.AsyncClient(timeout=10.0) as client:

@@ -7,7 +7,6 @@ from typing import Any
 
 import httpx
 
-
 RERANK_RESULT_SCHEMA = "siq_rerank_result_v1"
 DEFAULT_RERANK_PATH = "/v1/rerank"
 MAX_RERANK_CANDIDATES = 50
@@ -53,6 +52,13 @@ def rerank_candidates(
     endpoint = _endpoint()
     configured = bool(endpoint)
     should_run = _env_bool("SIQ_RERANK_ENABLED") if enabled is None else bool(enabled)
+    model = os.getenv("SIQ_RERANK_MODEL") or os.getenv("RERANK_MODEL") or "Qwen3-VL-Reranker-2B"
+    requested_top_n = max(1, int(top_n)) if top_n is not None else len(normalized_candidates)
+    observability = {
+        "model": model,
+        "candidate_count": len(normalized_candidates),
+        "top_n": requested_top_n,
+    }
     if not should_run:
         return {
             "schema_version": RERANK_RESULT_SCHEMA,
@@ -60,6 +66,7 @@ def rerank_candidates(
             "configured": configured,
             "status": "skipped",
             "reason": "rerank_disabled",
+            **observability,
             "results": normalized_candidates[: top_n or len(normalized_candidates)],
             "result_count": min(len(normalized_candidates), top_n or len(normalized_candidates)),
         }
@@ -70,6 +77,7 @@ def rerank_candidates(
             "configured": configured,
             "status": "skipped",
             "reason": "no_candidates",
+            **observability,
             "results": [],
             "result_count": 0,
         }
@@ -80,6 +88,7 @@ def rerank_candidates(
             "configured": False,
             "status": "skipped",
             "reason": "rerank_endpoint_not_configured",
+            **observability,
             "results": normalized_candidates[: top_n or len(normalized_candidates)],
             "result_count": min(len(normalized_candidates), top_n or len(normalized_candidates)),
         }
@@ -90,7 +99,7 @@ def rerank_candidates(
             response = client.post(
                 endpoint,
                 json={
-                    "model": os.getenv("SIQ_RERANK_MODEL") or os.getenv("RERANK_MODEL"),
+                    "model": model,
                     "query": str(query or "")[:600],
                     "documents": documents,
                     "top_n": top_n,
@@ -107,6 +116,7 @@ def rerank_candidates(
             "configured": True,
             "status": "error",
             "reason": "rerank_request_failed",
+            **observability,
             "error": str(exc)[:300],
             "results": normalized_candidates[: top_n or len(normalized_candidates)],
             "result_count": min(len(normalized_candidates), top_n or len(normalized_candidates)),
@@ -134,6 +144,7 @@ def rerank_candidates(
         "configured": True,
         "status": "completed",
         "reason": None,
+        **observability,
         "results": reranked,
         "result_count": len(reranked),
     }

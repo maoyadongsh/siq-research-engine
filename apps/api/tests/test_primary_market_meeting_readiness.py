@@ -8,9 +8,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from services import deal_store
-from services import hermes_client
-from services import primary_market_meeting_readiness
+from services import deal_store, hermes_client, primary_market_meeting_readiness
 
 
 def _write_ndjson(path: Path, rows: list[dict]) -> None:
@@ -33,7 +31,27 @@ def _write_finance_receipt_and_report(package_dir: Path) -> None:
                     "query": "Ready Robotics 财务",
                     "project_tag": "DEAL-MEET-READY-001",
                     "shared_hits": 1,
-                    "private_hits": 0,
+                    "private_hits": 3,
+                    "retrieval_collections": ["siq_deal_shared", "siq_ic_finance_auditor"],
+                    "physical_collections": {
+                        "siq_deal_shared": "ic_collaboration_shared",
+                        "siq_ic_finance_auditor": "ic_finance_auditor",
+                    },
+                    "retrieval_status": "ready",
+                    "shared_ready": True,
+                    "private_ready": True,
+                    "rerank_ready": True,
+                    "retrieval_strategy": {"mode": "dense_bm25_rrf"},
+                    "collection_candidate_counts": {
+                        "siq_deal_shared": 12,
+                        "siq_ic_finance_auditor": 20,
+                    },
+                    "rerank": {
+                        "status": "completed",
+                        "candidate_count": 16,
+                        "result_count": 8,
+                    },
+                    "gate": {"allowed_to_speak": True, "blocking_reasons": []},
                     "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
                     "gaps": [],
                     "evidence_hits": [{"evidence_id": evidence_id}],
@@ -124,6 +142,15 @@ def test_build_meeting_readiness_aggregates_contract_receipt_report_and_quality(
     assert finance["startup_receipt"]["present"] is True
     assert finance["startup_receipt"]["receipt_id"] == "startup-siq_ic_finance_auditor-R1-001"
     assert finance["startup_receipt"]["shared_hits"] == 1
+    assert finance["startup_receipt"]["shared_collection"] == "ic_collaboration_shared"
+    assert finance["startup_receipt"]["private_collection"] == "ic_finance_auditor"
+    assert finance["startup_receipt"]["rerank_ready"] is True
+    assert finance["startup_receipt"]["rerank_status"] == "completed"
+    assert finance["startup_receipt"]["rerank_candidate_count"] == 16
+    assert finance["startup_receipt"]["retrieval_strategy"]["mode"] == "dense_bm25_rrf"
+    assert finance["startup_receipt"]["dual_kb_connected"] is False
+    assert finance["service_ready_for_chat"] is False
+    assert "shared_collection_unavailable" in finance["chat_blocking_reasons"]
     assert finance["r1_report"]["present"] is True
     assert finance["r1_report"]["score"] == 82
     assert "startup_receipt_missing" not in finance["quality"]["blocking_reasons"]
@@ -166,6 +193,55 @@ def test_build_meeting_readiness_without_runtime_skips_hermes_probe(tmp_path):
     assert readiness["summary"]["runtime_running"] == 0
 
 
+def test_build_meeting_readiness_keeps_chat_service_ready_when_shared_deal_content_is_empty(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(primary_market_meeting_readiness, "_tcp_port_open", lambda *args, **kwargs: True)
+    deal_store.create_deal_package(
+        deal_id="DEAL-MEET-READY-001",
+        company_name="Ready Robotics",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-MEET-READY-001"
+    _write_finance_receipt_and_report(package_dir)
+    receipts = deal_store.read_json(package_dir / "phases" / "startup_receipts.json", {})
+    finance = receipts["agents"]["siq_ic_finance_auditor"]
+    finance.update({
+        "shared_hits": 0,
+        "shared_connected": True,
+        "private_connected": True,
+        "collections_connected": True,
+        "chat_retrieval_ready": True,
+        "chat_retrieval_status": "ready",
+        "shared_ready": False,
+        "retrieval_status": "blocked",
+        "evidence_snapshot_hash": None,
+        "gate": {
+            "allowed_to_speak": False,
+            "blocking_reasons": ["deal_scoped_shared_kb_empty"],
+        },
+    })
+    deal_store.write_json(package_dir / "phases" / "startup_receipts.json", receipts)
+
+    readiness = primary_market_meeting_readiness.build_meeting_readiness(
+        "DEAL-MEET-READY-001",
+        wiki_root=tmp_path,
+    )
+
+    by_profile = {item["profile_id"]: item for item in readiness["profiles"]}
+    finance_readiness = by_profile["siq_ic_finance_auditor"]
+    assert finance_readiness["startup_receipt"]["shared_connected"] is True
+    assert finance_readiness["startup_receipt"]["private_connected"] is True
+    assert finance_readiness["service_ready_for_chat"] is True
+    assert finance_readiness["chat_blocking_reasons"] == []
+    assert finance_readiness["ready_for_formal_task"] is False
+    assert "deal_scoped_shared_kb_empty" in finance_readiness["content_warnings"]
+    assert "evidence_snapshot_unavailable" in finance_readiness["content_warnings"]
+    assert readiness["summary"]["service_ready_for_chat"] == 1
+    assert readiness["summary"]["formal_task_ready"] == 0
+
+
 def test_build_meeting_readiness_missing_deal_raises_file_not_found(tmp_path):
     with pytest.raises(FileNotFoundError):
         primary_market_meeting_readiness.build_meeting_readiness(
@@ -173,3 +249,38 @@ def test_build_meeting_readiness_missing_deal_raises_file_not_found(tmp_path):
             wiki_root=tmp_path,
             include_runtime=False,
         )
+
+
+def test_readiness_surfaces_persisted_stale_receipt_without_freshness_field(tmp_path):
+    deal_store.create_deal_package(
+        deal_id="DEAL-MEET-STALE-001",
+        company_name="Stale Robotics",
+        wiki_root=tmp_path,
+    )
+    package_dir = tmp_path / "deals" / "DEAL-MEET-STALE-001"
+    deal_store.write_json(
+        package_dir / "phases" / "startup_receipts.json",
+        {
+            "agents": {
+                "siq_ic_legal_scanner": {
+                    "receipt_id": "startup-siq_ic_legal_scanner-R1-001",
+                    "agent_id": "siq_ic_legal_scanner",
+                    "readiness_status": "stale",
+                    "stale_reason": "evidence_snapshot_changed",
+                    "gate": {
+                        "allowed_to_speak": False,
+                        "blocking_reasons": ["evidence_snapshot_changed"],
+                    },
+                }
+            }
+        },
+    )
+
+    receipt = primary_market_meeting_readiness._read_receipt(
+        "DEAL-MEET-STALE-001",
+        "siq_ic_legal_scanner",
+        wiki_root=tmp_path,
+    )
+
+    assert receipt["stale"] is True
+    assert receipt["blocking_reasons"] == ["evidence_snapshot_changed"]

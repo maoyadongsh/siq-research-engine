@@ -23,7 +23,6 @@ source_env_if_exists() {
 
 DEFAULT_ENV_FILE="$SIQ_PROJECT_ROOT/infra/env/local.env"
 LEGACY_ENV_FILE="$SIQ_PROJECT_ROOT/env/backend.env"
-ENV_FILE="${SIQ_ENV_FILE:-$DEFAULT_ENV_FILE}"
 LOADED_LEGACY_ENV=0
 warn_legacy_env_path() {
     local env_file=$1
@@ -31,18 +30,24 @@ warn_legacy_env_path() {
     echo "[WARN] Prefer infra/env/local.env; copy needed values there during migration."
 }
 
-if source_env_if_exists "$ENV_FILE"; then
-    case "$ENV_FILE" in
-        "$LEGACY_ENV_FILE"|"$SIQ_PROJECT_ROOT"/env/*|env/*)
-            LOADED_LEGACY_ENV=1
-            warn_legacy_env_path "$ENV_FILE"
-            ;;
-    esac
-elif [[ -z "${SIQ_ENV_FILE:-}" ]]; then
+if [[ -n "${SIQ_ENV_FILE:-}" ]]; then
+    if source_env_if_exists "$SIQ_ENV_FILE"; then
+        case "$SIQ_ENV_FILE" in
+            "$LEGACY_ENV_FILE"|"$SIQ_PROJECT_ROOT"/env/*|env/*)
+                LOADED_LEGACY_ENV=1
+                warn_legacy_env_path "$SIQ_ENV_FILE"
+                ;;
+        esac
+    fi
+else
     if source_env_if_exists "$LEGACY_ENV_FILE"; then
         LOADED_LEGACY_ENV=1
         warn_legacy_env_path "$LEGACY_ENV_FILE"
     fi
+    # During migration, local.env may contain only new feature flags. Load it
+    # after the legacy file so it overrides migrated values without hiding
+    # still-required credentials that have not moved yet.
+    source_env_if_exists "$DEFAULT_ENV_FILE" || true
 fi
 
 LEGACY_FRONTEND_ENV_FILE="$SIQ_PROJECT_ROOT/env/frontend-dev.env"
@@ -101,12 +106,14 @@ ENABLE_IC_HERMES="${SIQ_ENABLE_IC_HERMES:-1}"
 START_MARKET_REPORT_FINDER="${SIQ_START_MARKET_REPORT_FINDER:-0}"
 START_MARKET_REPORT_RULES="${SIQ_START_MARKET_REPORT_RULES:-0}"
 START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
+START_MINERU_SERVICES="$(printf '%s' "${SIQ_START_MINERU_SERVICES:-auto}" | tr '[:upper:]' '[:lower:]')"
 case "${SIQ_MEETINGS_ENABLED:-0}" in
     1|true|TRUE|yes|YES|on|ON) START_MEETING_SERVICES=1 ;;
     *) START_MEETING_SERVICES=0 ;;
 esac
 VECTOR_INGEST_PORT="${SIQ_VECTOR_INGEST_PORT:-${VECTOR_INGEST_PORT:-7862}}"
 VECTOR_INGEST_DIR="${SIQ_VECTOR_INGEST_ROOT:-${VECTOR_INGEST_ROOT:-$SIQ_PROJECT_ROOT/scripts/vector-index/milvus-ingestion}}"
+VECTOR_INGEST_PYTHON="${SIQ_VECTOR_INGEST_PYTHON:-python3}"
 VECTOR_INGEST_COLLECTION="${SIQ_MILVUS_COLLECTION:-${MILVUS_COLLECTION:-ic_collaboration_shared}}"
 DEPLOYMENT_PROFILE="$(printf '%s' "${SIQ_DEPLOYMENT_PROFILE:-development}" | tr '[:upper:]' '[:lower:]')"
 IS_PRODUCTION=0
@@ -174,6 +181,8 @@ if [[ "$LOADED_LEGACY_ENV" == "1" ]]; then
 fi
 export SIQ_PDF2MD_API_BASE="${SIQ_PDF2MD_API_BASE:-http://127.0.0.1:$PDF2MD_PORT}"
 export SIQ_DOCUMENT_PARSER_API_BASE="${SIQ_DOCUMENT_PARSER_API_BASE:-http://127.0.0.1:$DOCUMENT_PARSER_PORT}"
+export MINERU_API_URL="${MINERU_API_URL:-http://127.0.0.1:8003}"
+export VLM_API_URL="${VLM_API_URL:-http://127.0.0.1:8002}"
 export SIQ_REPORT_FINDER_BASE="${SIQ_REPORT_FINDER_BASE:-http://127.0.0.1:$REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_FINDER_BASE="${SIQ_MARKET_REPORT_FINDER_BASE:-http://127.0.0.1:$MARKET_REPORT_FINDER_PORT}"
 export SIQ_MARKET_REPORT_RULES_BASE="${SIQ_MARKET_REPORT_RULES_BASE:-http://127.0.0.1:$MARKET_REPORT_RULES_PORT}"
@@ -181,7 +190,9 @@ export SIQ_REPORT_FINDER_HEALTH_URL="${SIQ_REPORT_FINDER_HEALTH_URL:-http://127.
 export SIQ_MARKET_REPORT_FINDER_HEALTH_URL="${SIQ_MARKET_REPORT_FINDER_HEALTH_URL:-http://127.0.0.1:$MARKET_REPORT_FINDER_PORT/health}"
 export SIQ_MARKET_REPORT_RULES_HEALTH_URL="${SIQ_MARKET_REPORT_RULES_HEALTH_URL:-http://127.0.0.1:$MARKET_REPORT_RULES_PORT/healthz}"
 export SIQ_PDF2MD_HEALTH_URL="${SIQ_PDF2MD_HEALTH_URL:-http://127.0.0.1:$PDF2MD_PORT/api/ready}"
+export SIQ_PDF2MD_LIVENESS_URL="${SIQ_PDF2MD_LIVENESS_URL:-http://127.0.0.1:$PDF2MD_PORT/api/health}"
 export SIQ_DOCUMENT_PARSER_HEALTH_URL="${SIQ_DOCUMENT_PARSER_HEALTH_URL:-http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/ready}"
+export SIQ_DOCUMENT_PARSER_LIVENESS_URL="${SIQ_DOCUMENT_PARSER_LIVENESS_URL:-http://127.0.0.1:$DOCUMENT_PARSER_PORT/api/health}"
 export SIQ_PUBLIC_ORIGIN="${SIQ_PUBLIC_ORIGIN:-http://localhost:$FRONTEND_PORT}"
 export SIQ_HERMES_ASSISTANT_PORT="$HERMES_ASSISTANT_PORT"
 export SIQ_HERMES_FACTCHECKER_PORT="$HERMES_FACTCHECKER_PORT"
@@ -198,8 +209,28 @@ export SIQ_HERMES_IC_RISK_PORT="$HERMES_IC_RISK_PORT"
 export SIQ_ENABLE_IC_HERMES="$ENABLE_IC_HERMES"
 export SIQ_VECTOR_INGEST_ROOT="$VECTOR_INGEST_DIR"
 export SIQ_VECTOR_INGEST_PORT="$VECTOR_INGEST_PORT"
+export SIQ_VECTOR_INGEST_PYTHON="$VECTOR_INGEST_PYTHON"
 export SIQ_VECTOR_INGEST_URL="${SIQ_VECTOR_INGEST_URL:-http://127.0.0.1:$VECTOR_INGEST_PORT}"
 export SIQ_VECTOR_INGEST_HEALTH_URL="${SIQ_VECTOR_INGEST_HEALTH_URL:-http://127.0.0.1:$VECTOR_INGEST_PORT/}"
+export SIQ_EMBEDDING_BASE_URL="${SIQ_EMBEDDING_BASE_URL:-${SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL:-http://127.0.0.1:8013}}"
+export SIQ_AGENT_MEMORY_ENABLED="${SIQ_AGENT_MEMORY_ENABLED:-true}"
+export SIQ_AGENT_MEMORY_WRITE_ENABLED="${SIQ_AGENT_MEMORY_WRITE_ENABLED:-true}"
+export SIQ_AGENT_MEMORY_RETRIEVAL_ENABLED="${SIQ_AGENT_MEMORY_RETRIEVAL_ENABLED:-true}"
+export SIQ_AGENT_MEMORY_EXTRACTION_ENABLED="${SIQ_AGENT_MEMORY_EXTRACTION_ENABLED:-true}"
+export SIQ_AGENT_MEMORY_VECTOR_BACKEND="${SIQ_AGENT_MEMORY_VECTOR_BACKEND:-milvus}"
+export SIQ_AGENT_MEMORY_MILVUS_COLLECTION="${SIQ_AGENT_MEMORY_MILVUS_COLLECTION:-siq_agent_memory_active}"
+export SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL="${SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL:-$SIQ_EMBEDDING_BASE_URL}"
+export SIQ_AGENT_MEMORY_EMBEDDING_MODEL="${SIQ_AGENT_MEMORY_EMBEDDING_MODEL:-Qwen3-VL-Embedding-2B}"
+export SIQ_AGENT_MEMORY_EMBEDDING_DIM="${SIQ_AGENT_MEMORY_EMBEDDING_DIM:-1024}"
+export SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY="${SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY:-user_private}"
+export SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY="${SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY:-project_shared}"
+export SIQ_VECTOR_RETRIEVAL_ENABLED="${SIQ_VECTOR_RETRIEVAL_ENABLED:-1}"
+export SIQ_RERANK_ENABLED="${SIQ_RERANK_ENABLED:-1}"
+export SIQ_RERANK_BASE_URL="${SIQ_RERANK_BASE_URL:-http://127.0.0.1:8001}"
+export SIQ_RERANK_MODEL="${SIQ_RERANK_MODEL:-Qwen3-VL-Reranker-2B}"
+export SIQ_PRIMARY_MARKET_MILVUS_INDEX_ENABLED="${SIQ_PRIMARY_MARKET_MILVUS_INDEX_ENABLED:-1}"
+export SIQ_MILVUS_HOST="${SIQ_MILVUS_HOST:-${MILVUS_HOST:-127.0.0.1}}"
+export SIQ_MILVUS_PORT="${SIQ_MILVUS_PORT:-${MILVUS_PORT:-19530}}"
 export SIQ_DEPLOYMENT_PROFILE="$DEPLOYMENT_PROFILE"
 export SIQ_BACKEND_HOST="$BACKEND_HOST"
 
@@ -266,6 +297,113 @@ wait_for_http() {
     done
 }
 
+wait_for_json_true() {
+    local url=$1 name=$2 field=$3 timeout=${4:-30} header=${5:-}
+    local i=0 payload=""
+    while true; do
+        if payload="$(curl -sf ${header:+-H "$header"} "$url" 2>/dev/null)" && \
+           python3 "$SIQ_PROJECT_ROOT/scripts/maintenance/check_health_flag.py" \
+               "$field" <<<"$payload"; then
+            return 0
+        fi
+        ((i++)) || true
+        if (( i >= timeout )); then
+            die "$name 在 ${timeout}s 内未报告 $field=true ($url)"
+        fi
+        sleep 1
+    done
+}
+
+is_exact_local_http_endpoint() {
+    local url="${1%/}" port=$2
+    [[ "$url" == "http://127.0.0.1:$port" || "$url" == "http://localhost:$port" ]]
+}
+
+wait_for_model_endpoint() {
+    local url=$1 timeout=${2:-180}
+    local deadline=$((SECONDS + timeout))
+    while (( SECONDS < deadline )); do
+        if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+systemd_user_unit_loaded() {
+    local unit=$1 load_state
+    load_state="$(systemctl --user show "$unit" --property=LoadState --value 2>/dev/null || true)"
+    [[ "$load_state" == "loaded" ]]
+}
+
+local_mineru_start_failure() {
+    local message=$1
+    if [[ "$START_MINERU_SERVICES" == "1" ]]; then
+        die "$message"
+    fi
+    warn "$message；继续以 PDF 解析降级模式启动。"
+}
+
+ensure_local_mineru_services() {
+    case "$START_MINERU_SERVICES" in
+        0)
+            log "已禁用本机 MinerU 自动恢复 (SIQ_START_MINERU_SERVICES=0)。"
+            return 0
+            ;;
+        1|auto) ;;
+        *) die "SIQ_START_MINERU_SERVICES 仅支持 auto、0 或 1。" ;;
+    esac
+
+    if ! is_exact_local_http_endpoint "$VLM_API_URL" 8002 || \
+       ! is_exact_local_http_endpoint "$MINERU_API_URL" 8003; then
+        if [[ "$START_MINERU_SERVICES" == "1" ]]; then
+            die "SIQ_START_MINERU_SERVICES=1 只支持本机 8002/8003；远端 MinerU 必须由外部平台管理。"
+        fi
+        log "MinerU/VLM 使用非本机地址；start_all 不接管外部模型服务。"
+        return 0
+    fi
+
+    if curl -fsS --max-time 3 "$VLM_API_URL/v1/models" >/dev/null 2>&1 && \
+       curl -fsS --max-time 3 "$MINERU_API_URL/health" >/dev/null 2>&1; then
+        ok "本机 MinerU/VLM 已就绪，复用现有服务。"
+        return 0
+    fi
+
+    if ! command -v systemctl >/dev/null 2>&1; then
+        local_mineru_start_failure "本机 MinerU/VLM 未就绪，且缺少 systemctl"
+        return 0
+    fi
+
+    if ! curl -fsS --max-time 3 "$VLM_API_URL/v1/models" >/dev/null 2>&1; then
+        if ! systemd_user_unit_loaded mineru-vllm.service; then
+            local_mineru_start_failure "本机 VLM 未就绪，且 mineru-vllm.service 未安装"
+            return 0
+        fi
+        log "恢复本机 MinerU VLM (mineru-vllm.service)..."
+        if ! systemctl --user start mineru-vllm.service || \
+           ! wait_for_model_endpoint "$VLM_API_URL/v1/models" 180; then
+            local_mineru_start_failure "本机 MinerU VLM 在 180 秒内未就绪"
+            return 0
+        fi
+    fi
+
+    if ! curl -fsS --max-time 3 "$MINERU_API_URL/health" >/dev/null 2>&1; then
+        if ! systemd_user_unit_loaded mineru-api.service; then
+            local_mineru_start_failure "本机 MinerU API 未就绪，且 mineru-api.service 未安装"
+            return 0
+        fi
+        log "恢复本机 MinerU API (mineru-api.service)..."
+        if ! systemctl --user start mineru-api.service || \
+           ! wait_for_model_endpoint "$MINERU_API_URL/health" 120; then
+            local_mineru_start_failure "本机 MinerU API 在 120 秒内未就绪"
+            return 0
+        fi
+    fi
+
+    ok "本机 MinerU/VLM 已就绪；PDF 与文档解析可接受新任务。"
+}
+
 run_document_parser_supervised() {
     local child_pid=0
     trap 'if [[ ${child_pid:-0} -gt 0 ]]; then kill "$child_pid" 2>/dev/null || true; wait "$child_pid" 2>/dev/null || true; fi; exit 0' TERM INT
@@ -295,6 +433,7 @@ require_free_port() {
         die "$name 端口 $port 已被占用。请释放端口或通过 SIQ_*_PORT 覆盖。"
     fi
 }
+
 
 # ---------- 依赖检查 ----------
 for cmd in uv node npm; do
@@ -335,9 +474,13 @@ if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     fi
 fi
 if [[ "$START_VECTOR_INGEST" != "0" ]]; then
-    command -v python3 &>/dev/null || die "缺少命令: python3。无法启动 Milvus 向量入库控制台。"
+    command -v "$VECTOR_INGEST_PYTHON" &>/dev/null || die "缺少向量入库 Python: $VECTOR_INGEST_PYTHON。"
+    "$VECTOR_INGEST_PYTHON" -c 'import gradio, pymilvus' &>/dev/null || \
+        die "向量入库 Python 缺少 gradio 或 pymilvus: $VECTOR_INGEST_PYTHON。"
     require_free_port "$VECTOR_INGEST_PORT" "Milvus 向量入库控制台"
 fi
+
+ensure_local_mineru_services
 
 start_hermes_gateway() {
     local profile=$1 label=$2
@@ -374,7 +517,7 @@ if [[ "$START_VECTOR_INGEST" != "0" ]]; then
         SIQ_MILVUS_COLLECTION="$VECTOR_INGEST_COLLECTION" \
         GRADIO_SERVER_PORT="$VECTOR_INGEST_PORT" \
         GRADIO_SERVER_PORT_MAX="$VECTOR_INGEST_PORT" \
-        exec python3 ingest_final.py
+        exec "$VECTOR_INGEST_PYTHON" ingest_final.py
     ) &
     pids+=($!)
 fi
@@ -487,21 +630,37 @@ if [[ "$START_MEETING_SERVICES" == "1" ]]; then
     ok "会议转写独立服务组已启动"
 fi
 
-log "等待 PDF 解析服务就绪..."
+log "等待 PDF 解析服务进程就绪..."
 PDF2MD_HEALTH_HEADER=""
 if [[ -n "${PDF2MD_ACCESS_TOKEN:-}" ]]; then
     PDF2MD_HEALTH_HEADER="X-PDF2MD-Token: $PDF2MD_ACCESS_TOKEN"
 fi
-wait_for_http "http://localhost:$PDF2MD_PORT/api/ready" "PDF 解析服务" 30 "$PDF2MD_HEALTH_HEADER"
-ok "PDF 解析服务已就绪  -> http://localhost:$PDF2MD_PORT/api/ready"
+wait_for_http "http://localhost:$PDF2MD_PORT/api/health" "PDF 解析服务进程" 30 "$PDF2MD_HEALTH_HEADER"
+wait_for_json_true "http://localhost:$PDF2MD_PORT/api/health" \
+    "PDF 解析本地队列" "queue_worker_ready" 30 "$PDF2MD_HEALTH_HEADER"
+ok "PDF 解析服务进程已就绪  -> http://localhost:$PDF2MD_PORT/api/health"
+if curl -sf ${PDF2MD_HEALTH_HEADER:+-H "$PDF2MD_HEALTH_HEADER"} \
+    "http://localhost:$PDF2MD_PORT/api/ready" >/dev/null 2>&1; then
+    ok "PDF 解析能力已就绪  -> http://localhost:$PDF2MD_PORT/api/ready"
+else
+    warn "PDF 解析服务处于降级状态（MinerU/推理依赖未就绪）；跳过新 PDF 解析，但不影响问答、API 与前端。"
+fi
 
-log "等待通用文档解析服务就绪..."
+log "等待通用文档解析服务进程就绪..."
 DOCUMENT_PARSER_HEALTH_HEADER=""
 if [[ -n "${SIQ_DOCUMENT_PARSER_ACCESS_TOKEN:-}" ]]; then
     DOCUMENT_PARSER_HEALTH_HEADER="X-Document-Parser-Token: $SIQ_DOCUMENT_PARSER_ACCESS_TOKEN"
 fi
-wait_for_http "http://localhost:$DOCUMENT_PARSER_PORT/api/ready" "通用文档解析服务" 30 "$DOCUMENT_PARSER_HEALTH_HEADER"
-ok "通用文档解析服务已就绪  -> http://localhost:$DOCUMENT_PARSER_PORT/api/ready"
+wait_for_http "http://localhost:$DOCUMENT_PARSER_PORT/api/health" "通用文档解析服务进程" 30 "$DOCUMENT_PARSER_HEALTH_HEADER"
+wait_for_json_true "http://localhost:$DOCUMENT_PARSER_PORT/api/health" \
+    "通用文档解析本地队列" "worker_ready" 30 "$DOCUMENT_PARSER_HEALTH_HEADER"
+ok "通用文档解析服务进程已就绪  -> http://localhost:$DOCUMENT_PARSER_PORT/api/health"
+if curl -sf ${DOCUMENT_PARSER_HEALTH_HEADER:+-H "$DOCUMENT_PARSER_HEALTH_HEADER"} \
+    "http://localhost:$DOCUMENT_PARSER_PORT/api/ready" >/dev/null 2>&1; then
+    ok "通用文档解析能力已就绪  -> http://localhost:$DOCUMENT_PARSER_PORT/api/ready"
+else
+    warn "通用文档解析服务处于降级状态（上游解析依赖未就绪）；跳过新文档解析，但不影响问答、API 与前端。"
+fi
 
 if [[ "$START_HERMES_GATEWAYS" != "0" ]]; then
     log "等待 Hermes 智能体网关就绪..."
@@ -551,9 +710,9 @@ if [[ "$START_MARKET_REPORT_RULES" != "0" ]]; then
 fi
 curl -s "http://localhost:$BACKEND_PORT/health"
 echo ""
-curl -s ${PDF2MD_HEALTH_HEADER:+-H "$PDF2MD_HEALTH_HEADER"} "http://localhost:$PDF2MD_PORT/api/ready"
+curl -s ${PDF2MD_HEALTH_HEADER:+-H "$PDF2MD_HEALTH_HEADER"} "http://localhost:$PDF2MD_PORT/api/health"
 echo ""
-curl -s ${DOCUMENT_PARSER_HEALTH_HEADER:+-H "$DOCUMENT_PARSER_HEALTH_HEADER"} "http://localhost:$DOCUMENT_PARSER_PORT/api/ready"
+curl -s ${DOCUMENT_PARSER_HEALTH_HEADER:+-H "$DOCUMENT_PARSER_HEALTH_HEADER"} "http://localhost:$DOCUMENT_PARSER_PORT/api/health"
 echo ""
 curl -s "http://localhost:$BACKEND_PORT/api/wiki/companies/list" | head -c 200
 echo ""

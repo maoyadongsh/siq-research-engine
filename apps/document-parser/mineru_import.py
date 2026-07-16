@@ -57,9 +57,17 @@ def _source_file_from_dir(task_id: str, source_dir: Path, metadata: Any) -> Sour
         filename = str(task.get("filename") or metadata.get("filename") or metadata.get("result_file") or "").strip()
         source_files = metadata.get("source_files") if isinstance(metadata.get("source_files"), dict) else {}
         pdf_info = source_files.get("pdf") if isinstance(source_files.get("pdf"), dict) else {}
-        pdf_path = Path(str(pdf_info.get("path") or "")) if pdf_info.get("path") else None
-        if pdf_path and pdf_path.exists():
-            return _source_file_from_path(pdf_path, filename or pdf_path.name)
+        raw_pdf_path = str(pdf_info.get("path") or "").strip().replace("\\", "/")
+        if raw_pdf_path:
+            relative_pdf = Path(raw_pdf_path)
+            if not relative_pdf.is_absolute() and ".." not in relative_pdf.parts:
+                pdf_path = (source_dir / relative_pdf).resolve()
+                try:
+                    pdf_path.relative_to(source_dir)
+                except ValueError:
+                    pdf_path = source_dir / "__invalid_source_path__"
+                if not pdf_path.is_symlink() and pdf_path.is_file():
+                    return _source_file_from_path(pdf_path, filename or pdf_path.name)
     for candidate in sorted(source_dir.iterdir()):
         if candidate.is_file() and candidate.suffix.lower() in {".pdf", ".md", ".txt"}:
             chosen_name = filename if filename and Path(filename).suffix.lower() == candidate.suffix.lower() else candidate.name
@@ -98,15 +106,56 @@ def _source_file_from_path(path: Path, filename: str) -> SourceFile:
 
 def _normalize_content_list(payload: Any) -> list[dict[str, Any]]:
     payload = _decode_json_string(payload)
+    values: list[Any]
     if isinstance(payload, dict):
         for key in ("content_list", "items", "blocks"):
             value = _decode_json_string(payload.get(key))
             if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return []
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    return []
+                values = value
+                break
+        else:
+            values = []
+    elif isinstance(payload, list):
+        values = payload
+    else:
+        values = []
+    normalized: list[dict[str, Any]] = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        sanitized = dict(item)
+        for key in ("img_path", "image_path", "source_image_path"):
+            if key in sanitized:
+                sanitized[key] = _safe_image_path(sanitized.get(key))
+        normalized.append(sanitized)
+    return normalized
+
+
+def _safe_image_path(value: Any) -> str:
+    raw_path = str(value or "").strip().replace("\\", "/")
+    if not raw_path:
+        return ""
+    path = Path(raw_path)
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "images":
+        return ""
+    return path.as_posix()
+
+
+def _existing_image_path(source_dir: Path, value: Any) -> str:
+    relative = _safe_image_path(value)
+    if not relative:
+        return ""
+    candidate = source_dir / relative
+    current = source_dir
+    for part in Path(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            return ""
+    try:
+        candidate.resolve().relative_to(source_dir.resolve())
+    except ValueError:
+        return ""
+    return relative if candidate.is_file() else ""
 
 
 def _content_items_to_blocks(task_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -214,7 +263,7 @@ def _tables_from_enhanced(task_id: str, enhanced: Any, existing_count: int) -> l
                     "column_count": column_count,
                     "empty_cell_ratio": 0.0,
                 },
-                "source_image_path": str(item.get("source_image_path") or ""),
+                "source_image_path": _safe_image_path(item.get("source_image_path")),
             }
         )
     return tables
@@ -226,9 +275,10 @@ def _figures_from_content_list(task_id: str, items: list[dict[str, Any]], source
     for index, item in enumerate(items, start=1):
         if str(item.get("type") or "") != "image":
             continue
-        image_path = str(item.get("img_path") or item.get("image_path") or "")
-        if image_path and not (source_dir / image_path).exists():
-            image_path = ""
+        image_path = _existing_image_path(
+            source_dir,
+            item.get("img_path") or item.get("image_path"),
+        )
         image_id = f"img-{image_order:06d}"
         page_number = int(item.get("page_number") or item.get("page_idx") or item.get("page_index") or 0) + (0 if item.get("page_number") else 1)
         caption = _join_text(item.get("image_caption") or item.get("caption") or [])
@@ -274,9 +324,7 @@ def _figures_from_enhanced(task_id: str, enhanced: Any, source_dir: Path, existi
     for offset, item in enumerate(enhanced["image_semantic_blocks"], start=1):
         if not isinstance(item, dict):
             continue
-        image_path = str(item.get("image_path") or "")
-        if image_path and not (source_dir / image_path).exists():
-            image_path = ""
+        image_path = _existing_image_path(source_dir, item.get("image_path"))
         image_id = f"img-enh-{existing_count + offset:06d}"
         page_number = int(item.get("pdf_page_number") or item.get("page_number") or 1)
         caption = _join_text(item.get("caption") or [])
@@ -320,8 +368,13 @@ def copy_mineru_images_to_result(source_dir: Path, result_dir: Path) -> None:
     target_dir = result_dir / "images" / "original"
     target_dir.mkdir(parents=True, exist_ok=True)
     for path in images_dir.rglob("*"):
-        if path.is_file():
-            shutil.copy2(path, target_dir / safe_client_filename(path.name))
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            path.resolve().relative_to(images_dir.resolve())
+        except ValueError:
+            continue
+        shutil.copy2(path, target_dir / safe_client_filename(path.name))
 
 
 def rewrite_image_paths_to_result(output: ParseOutput) -> None:

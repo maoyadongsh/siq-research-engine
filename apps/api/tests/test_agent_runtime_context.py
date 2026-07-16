@@ -253,6 +253,46 @@ def test_forced_context_company_dir_respects_root_boundary(tmp_path):
     assert agent_runtime_context.forced_context_company_dir(blocked, wiki_root=wiki_root) is None
 
 
+def test_secondary_company_context_rejects_deal_wiki_path(tmp_path):
+    wiki_root = tmp_path / "wiki"
+    deal_dir = wiki_root / "deals" / "DEAL-SECRET-001"
+    deal_dir.mkdir(parents=True)
+    context = {"force_company": True, "company": {"dir": str(deal_dir)}}
+
+    assert agent_runtime_context.forced_context_company_dir(context, wiki_root=wiki_root) is None
+
+    analysis_dir, _work_dir = _write_analysis_package(deal_dir)
+    assert analysis_dir.is_dir()
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            {"company": {"dir": str(deal_dir), "code": "DEAL"}},
+            read_json_file=lambda _path: {"ok": True},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+
+
+def test_secondary_company_context_requires_companies_as_top_level_namespace(tmp_path):
+    wiki_root = tmp_path / "wiki"
+    nested_company_dir = wiki_root / "deals" / "DEAL-SECRET-001" / "companies" / "600000-Fake"
+    nested_company_dir.mkdir(parents=True)
+    context = {
+        "force_company": True,
+        "company": {"dir": str(nested_company_dir), "code": "600000", "name": "Fake"},
+    }
+
+    assert agent_runtime_context.forced_context_company_dir(context, wiki_root=wiki_root) is None
+    assert (
+        agent_runtime_context.analysis_completed_artifacts(
+            context,
+            read_json_file=lambda _path: {"ok": True},
+            wiki_root=wiki_root,
+        )
+        is None
+    )
+
+
 def test_analysis_completed_artifacts_and_format_context(tmp_path):
     wiki_root = tmp_path / "wiki"
     analysis_dir, _work_dir = _write_analysis_package(wiki_root / "companies" / "600104-SAIC")

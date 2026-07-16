@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from services import deal_evidence, deal_store
+from services import deal_evidence, deal_store, ic_agent_runtime, ic_startup_retrieval
 
 DEAL_ID = "DEAL-PMM-EVIDENCE-001"
 DOCUMENT_ID = "DOC-0123456789ABCDEF"
@@ -30,6 +30,7 @@ def _package(tmp_path: Path) -> Path:
         "parser_kind": "pdf",
         "original_filename": "issuer-prospectus.pdf",
         "sha256": "a" * 64,
+        "storage_path": f"data_room/raw/{DOCUMENT_ID}.pdf",
         "current_parse_run_id": PARSE_RUN_ID,
         "analysis_source_status": "ready_with_restrictions",
     }
@@ -77,6 +78,11 @@ def test_build_pdf_archive_evidence_preserves_source_page_and_capability(tmp_pat
     assert items[0]["parse_run_id"] == PARSE_RUN_ID
     assert items[0]["page"] == 5
     assert items[0]["bbox"] == [1, 2, 3, 4]
+    assert items[0]["wiki_path"].startswith("wiki/company/materials/prospectus/")
+    assert items[0]["original_path"] == f"data_room/raw/{DOCUMENT_ID}.pdf"
+    assert items[0]["original_sha256"] == "a" * 64
+    assert items[0]["parser_source_path"].startswith(f"parsed_documents/{DOCUMENT_ID}/")
+    assert len(items[0]["parser_source_sha256"]) == 64
     assert items[0]["source_url"].startswith(f"/api/primary-market/projects/{DEAL_ID}/")
     finance = next(item for item in items if item["dimension"] == "finance")
     assert finance["evidence_type"] == "restricted"
@@ -93,8 +99,18 @@ def test_refresh_snapshot_marks_old_receipt_stale(tmp_path: Path):
                 "siq_ic_finance_auditor": {
                     "agent_id": "siq_ic_finance_auditor",
                     "evidence_snapshot_hash": "old-hash",
+                    "gate": {"allowed_to_speak": True, "blocking_reasons": []},
                 }
-            }
+            },
+            "by_agent_phase": {
+                "siq_ic_finance_auditor": {
+                    "R1": {
+                        "agent_id": "siq_ic_finance_auditor",
+                        "evidence_snapshot_hash": "old-hash",
+                        "gate": {"allowed_to_speak": True, "blocking_reasons": []},
+                    }
+                }
+            },
         },
     )
 
@@ -104,6 +120,36 @@ def test_refresh_snapshot_marks_old_receipt_stale(tmp_path: Path):
     receipt = receipts["agents"]["siq_ic_finance_auditor"]
     assert receipt["readiness_status"] == "stale"
     assert receipt["current_evidence_snapshot_hash"] == snapshot["snapshot_hash"]
+    assert receipt["gate"] == {
+        "allowed_to_speak": False,
+        "blocking_reasons": ["evidence_snapshot_changed"],
+    }
+    history_receipt = receipts["by_agent_phase"]["siq_ic_finance_auditor"]["R1"]
+    assert history_receipt["readiness_status"] == "stale"
+    assert history_receipt["gate"]["allowed_to_speak"] is False
+
+    runtime_receipt = ic_agent_runtime._receipt_agents(package)["siq_ic_finance_auditor"]
+    assert runtime_receipt["readiness_status"] == "stale"
+    assert runtime_receipt["gate"]["allowed_to_speak"] is False
+    assert ic_agent_runtime._startup_receipt_gate_blocks(runtime_receipt) == [
+        "startup_receipt_gate_blocked:evidence_snapshot_changed"
+    ]
+
+
+def test_receipt_with_snapshot_is_stale_when_current_snapshot_is_missing():
+    freshness = ic_startup_retrieval.evaluate_startup_receipt_freshness(
+        {
+            "evidence_snapshot_hash": "a" * 64,
+            "source_ids": ["PM:OLD"],
+        },
+        {"evidence_snapshot_hash": None, "source_ids": []},
+    )
+
+    assert freshness["stale"] is True
+    assert freshness["reasons"] == [
+        "evidence_snapshot_changed",
+        "active_source_set_changed",
+    ]
 
 
 def test_snapshot_change_marks_confirmed_r4_for_review(tmp_path: Path):

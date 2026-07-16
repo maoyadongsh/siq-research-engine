@@ -1101,6 +1101,44 @@ export interface DealEvidenceQualityReport {
   documents?: Record<string, unknown>[]
 }
 
+export interface DealEvidenceSnapshot {
+  schema_version?: string | null
+  deal_id?: string | null
+  snapshot_hash?: string | null
+  created_at?: string | null
+  built_at?: string | null
+  [key: string]: unknown
+}
+
+export interface DealEvidenceMilvusIndexReceipt {
+  schema_version?: string | null
+  receipt_id?: string | null
+  status?: 'indexed' | 'unchanged' | 'failed' | string | null
+  deal_id?: string | null
+  project_tag?: string | null
+  logical_collection?: string | null
+  physical_collection?: string | null
+  snapshot_hash?: string | null
+  index_digest?: string | null
+  embedding_model?: string | null
+  vector_field?: string | null
+  vector_dimensions?: number | null
+  counts?: {
+    items?: number | null
+    existing?: number | null
+    inserted?: number | null
+    deleted?: number | null
+    [key: string]: number | null | undefined
+  }
+  error?: string | null
+  created_at?: string | null
+  [key: string]: unknown
+}
+
+export interface DealEvidenceMilvusIndexResponse {
+  milvus_index: DealEvidenceMilvusIndexReceipt
+}
+
 export interface DealEvidenceFilters {
   q?: string | null
   dimension?: string | null
@@ -1125,13 +1163,38 @@ export interface DealEvidenceAvailableFilters {
 }
 
 export interface DealEvidenceResponse {
+  deal_id?: string | null
+  status?: string | null
+  counts?: Record<string, number>
   evidence_index: Record<string, unknown>
   quality_report: DealEvidenceQualityReport
   items_preview: DealEvidenceItem[]
+  evidence_snapshot?: DealEvidenceSnapshot | null
+  milvus_index?: DealEvidenceMilvusIndexReceipt | null
+  wiki?: PrimaryMarketWikiProjection | null
+  wiki_projection?: PrimaryMarketWikiProjection | null
   matched_count?: number
   total_item_count?: number
   applied_filters?: DealEvidenceFilters
   available_filters?: DealEvidenceAvailableFilters
+}
+
+export interface PrimaryMarketWikiProjection {
+  status?: string | null
+  wiki_status?: string | null
+  namespace?: string | null
+  deal_id?: string | null
+  path?: string | null
+  wiki_path?: string | null
+  catalog_path?: string | null
+  catalog_hash?: string | null
+  projection_path?: string | null
+  projected_at?: string | null
+  generated_at?: string | null
+  evidence_snapshot_hash?: string | null
+  counts?: Record<string, number>
+  entries?: Record<string, unknown>[]
+  [key: string]: unknown
 }
 
 export interface DealEvidenceIngestDryRun {
@@ -1171,6 +1234,9 @@ export interface DealDocument {
   parser_result_url?: string | null
   parser_page_url?: string | null
   parse_bound_at?: string | null
+  wiki_status?: string | null
+  wiki_path?: string | null
+  wiki_projection?: PrimaryMarketWikiProjection | null
   created_at?: string | null
   created_by?: { id?: number | string | null; username?: string | null } | null
 }
@@ -1242,6 +1308,8 @@ export interface PrimaryMarketMaterialParseRun {
   updated_at?: string | null
   failure_code?: string | null
   failure_message?: string | null
+  retryable?: boolean | null
+  non_retryable?: boolean | null
   [key: string]: unknown
 }
 
@@ -1259,6 +1327,8 @@ export interface PrimaryMarketMaterial extends DealDocument {
   document_profile?: string | null
   document_status?: string | null
   parse_status?: string | null
+  parse_retryable?: boolean | null
+  parse_error?: string | null
   analysis_source_status?: string | null
   index_status?: string | null
   market?: string | null
@@ -1286,6 +1356,33 @@ export interface PrimaryMarketMaterial extends DealDocument {
   reused?: boolean | null
 }
 
+export interface PrimaryMarketMaterialPipelineStage {
+  status?: string | null
+  retryable?: boolean | null
+  error?: string | null
+  snapshot_hash?: string | null
+  path?: string | null
+  task_id?: string | null
+  run_id?: string | null
+  counts?: Record<string, number>
+  physical_collection?: string | null
+  [key: string]: unknown
+}
+
+export interface PrimaryMarketMaterialPipeline {
+  schema_version?: string | null
+  deal_id?: string | null
+  document_id?: string | null
+  stages?: {
+    upload?: PrimaryMarketMaterialPipelineStage
+    parse?: PrimaryMarketMaterialPipelineStage
+    wiki?: PrimaryMarketMaterialPipelineStage
+    evidence?: PrimaryMarketMaterialPipelineStage
+    milvus?: PrimaryMarketMaterialPipelineStage
+  }
+  [key: string]: unknown
+}
+
 export interface PrimaryMarketMaterialsResponse {
   schema_version?: string | null
   deal_id?: string | null
@@ -1302,7 +1399,12 @@ export interface PrimaryMarketMaterialResponse {
   parse_run?: PrimaryMarketMaterialParseRun | null
   current_parse_run?: PrimaryMarketMaterialParseRun | null
   analysis_source?: PrimaryMarketAnalysisSource | null
-  evidence_snapshot?: Record<string, unknown> | null
+  evidence_snapshot?: DealEvidenceSnapshot | null
+  evidence?: DealEvidenceResponse | null
+  milvus_index?: DealEvidenceMilvusIndexReceipt | null
+  wiki?: PrimaryMarketWikiProjection | null
+  wiki_projection?: PrimaryMarketWikiProjection | null
+  pipeline?: PrimaryMarketMaterialPipeline | null
   quality?: PrimaryMarketMaterialQualityReport | null
   status_url?: string | null
   reused?: boolean
@@ -1331,6 +1433,21 @@ export interface PrimaryMarketMaterialParseStatusResponse {
   capabilities?: PrimaryMarketMaterialCapabilities | null
   quality_report?: PrimaryMarketMaterialQualityReport | null
   analysis_source?: PrimaryMarketAnalysisSource | null
+  evidence?: DealEvidenceResponse | null
+  evidence_snapshot?: DealEvidenceSnapshot | null
+  milvus_index?: DealEvidenceMilvusIndexReceipt | null
+  wiki?: PrimaryMarketWikiProjection | null
+  wiki_projection?: PrimaryMarketWikiProjection | null
+  pipeline?: PrimaryMarketMaterialPipeline | null
+  promotion?: {
+    status?: string | null
+    wiki?: PrimaryMarketWikiProjection | null
+    evidence?: DealEvidenceResponse | null
+    evidence_snapshot?: DealEvidenceSnapshot | null
+    milvus_index?: DealEvidenceMilvusIndexReceipt | null
+    warning?: string | null
+    [key: string]: unknown
+  } | null
   [key: string]: unknown
 }
 

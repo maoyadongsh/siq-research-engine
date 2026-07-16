@@ -1,6 +1,5 @@
 import stat
 
-import pytest
 import yaml
 
 from services import hermes_model_control as control
@@ -234,6 +233,27 @@ def test_model_list_includes_local_and_cloud_options(tmp_path, monkeypatch):
         assert control.MODEL_OPTIONS[mode]["label"] in reply
 
 
+def test_model_catalog_is_safe_and_apply_rejects_unknown_modes(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path)
+    monkeypatch.setattr(control, "PROFILE_ORDER", ("siq_assistant",))
+    _patch_profile(monkeypatch, config_path)
+
+    catalog = control.model_catalog()
+
+    assert [item["mode"] for item in catalog["options"]] == list(control.CANONICAL_MODEL_MODES)
+    assert all(set(item) == {"mode", "label", "kind", "model", "provider"} for item in catalog["options"])
+    assert "base_url" not in str(catalog)
+    assert catalog["profiles"]["siq_assistant"]["mode"] == "qwen36"
+
+    try:
+        control.apply_profile_model_mode("siq_assistant", "unconfigured-model")
+    except ValueError as exc:
+        assert "Unsupported Hermes model mode" in str(exc)
+    else:
+        raise AssertionError("unknown model mode must be rejected")
+
+
 def test_infer_model_mode_recognizes_nemotron_endpoint():
     assert (
         control.infer_model_mode(
@@ -259,17 +279,28 @@ def test_status_question_mentioning_gemma4_does_not_switch(tmp_path, monkeypatch
     assert data["model"]["provider"] == control.QWEN36_PROVIDER
 
 
-def test_model_catalog_is_safe_and_apply_rejects_unknown_modes(tmp_path, monkeypatch):
-    config_path = tmp_path / "config.yaml"
-    _write_config(config_path)
-    _patch_profile(monkeypatch, config_path)
+def test_business_model_and_legal_compliance_questions_are_not_model_control():
+    questions = (
+        "合规清单",
+        "请评估当前模型风险",
+        "模型合规性",
+        "请检查当前财务模型是否合规",
+        "当前估值模型的主要风险是什么？",
+        "业务模型是否符合监管要求？",
+        "请核验数据合规、知识产权权属和交割条件",
+    )
 
-    catalog = control.model_catalog()
+    for question in questions:
+        assert control.maybe_handle_model_control(question, "siq_ic_legal_scanner") is None
 
-    assert [item["mode"] for item in catalog["options"]] == list(control.CANONICAL_MODEL_MODES)
-    assert all(set(item) == {"mode", "label", "kind", "model", "provider"} for item in catalog["options"])
-    assert "base_url" not in str(catalog)
-    assert catalog["profiles"]["siq_assistant"]["mode"] == "qwen36"
 
-    with pytest.raises(ValueError, match="Unsupported Hermes model mode"):
-        control.apply_profile_model_mode("siq_assistant", "unconfigured-model")
+def test_context_enriched_prompt_cannot_replay_model_control_from_history():
+    prompt = "\n".join(
+        [
+            "你是法务合规委员，正在 SIQ 一级市场投研决策流程中发言。",
+            "最近会议纪要：SIQ IC Legal Scanner 当前使用云端 StepFun。",
+            "人类主持人问题：请基于当前项目列出法务合规尽调清单。",
+        ]
+    )
+
+    assert control.maybe_handle_model_control(prompt, "siq_ic_legal_scanner") is None

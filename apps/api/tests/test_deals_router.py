@@ -17,10 +17,12 @@ from services import (  # noqa: E402
     deal_disputes,
     deal_documents,
     deal_evidence,
+    deal_evidence_milvus,
     deal_phase_artifacts,
     deal_reports,
     deal_store,
     ic_agent_runtime,
+    primary_market_wiki,
 )
 
 
@@ -1225,6 +1227,44 @@ def test_deals_router_bind_parser_task_requires_task_access(monkeypatch, tmp_pat
     assert detail.json()["document"]["parse_task_id"] is None
 
 
+def test_deals_router_indexes_evidence_to_milvus(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    assert client.post(
+        "/api/deals",
+        json={"deal_id": "DEAL-ROUTER-MILVUS", "company_name": "Router Robotics"},
+    ).status_code == 200
+    calls = []
+
+    def fake_index(deal_id, **kwargs):
+        calls.append({"deal_id": deal_id, **kwargs})
+        return {
+            "schema_version": "siq_deal_evidence_milvus_index_receipt_v1",
+            "receipt_id": "PMMILVUS-ROUTER",
+            "status": "indexed",
+            "deal_id": deal_id,
+            "project_tag": deal_id,
+            "physical_collection": "ic_collaboration_shared",
+            "created_by": kwargs["created_by"],
+        }
+
+    monkeypatch.setattr(deal_evidence_milvus, "index_deal_evidence_milvus", fake_index)
+
+    response = client.post("/api/deals/DEAL-ROUTER-MILVUS/evidence/index-milvus")
+
+    assert response.status_code == 200
+    assert response.json()["milvus_index"] == {
+        "schema_version": "siq_deal_evidence_milvus_index_receipt_v1",
+        "receipt_id": "PMMILVUS-ROUTER",
+        "status": "indexed",
+        "deal_id": "DEAL-ROUTER-MILVUS",
+        "project_tag": "DEAL-ROUTER-MILVUS",
+        "physical_collection": "ic_collaboration_shared",
+        "created_by": {"id": 7, "username": "ic-admin"},
+    }
+    assert calls[0]["deal_id"] == "DEAL-ROUTER-MILVUS"
+    assert calls[0]["created_by"] == {"id": 7, "username": "ic-admin"}
+
+
 def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     for name in (
         "SIQ_VECTOR_RETRIEVAL_ENABLED",
@@ -1260,6 +1300,7 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(primary_market_wiki, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
 
     bind = client.post(
         f"/api/deals/DEAL-ROUTER-007/documents/{document_id}/bind-parser-task",
@@ -1405,7 +1446,8 @@ def test_deals_router_build_and_read_evidence(monkeypatch, tmp_path):
     assert serial_dry_run_json["planned_agent_ids"] == []
     assert serial_dry_run_json["hermes_called"] is False
     assert serial_dry_run_json["blocking_reasons"] == [
-        "startup_receipt_gate_blocked:embedding_endpoint_not_configured"
+        "startup_receipt_gate_blocked:embedding_endpoint_not_configured",
+        "startup_receipt_gate_blocked:rerank_endpoint_not_configured",
     ]
 
     workflow_run_blocked = client.post(

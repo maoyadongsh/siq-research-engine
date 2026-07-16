@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SHARED_ROOT = REPO_ROOT / "agents" / "hermes" / "profiles" / "siq_ic_shared"
+SERVICES_ROOT = REPO_ROOT / "apps" / "api" / "services"
 
 
 def _json(name: str) -> dict:
@@ -92,6 +95,60 @@ def test_all_ic_profiles_require_distinct_private_background_collections() -> No
         assert profile["boundaries"]
         private_collections.append(retrieval["private_collection"])
     assert len(set(private_collections)) == 7
+
+
+def test_ic_profile_service_and_skill_whitelists_resolve_to_real_assets() -> None:
+    matrix = _json("ic_profile_matrix.json")
+    skill_sets: set[tuple[str, ...]] = set()
+    for profile in matrix["profiles"]:
+        services = profile.get("independent_services")
+        skill_ids = profile.get("skill_ids")
+        assert services, f"missing independent_services: {profile['id']}"
+        assert skill_ids, f"missing skill_ids: {profile['id']}"
+        assert len(services) == len(set(services))
+        assert len(skill_ids) == len(set(skill_ids))
+        for service_id in services:
+            assert (SERVICES_ROOT / f"{service_id}.py").is_file(), (
+                f"unknown independent service for {profile['id']}: {service_id}"
+            )
+        for skill_id in skill_ids:
+            skill_root = SHARED_ROOT / "skills" / skill_id
+            assert (skill_root / "SKILL.md").is_file(), (
+                f"unknown skill for {profile['id']}: {skill_id}"
+            )
+        skill_sets.add(tuple(skill_ids))
+    assert len(skill_sets) == len(matrix["profiles"]), "every IC role needs its own skill whitelist"
+
+
+def test_primary_market_namespace_policy_excludes_secondary_market_company_wiki() -> None:
+    policy = _json("ic_profile_matrix.json")["namespace_policy"]
+    assert policy["namespace"] == "primary_market"
+    assert policy["allowed_roots"] == ["data/wiki/deals/{deal_id}"]
+    assert policy["forbidden_roots"] == ["data/wiki/companies"]
+    assert "must not read" in policy["rule"]
+
+
+def test_gateway_syncs_role_skill_whitelist_and_runtime_tool_governance() -> None:
+    script = (REPO_ROOT / "scripts" / "hermes" / "run_gateway.sh").read_text(encoding="utf-8")
+    assert "sync_profile_runtime_config.py" in script
+    assert 'profile.get("skill_ids")' in script
+    assert "--delete-excluded" in script
+    assert "HERMES_BUNDLED_SKILLS" in script
+    assert ".no-bundled-skills" in script
+    assert '"$canonical" == siq_ic_*' in script
+
+
+def test_ic_gateways_cannot_bypass_backend_retrieval_with_local_filesystem_tools() -> None:
+    matrix = _json("ic_profile_matrix.json")
+    profiles_root = SHARED_ROOT.parent
+    forbidden = {"terminal", "file", "code_execution"}
+    for profile in matrix["profiles"]:
+        config = yaml.safe_load(
+            (profiles_root / profile["id"] / "config.yaml").read_text(encoding="utf-8")
+        )
+        assert forbidden.isdisjoint(set(config.get("toolsets") or [])), profile["id"]
+        assert forbidden <= set((config.get("agent") or {}).get("disabled_toolsets") or []), profile["id"]
+        assert {"web", "skills"} <= set(config.get("toolsets") or []), profile["id"]
 
 
 def test_all_profile_output_schema_paths_exist_and_match_schema_ids() -> None:

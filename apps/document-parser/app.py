@@ -14,10 +14,13 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 import uuid
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request as UrlRequest, build_opener
 
 from batch_download_payload import (
@@ -54,15 +57,22 @@ from mineru_candidates_payload import build_mineru_import_candidates_payload
 from mineru_import import copy_mineru_images_to_result, parse_mineru_output_dir, rewrite_image_paths_to_result
 from page_metadata import load_mineru_page_metadata, merge_layout_page_metadata
 from path_config import resolve_app_paths
+from pdf_parser_artifact_transport import (
+    ARTIFACT_API_CONTRACT_VERSION,
+    artifact_transport_status,
+    cleanup_staged_pdf_parser_artifacts,
+)
 from provider_router import parse_source
 from providers.simple import (
     _bridge_task_id,
     _json_request as pdf_parser_json_request,
+    _materialize_pdf_parser_result,
     _pdf_parser_api_base,
     _pdf_parser_headers,
-    _pdf_parser_result_dir,
-    _result_dir_looks_ready,
+    _pdf_parser_results_root,
+    cancel_pdf_parser_bridge_task,
     cleanup_pdf_parser_bridge_output,
+    cleanup_pdf_parser_bridge_resources,
 )
 from request_args import parse_int_arg, query_flag_enabled
 from source_image_payload import build_source_image_payload, find_figure_by_image_id
@@ -70,7 +80,14 @@ from source_page_payload import build_source_page_payload
 from status_payload import build_task_status_payload
 from table_merge import TABLE_RELATION_RULESET_VERSION, build_logical_tables, build_table_relations
 from table_relations_payload import build_table_relations_response_payload
-from task_store import DEFAULT_MARKET_SCOPE, DEFAULT_OWNER_ID, DEFAULT_TENANT_ID, TaskStore, now_iso
+from task_store import (
+    DEFAULT_MARKET_SCOPE,
+    DEFAULT_OWNER_ID,
+    DEFAULT_TENANT_ID,
+    DEFAULT_USER_ROLE,
+    TaskStore,
+    now_iso,
+)
 
 from artifacts import artifact_summary, build_artifacts, read_json, write_json
 
@@ -257,6 +274,16 @@ def _scope_can_access_task(task: dict | None, owner_scope: dict | None) -> bool:
         task_market = task.get("market_scope") or DEFAULT_MARKET_SCOPE
         return scope_market in {None, "", DEFAULT_MARKET_SCOPE, task_market} or task_market == DEFAULT_MARKET_SCOPE
     return bool(owner_scope.get("allow_legacy_task") and _task_has_legacy_owner(task))
+
+
+def _task_identity_scope(task: dict | None) -> dict[str, str]:
+    task = task or {}
+    return {
+        "owner_id": str(task.get("owner_id") or DEFAULT_OWNER_ID),
+        "tenant_id": str(task.get("tenant_id") or DEFAULT_TENANT_ID),
+        "market_scope": str(task.get("market_scope") or DEFAULT_MARKET_SCOPE),
+        "user_role": str(task.get("user_role") or DEFAULT_USER_ROLE),
+    }
 
 
 def _get_visible_task(task_id: str, owner_scope: dict | None = None) -> dict | None:
@@ -606,6 +633,7 @@ def _create_task_record(
             "owner_id": scope.get("owner_id") or DEFAULT_OWNER_ID,
             "tenant_id": scope.get("tenant_id") or DEFAULT_TENANT_ID,
             "market_scope": task_market_scope,
+            "user_role": scope.get("user_role") or DEFAULT_USER_ROLE,
             "parse_config_hash": _parse_config_hash(config, task_market_scope),
             "document_kind": document_kind,
             "source_type": source.source_type,
@@ -710,96 +738,153 @@ def _sync_pdf_bridge_status(task_id: str, status: dict) -> None:
             )
 
 
-def _finalize_from_pdf_bridge_result(task: dict, upstream_task_id: str, config: ParseConfig) -> dict | None:
-    task_id = str(task["task_id"])
-    source_dir = _pdf_parser_result_dir(upstream_task_id)
-    if not source_dir.is_dir() or not (source_dir / "document_full.json").is_file():
-        return None
+def _task_pdf_staging_root(task_id: str) -> Path:
+    return _task_upload_dir(task_id) / ".pdf-parser-staging"
+
+
+def _cleanup_pdf_bridge_after_completion(
+    task: dict,
+    *,
+    raw_artifacts_dir: Path | str | None = None,
+) -> dict[str, Any]:
+    task_id = str(task.get("task_id") or "")
+    upstream_task_id = str(task.get("upstream_task_id") or "")
+    if not task_id or not upstream_task_id:
+        return {"state": "not_required", "cleaned": True, "staged_cleaned": False}
     try:
-        source = _source_file_from_task(task)
-    except Exception:
-        source, _ = parse_mineru_output_dir(task_id, source_dir, config)
-    _source_file, output = parse_mineru_output_dir(task_id, source_dir, config)
-    rewrite_image_paths_to_result(output)
-    output.provider_name = output.provider_name or "pdf_parser_bridge"
-    output.upstream_task_id = upstream_task_id
-    manifest = build_artifacts(
-        task_id=task_id,
-        result_dir=_task_result_dir(task_id),
-        source=source,
-        config=config,
-        output=output,
-        source_type=source.source_type,
-        source_url=source.source_url,
+        result = cleanup_pdf_parser_bridge_resources(
+            upstream_task_id,
+            raw_artifacts_dir=(
+                raw_artifacts_dir
+                or (_task_pdf_staging_root(task_id) / upstream_task_id)
+            ),
+            identity_scope=_task_identity_scope(task),
+            staging_root=_task_pdf_staging_root(task_id),
+        )
+    except Exception as exc:
+        store.record_upstream_cleanup(
+            task_id,
+            status="deferred",
+            error=f"{type(exc).__name__}:cleanup_request_failed",
+        )
+        store.add_log(task_id, "PDF bridge 上游清理延期，已进入后台重试", level="warning")
+        return {"state": "deferred", "cleaned": False, "staged_cleaned": False}
+
+    cleaned = bool(result.get("cleaned"))
+    store.record_upstream_cleanup(
+        task_id,
+        status="cleaned" if cleaned else "deferred",
+        error="" if cleaned else "upstream_cleanup_deferred",
     )
-    cleanup_message = cleanup_pdf_parser_bridge_output(output)
-    if cleanup_message:
-        store.add_log(task_id, cleanup_message)
+    if cleaned:
+        store.add_log(task_id, "PDF bridge 上游临时任务与本地 staging 已清理")
+    else:
+        store.add_log(task_id, "PDF bridge 上游清理延期，已进入后台重试", level="warning")
+    return result
+
+
+def _commit_completed_parse(
+    task_id: str,
+    *,
+    manifest: dict,
+    output,
+    identity_scope: dict[str, str],
+    completion_log: str,
+) -> dict:
     artifacts = artifact_summary(task_id, _task_result_dir(task_id))
     status = COMPLETED if manifest.get("quality_status") == "pass" else COMPLETED_WITH_WARNINGS
-    store.update_task(
+    upstream_task_id = str(getattr(output, "upstream_task_id", "") or "")
+    committed = store.update_task_unless_cancelled(
         task_id,
         status=status,
         stage=status,
         progress_percent=100,
         parser_provider=manifest.get("parser_provider", ""),
         upstream_task_id=upstream_task_id,
-        upstream_status=COMPLETED,
+        upstream_status=COMPLETED if upstream_task_id else "",
+        upstream_cleanup_status="pending" if upstream_task_id else "not_required",
+        upstream_cleanup_error="",
+        upstream_cleanup_updated_at=now_iso() if upstream_task_id else "",
         quality_status=manifest.get("quality_status", ""),
         artifact_count=sum(1 for item in artifacts.values() if item.get("exists")),
         error="",
         completed_at=now_iso(),
     )
-    store.add_log(task_id, "已从仍在运行的 PDF bridge 任务补生成文档解析产物")
-    return store.get_task(task_id)
+    if not committed:
+        if upstream_task_id:
+            cancel_pdf_parser_bridge_task(
+                upstream_task_id,
+                raw_artifacts_dir=Path(str(getattr(output, "raw_artifacts_dir", "") or "")),
+                identity_scope=identity_scope,
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+        return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+
+    store.add_log(task_id, completion_log)
+    completed_task = store.get_task(task_id) or {"task_id": task_id, "status": status}
+    if upstream_task_id:
+        _cleanup_pdf_bridge_after_completion(
+            completed_task,
+            raw_artifacts_dir=Path(str(getattr(output, "raw_artifacts_dir", "") or "")),
+        )
+    return store.get_task(task_id) or completed_task
 
 
-def _recover_pdf_bridge_task(task: dict) -> dict:
-    task_id = str(task.get("task_id") or "")
-    if not task_id or str(task.get("document_kind") or "") not in {"pdf", "image", "word", "ppt", "excel"}:
-        return task
-    upstream_task_id = str(task.get("upstream_task_id") or "") or _bridge_task_id(task_id)
-    config = _parse_config(payload=task.get("config") or {})
-    if _result_dir_looks_ready(_pdf_parser_result_dir(upstream_task_id)):
-        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
-
-    status = pdf_parser_json_request(
-        f"{_pdf_parser_api_base()}/api/status/{upstream_task_id}",
-        headers=_pdf_parser_headers(),
-        timeout=15,
-    )
-    if _result_dir_looks_ready(_pdf_parser_result_dir(upstream_task_id)):
-        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
-    if status.get("_error"):
-        return task
-    status = {**status, "task_id": upstream_task_id}
-    upstream_status = str(status.get("status") or "").lower()
-    if upstream_status in {COMPLETED, "completed_with_warnings"}:
-        return _finalize_from_pdf_bridge_result(task, upstream_task_id, config) or task
-    if upstream_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
-        _sync_pdf_bridge_status(task_id, status)
-        return store.get_task(task_id) or task
-    return task
-
-
-def _process_task(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str | None = None) -> dict:
-    document_kind = document_kind or document_kind_for_extension(source.extension)
+def _cleanup_retry_due(task: dict) -> bool:
+    attempts = max(0, int(task.get("upstream_cleanup_attempts") or 0))
+    delay_seconds = min(300.0, max(5.0, float(2 ** min(attempts, 8))))
+    raw_updated_at = str(task.get("upstream_cleanup_updated_at") or "")
+    if not raw_updated_at:
+        return True
     try:
-        if not store.update_task_unless_cancelled(task_id, status=DETECTING_TYPE, stage=DETECTING_TYPE, progress_percent=15, document_kind=document_kind):
-            store.add_log(task_id, "任务已取消，跳过解析")
-            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        store.add_log(task_id, f"识别文件类型: {document_kind}")
-        if not store.update_task_unless_cancelled(task_id, status=RUNNING, stage=RUNNING, progress_percent=40):
-            store.add_log(task_id, "任务已取消，跳过解析")
-            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        output = parse_source(task_id, source, config, document_kind, on_status=lambda payload: _sync_pdf_bridge_status(task_id, payload))
-        store.add_log(task_id, f"解析 provider: {output.provider_name}")
-        if (store.get_task(task_id) or {}).get("status") == CANCELLED:
-            store.add_log(task_id, "任务已取消，跳过产物生成")
-            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
-        if not store.update_task_unless_cancelled(task_id, status=POSTPROCESSING, stage=POSTPROCESSING, progress_percent=82, parser_provider=output.provider_name):
-            store.add_log(task_id, "任务已取消，跳过产物生成")
-            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+        updated_at = datetime.fromisoformat(raw_updated_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return (datetime.now(timezone.utc) - updated_at).total_seconds() >= delay_seconds
+
+
+def _retry_one_pending_upstream_cleanup() -> bool:
+    for task in store.list_pending_upstream_cleanups(limit=20):
+        if not _cleanup_retry_due(task):
+            continue
+        _cleanup_pdf_bridge_after_completion(task)
+        return True
+    return False
+
+
+def _finalize_from_pdf_bridge_result(
+    task: dict,
+    upstream_task_id: str,
+    config: ParseConfig,
+    *,
+    identity_scope: dict[str, str] | None = None,
+) -> dict | None:
+    task_id = str(task["task_id"])
+    identity_scope = identity_scope or _task_identity_scope(task)
+    try:
+        source = _source_file_from_task(task)
+    except Exception:
+        return None
+    try:
+        source_dir = _materialize_pdf_parser_result(
+            task_id,
+            upstream_task_id,
+            source,
+            identity_scope=identity_scope,
+        )
+        _source_file, output = parse_mineru_output_dir(task_id, source_dir, config)
+        rewrite_image_paths_to_result(output)
+    except Exception:
+        if "source_dir" in locals():
+            cleanup_staged_pdf_parser_artifacts(
+                source_dir,
+                task_id=upstream_task_id,
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+        raise
+    output.provider_name = output.provider_name or "pdf_parser_bridge"
+    output.upstream_task_id = upstream_task_id
+    try:
         manifest = build_artifacts(
             task_id=task_id,
             result_dir=_task_result_dir(task_id),
@@ -809,25 +894,214 @@ def _process_task(task_id: str, source: SourceFile, config: ParseConfig, documen
             source_type=source.source_type,
             source_url=source.source_url,
         )
-        cleanup_message = cleanup_pdf_parser_bridge_output(output)
-        if cleanup_message:
-            store.add_log(task_id, cleanup_message)
-        status = COMPLETED if manifest.get("quality_status") == "pass" else COMPLETED_WITH_WARNINGS
-        artifacts = artifact_summary(task_id, _task_result_dir(task_id))
-        store.update_task_unless_cancelled(
+    except Exception:
+        staged_cleaned = cleanup_staged_pdf_parser_artifacts(
+            Path(str(output.raw_artifacts_dir or "")),
+            task_id=upstream_task_id,
+            staging_root=_task_pdf_staging_root(task_id),
+        )
+        suffix = "；本地 staging 已清理" if staged_cleaned else ""
+        store.add_log(
             task_id,
-            status=status,
-            stage=status,
-            progress_percent=100,
-            parser_provider=manifest.get("parser_provider", ""),
-            upstream_task_id=output.upstream_task_id,
-            upstream_status=COMPLETED,
-            quality_status=manifest.get("quality_status", ""),
-            artifact_count=sum(1 for item in artifacts.values() if item.get("exists")),
+            f"本地归一化失败，保留 PDF bridge 上游任务供重试{suffix}",
+            level="error",
+        )
+        raise
+    return _commit_completed_parse(
+        task_id,
+        manifest=manifest,
+        output=output,
+        identity_scope=identity_scope,
+        completion_log="已从仍在运行的 PDF bridge 任务补生成文档解析产物",
+    )
+
+
+def _recover_pdf_bridge_task(
+    task: dict,
+    *,
+    identity_scope: dict[str, str] | None = None,
+) -> dict:
+    task_id = str(task.get("task_id") or "")
+    if not task_id or str(task.get("document_kind") or "") not in {"pdf", "image", "word", "ppt", "excel"}:
+        return task
+    upstream_task_id = str(task.get("upstream_task_id") or "") or _bridge_task_id(task_id)
+    config = _parse_config(payload=task.get("config") or {})
+    identity_scope = identity_scope or _task_identity_scope(task)
+    encoded_task_id = quote(upstream_task_id, safe="")
+    status = pdf_parser_json_request(
+        f"{_pdf_parser_api_base()}/api/status/{encoded_task_id}",
+        headers=_pdf_parser_headers(identity_scope=identity_scope),
+        timeout=15,
+    )
+    if status.get("_error"):
+        try:
+            status_code = int(status.get("status") or 0)
+        except (TypeError, ValueError):
+            status_code = 0
+        if status_code in {401, 403, 404}:
+            error = f"PDF bridge upstream task is inaccessible (HTTP {status_code})"
+            store.update_task(
+                task_id,
+                status=FAILED,
+                stage=FAILED,
+                upstream_status="inaccessible",
+                error=error,
+                completed_at=now_iso(),
+            )
+            store.add_log(task_id, error, level="error")
+            return store.get_task(task_id) or task
+        return task
+    status = {**status, "task_id": upstream_task_id}
+    upstream_status = str(status.get("status") or "").lower()
+    if upstream_status in {COMPLETED, "completed_with_warnings"}:
+        return _finalize_from_pdf_bridge_result(
+            task,
+            upstream_task_id,
+            config,
+            identity_scope=identity_scope,
+        ) or task
+    if upstream_status in {"queued", "uploaded", "submitting", "submitted", "pending", "processing"}:
+        _sync_pdf_bridge_status(task_id, status)
+        return store.get_task(task_id) or task
+    if upstream_status in {FAILED, CANCELLED}:
+        error = str(status.get("error") or status.get("message") or f"Upstream parser ended with {upstream_status}")
+        store.update_task(
+            task_id,
+            status=upstream_status,
+            stage=upstream_status,
+            upstream_status=upstream_status,
+            error=error,
             completed_at=now_iso(),
         )
-        store.add_log(task_id, "解析产物已生成")
+        store.add_log(task_id, f"PDF bridge 上游任务已结束: {upstream_status}: {error}", level="error")
+        return store.get_task(task_id) or task
+    return task
+
+
+def _resume_pdf_bridge_task(
+    task: dict,
+    *,
+    identity_scope: dict[str, str],
+) -> dict:
+    timeout = max(
+        600,
+        int(os.environ.get("SIQ_DOCUMENT_PARSE_PDF_BRIDGE_TIMEOUT", str(6 * 60 * 60))),
+    )
+    deadline = time.monotonic() + timeout
+    current = task
+    while not worker_stop_event.is_set():
+        latest = store.get_task(str(task.get("task_id") or ""))
+        if latest:
+            current = latest
+        if str(current.get("status") or "") in TERMINAL_STATUSES:
+            return current
+        current = _recover_pdf_bridge_task(
+            current,
+            identity_scope=identity_scope,
+        )
+        if str(current.get("status") or "") in TERMINAL_STATUSES:
+            return current
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"Upstream parser did not finish resumed task within {timeout} seconds: "
+                f"{current.get('upstream_task_id') or task.get('upstream_task_id')}"
+            )
+        worker_stop_event.wait(max(0.1, WORKER_POLL_SECONDS))
+    return current
+
+
+def _process_task(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    document_kind: str | None = None,
+    *,
+    identity_scope: dict[str, str] | None = None,
+) -> dict:
+    document_kind = document_kind or document_kind_for_extension(source.extension)
+    identity_scope = identity_scope or _task_identity_scope(store.get_task(task_id))
+    try:
+        if not store.update_task_unless_cancelled(task_id, status=DETECTING_TYPE, stage=DETECTING_TYPE, progress_percent=15, document_kind=document_kind):
+            store.add_log(task_id, "任务已取消，跳过解析")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+        store.add_log(task_id, f"识别文件类型: {document_kind}")
+        if not store.update_task_unless_cancelled(task_id, status=RUNNING, stage=RUNNING, progress_percent=40):
+            store.add_log(task_id, "任务已取消，跳过解析")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+        output = parse_source(
+            task_id,
+            source,
+            config,
+            document_kind,
+            on_status=lambda payload: _sync_pdf_bridge_status(task_id, payload),
+            identity_scope=identity_scope,
+        )
+        store.add_log(task_id, f"解析 provider: {output.provider_name}")
+        if (store.get_task(task_id) or {}).get("status") == CANCELLED:
+            cleanup_message = cleanup_pdf_parser_bridge_output(
+                output,
+                identity_scope=identity_scope,
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+            if cleanup_message:
+                store.add_log(task_id, cleanup_message)
+            store.add_log(task_id, "任务已取消，跳过产物生成")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+        if not store.update_task_unless_cancelled(task_id, status=POSTPROCESSING, stage=POSTPROCESSING, progress_percent=82, parser_provider=output.provider_name):
+            cleanup_message = cleanup_pdf_parser_bridge_output(
+                output,
+                identity_scope=identity_scope,
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+            if cleanup_message:
+                store.add_log(task_id, cleanup_message)
+            store.add_log(task_id, "任务已取消，跳过产物生成")
+            return store.get_task(task_id) or {"task_id": task_id, "status": CANCELLED}
+        try:
+            manifest = build_artifacts(
+                task_id=task_id,
+                result_dir=_task_result_dir(task_id),
+                source=source,
+                config=config,
+                output=output,
+                source_type=source.source_type,
+                source_url=source.source_url,
+            )
+        except Exception:
+            upstream_task_id = str(output.upstream_task_id or "")
+            staged_cleaned = bool(upstream_task_id) and cleanup_staged_pdf_parser_artifacts(
+                Path(str(output.raw_artifacts_dir or "")),
+                task_id=upstream_task_id,
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+            suffix = "；本地 staging 已清理" if staged_cleaned else ""
+            store.add_log(
+                task_id,
+                f"本地归一化失败，保留 PDF bridge 上游任务供重试{suffix}",
+                level="error",
+            )
+            raise
+        return _commit_completed_parse(
+            task_id,
+            manifest=manifest,
+            output=output,
+            identity_scope=identity_scope,
+            completion_log="解析产物已生成",
+        )
     except Exception as exc:
+        if "output" in locals() and getattr(output, "upstream_task_id", ""):
+            cleanup_staged_pdf_parser_artifacts(
+                Path(str(output.raw_artifacts_dir or "")),
+                task_id=str(output.upstream_task_id),
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+        current = store.get_task(task_id)
+        if current and current.get("status") == CANCELLED:
+            store.add_log(task_id, "上游解析已停止，任务保持取消状态")
+            return current
+        if current and current.get("status") in {COMPLETED, COMPLETED_WITH_WARNINGS}:
+            store.add_log(task_id, "任务已完成；后续清理异常不会回滚完成状态", level="warning")
+            return current
         store.update_task(task_id, status=FAILED, stage=FAILED, progress_percent=0, error=str(exc), completed_at=now_iso())
         store.add_log(task_id, f"解析失败: {exc}", level="error")
     return store.get_task(task_id) or {"task_id": task_id, "status": FAILED}
@@ -856,6 +1130,7 @@ def _import_mineru_result_dir(
             "owner_id": scope.get("owner_id") or DEFAULT_OWNER_ID,
             "tenant_id": scope.get("tenant_id") or DEFAULT_TENANT_ID,
             "market_scope": task_market_scope,
+            "user_role": scope.get("user_role") or DEFAULT_USER_ROLE,
             "parse_config_hash": _parse_config_hash(config, task_market_scope),
             "document_kind": "pdf",
             "source_type": "mineru_import",
@@ -896,18 +1171,35 @@ def _import_mineru_result_dir(
     return store.get_task(task_id) or {"task_id": task_id, "status": status}
 
 
+def _process_claimed_task(task: dict) -> dict:
+    task_id = str(task["task_id"])
+    identity_scope = _task_identity_scope(task)
+    if str(task.get("upstream_task_id") or "").strip():
+        store.add_log(task_id, "后台 worker 使用持久化身份恢复 PDF bridge 上游任务")
+        return _resume_pdf_bridge_task(task, identity_scope=identity_scope)
+
+    source = _source_file_from_task(task)
+    config = _parse_config(payload=task.get("config") or {})
+    store.add_log(task_id, "后台 worker 开始解析")
+    return _process_task(
+        task_id,
+        source,
+        config,
+        document_kind=str(task.get("document_kind") or "") or None,
+        identity_scope=identity_scope,
+    )
+
+
 def _worker_loop() -> None:
     while not worker_stop_event.is_set():
         task = store.claim_next_queued_task()
         if not task:
+            _retry_one_pending_upstream_cleanup()
             worker_stop_event.wait(WORKER_POLL_SECONDS)
             continue
         task_id = str(task["task_id"])
         try:
-            source = _source_file_from_task(task)
-            config = _parse_config(payload=task.get("config") or {})
-            store.add_log(task_id, "后台 worker 开始解析")
-            _process_task(task_id, source, config, document_kind=str(task.get("document_kind") or "") or None)
+            _process_claimed_task(task)
         except Exception as exc:
             store.update_task(task_id, status=FAILED, stage=FAILED, progress_percent=0, error=str(exc), completed_at=now_iso())
             store.add_log(task_id, f"后台 worker 处理失败: {exc}", level="error")
@@ -994,6 +1286,17 @@ def _list_mineru_import_candidates(limit: int = 50) -> list[dict[str, object]]:
 
 @app.get("/api/health")
 def health():
+    transport = artifact_transport_status()
+    transport_mode = str(transport.get("configured_mode") or "invalid")
+    if transport_mode == "api":
+        temporary_upstream_results = "document-task/.pdf-parser-staging/<pdf-task-id>"
+    elif transport_mode == "shared_fs":
+        temporary_upstream_results = str(_pdf_parser_results_root() / "doc-<task_id>")
+    else:
+        temporary_upstream_results = (
+            f"auto: {_pdf_parser_results_root() / 'doc-<task_id>'} or "
+            "document-task/.pdf-parser-staging/<pdf-task-id>"
+        )
     return {
         "status": "ok",
         "worker_ready": bool(worker_thread and worker_thread.is_alive()),
@@ -1019,8 +1322,9 @@ def health():
             "service": "apps/pdf-parser",
             "provider": "MinerU/PDF bridge",
             "final_artifact_root": str(RESULTS_FOLDER),
-            "temporary_upstream_results": "data/pdf-parser/results/doc-<task_id>",
+            "temporary_upstream_results": temporary_upstream_results,
         },
+        "pdf_artifact_transport": transport,
         "conversion_pipeline": {
             "pdf": "pdf_parser_bridge",
             "image": "image_to_pdf -> pdf_parser_bridge",
@@ -1035,19 +1339,35 @@ def health():
 
 def _readiness_payload() -> dict[str, object]:
     worker_ready = bool(WORKER_AUTOSTART and worker_thread and worker_thread.is_alive())
+    transport = artifact_transport_status()
     upstream = pdf_parser_json_request(
         f"{_pdf_parser_api_base()}/api/ready",
         headers=_pdf_parser_headers(),
         timeout=5,
     )
+    transport_mode = str(transport.get("configured_mode") or "")
+    upstream_artifact_contract = str(upstream.get("artifact_api_contract_version") or "")
+    contract_required = transport_mode in {"auto", "api"}
+    upstream_contract_ready = (
+        not contract_required
+        or upstream_artifact_contract == ARTIFACT_API_CONTRACT_VERSION
+    )
+    transport = {
+        **transport,
+        "ready": bool(transport.get("ready")) and upstream_contract_ready,
+        "upstream_contract_required": contract_required,
+        "upstream_contract_ready": upstream_contract_ready,
+        "upstream_contract_version": upstream_artifact_contract,
+    }
     pdf_parser_ready = bool(not upstream.get("_error") and upstream.get("ready"))
-    ready = worker_ready and pdf_parser_ready
+    ready = worker_ready and pdf_parser_ready and bool(transport.get("ready"))
     return {
         "status": "ready" if ready else "unavailable",
         "ready": ready,
         "worker_ready": worker_ready,
         "pdf_parser_ready": pdf_parser_ready,
         "pdf_parser_status": str(upstream.get("status") or "unavailable"),
+        "pdf_artifact_transport": transport,
     }
 
 
@@ -1159,7 +1479,31 @@ def cancel_task(task_id: str):
     if task.get("status") not in TERMINAL_STATUSES:
         store.update_task(task_id, status=CANCELLED, stage=CANCELLED, completed_at=now_iso())
         store.add_log(task_id, "任务已取消")
-    return jsonify({"success": True, "task_id": task_id})
+        upstream_task_id = str(task.get("upstream_task_id") or "")
+        if upstream_task_id:
+            cancel_result = cancel_pdf_parser_bridge_task(
+                upstream_task_id,
+                raw_artifacts_dir=(
+                    _task_upload_dir(task_id)
+                    / ".pdf-parser-staging"
+                    / upstream_task_id
+                ),
+                identity_scope=_task_identity_scope(task),
+                staging_root=_task_pdf_staging_root(task_id),
+            )
+            state = str(cancel_result.get("state") or "deferred")
+            if state in {"deleted", "not_found"}:
+                store.add_log(task_id, "PDF bridge 上游临时任务已停止并清理")
+            else:
+                store.add_log(task_id, "PDF bridge 上游取消/清理延期，等待后台重试", level="warning")
+            return jsonify(
+                {
+                    "success": True,
+                    "task_id": task_id,
+                    "upstream_cancel_state": state,
+                }
+            )
+    return jsonify({"success": True, "task_id": task_id, "upstream_cancel_state": "not_applicable"})
 
 
 @app.post("/api/retry/<task_id>")
@@ -1214,14 +1558,21 @@ def result(task_id: str):
     manifest_path = result_dir / "manifest.json"
     if not markdown_path.exists() or not manifest_path.exists():
         return jsonify({"error": "missing_artifact", "task": task}), 404
-    return jsonify(
-        {
-            "task": task,
-            "manifest": read_json(manifest_path),
-            "markdown": markdown_path.read_text(encoding="utf-8"),
-            "artifacts": artifact_summary(task_id, result_dir),
-        }
-    )
+    payload = {
+        "task": task,
+        "manifest": read_json(manifest_path),
+        "artifacts": artifact_summary(task_id, result_dir),
+        "artifact_contract_version": "document_parser_artifact_contract_v1",
+    }
+    include_markdown = str(request.args.get("include_markdown", "true")).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+    if include_markdown:
+        payload["markdown"] = markdown_path.read_text(encoding="utf-8")
+    return jsonify(payload)
 
 
 @app.get("/api/artifact/<task_id>/<path:artifact>")

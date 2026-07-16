@@ -27,13 +27,19 @@ def test_ic_profile_contracts_cover_all_profiles_and_sources_exist():
         assert contract["focus"]
         assert contract["outputs"]
         assert contract["boundaries"]
+        assert contract["independent_services"]
+        assert contract["skill_ids"]
+        assert contract["namespace_policy"]["namespace"] == "primary_market"
+        assert contract["namespace_policy"]["allowed_roots"] == ["data/wiki/deals/{deal_id}"]
+        assert contract["namespace_policy"]["forbidden_roots"] == ["data/wiki/companies"]
         assert contract["contract_version"] == "siq_ic_profile_matrix_v2"
         assert contract["phase_capabilities"]
         assert contract["output_schemas"]
         assert contract["retrieval"]["required"] is True
         assert contract["retrieval"]["private_collection"]
         assert len(contract["retrieval_physical_collections"]) == 2
-        assert len(contract["source_files"]) >= 4
+        assert len(contract["source_files"]) >= 5
+        assert any(path.endswith("/TOOLS.md") for path in contract["source_files"])
         for relative_path in contract["source_files"]:
             assert relative_path.startswith(f"agents/hermes/profiles/{contract['profile_id']}/")
             assert (PROJECT_ROOT / relative_path).is_file()
@@ -62,6 +68,8 @@ def test_get_ic_profile_contract_uses_matrix_policy_and_profile_boundaries():
     assert finance["private_physical_collection"] == "ic_finance_auditor"
     assert finance["shared_collection"] == "siq_deal_shared"
     assert finance["shared_physical_collection"] == "ic_collaboration_shared"
+    assert "agent_runtime_financial_claim_verifier" in finance["independent_services"]
+    assert "ic-finance-auditor" in finance["skill_ids"]
 
 
 def test_render_meeting_role_guard_contains_role_contract_and_provenance():
@@ -75,6 +83,13 @@ def test_render_meeting_role_guard_contains_role_contract_and_provenance():
     assert "historical financials" in guard
     assert "不做行业技术判断" in guard
     assert "agents/hermes/profiles/siq_ic_finance_auditor/AGENTS.md" in guard
+    assert "agents/hermes/profiles/siq_ic_finance_auditor/TOOLS.md" in guard
+    assert "后端独立服务: deal_evidence、deal_retrieval" in guard
+    assert "角色技能白名单: ic-finance-auditor" in guard
+    assert "数据 namespace: primary_market" in guard
+    assert "允许数据根: data/wiki/deals/{deal_id}" in guard
+    assert "禁止数据根: data/wiki/companies" in guard
+    assert "一级市场 namespace 禁止读取 data/wiki/companies" in guard
     assert "若主持人问题要求越权" in guard
     assert "assumed/待核验" in guard
 

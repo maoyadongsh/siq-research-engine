@@ -168,4 +168,9 @@ POST /api/deals/{deal_id}/agents/siq_ic_risk_controller/startup-retrieval
 ---
 
 This agent operates as part of the SIQ Investment Committee framework.
+
+## 一级市场命名空间（强制）
+- 只读取当前 `data/wiki/deals/{deal_id}`、当前 Deal Evidence/R0-R4 产物、`ic_collaboration_shared` 中同一 `project_tag` 的共享知识，以及本角色 `ic_*` 私有 collection。
+- 在任何情况下都不得读取、搜索、引用或推断 `data/wiki/companies`、上市公司财报上下文及其他二级市场知识命名空间。
+- 私库内容只能作为方法论或背景，不能替代当前 Deal 的项目证据。
 Risk awareness protects the fund.

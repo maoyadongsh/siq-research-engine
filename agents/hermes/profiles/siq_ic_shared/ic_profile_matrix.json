@@ -13,6 +13,12 @@
     "source_class": "background_knowledge",
     "rule": "Every profile must retrieve its own private background collection. Background knowledge may provide methods, comparables, and challenge hypotheses, but cannot prove a project fact without project Evidence."
   },
+  "namespace_policy": {
+    "namespace": "primary_market",
+    "allowed_roots": ["data/wiki/deals/{deal_id}"],
+    "forbidden_roots": ["data/wiki/companies"],
+    "rule": "Primary-market IC profiles may use only deal-scoped project packages. They must not read secondary-market company Wiki data under data/wiki/companies."
+  },
   "profiles": [
     {
       "id": "siq_ic_master_coordinator",
@@ -30,6 +36,18 @@
         "does not write expert conclusions",
         "does not convert background knowledge into project facts",
         "does not silently accept deterministic fallback as model output"
+      ],
+      "independent_services": [
+        "ic_phase_orchestrator",
+        "ic_startup_retrieval",
+        "deal_evidence",
+        "deal_discussion"
+      ],
+      "skill_ids": [
+        "due-diligence-dataroom",
+        "deal-tracker",
+        "dd-checklist",
+        "ic-memo"
       ],
       "phase_capabilities": {
         "R0": ["readiness", "scope", "evidence_gap_plan"],
@@ -68,6 +86,19 @@
         "does not use weighted average as the sole decision",
         "does not pass unresolved high or critical disputes"
       ],
+      "independent_services": [
+        "ic_phase_orchestrator",
+        "ic_scoring",
+        "deal_disputes",
+        "ic_report_quality"
+      ],
+      "skill_ids": [
+        "deal-screening",
+        "ic-memo",
+        "term-sheet-analyzer",
+        "value-creation-plan",
+        "returns-analysis"
+      ],
       "phase_capabilities": {
         "R1B": ["initial_synthesis", "dispute_candidates"],
         "R1.5": ["chairman_ruling", "evidence_followup"],
@@ -102,6 +133,18 @@
         "does not perform legal opinion or detailed financial audit",
         "does not claim company-specific facts from macro background knowledge"
       ],
+      "independent_services": [
+        "deal_retrieval",
+        "external_research_clients",
+        "ic_phase_orchestrator"
+      ],
+      "skill_ids": [
+        "company-investment-research",
+        "thesis-tracker",
+        "portfolio-monitoring",
+        "value-creation-plan",
+        "venture-capital"
+      ],
       "phase_capabilities": {
         "R1A": ["independent_strategy_report"],
         "R2": ["strategy_revision", "score_delta"],
@@ -133,6 +176,19 @@
       "boundaries": [
         "does not certify financial statements or legal compliance",
         "does not treat generic industry benchmarks as issuer facts"
+      ],
+      "independent_services": [
+        "deal_retrieval",
+        "external_research_clients",
+        "primary_market_materials",
+        "ic_phase_orchestrator"
+      ],
+      "skill_ids": [
+        "sector-overview",
+        "competitive-analysis",
+        "strategic-competitor-analysis",
+        "tam-sam-som",
+        "market-intelligence-claw"
       ],
       "phase_capabilities": {
         "R1A": ["independent_sector_report"],
@@ -166,6 +222,22 @@
         "does not invent missing periods or normalize units without trace",
         "does not mark background benchmarks as verified issuer numbers"
       ],
+      "independent_services": [
+        "deal_evidence",
+        "deal_retrieval",
+        "agent_runtime_financial_claim_verifier",
+        "agent_runtime_financial_trace",
+        "ic_phase_orchestrator"
+      ],
+      "skill_ids": [
+        "ic-finance-auditor",
+        "3-statement-model",
+        "financial-analysis-agent",
+        "dcf-model",
+        "comps-analysis",
+        "unit-economics",
+        "returns-analysis"
+      ],
       "phase_capabilities": {
         "R1A": ["independent_finance_report", "numeric_trace"],
         "R2": ["finance_revision", "score_delta", "model_recalculation"],
@@ -198,6 +270,18 @@
         "does not infer legal status from generic regulation summaries",
         "does not replace industry or financial analysis"
       ],
+      "independent_services": [
+        "deal_evidence",
+        "deal_retrieval",
+        "external_research_clients",
+        "ic_phase_orchestrator"
+      ],
+      "skill_ids": [
+        "term-sheet-analyzer",
+        "dd-checklist",
+        "due-diligence-analyst",
+        "due-diligence-dataroom"
+      ],
       "phase_capabilities": {
         "R1A": ["independent_legal_report"],
         "R2": ["legal_revision", "score_delta", "condition_update"],
@@ -229,6 +313,19 @@
       "boundaries": [
         "does not repeat specialist reports without stress testing",
         "does not substitute generic risk cases for issuer Evidence"
+      ],
+      "independent_services": [
+        "deal_retrieval",
+        "external_research_clients",
+        "ic_report_quality",
+        "ic_phase_orchestrator"
+      ],
+      "skill_ids": [
+        "risk-metrics-calculation",
+        "due-diligence-analyst",
+        "dd-checklist",
+        "return-rate-impact-calculator",
+        "portfolio-monitoring"
       ],
       "phase_capabilities": {
         "R1B": ["cross_report_stress_test", "counter_evidence", "veto_scan"],

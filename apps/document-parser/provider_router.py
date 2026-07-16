@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 from contracts import ParseConfig, ParseOutput, SourceFile
 from providers.simple import (
@@ -16,19 +16,57 @@ from providers.simple import (
 )
 
 
-def parse_source(task_id: str, source: SourceFile, config: ParseConfig, document_kind: str, on_status: Callable[[dict], None] | None = None) -> ParseOutput:
+def parse_source(
+    task_id: str,
+    source: SourceFile,
+    config: ParseConfig,
+    document_kind: str,
+    on_status: Callable[[dict], None] | None = None,
+    identity_scope: Mapping[str, Any] | None = None,
+) -> ParseOutput:
     if document_kind == "pdf":
-        return parse_pdf_document(task_id, source, config, on_status=on_status)
+        return parse_pdf_document(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     if document_kind == "image":
-        return parse_image_document(task_id, source, config, on_status=on_status)
+        return parse_image_document(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     if document_kind == "html":
         return parse_html_document(task_id, source, config)
     if document_kind == "text":
         return parse_text_document(task_id, source, config)
     if document_kind == "excel":
-        return parse_spreadsheet_document(task_id, source, config, on_status=on_status)
+        return parse_spreadsheet_document(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     if document_kind == "word" and source.extension == ".docx":
-        return parse_docx_document(task_id, source, config, on_status=on_status)
+        return parse_docx_document(
+            task_id,
+            source,
+            config,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     if document_kind in {"word", "ppt"}:
-        return parse_office_placeholder(task_id, source, config, document_kind, on_status=on_status)
+        return parse_office_placeholder(
+            task_id,
+            source,
+            config,
+            document_kind,
+            on_status=on_status,
+            identity_scope=identity_scope,
+        )
     return parse_text_document(task_id, source, config)

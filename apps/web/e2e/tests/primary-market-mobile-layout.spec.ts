@@ -68,7 +68,7 @@ test.describe('一级市场移动端布局', () => {
     })
   }
 
-  test('390px 使用紧凑网格和项目卡片', async ({ page }) => {
+  test('390px 使用紧凑网格、项目卡片和安全的会议滚动', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await mockAuthenticatedWorkspace(page)
 
@@ -87,6 +87,7 @@ test.describe('一级市场移动端布局', () => {
     await page.goto(`/primary-market/materials?dealId=${dealId}`)
     await expect(page.getByRole('heading', { name: '一级市场材料中心' })).toBeVisible()
     await expect(page.locator('.primary-market-material-types')).toHaveCSS('grid-template-columns', /.+ .+/)
+    await expect(page.locator('.primary-market-pipeline-grid')).toHaveCSS('grid-template-columns', /.+ .+/)
 
     await page.goto(`/primary-market/post-investment?dealId=${dealId}`)
     await expect(page.getByRole('heading', { name: '一级市场投后管理' })).toBeVisible()

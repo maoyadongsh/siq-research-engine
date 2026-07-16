@@ -167,6 +167,8 @@ def context_from_session_id(
         return None
 
     agent_group = infer_agent_group(resolved_profile)
+    if agent_group == "primary_market" and not (deal_id or project_id):
+        return None
     resolved_visibility = visibility or default_visibility_for_context(agent_group, deal_id, project_id)
     identity = normalize_research_identity(research_identity)
     return MemoryRequestContext(
@@ -861,17 +863,45 @@ async def maybe_promote_explicit_memory(
 def _memory_acl_sql() -> str:
     return """
       AND (
-        mi.visibility = 'system_shared'
+        (
+          mi.visibility = 'system_shared'
+          AND mi.agent_group = :agent_group
+          AND (
+            mi.profile = :profile
+            OR mi.profile = :system_shared_profile
+          )
+          OR (
+            :agent_group = 'secondary_market'
+            AND mi.visibility = 'system_shared'
+            AND mi.agent_group = 'shared'
+            AND mi.profile = 'shared'
+          )
+        )
         OR (
           mi.visibility = 'user_private'
           AND mi.owner_user_id = :user_id
+          AND mi.profile = :profile
         )
         OR (
           mi.visibility = 'project_shared'
           AND mi.agent_group = :agent_group
           AND (
-            (CAST(:deal_id AS TEXT) IS NOT NULL AND mi.deal_id = CAST(:deal_id AS TEXT))
-            OR (CAST(:project_id AS TEXT) IS NOT NULL AND mi.project_id = CAST(:project_id AS TEXT))
+            (
+              CAST(:deal_id AS TEXT) IS NOT NULL
+              AND CAST(:project_id AS TEXT) IS NULL
+              AND mi.deal_id = CAST(:deal_id AS TEXT)
+            )
+            OR (
+              CAST(:project_id AS TEXT) IS NOT NULL
+              AND CAST(:deal_id AS TEXT) IS NULL
+              AND mi.project_id = CAST(:project_id AS TEXT)
+            )
+            OR (
+              CAST(:deal_id AS TEXT) IS NOT NULL
+              AND CAST(:project_id AS TEXT) IS NOT NULL
+              AND mi.deal_id = CAST(:deal_id AS TEXT)
+              AND mi.project_id = CAST(:project_id AS TEXT)
+            )
           )
         )
       )
@@ -928,6 +958,11 @@ async def search_memory_items(
         "user_id": context.user_id,
         "profile": context.profile,
         "agent_group": context.agent_group,
+        "system_shared_profile": (
+            "siq_ic_shared"
+            if context.agent_group == "primary_market"
+            else "shared"
+        ),
         "deal_id": context.deal_id,
         "project_id": context.project_id,
         "limit": item_limit,
@@ -1012,7 +1047,6 @@ async def search_memory_items(
               AND mi.deleted_at IS NULL
               AND (mi.valid_from IS NULL OR mi.valid_from <= now())
               AND (mi.valid_until IS NULL OR mi.valid_until > now())
-              AND (mi.profile = :profile OR mi.visibility IN ('project_shared', 'system_shared'))
               {_memory_acl_sql()}
               {identity_sql}
               AND 1 - (me.embedding <=> CAST(:embedding AS vector)) >= :min_score
@@ -1052,7 +1086,6 @@ async def search_memory_items(
           AND mi.deleted_at IS NULL
           AND (mi.valid_from IS NULL OR mi.valid_from <= now())
           AND (mi.valid_until IS NULL OR mi.valid_until > now())
-          AND (mi.profile = :profile OR mi.visibility IN ('project_shared', 'system_shared'))
           {_memory_acl_sql()}
           {identity_sql}
           AND (mi.normalized_content ILIKE :query_like OR mi.title ILIKE :query_like)

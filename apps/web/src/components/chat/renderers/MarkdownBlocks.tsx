@@ -11,6 +11,7 @@ import {
   isAuditHeading,
   headingTone,
   isLikelyTableStart,
+  matchBoldHeading,
   matchCjkHeading,
   isMarkdownBoundary,
   normalizeParagraph,
@@ -97,6 +98,18 @@ export function MarkdownBlocks({
       }
       const Tag = headingTags[level] ?? 'h6'
       elements.push(<Tag key={`heading-${i}`} className={className}>{children}</Tag>)
+      i += 1
+      continue
+    }
+
+    const boldHeading = matchBoldHeading(trimmed)
+    if (boldHeading) {
+      const tone = headingTone(boldHeading)
+      elements.push(
+        <h3 key={`bold-heading-${i}`} className={`chat-heading chat-heading-3${tone ? ` chat-heading-${tone}` : ''}`}>
+          {renderInline(boldHeading, `bold-heading-${i}`)}
+        </h3>,
+      )
       i += 1
       continue
     }
@@ -200,6 +213,7 @@ export function MarkdownBlocks({
       !/^[▸›]\s+/.test(lines[i].trim()) &&
       !/^[-*+]\s+/.test(lines[i].trim()) &&
       !/^\d+\.\s+/.test(lines[i].trim()) &&
+      !matchBoldHeading(lines[i].trim()) &&
       !matchCjkHeading(lines[i].trim())
     ) {
       paragraph.push(lines[i])

@@ -258,9 +258,10 @@ STEPFUN_PATTERNS = (
     "阶跃星辰",
     "阶跃",
 )
-STATUS_PATTERNS = ("模型状态", "当前模型", "查看模型", "model status", "current model")
 MODEL_LIST_RE = re.compile(
-    r"(可用模型|模型列表|有哪些.*模型|模型.*有哪些|选择模型|available models|model list|list models)",
+    r"^\s*(?:请|请问|帮我|麻烦)?\s*(?:查看|查询|显示|告诉我)?\s*(?:一下)?\s*"
+    r"(?:可用模型|模型列表|有哪些.{0,16}模型|模型.{0,16}有哪些|选择模型|"
+    r"available models|model list|list models)\s*[?？。!！]*\s*$",
     re.IGNORECASE,
 )
 SWITCH_VERB_RE = re.compile(
@@ -272,10 +273,27 @@ EXPLICIT_SWITCH_RE = re.compile(
     re.IGNORECASE,
 )
 STATUS_RE = re.compile(
-    r"(模型状态|当前模型|当前.*模型|查看模型|现在.*模型|正在.*模型|用.*什么模型|"
-    r"当前.*(?:使用|用).*(?:吗|么|\?|？)|现在.*(?:使用|用).*(?:吗|么|\?|？)|"
-    r"正在.*(?:使用|用).*(?:吗|么|\?|？)|"
-    r"使用.*什么模型|什么模型|current model|model status|what model|which model)",
+    r"""^\s*
+    (?:请|请问|帮我|麻烦|能否|可以)?\s*
+    (?:告诉我|查看|查询|显示|检查|汇报)?\s*(?:一下)?\s*
+    (?:你|该智能体|这个智能体|本智能体)?\s*
+    (?:
+        (?:(?:当前|现在|正在)\s*)?
+        (?:使用|用|运行)?\s*(?:的|的是)?\s*(?:是)?\s*
+        (?:什么|哪个|哪一个)?\s*(?:大语言|LLM|AI)?\s*模型\s*
+        (?:是什么|是哪一个|状态|配置|信息|吗|么)?
+        |
+        (?:当前|现在|正在)\s*(?:使用|用|运行)(?:的|的是)?\s*
+        [A-Za-z0-9_. -]{2,64}\s*(?:模型)?\s*(?:吗|么)?
+        |
+        model\s+status|current\s+model|what\s+model(?:\s+are\s+you\s+using)?|which\s+model
+    )\s*[?？。!！]*\s*$""",
+    re.IGNORECASE | re.VERBOSE,
+)
+BUSINESS_MODEL_CONTEXT_RE = re.compile(
+    r"(?:财务|估值|商业|业务|盈利|预测|风控|风险|信用|定价|算法|数据|评分|投决|交易|收入|"
+    r"现金流|增长|运营|治理)\s*模型|"
+    r"模型.{0,10}(?:风险|合规|治理|审计|验证|评估|预测|假设|偏差|准确|稳健|效果|表现|参数)",
     re.IGNORECASE,
 )
 CONTROL_HINT = re.compile(
@@ -563,7 +581,7 @@ def describe_all_profile_models() -> dict[str, Any]:
 
 
 def model_catalog() -> dict[str, Any]:
-    """Return configured selector fields without credentials or endpoint URLs."""
+    """Return the safe, configured model selector surface without credentials or URLs."""
     return {
         "options": [
             {
@@ -618,13 +636,23 @@ def maybe_handle_model_control(message: str, profile: HermesProfile | str) -> st
     profile = normalize_profile(profile)
     text = message.strip()
     normalized = text.lower()
+    # This is an administrative shortcut, not an intent classifier for arbitrary
+    # prompts. Context-enriched chat inputs can contain old model-status replies;
+    # accepting only a concise standalone command prevents that history from
+    # hijacking an unrelated business question.
+    if not text or len(text) > 160 or "\n" in text or "\r" in text:
+        return None
     if not CONTROL_HINT.search(text):
         return None
 
-    if MODEL_LIST_RE.search(text) and not EXPLICIT_SWITCH_RE.search(text):
+    if MODEL_LIST_RE.fullmatch(text) and not EXPLICIT_SWITCH_RE.search(text):
         return _model_list_reply()
 
-    if STATUS_RE.search(text) and not EXPLICIT_SWITCH_RE.search(text):
+    if (
+        not BUSINESS_MODEL_CONTEXT_RE.search(text)
+        and STATUS_RE.fullmatch(text)
+        and not EXPLICIT_SWITCH_RE.search(text)
+    ):
         status = describe_profile_model(profile)
         return _status_reply(status)
 
@@ -632,10 +660,6 @@ def maybe_handle_model_control(message: str, profile: HermesProfile | str) -> st
     if requested_mode and SWITCH_VERB_RE.search(text):
         status = set_profile_model_mode(profile, requested_mode)
         return _switch_reply(status)
-
-    if STATUS_RE.search(text) or any(pattern in normalized for pattern in STATUS_PATTERNS):
-        status = describe_profile_model(profile)
-        return _status_reply(status)
 
     return None
 

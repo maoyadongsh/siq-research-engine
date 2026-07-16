@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 COLLECTION_SCHEMA_VERSION = "siq_agent_memory_milvus_v2"
-DEFAULT_COLLECTION = "siq_agent_memory"
+DEFAULT_COLLECTION = "siq_agent_memory_active"
+ALLOWED_RUNTIME_COLLECTION_ALIASES = frozenset({DEFAULT_COLLECTION})
 DEFAULT_VECTOR_DIM = 1024
 VECTOR_FIELD = "vector"
 RESEARCH_IDENTITY_FIELDS = (
@@ -73,7 +74,10 @@ def milvus_enabled() -> bool:
 
 
 def collection_name() -> str:
-    return os.getenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", DEFAULT_COLLECTION).strip() or DEFAULT_COLLECTION
+    name = os.getenv("SIQ_AGENT_MEMORY_MILVUS_COLLECTION", DEFAULT_COLLECTION).strip() or DEFAULT_COLLECTION
+    if name not in ALLOWED_RUNTIME_COLLECTION_ALIASES:
+        raise RuntimeError(f"Milvus memory collection is not allowlisted: {name}")
+    return name
 
 
 def vector_dim() -> int:
@@ -289,22 +293,53 @@ def acl_expr(
     agent_group: str | None = None,
     research_identity: dict[str, str] | None = None,
 ) -> str:
-    visibility_parts = ["visibility == \"system_shared\""]
+    visibility_parts: list[str] = []
+    if agent_group:
+        shared_profile = "siq_ic_shared" if agent_group == "primary_market" else "shared"
+        system_profiles = [
+            f"profile == {_escape_expr(profile)}"
+            for profile in (profile, shared_profile)
+            if profile
+        ]
+        if system_profiles:
+            system_scope = (
+                f"(visibility == \"system_shared\" and agent_group == {_escape_expr(agent_group)} "
+                f"and ({' or '.join(dict.fromkeys(system_profiles))}))"
+            )
+            if agent_group == "secondary_market":
+                system_scope = (
+                    f"({system_scope} or (visibility == \"system_shared\" "
+                    "and agent_group == \"shared\" and profile == \"shared\"))"
+                )
+            visibility_parts.append(system_scope)
     if user_id is not None:
-        visibility_parts.append(f"(visibility == \"user_private\" and owner_user_id == {_escape_expr(str(user_id))})")
+        private_profile = (
+            f" and profile == {_escape_expr(profile)}"
+            if profile
+            else ""
+        )
+        visibility_parts.append(
+            f"(visibility == \"user_private\" and owner_user_id == {_escape_expr(str(user_id))}"
+            f"{private_profile})"
+        )
     project_parts: list[str] = []
     if deal_id:
         project_parts.append(f"deal_id == {_escape_expr(deal_id)}")
     if project_id:
         project_parts.append(f"project_id == {_escape_expr(project_id)}")
     if project_parts and agent_group:
+        project_scope = (
+            " and ".join(project_parts)
+            if deal_id and project_id
+            else project_parts[0]
+        )
         visibility_parts.append(
             f"(visibility == \"project_shared\" and agent_group == {_escape_expr(agent_group)} "
-            f"and ({' or '.join(project_parts)}))"
+            f"and ({project_scope}))"
         )
+    if not visibility_parts:
+        return "id == \"__siq_memory_acl_no_match__\""
     expr = f"tenant_id == {_escape_expr(tenant_id)} and ({' or '.join(visibility_parts)})"
-    if profile:
-        expr += f" and (profile == {_escape_expr(profile)} or visibility != \"user_private\")"
     if research_identity:
         identity_fields = {
             "research_market": research_identity.get("market"),
@@ -355,6 +390,7 @@ def search_records(
 
 __all__ = [
     "AgentMemoryVectorRecord",
+    "ALLOWED_RUNTIME_COLLECTION_ALIASES",
     "acl_expr",
     "collection_name",
     "collection_schema_preflight",

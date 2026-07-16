@@ -7,14 +7,13 @@ import os
 import re
 import uuid
 from pathlib import Path
-from urllib.parse import quote
 from typing import Any, BinaryIO
+from urllib.parse import quote
 
-from services import deal_store
+from services import deal_store, primary_market_wiki
 from services.path_config import DOCUMENT_PARSER_RESULTS_ROOT
 
-
-DEAL_DOCUMENT_SCHEMA = "siq_deal_document_v1"
+DEAL_DOCUMENT_SCHEMA = "siq_deal_document_v2"
 DOCUMENT_ID_RE = re.compile(r"^DOC-[A-Z0-9]{12,32}$")
 PARSER_TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{1,127}$")
 DEFAULT_MAX_UPLOAD_BYTES = int(os.environ.get("SIQ_DEAL_DOCUMENT_MAX_BYTES", str(200 * 1024 * 1024)))
@@ -121,9 +120,17 @@ def _sync_manifest_documents(package_dir: Path) -> None:
             "sha256": item.get("sha256"),
             "document_type": item.get("document_type"),
             "status": item.get("status"),
+            "document_status": item.get("document_status"),
+            "parse_status": item.get("parse_status"),
+            "analysis_source_status": item.get("analysis_source_status"),
+            "index_status": item.get("index_status"),
             "parse_task_id": item.get("parse_task_id"),
             "parsed_artifact_path": item.get("parsed_artifact_path"),
             "parser_page_url": item.get("parser_page_url"),
+            "current_parse_run_id": item.get("current_parse_run_id"),
+            "wiki_status": item.get("wiki_status"),
+            "wiki_path": item.get("wiki_path"),
+            "wiki_sha256": item.get("wiki_sha256"),
             "created_at": item.get("created_at"),
         }
         for item in documents
@@ -216,6 +223,15 @@ def create_deal_document(
         "storage_path": storage_path,
         "metadata_path": f"data_room/metadata/{document_id}.json",
         "status": "uploaded",
+        "document_status": "active",
+        "parse_status": "not_started",
+        "analysis_source_status": "pending",
+        "index_status": "not_requested",
+        "parser_kind": "document",
+        "parse_runs": [],
+        "current_parse_run_id": None,
+        "wiki_status": "pending",
+        "wiki_path": None,
         "created_at": now,
         "updated_at": now,
         "created_by": created_by,
@@ -224,6 +240,11 @@ def create_deal_document(
     }
     _write_document_metadata(package_dir, metadata)
     _sync_manifest_documents(package_dir)
+    primary_market_wiki.rebuild_primary_market_wiki(
+        deal_id,
+        wiki_root=wiki_root,
+        append_audit=False,
+    )
     deal_store.append_audit_event(
         deal_id,
         {
@@ -252,11 +273,74 @@ def delete_deal_document(
     metadata = _read_document_metadata(metadata_path)
     if not metadata:
         raise FileNotFoundError(normalized)
+    from services import primary_market_materials
+
+    primary_market_materials.disable_analysis_sources_for_deleted_document(
+        deal_id,
+        normalized,
+        disabled_by=deleted_by,
+        wiki_root=wiki_root,
+    )
     storage_path = str(metadata.get("storage_path") or "")
     if storage_path:
         _safe_relative_path(package_dir, storage_path).unlink(missing_ok=True)
+    primary_market_wiki.remove_material_company_wiki(
+        deal_id,
+        normalized,
+        wiki_root=wiki_root,
+    )
     metadata_path.unlink(missing_ok=True)
     _sync_manifest_documents(package_dir)
+    try:
+        from services import deal_evidence
+
+        deal_evidence.build_deal_evidence_package(
+            deal_id,
+            built_by=deleted_by,
+            wiki_root=wiki_root,
+        )
+    except Exception as exc:
+        (package_dir / "evidence" / "evidence_snapshot.json").unlink(missing_ok=True)
+        deal_store.append_audit_event(
+            deal_id,
+            {
+                "event_type": "deal_evidence_invalidated_after_document_delete",
+                "document_id": normalized,
+                "error_type": type(exc).__name__,
+                "deleted_by": deleted_by,
+            },
+            wiki_root=wiki_root,
+        )
+    try:
+        from services import deal_evidence_milvus
+
+        cleanup_required = bool(
+            deal_evidence_milvus.primary_market_milvus_index_enabled()
+            or (package_dir / deal_evidence_milvus.MILVUS_INDEX_RECEIPT_PATH).is_file()
+        )
+        if cleanup_required:
+            deal_evidence_milvus.remove_deal_document_rows(
+                deal_id,
+                normalized,
+                deleted_by=deleted_by,
+                wiki_root=wiki_root,
+            )
+    except Exception as exc:
+        deal_store.append_audit_event(
+            deal_id,
+            {
+                "event_type": "deal_document_milvus_cleanup_failed",
+                "document_id": normalized,
+                "error_type": type(exc).__name__,
+                "deleted_by": deleted_by,
+            },
+            wiki_root=wiki_root,
+        )
+    primary_market_wiki.rebuild_primary_market_wiki(
+        deal_id,
+        wiki_root=wiki_root,
+        append_audit=False,
+    )
     deal_store.append_audit_event(
         deal_id,
         {
@@ -298,6 +382,9 @@ def bind_parser_task(
     now = deal_store.utc_now_iso()
     metadata.update({
         "status": "parse_bound",
+        "parser_kind": metadata.get("parser_kind") or "document",
+        "parse_status": "queued",
+        "wiki_status": "pending",
         "parse_task_id": normalized_task_id,
         "parsed_artifact_path": parsed_artifact_path or None,
         "parser_status_url": f"/api/documents/status/{quoted_task_id}",
@@ -316,6 +403,11 @@ def bind_parser_task(
     })
     _write_document_metadata(package_dir, metadata)
     _sync_manifest_documents(package_dir)
+    primary_market_wiki.rebuild_primary_market_wiki(
+        deal_id,
+        wiki_root=wiki_root,
+        append_audit=False,
+    )
     deal_store.append_audit_event(
         deal_id,
         {

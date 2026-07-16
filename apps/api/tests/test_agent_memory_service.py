@@ -51,6 +51,14 @@ def test_context_from_session_id_marks_ic_profiles_project_shared():
     assert context.visibility == "project_shared"
 
 
+def test_context_from_session_id_rejects_unscoped_primary_market_memory():
+    context = memory.context_from_session_id(
+        "user-7-siq_ic_chairman-123e4567-e89b-12d3-a456-426614174000"
+    )
+
+    assert context is None
+
+
 def test_context_from_session_id_preserves_normalized_research_identity():
     context = memory.context_from_session_id(
         "user-42-assistant-123e4567-e89b-12d3-a456-426614174000",
@@ -239,7 +247,7 @@ def test_unscoped_memory_sql_excludes_all_research_scoped_records():
         assert f"metadata_json->'research_identity'->>'{field}', '') = ''" in sql
 
 
-def test_memory_acl_project_shared_requires_same_agent_group_but_system_shared_crosses_groups():
+def test_memory_acl_isolates_private_project_and_system_memory_by_market_and_profile():
     connection = sqlite3.connect(":memory:")
     connection.execute(
         """
@@ -247,6 +255,7 @@ def test_memory_acl_project_shared_requires_same_agent_group_but_system_shared_c
             id TEXT PRIMARY KEY,
             visibility TEXT NOT NULL,
             owner_user_id INTEGER,
+            profile TEXT NOT NULL,
             agent_group TEXT NOT NULL,
             deal_id TEXT,
             project_id TEXT
@@ -254,13 +263,18 @@ def test_memory_acl_project_shared_requires_same_agent_group_but_system_shared_c
         """
     )
     connection.executemany(
-        "INSERT INTO memory_items VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO memory_items VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
-            ("primary-project", "project_shared", 1, "primary_market", "deal-a", None),
-            ("secondary-project", "project_shared", 1, "secondary_market", "deal-a", None),
-            ("system-cross-group", "system_shared", None, "primary_market", None, None),
-            ("private-owner", "user_private", 7, "primary_market", None, None),
-            ("private-other-user", "user_private", 8, "secondary_market", None, None),
+            ("primary-project", "project_shared", 1, "siq_ic_finance_auditor", "primary_market", "deal-a", None),
+            ("secondary-project", "project_shared", 1, "siq_assistant", "secondary_market", "deal-a", None),
+            ("primary-system-role", "system_shared", None, "siq_ic_chairman", "primary_market", None, None),
+            ("primary-system-other-role", "system_shared", None, "siq_ic_finance_auditor", "primary_market", None, None),
+            ("primary-system-shared", "system_shared", None, "siq_ic_shared", "primary_market", None, None),
+            ("secondary-system-role", "system_shared", None, "siq_assistant", "secondary_market", None, None),
+            ("secondary-system-shared", "system_shared", None, "shared", "shared", None, None),
+            ("private-primary", "user_private", 7, "siq_ic_chairman", "primary_market", None, None),
+            ("private-secondary", "user_private", 7, "siq_assistant", "secondary_market", None, None),
+            ("private-other-user", "user_private", 8, "siq_assistant", "secondary_market", None, None),
         ],
     )
 
@@ -268,15 +282,41 @@ def test_memory_acl_project_shared_requires_same_agent_group_but_system_shared_c
     base_params = {"user_id": 7, "deal_id": "deal-a", "project_id": None}
     secondary_ids = [
         row[0]
-        for row in connection.execute(query, {**base_params, "agent_group": "secondary_market"})
+        for row in connection.execute(
+            query,
+            {
+                **base_params,
+                "agent_group": "secondary_market",
+                "profile": "siq_assistant",
+                "system_shared_profile": "shared",
+            },
+        )
     ]
     primary_ids = [
         row[0]
-        for row in connection.execute(query, {**base_params, "agent_group": "primary_market"})
+        for row in connection.execute(
+            query,
+            {
+                **base_params,
+                "agent_group": "primary_market",
+                "profile": "siq_ic_chairman",
+                "system_shared_profile": "siq_ic_shared",
+            },
+        )
     ]
 
-    assert secondary_ids == ["private-owner", "secondary-project", "system-cross-group"]
-    assert primary_ids == ["primary-project", "private-owner", "system-cross-group"]
+    assert secondary_ids == [
+        "private-secondary",
+        "secondary-project",
+        "secondary-system-role",
+        "secondary-system-shared",
+    ]
+    assert primary_ids == [
+        "primary-project",
+        "primary-system-role",
+        "primary-system-shared",
+        "private-primary",
+    ]
     connection.close()
 
 
@@ -287,3 +327,43 @@ def test_memory_acl_casts_nullable_scope_parameters_for_asyncpg():
     assert "mi.deal_id = CAST(:deal_id AS TEXT)" in sql
     assert "CAST(:project_id AS TEXT) IS NOT NULL" in sql
     assert "mi.project_id = CAST(:project_id AS TEXT)" in sql
+
+
+def test_memory_acl_requires_deal_and_project_to_match_when_both_are_bound():
+    connection = sqlite3.connect(":memory:")
+    connection.execute(
+        """
+        CREATE TABLE memory_items (
+            id TEXT PRIMARY KEY,
+            visibility TEXT NOT NULL,
+            owner_user_id INTEGER,
+            profile TEXT NOT NULL,
+            agent_group TEXT NOT NULL,
+            deal_id TEXT,
+            project_id TEXT
+        )
+        """
+    )
+    connection.executemany(
+        "INSERT INTO memory_items VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("exact", "project_shared", None, "siq_ic_chairman", "primary_market", "deal-a", "project-a"),
+            ("same-deal-wrong-project", "project_shared", None, "siq_ic_chairman", "primary_market", "deal-a", "project-b"),
+            ("same-project-wrong-deal", "project_shared", None, "siq_ic_chairman", "primary_market", "deal-b", "project-a"),
+        ],
+    )
+    query = "SELECT id FROM memory_items mi WHERE TRUE " + memory._memory_acl_sql()
+    rows = connection.execute(
+        query,
+        {
+            "user_id": 7,
+            "deal_id": "deal-a",
+            "project_id": "project-a",
+            "agent_group": "primary_market",
+            "profile": "siq_ic_chairman",
+            "system_shared_profile": "siq_ic_shared",
+        },
+    ).fetchall()
+
+    assert rows == [("exact",)]
+    connection.close()

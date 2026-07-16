@@ -14,6 +14,26 @@ DEAL_RETRIEVAL_SCHEMA = "siq_deal_retrieval_result_v1"
 LOCAL_RETRIEVAL_MODE = "local_dynamic_evidence_package_v1"
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
+_PRIVATE_PATH_FIELDS = (
+    "source",
+    "source_path",
+    "path",
+    "file_path",
+    "wiki_path",
+    "artifact_path",
+    "root_path",
+    "workspace_path",
+    "source_uri",
+)
+_PRIVATE_SCOPE_FIELDS = (
+    "agent_group",
+    "source_class",
+    "market_scope",
+    "research_scope",
+    "knowledge_scope",
+    "domain",
+)
+_SECONDARY_MARKET_SCOPE_VALUES = {"secondary_market", "secondary-market"}
 
 PROFILE_RULES: dict[str, dict[str, Any]] = {
     "siq_ic_master_coordinator": {
@@ -150,6 +170,156 @@ def _private_background_query(
         )
         if str(part or "").strip()
     )[:900]
+
+
+def _hit_project_tag(hit: dict[str, Any]) -> str:
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+    return str(hit.get("project_tag") or metadata.get("project_tag") or "").strip()
+
+
+def _shared_hit_matches_snapshot(
+    hit: dict[str, Any],
+    *,
+    deal_id: str,
+    snapshot_hash: str,
+) -> bool:
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+    return bool(
+        snapshot_hash
+        and _hit_project_tag(hit) == deal_id
+        and metadata.get("domain") == "primary_market"
+        and metadata.get("source_class") == "project_evidence"
+        and metadata.get("project_fact") is True
+        and metadata.get("deal_id") == deal_id
+        and metadata.get("snapshot_hash") == snapshot_hash
+    )
+
+
+def _private_hit_has_secondary_market_source(hit: dict[str, Any]) -> bool:
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+    provenance = metadata.get("provenance") if isinstance(metadata.get("provenance"), dict) else {}
+    source_metadata = (
+        metadata.get("source_metadata")
+        if isinstance(metadata.get("source_metadata"), dict)
+        else {}
+    )
+    for container in (hit, metadata, provenance, source_metadata):
+        for field in _PRIVATE_SCOPE_FIELDS:
+            value = str(container.get(field) or "").strip().lower()
+            if value in _SECONDARY_MARKET_SCOPE_VALUES:
+                return True
+        for field in _PRIVATE_PATH_FIELDS:
+            value = str(container.get(field) or "").strip().replace("\\", "/").lower()
+            if (
+                value == "data/wiki/companies"
+                or "data/wiki/companies/" in value
+                or value.startswith("secondary_market/")
+                or "/secondary_market/" in value
+            ):
+                return True
+    return False
+
+
+def _primary_market_vector_collections(
+    configured: list[str] | tuple[str, ...] | None,
+    *,
+    profile_id: str,
+) -> tuple[list[str] | None, list[str]]:
+    required = [vector_retrieval.SHARED_DEAL_COLLECTION, profile_id]
+    if configured is None:
+        return required, []
+    requested = list(dict.fromkeys(
+        str(item).strip() for item in configured if str(item or "").strip()
+    ))
+    if not requested:
+        return required, []
+    allowed = {vector_retrieval.SHARED_DEAL_COLLECTION, profile_id}
+    rejected = [item for item in requested if item not in allowed]
+    # Primary-market retrieval always executes both required lanes. In
+    # particular, never let the generic SIQ_MILVUS_COLLECTIONS environment
+    # variable select a secondary-market collection before post-filtering.
+    return required, rejected
+
+
+def _filter_primary_market_vector_payload(
+    payload: dict[str, Any],
+    *,
+    profile_id: str,
+    deal_id: str,
+    snapshot_hash: str,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    raw_hits = [item for item in payload.get("hits") or [] if isinstance(item, dict)]
+    accepted_hits: list[dict[str, Any]] = []
+    rejected_shared = 0
+    rejected_stale_shared = 0
+    rejected_private = 0
+    rejected_collection = 0
+    for item in raw_hits:
+        collection = str(item.get("collection") or "")
+        if collection == vector_retrieval.SHARED_DEAL_COLLECTION:
+            if _hit_project_tag(item) != deal_id:
+                rejected_shared += 1
+                continue
+            if not _shared_hit_matches_snapshot(
+                item,
+                deal_id=deal_id,
+                snapshot_hash=snapshot_hash,
+            ):
+                rejected_stale_shared += 1
+                continue
+        elif collection == profile_id and _private_hit_has_secondary_market_source(item):
+            rejected_private += 1
+            continue
+        elif collection not in {vector_retrieval.SHARED_DEAL_COLLECTION, profile_id}:
+            rejected_collection += 1
+            continue
+        accepted_hits.append(item)
+
+    raw_methodology = [
+        item for item in payload.get("methodology_hits") or [] if isinstance(item, dict)
+    ]
+    accepted_methodology = [
+        item
+        for item in raw_methodology
+        if str(item.get("collection") or "") == profile_id
+        and not _private_hit_has_secondary_market_source(item)
+    ]
+    rejected_private += sum(
+        1
+        for item in raw_methodology
+        if str(item.get("collection") or "") == profile_id
+        and _private_hit_has_secondary_market_source(item)
+    )
+    rejected_collection += sum(
+        1 for item in raw_methodology if str(item.get("collection") or "") != profile_id
+    )
+
+    filtered_payload = dict(payload)
+    filtered_payload["hits"] = accepted_hits
+    filtered_payload["hit_count"] = len(accepted_hits)
+    filtered_payload["methodology_hits"] = accepted_methodology
+    filtered_payload["methodology_hit_count"] = len(accepted_methodology)
+    if isinstance(payload.get("collection_hit_counts"), dict):
+        filtered_payload["collection_hit_counts"] = {
+            collection: sum(
+                1 for item in accepted_hits if str(item.get("collection") or "") == collection
+            )
+            for collection in payload["collection_hit_counts"]
+        }
+    filtered_payload["primary_market_filter"] = {
+        "deal_id": deal_id,
+        "evidence_snapshot_hash": snapshot_hash or None,
+        "cross_deal_shared_hits_rejected": rejected_shared,
+        "stale_or_unbound_shared_hits_rejected": rejected_stale_shared,
+        "secondary_market_private_hits_rejected": rejected_private,
+        "disallowed_collection_hits_rejected": rejected_collection,
+    }
+    return filtered_payload, {
+        "cross_deal_shared_hits_rejected": rejected_shared,
+        "stale_or_unbound_shared_hits_rejected": rejected_stale_shared,
+        "secondary_market_private_hits_rejected": rejected_private,
+        "disallowed_collection_hits_rejected": rejected_collection,
+    }
 
 
 def _dedupe_background_hits(
@@ -339,7 +509,7 @@ def retrieve_for_agent(
     include_external: bool = False,
     external_providers: list[str] | tuple[str, ...] | None = None,
     include_vector: bool = False,
-    include_rerank: bool = False,
+    include_rerank: bool = True,
     vector_collections: list[str] | tuple[str, ...] | None = None,
     wiki_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -349,7 +519,13 @@ def retrieve_for_agent(
     normalized_deal_id = deal_store.validate_deal_id(deal_id)
     canonical_profile = normalize_profile_id(profile_id)
     normalized_limit = normalize_limit(limit)
+    snapshot = deal_store.read_json(package_dir / "evidence" / "evidence_snapshot.json", {}) or {}
+    current_snapshot_hash = str(snapshot.get("snapshot_hash") or "") if isinstance(snapshot, dict) else ""
     items, invalid_lines = read_evidence_items(package_dir)
+    unbound_local_item_count = 0
+    if not current_snapshot_hash and items:
+        unbound_local_item_count = len(items)
+        items = []
     rules = PROFILE_RULES.get(canonical_profile, {})
     dimensions = tuple(str(item) for item in rules.get("dimensions", ()))
     dynamic_queries = build_dynamic_queries(
@@ -379,6 +555,11 @@ def retrieve_for_agent(
     gaps: list[str] = []
     if invalid_lines:
         gaps.append(f"evidence_items.ndjson has {invalid_lines} invalid lines")
+    if unbound_local_item_count:
+        gaps.append(
+            "evidence_snapshot_missing_local_evidence_rejected: "
+            f"{unbound_local_item_count}"
+        )
     if not items:
         gaps.append("evidence_package_missing_or_empty")
     if items and not matched:
@@ -391,14 +572,53 @@ def retrieve_for_agent(
         focus_terms=[str(item) for item in rules.get("focus_terms", ())],
         matched_evidence=ranked,
     )
+    safe_vector_collections, rejected_vector_collections = _primary_market_vector_collections(
+        vector_collections,
+        profile_id=canonical_profile,
+    )
+    if rejected_vector_collections:
+        gaps.append(
+            "disallowed_primary_market_vector_collections: "
+            + ", ".join(rejected_vector_collections)
+        )
     vector_payload = vector_retrieval.retrieve_vector_hits(
         query=external_query,
         profile_id=canonical_profile,
         private_query=private_background_query,
         enabled=include_vector,
-        collections=vector_collections,
+        collections=safe_vector_collections,
+        required_physical_collections=vector_retrieval.primary_market_physical_collections(
+            canonical_profile
+        ),
+        allowed_project_tag=normalized_deal_id,
         top_k=min(normalized_limit, 20),
     )
+    vector_payload, primary_market_filter = _filter_primary_market_vector_payload(
+        vector_payload,
+        profile_id=canonical_profile,
+        deal_id=normalized_deal_id,
+        snapshot_hash=current_snapshot_hash,
+    )
+    if primary_market_filter["cross_deal_shared_hits_rejected"]:
+        gaps.append(
+            "cross_deal_shared_vector_hits_rejected: "
+            f"{primary_market_filter['cross_deal_shared_hits_rejected']}"
+        )
+    if primary_market_filter["stale_or_unbound_shared_hits_rejected"]:
+        gaps.append(
+            "stale_or_unbound_shared_vector_hits_rejected: "
+            f"{primary_market_filter['stale_or_unbound_shared_hits_rejected']}"
+        )
+    if primary_market_filter["secondary_market_private_hits_rejected"]:
+        gaps.append(
+            "secondary_market_private_vector_hits_rejected: "
+            f"{primary_market_filter['secondary_market_private_hits_rejected']}"
+        )
+    if primary_market_filter["disallowed_collection_hits_rejected"]:
+        gaps.append(
+            "disallowed_vector_collection_hits_rejected: "
+            f"{primary_market_filter['disallowed_collection_hits_rejected']}"
+        )
     vector_hits = [item for item in vector_payload.get("hits", []) if isinstance(item, dict)]
     raw_domain_background_hits = [
         {**item, "source_class": "background_knowledge"}
@@ -451,8 +671,11 @@ def retrieve_for_agent(
         }
         for item in [*shared_vector_hits, *background_knowledge_hits]
     ]
+    rerank_query = " ".join(
+        part for part in (external_query, private_background_query) if str(part or "").strip()
+    )[:600]
     rerank_payload = rerank_provider.rerank_candidates(
-        query=external_query,
+        query=rerank_query,
         candidates=rerank_candidates,
         enabled=include_rerank,
         top_n=normalized_limit,
@@ -484,6 +707,7 @@ def retrieve_for_agent(
         "vector_retrieval": vector_payload,
         "shared_vector_hits": shared_vector_hits,
         "private_background_query": private_background_query,
+        "rerank_query": rerank_query,
         "background_knowledge_hits": background_knowledge_hits,
         "background_knowledge_hit_count": len(background_knowledge_hits),
         "methodology_hits": methodology_hits,
@@ -496,4 +720,13 @@ def retrieve_for_agent(
         "milvus_used": vector_payload.get("status") == "completed",
         "postgres_used": False,
         "reranker_used": rerank_payload.get("status") == "completed",
+        "retrieval_observability": {
+            "strategy": vector_payload.get("retrieval_strategy") or {},
+            "collection_candidate_counts": vector_payload.get("collection_candidate_counts") or {},
+            "collection_hit_counts": vector_payload.get("collection_hit_counts") or {},
+            "rerank_status": rerank_payload.get("status"),
+            "rerank_reason": rerank_payload.get("reason"),
+            "rerank_candidate_count": rerank_payload.get("candidate_count", 0),
+            "rerank_result_count": rerank_payload.get("result_count", 0),
+        },
     }

@@ -697,6 +697,76 @@ def test_ensure_agent_memory_context_threads_complete_research_identity():
     assert calls[1][0]["research_identity"]["parse_run_id"] == "parse-hk-00700"
 
 
+def test_ensure_agent_memory_context_threads_primary_market_deal_scope():
+    async def run_case():
+        calls = []
+
+        def fake_context_from_session_id(
+            session_id,
+            *,
+            profile,
+            deal_id,
+            visibility,
+        ):
+            calls.append((session_id, profile, deal_id, visibility))
+            return {
+                "profile": profile,
+                "deal_id": deal_id,
+                "visibility": visibility,
+            }
+
+        async def fake_build_memory_context(_session, context, *, query):
+            calls.append((context, query))
+            return "deal-scoped memory"
+
+        result = await agent_runtime_memory.ensure_agent_memory_context(
+            object(),
+            "siq_ic_chairman",
+            "user-7-primary-market-DEAL-001-main-a5c42649",
+            "请延续上次投委会结论",
+            research_context={
+                "domain": "primary_market",
+                "deal_id": "DEAL-001",
+                "profile_id": "siq_ic_chairman",
+            },
+            min_query_chars=1,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+        )
+        return result, calls
+
+    result, calls = anyio.run(run_case)
+
+    assert result == "deal-scoped memory"
+    assert calls[0] == (
+        "user-7-primary-market-DEAL-001-main-a5c42649",
+        "siq_ic_chairman",
+        "DEAL-001",
+        "project_shared",
+    )
+    assert calls[1][0]["deal_id"] == "DEAL-001"
+
+
+def test_ensure_agent_memory_context_fails_closed_for_unscoped_primary_market():
+    async def run_case():
+        def forbidden_context(*_args, **_kwargs):
+            raise AssertionError("unscoped primary memory must not be queried")
+
+        return await agent_runtime_memory.ensure_agent_memory_context(
+            object(),
+            "siq_ic_chairman",
+            "user-7-primary-market-unknown-a5c42649",
+            "请回忆上次结论",
+            research_context={"domain": "primary_market"},
+            min_query_chars=1,
+            context_from_session_id=forbidden_context,
+        )
+
+    result = anyio.run(run_case)
+
+    assert result is None
+
+
 def test_ensure_agent_memory_context_owner_skips_blank_and_rolls_back_non_strict_errors():
     async def run_case():
         calls: list[str] = []

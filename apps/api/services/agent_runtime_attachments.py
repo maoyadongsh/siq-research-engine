@@ -74,6 +74,8 @@ CHAT_PDF_ATTACHMENT_WAIT_POLL_SECONDS = _env_int(
     maximum=30,
 )
 _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = False
+_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK: asyncio.Lock | None = None
+_CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP: asyncio.AbstractEventLoop | None = None
 ATTACHMENT_FOLLOWUP_RE = re.compile(
     r"(继续|前面|刚才|上[一个轮条张份次]|这张|那张|这份|那份|图片|照片|附件|手写|ocr|OCR)",
     re.IGNORECASE,
@@ -396,39 +398,69 @@ def _attachments_with_fresh_metadata(attachments: Any | None) -> list[dict[str, 
     return refreshed
 
 
+def _chatmessage_attachments_column_lock() -> asyncio.Lock:
+    global _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK, _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP
+    loop = asyncio.get_running_loop()
+    if (
+        _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK is None
+        or (
+            _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP is not loop
+            and not _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK.locked()
+        )
+    ):
+        _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK = asyncio.Lock()
+        _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK_LOOP = loop
+    return _CHAT_MESSAGE_ATTACHMENTS_COLUMN_LOCK
+
+
+async def _chatmessage_columns(async_session: AsyncSession, dialect: str) -> set[str]:
+    if dialect == "sqlite":
+        result = await async_session.exec(sql_text("PRAGMA table_info(chatmessage)"))
+        return {str(row[1]) for row in result.all()}
+    result = await async_session.exec(
+        sql_text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'chatmessage'
+              AND column_name IN ('attachments_json', 'audit_trace_id', 'research_identity_json')
+            """
+        )
+    )
+    return {str(row[0]) for row in result.all()}
+
+
 async def _ensure_chatmessage_attachments_column(async_session: AsyncSession) -> None:
     global _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY
     if _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY:
         return
-    try:
-        bind = async_session.get_bind()
-        dialect = bind.dialect.name if bind is not None else ""
-        if dialect == "sqlite":
-            result = await async_session.exec(sql_text("PRAGMA table_info(chatmessage)"))
-            columns = {str(row[1]) for row in result.all()}
-            if "attachments_json" not in columns:
-                await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN attachments_json TEXT"))
-            if "audit_trace_id" not in columns:
-                await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN audit_trace_id VARCHAR(64)"))
-            if "research_identity_json" not in columns:
-                await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN research_identity_json TEXT"))
-            if (
-                "attachments_json" not in columns
-                or "audit_trace_id" not in columns
-                or "research_identity_json" not in columns
-            ):
-                await async_session.commit()
-        else:
-            await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN IF NOT EXISTS attachments_json TEXT"))
-            await async_session.exec(sql_text("ALTER TABLE chatmessage ADD COLUMN IF NOT EXISTS audit_trace_id VARCHAR(64)"))
-            await async_session.exec(
-                sql_text("ALTER TABLE chatmessage ADD COLUMN IF NOT EXISTS research_identity_json TEXT")
+    async with _chatmessage_attachments_column_lock():
+        if _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY:
+            return
+        try:
+            bind = async_session.get_bind()
+            dialect = bind.dialect.name if bind is not None else ""
+            columns = await _chatmessage_columns(async_session, dialect)
+            definitions = (
+                ("attachments_json", "TEXT"),
+                ("audit_trace_id", "VARCHAR(64)"),
+                ("research_identity_json", "TEXT"),
             )
-            await async_session.commit()
-        _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = True
-    except Exception:
-        await async_session.rollback()
-        raise
+            missing = [(name, definition) for name, definition in definitions if name not in columns]
+            for name, definition in missing:
+                if dialect == "sqlite":
+                    statement = f"ALTER TABLE chatmessage ADD COLUMN {name} {definition}"
+                else:
+                    statement = f"ALTER TABLE chatmessage ADD COLUMN IF NOT EXISTS {name} {definition}"
+                await async_session.exec(sql_text(statement))
+            if missing:
+                await async_session.commit()
+            _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = True
+        except BaseException:
+            _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = False
+            await async_session.rollback()
+            raise
 
 
 def _read_text_file(path: Path) -> str:

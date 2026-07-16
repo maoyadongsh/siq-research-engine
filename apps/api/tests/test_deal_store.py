@@ -33,6 +33,7 @@ from services import (  # noqa: E402
     ic_policy,
     ic_startup_retrieval,
     ic_workflow,
+    primary_market_wiki,
 )
 
 
@@ -242,12 +243,43 @@ def _receipt_payload(agent_id: str, evidence_id: str = "EVID-DEAL-YUSHU-2026-001
         "shared_hits": 1,
         "private_hits": 1,
         "milvus_used": True,
-        "retrieval_status": "completed",
+        "retrieval_status": "ready",
+        "dual_kb_connected": True,
+        "rerank_ready": True,
         "shared_collection": "siq_deal_shared",
         "shared_collections": ["siq_deal_shared"],
         "private_collection": agent_id,
         "private_collections": [agent_id],
         "retrieval_collections": ["siq_deal_shared", agent_id],
+        "physical_collections": {
+            "siq_deal_shared": "ic_collaboration_shared",
+            agent_id: agent_id.removeprefix("siq_"),
+        },
+        "vector_retrieval": {
+            "status": "completed",
+            "milvus_used": True,
+            "collections": ["siq_deal_shared", agent_id],
+            "physical_collections": {
+                "siq_deal_shared": "ic_collaboration_shared",
+                agent_id: agent_id.removeprefix("siq_"),
+            },
+            "shared_filter_applied": True,
+            "shared_project_tag": "DEAL-YUSHU-2026-001",
+            "retrieval_strategy": {
+                "mode": "dense_bm25_rrf",
+                "embedding_model": "Qwen3-VL-Embedding-2B",
+            },
+        },
+        "retrieval_strategy": {
+            "mode": "dense_bm25_rrf",
+            "embedding_model": "Qwen3-VL-Embedding-2B",
+        },
+        "rerank": {
+            "status": "completed",
+            "model": "Qwen3-VL-Reranker-2B",
+            "candidate_count": 2,
+            "result_count": 2,
+        },
         "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
         "gaps": [],
         "evidence_hits": [{"evidence_id": evidence_id}],
@@ -412,6 +444,16 @@ def _write_minimum_complete_deal_contract(package_dir: Path) -> None:
                 "claim": "risk",
             },
         ],
+    )
+    _write_json(
+        package_dir / "evidence" / "evidence_snapshot.json",
+        {
+            "schema_version": "siq_deal_evidence_snapshot_v1",
+            "deal_id": package_dir.name,
+            "snapshot_hash": "a" * 64,
+            "source_ids": [],
+            "active_sources": [],
+        },
     )
     for agent_id in report_agents:
         (package_dir / "discussion" / f"01_R1_{agent_id.removeprefix('siq_ic_')}_report.md").write_text(
@@ -3086,6 +3128,7 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
     )
     monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(primary_market_wiki, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     deal_documents.bind_parser_task(
         "DEAL-YUSHU-2026-001",
         financial_doc["document_id"],
@@ -3204,7 +3247,9 @@ def test_deal_evidence_builds_offline_package_from_bound_parser_docs(tmp_path, m
     assert dry_run["counts"]["milvus_chunks_planned"] == 2
     assert dry_run["target_postgres"]["write_enabled"] is False
     assert dry_run["target_milvus"]["write_enabled"] is False
-    assert dry_run["postgres_rows_preview"][0]["artifact_path"] == "parser_results/task-fin/document.md"
+    assert dry_run["postgres_rows_preview"][0]["artifact_path"].startswith(
+        "wiki/company/materials/finance/"
+    )
     assert dry_run["milvus_chunks_preview"][0]["collection"] == "siq_deal_shared"
     assert dry_run["milvus_chunks_preview"][0]["evidence_id"] == "EVID-DEAL-YUSHU-2026-001-000001"
     assert dry_run["milvus_chunks_preview"][0]["confidence"] == 0.6
@@ -3302,6 +3347,7 @@ def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monke
     document_md.write_text("Revenue reached RMB 100m.\n\nGross margin improved.", encoding="utf-8")
     monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(primary_market_wiki, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     deal_documents.bind_parser_task(
         "DEAL-YUSHU-2026-001",
         document["document_id"],
@@ -3352,7 +3398,7 @@ def test_startup_retrieval_generates_local_receipt_from_evidence(tmp_path, monke
     audit = json.loads((package_dir / "audit" / "audit_log.json").read_text(encoding="utf-8"))
     assert audit["events"][-1]["event_type"] == "deal_startup_retrieval_receipt_generated"
     assert audit["events"][-1]["vector_retrieval_enabled"] is True
-    assert audit["events"][-1]["rerank_enabled"] is False
+    assert audit["events"][-1]["rerank_enabled"] is True
 
 
 def test_startup_retrieval_rejects_unknown_profile_and_supports_coordinator(tmp_path):
@@ -4360,6 +4406,7 @@ def test_deal_evidence_build_is_idempotent_and_preflight_counts_items(tmp_path, 
     )
     monkeypatch.setattr(deal_documents, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     monkeypatch.setattr(deal_evidence, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
+    monkeypatch.setattr(primary_market_wiki, "DOCUMENT_PARSER_RESULTS_ROOT", parser_root)
     deal_documents.bind_parser_task(
         "DEAL-YUSHU-2026-001",
         document["document_id"],

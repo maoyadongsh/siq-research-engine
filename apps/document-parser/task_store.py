@@ -11,6 +11,7 @@ from typing import Any
 DEFAULT_OWNER_ID = "system"
 DEFAULT_TENANT_ID = "unknown"
 DEFAULT_MARKET_SCOPE = "unknown"
+DEFAULT_USER_ROLE = ""
 DEFAULT_PARSE_CONFIG_HASH = "unknown"
 
 
@@ -39,6 +40,7 @@ class TaskStore:
                     owner_id TEXT NOT NULL DEFAULT 'system',
                     tenant_id TEXT NOT NULL DEFAULT 'unknown',
                     market_scope TEXT NOT NULL DEFAULT 'unknown',
+                    user_role TEXT NOT NULL DEFAULT '',
                     parse_config_hash TEXT NOT NULL DEFAULT 'unknown',
                     document_kind TEXT DEFAULT 'unknown',
                     source_type TEXT DEFAULT 'upload',
@@ -54,6 +56,10 @@ class TaskStore:
                     artifact_count INTEGER DEFAULT 0,
                     upstream_task_id TEXT DEFAULT '',
                     upstream_status TEXT DEFAULT '',
+                    upstream_cleanup_status TEXT DEFAULT '',
+                    upstream_cleanup_attempts INTEGER DEFAULT 0,
+                    upstream_cleanup_error TEXT DEFAULT '',
+                    upstream_cleanup_updated_at TEXT DEFAULT '',
                     queue_position INTEGER,
                     local_queue_position INTEGER,
                     elapsed_seconds INTEGER,
@@ -83,9 +89,14 @@ class TaskStore:
                 "owner_id": "TEXT NOT NULL DEFAULT 'system'",
                 "tenant_id": "TEXT NOT NULL DEFAULT 'unknown'",
                 "market_scope": "TEXT NOT NULL DEFAULT 'unknown'",
+                "user_role": "TEXT NOT NULL DEFAULT ''",
                 "parse_config_hash": "TEXT NOT NULL DEFAULT 'unknown'",
                 "upstream_task_id": "TEXT DEFAULT ''",
                 "upstream_status": "TEXT DEFAULT ''",
+                "upstream_cleanup_status": "TEXT DEFAULT ''",
+                "upstream_cleanup_attempts": "INTEGER DEFAULT 0",
+                "upstream_cleanup_error": "TEXT DEFAULT ''",
+                "upstream_cleanup_updated_at": "TEXT DEFAULT ''",
                 "queue_position": "INTEGER",
                 "local_queue_position": "INTEGER",
                 "elapsed_seconds": "INTEGER",
@@ -104,14 +115,14 @@ class TaskStore:
             conn.execute(
                 """
                 INSERT INTO tasks (
-                    task_id, filename, owner_id, tenant_id, market_scope, parse_config_hash,
+                    task_id, filename, owner_id, tenant_id, market_scope, user_role, parse_config_hash,
                     document_kind, source_type, source_url, status, stage,
                     progress_percent, file_size, file_sha256, mime_type, parser_provider,
                     quality_status, artifact_count, upstream_task_id, upstream_status,
                     queue_position, local_queue_position, elapsed_seconds, total_pages,
                     processed_pages, error, config_json, created_at, updated_at, completed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task["task_id"],
@@ -119,6 +130,7 @@ class TaskStore:
                     task.get("owner_id") or DEFAULT_OWNER_ID,
                     task.get("tenant_id") or DEFAULT_TENANT_ID,
                     task.get("market_scope") or DEFAULT_MARKET_SCOPE,
+                    task.get("user_role") or DEFAULT_USER_ROLE,
                     task.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH,
                     task.get("document_kind", "unknown"),
                     task.get("source_type", "upload"),
@@ -272,6 +284,43 @@ class TaskStore:
             )
             return int(cursor.rowcount or 0)
 
+    def list_pending_upstream_cleanups(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM tasks
+                WHERE upstream_task_id != ''
+                  AND upstream_cleanup_status IN ('pending', 'deferred')
+                  AND status IN ('completed', 'completed_with_warnings')
+                ORDER BY upstream_cleanup_updated_at ASC, updated_at ASC
+                LIMIT ?
+                """,
+                (max(1, min(int(limit), 200)),),
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def record_upstream_cleanup(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        error: str = "",
+    ) -> None:
+        timestamp = now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET upstream_cleanup_status = ?,
+                    upstream_cleanup_attempts = COALESCE(upstream_cleanup_attempts, 0) + 1,
+                    upstream_cleanup_error = ?,
+                    upstream_cleanup_updated_at = ?,
+                    updated_at = ?
+                WHERE task_id = ?
+                """,
+                (status, str(error or "")[:300], timestamp, timestamp, task_id),
+            )
+
     def get_logs(self, task_id: str, since: int = 0) -> tuple[list[dict[str, Any]], int]:
         since = max(0, int(since or 0))
         with self.connect() as conn:
@@ -302,6 +351,7 @@ class TaskStore:
         item["owner_id"] = item.get("owner_id") or DEFAULT_OWNER_ID
         item["tenant_id"] = item.get("tenant_id") or DEFAULT_TENANT_ID
         item["market_scope"] = item.get("market_scope") or DEFAULT_MARKET_SCOPE
+        item["user_role"] = item.get("user_role") or DEFAULT_USER_ROLE
         item["parse_config_hash"] = item.get("parse_config_hash") or DEFAULT_PARSE_CONFIG_HASH
         item["legacy_owner"] = (
             item["owner_id"] == DEFAULT_OWNER_ID

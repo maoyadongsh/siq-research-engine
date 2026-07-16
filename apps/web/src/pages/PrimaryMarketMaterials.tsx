@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   History,
+  Link2,
   Loader2,
   PackageCheck,
   RefreshCw,
@@ -21,13 +22,21 @@ import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { ApiError } from '@/shared/api/client'
 import type {
   DealEvidenceIngestDryRun,
+  DealEvidenceMilvusIndexReceipt,
   DealEvidenceQualityReport,
+  DealEvidenceResponse,
+  DealEvidenceSnapshot,
   DealSummary,
   PrimaryMarketMaterial,
+  PrimaryMarketMaterialParseStatusResponse,
+  PrimaryMarketMaterialResponse,
+  PrimaryMarketWikiProjection,
 } from '@/lib/dealTypes'
 import {
+  bindPrimaryMarketDocumentParserTask,
   buildPrimaryMarketEvidence,
   disablePrimaryMarketAnalysisSource,
   dryRunPrimaryMarketEvidenceIngest,
@@ -36,6 +45,9 @@ import {
   fetchPrimaryMarketMaterialParseStatus,
   fetchPrimaryMarketMaterials,
   fetchPrimaryMarketProjects,
+  fetchPrimaryMarketWiki,
+  indexPrimaryMarketEvidenceMilvus,
+  parsePrimaryMarketMaterial,
   primaryMarketMaterialArtifactUrl,
   primaryMarketMaterialOriginalUrl,
   primaryMarketMaterialSourcePageUrl,
@@ -58,6 +70,7 @@ import {
   documentTitle,
   documentTypeLabel,
   exchangeLabel,
+  evidenceDocumentMap,
   filingStageLabel,
   formatSize,
   formatTime,
@@ -75,6 +88,12 @@ import {
   text,
   withMaterialVersions,
 } from '@/features/primary-market/primaryMarketViewModel'
+import type { ParserBindDraft } from '@/features/primary-market/primaryMarketViewModel'
+import {
+  materialMilvusStage,
+  materialWikiStage,
+  projectWikiStage,
+} from '@/features/primary-market/primaryMarketMaterialPipeline'
 
 const POLL_INTERVAL_MS = 2500
 
@@ -101,6 +120,75 @@ function dryRunStatus(dryRun?: DealEvidenceIngestDryRun | null) {
 
 function isProspectus(material: PrimaryMarketMaterial) {
   return material.document_type === 'prospectus' || material.document_profile === 'cn_a_share_prospectus'
+}
+
+function isPdfMaterial(material: PrimaryMarketMaterial) {
+  const filename = material.original_filename || material.filename || ''
+  return material.content_type === 'application/pdf' || filename.toLowerCase().endsWith('.pdf')
+}
+
+type PipelinePayload = PrimaryMarketMaterialResponse | PrimaryMarketMaterialParseStatusResponse | DealEvidenceResponse
+type PipelinePromotion = NonNullable<PrimaryMarketMaterialParseStatusResponse['promotion']>
+
+function parseStageStatus(material: PrimaryMarketMaterial) {
+  if (material.parsed_artifact_path && !material.parse_status) return 'succeeded'
+  return String(material.parse_status || material.current_parse_run?.status || material.parse_run?.status || 'not_started')
+}
+
+function materialParseRetryable(material: PrimaryMarketMaterial) {
+  const run = material.current_parse_run || material.parse_run
+  return material.parse_retryable !== false && run?.retryable !== false && run?.non_retryable !== true
+}
+
+function parseFailureState(error: unknown) {
+  const payload = error instanceof ApiError && error.payload && typeof error.payload === 'object'
+    ? error.payload as Record<string, unknown>
+    : {}
+  const detail = payload.detail && typeof payload.detail === 'object'
+    ? payload.detail as Record<string, unknown>
+    : payload
+  const message = String(detail.message || (error instanceof Error ? error.message : '') || '解析启动失败')
+  const retryable = typeof detail.retryable === 'boolean'
+    ? detail.retryable
+    : !(error instanceof ApiError) || error.status >= 500
+  return { message, retryable }
+}
+
+function mergeMaterialPipelineStatus(
+  material: PrimaryMarketMaterial,
+  payload: PrimaryMarketMaterialParseStatusResponse | PrimaryMarketMaterialResponse,
+) {
+  const merged = mergeMaterialParseStatus(
+    material,
+    payload as PrimaryMarketMaterialParseStatusResponse,
+  )
+  const parseStage = payload.pipeline?.stages?.parse
+  return {
+    ...merged,
+    parse_status: parseStage?.status || merged.parse_status,
+    parse_retryable: parseStage?.retryable ?? merged.parse_retryable,
+    parse_error: parseStage?.error || merged.parse_error,
+  } satisfies PrimaryMarketMaterial
+}
+
+function payloadHasWikiProjection(payload: PrimaryMarketMaterialParseStatusResponse) {
+  const directWiki = payload.wiki
+  const promotedWiki = payload.promotion?.wiki
+  return payload.document?.wiki_status === 'ready'
+    || Boolean(directWiki?.wiki_path || promotedWiki?.wiki_path)
+}
+
+function pipelineStatusTone(value?: string | null) {
+  const status = String(value || '').toLowerCase()
+  if (['indexed', 'unchanged', 'succeeded', 'completed', 'ready', 'projected'].includes(status)) return 'success' as const
+  if (['failed', 'blocked', 'error'].includes(status)) return 'error' as const
+  if (['queued', 'parsing', 'processing', 'building', 'pending', 'stale'].includes(status)) return 'warning' as const
+  return 'neutral' as const
+}
+
+function shortHash(value?: string | null) {
+  const hash = String(value || '')
+  return hash ? `${hash.slice(0, 10)}${hash.length > 10 ? '...' : ''}` : '-'
 }
 
 function mergeMaterial(current: PrimaryMarketMaterial[], material: PrimaryMarketMaterial) {
@@ -134,6 +222,9 @@ export default function PrimaryMarketMaterials() {
   const [dealsError, setDealsError] = useState('')
   const [materials, setMaterials] = useState<PrimaryMarketMaterial[]>([])
   const [evidenceQuality, setEvidenceQuality] = useState<DealEvidenceQualityReport | null>(null)
+  const [evidenceSnapshot, setEvidenceSnapshot] = useState<DealEvidenceSnapshot | null>(null)
+  const [milvusIndex, setMilvusIndex] = useState<DealEvidenceMilvusIndexReceipt | null>(null)
+  const [wikiProjection, setWikiProjection] = useState<PrimaryMarketWikiProjection | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -154,6 +245,11 @@ export default function PrimaryMarketMaterials() {
   const [ingestDryRun, setIngestDryRun] = useState<DealEvidenceIngestDryRun | null>(null)
   const [ingestBusy, setIngestBusy] = useState(false)
   const [ingestError, setIngestError] = useState('')
+  const [indexingMilvus, setIndexingMilvus] = useState(false)
+  const [expandedParserId, setExpandedParserId] = useState('')
+  const [bindingId, setBindingId] = useState('')
+  const [parserDrafts, setParserDrafts] = useState<Record<string, ParserBindDraft>>({})
+  const [parserErrors, setParserErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     const controller = new AbortController()
@@ -178,6 +274,42 @@ export default function PrimaryMarketMaterials() {
 
   const selectedDeal = deals.find((deal) => deal.deal_id === selectedDealId) || null
 
+  const applyPipelinePayload = useCallback((payload: PipelinePayload) => {
+    const promotion = (
+      'promotion' in payload
+      && payload.promotion
+      && typeof payload.promotion === 'object'
+    ) ? payload.promotion as PipelinePromotion : null
+    const evidence = ('evidence' in payload ? payload.evidence : null) || promotion?.evidence
+    const nextQuality = evidence?.quality_report
+      || ('quality_report' in payload ? payload.quality_report : null)
+    if (nextQuality) setEvidenceQuality(nextQuality)
+
+    const nextSnapshot = ('evidence_snapshot' in payload ? payload.evidence_snapshot : null)
+      || promotion?.evidence_snapshot
+      || evidence?.evidence_snapshot
+    if (nextSnapshot) setEvidenceSnapshot(nextSnapshot)
+
+    const nextMilvus = ('milvus_index' in payload ? payload.milvus_index : null)
+      || promotion?.milvus_index
+      || evidence?.milvus_index
+    if (nextMilvus) setMilvusIndex(nextMilvus)
+
+    const nextWiki = ('wiki_projection' in payload ? payload.wiki_projection : null)
+      || ('wiki' in payload ? payload.wiki : null)
+      || promotion?.wiki
+      || evidence?.wiki_projection
+      || evidence?.wiki
+    if (nextWiki) {
+      setWikiProjection((current) => ({
+        ...current,
+        ...nextWiki,
+        counts: nextWiki.counts || current?.counts,
+        entries: nextWiki.entries || current?.entries,
+      }))
+    }
+  }, [])
+
   const loadMaterials = useCallback(async (signal?: AbortSignal) => {
     if (!selectedDealId) return
     const generation = ++requestGenerationRef.current
@@ -185,25 +317,42 @@ export default function PrimaryMarketMaterials() {
     setError('')
     setEvidenceError('')
     try {
-      const [materialsPayload, evidencePayload] = await Promise.all([
+      const [materialsPayload, evidencePayload, wikiPayload] = await Promise.all([
         fetchPrimaryMarketMaterials(selectedDealId, signal),
         fetchPrimaryMarketEvidence(selectedDealId, signal).catch(() => null),
+        fetchPrimaryMarketWiki(selectedDealId, signal).catch(() => null),
       ])
       if (signal?.aborted || requestGenerationRef.current !== generation) return
       const listedMaterials = materialsFromResponse(materialsPayload)
-      const hydratedMaterials = await Promise.all(listedMaterials.map(async (material) => {
-        if (!isProspectus(material)) return material
-        try {
-          const payload = await fetchPrimaryMarketMaterial(selectedDealId, material.document_id, signal)
-          const hydrated = materialFromResponse(payload)
-          return hydrated ? { ...material, ...hydrated } : material
-        } catch {
-          return material
+      const hydratedResults = await Promise.all(listedMaterials.map(async (material) => {
+        const [detailPayload, statusPayload] = await Promise.all([
+          isProspectus(material)
+            ? fetchPrimaryMarketMaterial(selectedDealId, material.document_id, signal).catch(() => null)
+            : Promise.resolve(null),
+          fetchPrimaryMarketMaterialParseStatus(selectedDealId, material.document_id, signal).catch(() => null),
+        ])
+        const detailed = detailPayload ? materialFromResponse(detailPayload) : null
+        const hydrated = detailed ? { ...material, ...detailed } : material
+        return {
+          material: statusPayload ? mergeMaterialPipelineStatus(hydrated, statusPayload) : hydrated,
+          statusPayload,
         }
       }))
       if (signal?.aborted || requestGenerationRef.current !== generation) return
-      setMaterials(hydratedMaterials)
+      const refreshedWikiPayload = hydratedResults.some((result) => (
+        result.statusPayload && payloadHasWikiProjection(result.statusPayload)
+      ))
+        ? await fetchPrimaryMarketWiki(selectedDealId, signal).catch(() => wikiPayload)
+        : wikiPayload
+      if (signal?.aborted || requestGenerationRef.current !== generation) return
+      setMaterials(hydratedResults.map((result) => result.material))
       setEvidenceQuality(evidencePayload?.quality_report || null)
+      if (evidencePayload?.evidence_snapshot) setEvidenceSnapshot(evidencePayload.evidence_snapshot)
+      if (evidencePayload?.milvus_index) setMilvusIndex(evidencePayload.milvus_index)
+      if (refreshedWikiPayload) setWikiProjection(refreshedWikiPayload)
+      for (const result of hydratedResults) {
+        if (result.statusPayload) applyPipelinePayload(result.statusPayload)
+      }
     } catch (err) {
       if (!signal?.aborted && requestGenerationRef.current === generation) {
         setError(err instanceof Error ? err.message : '材料加载失败')
@@ -211,7 +360,7 @@ export default function PrimaryMarketMaterials() {
     } finally {
       if (!signal?.aborted && requestGenerationRef.current === generation) setLoading(false)
     }
-  }, [selectedDealId])
+  }, [applyPipelinePayload, selectedDealId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -227,9 +376,15 @@ export default function PrimaryMarketMaterials() {
     requestGenerationRef.current += 1
     setMaterials([])
     setEvidenceQuality(null)
+    setEvidenceSnapshot(null)
+    setMilvusIndex(null)
+    setWikiProjection(null)
     setIngestDryRun(null)
     setIngestError('')
     setActionError('')
+    setExpandedParserId('')
+    setParserDrafts({})
+    setParserErrors({})
     updateDealParam(setSearchParams, dealId)
   }
 
@@ -249,9 +404,19 @@ export default function PrimaryMarketMaterials() {
         }
       })).then((results) => {
         if (controller.signal.aborted || requestGenerationRef.current !== generation) return
+        for (const result of results) {
+          if (result?.payload) applyPipelinePayload(result.payload)
+        }
+        if (results.some((result) => result?.payload && payloadHasWikiProjection(result.payload))) {
+          void fetchPrimaryMarketWiki(dealId, controller.signal).then((payload) => {
+            if (!controller.signal.aborted && requestGenerationRef.current === generation) {
+              setWikiProjection(payload)
+            }
+          }).catch(() => undefined)
+        }
         setMaterials((current) => current.map((material) => {
           const result = results.find((item) => item?.documentId === material.document_id)
-          return result ? mergeMaterialParseStatus(material, result.payload) : material
+          return result ? mergeMaterialPipelineStatus(material, result.payload) : material
         }))
       })
     }, POLL_INTERVAL_MS)
@@ -259,7 +424,7 @@ export default function PrimaryMarketMaterials() {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [materials, selectedDealId])
+  }, [applyPipelinePayload, materials, selectedDealId])
 
   const displayMaterials = useMemo(() => withMaterialVersions(materials), [materials])
   const typeCounts = useMemo(() => materialTypeCounts(displayMaterials), [displayMaterials])
@@ -269,6 +434,30 @@ export default function PrimaryMarketMaterials() {
   const prospectuses = displayMaterials.filter(isProspectus)
   const availableDimensions = sortedDimensions(evidenceQuality)
   const missingDimensions = sortedMissingDimensions(evidenceQuality)
+  const evidenceByDocument = useMemo(() => evidenceDocumentMap(evidenceQuality), [evidenceQuality])
+  const wikiEntryByDocument = useMemo(() => new Map(
+    (wikiProjection?.entries || [])
+      .filter((entry) => typeof entry.document_id === 'string')
+      .map((entry) => [String(entry.document_id), entry]),
+  ), [wikiProjection])
+  const parsedCount = displayMaterials.filter((material) => ['succeeded', 'completed'].includes(parseStageStatus(material))).length
+  const parsingCount = displayMaterials.filter(isMaterialPolling).length
+  const parseFailedCount = displayMaterials.filter((material) => parseStageStatus(material) === 'failed').length
+  const wikiPipelineStatus = projectWikiStage(wikiProjection, parsedCount)
+  const parsePipelineStatus = parseFailedCount
+    ? 'failed'
+    : parsingCount
+      ? 'processing'
+      : displayMaterials.length > 0 && parsedCount === displayMaterials.length
+        ? 'completed'
+        : 'pending'
+  const evidencePipelineStatus = evidenceQuality?.status || 'pending'
+  const currentEvidenceSnapshotHash = evidenceSnapshot?.snapshot_hash || wikiProjection?.evidence_snapshot_hash
+  const rawMilvusPipelineStatus = milvusIndex?.status || 'pending'
+  const milvusPipelineStatus = ['indexed', 'unchanged'].includes(rawMilvusPipelineStatus)
+    && (!currentEvidenceSnapshotHash || milvusIndex?.snapshot_hash !== currentEvidenceSnapshotHash)
+    ? 'stale'
+    : rawMilvusPipelineStatus
   const boardOptions = exchange === 'SSE'
     ? PROSPECTUS_BOARD_OPTIONS.filter((option) => ['main', 'star'].includes(option.value))
     : exchange === 'SZSE'
@@ -300,6 +489,8 @@ export default function PrimaryMarketMaterials() {
     }
     setUploading(true)
     setUploadError('')
+    setActionError('')
+    let shouldReload = true
     try {
       if (documentType === 'prospectus') {
         const payload = await uploadPrimaryMarketProspectus(selectedDealId, {
@@ -311,6 +502,7 @@ export default function PrimaryMarketMaterials() {
           sourceNote,
           supersedesDocumentId,
         })
+        applyPipelinePayload(payload)
         const material = materialFromResponse(payload)
         if (material) setMaterials((current) => mergeMaterial(current, material))
       } else {
@@ -319,12 +511,40 @@ export default function PrimaryMarketMaterials() {
           documentType,
           sourceNote,
         })
-        setMaterials((current) => mergeMaterial(current, payload.document as PrimaryMarketMaterial))
+        const uploaded = payload.document as PrimaryMarketMaterial
+        setMaterials((current) => mergeMaterial(current, uploaded))
+        try {
+          const parsePayload = await parsePrimaryMarketMaterial(selectedDealId, uploaded.document_id)
+          applyPipelinePayload(parsePayload)
+          const parsingMaterial = materialFromResponse(parsePayload)
+          if (parsingMaterial) {
+            setMaterials((current) => mergeMaterial(
+              current,
+              mergeMaterialPipelineStatus(parsingMaterial, parsePayload),
+            ))
+          }
+        } catch (err) {
+          shouldReload = false
+          const failure = parseFailureState(err)
+          setMaterials((current) => current.map((material) => (
+            material.document_id === uploaded.document_id
+              ? {
+                  ...material,
+                  parse_status: 'failed',
+                  parse_retryable: failure.retryable,
+                  parse_error: failure.message,
+                }
+              : material
+          )))
+          setActionError(`材料已上传，但解析启动失败：${failure.message}`)
+        }
       }
       setEvidenceQuality(null)
+      setEvidenceSnapshot(null)
+      setMilvusIndex(null)
       setIngestDryRun(null)
       resetUploadForm()
-      void loadMaterials()
+      if (shouldReload) void loadMaterials()
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : '文件上传失败')
     } finally {
@@ -335,17 +555,34 @@ export default function PrimaryMarketMaterials() {
   const runMaterialAction = async (
     material: PrimaryMarketMaterial,
     action: () => Promise<unknown>,
+    markParseFailure = false,
   ) => {
     setActionId(material.document_id)
     setActionError('')
     try {
       const payload = await action() as Parameters<typeof materialFromResponse>[0]
-      const updated = materialFromResponse(payload)
+      applyPipelinePayload(payload)
+      const response = payload as PrimaryMarketMaterialResponse
+      const materialResponse = materialFromResponse(response)
+      const updated = materialResponse ? mergeMaterialPipelineStatus(materialResponse, response) : null
       if (updated) setMaterials((current) => mergeMaterial(current, updated))
       setEvidenceQuality(null)
       setIngestDryRun(null)
       void loadMaterials()
     } catch (err) {
+      if (markParseFailure) {
+        const failure = parseFailureState(err)
+        setMaterials((current) => current.map((item) => (
+          item.document_id === material.document_id
+            ? {
+                ...item,
+                parse_status: 'failed',
+                parse_retryable: failure.retryable,
+                parse_error: failure.message,
+              }
+            : item
+        )))
+      }
       setActionError(err instanceof Error ? err.message : '材料操作失败')
     } finally {
       setActionId('')
@@ -360,6 +597,79 @@ export default function PrimaryMarketMaterials() {
       formulaEnable: true,
       tableEnable: true,
     }))
+  }
+
+  const handleParseOrdinaryMaterial = (material: PrimaryMarketMaterial) => {
+    if (!selectedDealId) return
+    void runMaterialAction(
+      material,
+      () => parsePrimaryMarketMaterial(selectedDealId, material.document_id),
+      true,
+    )
+  }
+
+  const toggleParserEditor = (material: PrimaryMarketMaterial) => {
+    setExpandedParserId((current) => {
+      const next = current === material.document_id ? '' : material.document_id
+      if (next) {
+        setParserDrafts((drafts) => ({
+          ...drafts,
+          [material.document_id]: drafts[material.document_id] || {
+            taskId: material.parse_task_id || '',
+            artifactPath: material.parsed_artifact_path || '',
+            note: '',
+          },
+        }))
+        setParserErrors((errors) => ({ ...errors, [material.document_id]: '' }))
+      }
+      return next
+    })
+  }
+
+  const updateParserDraft = (material: PrimaryMarketMaterial, patch: Partial<ParserBindDraft>) => {
+    setParserDrafts((current) => {
+      const previous = current[material.document_id]
+      return {
+        ...current,
+        [material.document_id]: {
+          taskId: patch.taskId ?? previous?.taskId ?? material.parse_task_id ?? '',
+          artifactPath: patch.artifactPath ?? previous?.artifactPath ?? material.parsed_artifact_path ?? '',
+          note: patch.note ?? previous?.note ?? '',
+        },
+      }
+    })
+  }
+
+  const handleBindParserTask = async (event: FormEvent<HTMLFormElement>, material: PrimaryMarketMaterial) => {
+    event.preventDefault()
+    if (!selectedDealId) return
+    const draft = parserDrafts[material.document_id]
+    if (!draft?.taskId.trim()) {
+      setParserErrors((current) => ({ ...current, [material.document_id]: '请输入 parser task_id' }))
+      return
+    }
+    setBindingId(material.document_id)
+    setParserErrors((current) => ({ ...current, [material.document_id]: '' }))
+    try {
+      const payload = await bindPrimaryMarketDocumentParserTask(selectedDealId, material.document_id, {
+        taskId: draft.taskId,
+        artifactPath: draft.artifactPath,
+        note: draft.note,
+      })
+      setMaterials((current) => mergeMaterial(current, payload.document as PrimaryMarketMaterial))
+      setEvidenceQuality(null)
+      setEvidenceSnapshot(null)
+      setMilvusIndex(null)
+      setExpandedParserId('')
+      void loadMaterials()
+    } catch (err) {
+      setParserErrors((current) => ({
+        ...current,
+        [material.document_id]: err instanceof Error ? err.message : '解析任务绑定失败',
+      }))
+    } finally {
+      setBindingId('')
+    }
   }
 
   const handleReview = (material: PrimaryMarketMaterial, decision: 'activate' | 'block') => {
@@ -410,10 +720,35 @@ export default function PrimaryMarketMaterials() {
     try {
       const payload = await buildPrimaryMarketEvidence(selectedDealId)
       setEvidenceQuality(payload.quality_report || null)
+      applyPipelinePayload(payload)
+      const wiki = await fetchPrimaryMarketWiki(selectedDealId).catch(() => null)
+      if (wiki) setWikiProjection(wiki)
     } catch (err) {
       setEvidenceError(err instanceof Error ? err.message : '证据包构建失败')
     } finally {
       setBuildingEvidence(false)
+    }
+  }
+
+  const handleRetryMilvusIndex = async () => {
+    if (!selectedDealId) return
+    setIndexingMilvus(true)
+    setEvidenceError('')
+    try {
+      const payload = await indexPrimaryMarketEvidenceMilvus(selectedDealId)
+      setMilvusIndex(payload.milvus_index)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Milvus 索引失败'
+      setMilvusIndex((current) => ({
+        ...current,
+        status: 'failed',
+        deal_id: selectedDealId,
+        snapshot_hash: current?.snapshot_hash || evidenceSnapshot?.snapshot_hash,
+        error: message,
+      }))
+      setEvidenceError(message)
+    } finally {
+      setIndexingMilvus(false)
     }
   }
 
@@ -476,6 +811,53 @@ export default function PrimaryMarketMaterials() {
           </Surface>
         </div>
       </PageSection>
+
+      {selectedDealId ? (
+        <PageSection title="Wiki-first 研究链路" compact>
+          <div className="primary-market-pipeline-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="min-w-0 rounded-md border border-border/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-text">1. 解析</p>
+                <StatusBadge tone={pipelineStatusTone(parsePipelineStatus)}>{parsePipelineStatus}</StatusBadge>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-text-muted">完成 {parsedCount}/{displayMaterials.length} · 处理中 {parsingCount} · 失败 {parseFailedCount}</p>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-text">2. 项目 Wiki</p>
+                <StatusBadge tone={pipelineStatusTone(wikiPipelineStatus)}>{wikiPipelineStatus}</StatusBadge>
+              </div>
+              <p className="mt-2 truncate text-xs leading-5 text-text-muted">投影 {wikiProjection?.counts?.company_wiki_projections ?? 0}/{parsedCount} · wiki/wiki_tree.json</p>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-text">3. Evidence</p>
+                <StatusBadge tone={pipelineStatusTone(evidencePipelineStatus)}>{evidencePipelineStatus}</StatusBadge>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-text-muted">{evidenceQuality?.item_count ?? evidenceQuality?.counts?.items ?? 0} items · snapshot {shortHash(evidenceSnapshot?.snapshot_hash || wikiProjection?.evidence_snapshot_hash)}</p>
+            </div>
+            <div className="min-w-0 rounded-md border border-border/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-text">4. Milvus</p>
+                <StatusBadge tone={pipelineStatusTone(milvusPipelineStatus)}>{milvusPipelineStatus}</StatusBadge>
+              </div>
+              <p className="mt-2 break-all text-xs leading-5 text-text-muted">
+                {milvusIndex?.physical_collection || 'ic_collaboration_shared'} · items {milvusIndex?.counts?.items ?? 0}
+              </p>
+              <p className="mt-1 break-all text-xs leading-5 text-text-muted">
+                snapshot {shortHash(milvusIndex?.snapshot_hash)} · inserted {milvusIndex?.counts?.inserted ?? 0} · existing {milvusIndex?.counts?.existing ?? 0}
+              </p>
+              {['failed', 'stale'].includes(milvusPipelineStatus) ? (
+                <Button className="mt-2" type="button" variant="secondary" size="sm" onClick={() => void handleRetryMilvusIndex()} disabled={indexingMilvus}>
+                  {indexingMilvus ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+                  {milvusPipelineStatus === 'stale' ? '重新索引' : '重试索引'}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {milvusIndex?.error ? <p className="mt-3 break-words text-xs text-destructive">{milvusIndex.error}</p> : null}
+        </PageSection>
+      ) : null}
 
       {!selectedDealId ? (
         <PageSection>
@@ -583,7 +965,7 @@ export default function PrimaryMarketMaterials() {
                   </p>
                   <Button type="submit" disabled={uploading || !selectedFile} className="min-w-28">
                     {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
-                    {documentType === 'prospectus' ? '上传并解析' : '上传'}
+                    上传并解析
                   </Button>
                 </div>
                 {uploadError ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{uploadError}</div> : null}
@@ -616,10 +998,28 @@ export default function PrimaryMarketMaterials() {
                 <div className="divide-y divide-border/70">
                   {filteredMaterials.map((material) => {
                     const prospectus = isProspectus(material)
+                    const pdfMaterial = isPdfMaterial(material)
                     const busy = actionId === material.document_id
+                    const parserBinding = bindingId === material.document_id
+                    const parserExpanded = expandedParserId === material.document_id
+                    const parserDraft = parserDrafts[material.document_id] || {
+                      taskId: material.parse_task_id || '',
+                      artifactPath: material.parsed_artifact_path || '',
+                      note: '',
+                    }
                     const runId = materialRunId(material)
                     const warnings = materialWarnings(material)
                     const capabilities = prospectus ? materialCapabilities(material) : []
+                    const parseStatus = parseStageStatus(material)
+                    const wikiEntry = wikiEntryByDocument.get(material.document_id)
+                    const wikiStatus = materialWikiStage(material, wikiEntry)
+                    const evidenceRow = evidenceByDocument.get(material.document_id)
+                    const evidenceStatus = evidenceRow?.status || (evidenceRow?.items ? 'ready' : 'pending')
+                    const materialMilvusStatus = materialMilvusStage(
+                      evidenceRow,
+                      milvusIndex,
+                      currentEvidenceSnapshotHash,
+                    )
                     const sourceReady = ['ready', 'ready_with_restrictions'].includes(material.analysis_source_status || '')
                     const sourceReviewable = ['pending', 'review_required', 'blocked'].includes(material.analysis_source_status || '')
                     const originalUrl = String(
@@ -657,6 +1057,9 @@ export default function PrimaryMarketMaterials() {
                             </p>
                           ) : null}
                           {material.source_note ? <p className="break-words text-xs leading-5 text-text-muted">{material.source_note}</p> : null}
+                          {material.parse_error || material.current_parse_run?.failure_message || material.parse_run?.failure_message ? (
+                            <p className="break-words text-xs leading-5 text-destructive">{material.parse_error || material.current_parse_run?.failure_message || material.parse_run?.failure_message}</p>
+                          ) : null}
                           {warnings.length ? (
                             <div className="rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
                               {warnings.slice(0, 3).join(' / ')}
@@ -668,6 +1071,19 @@ export default function PrimaryMarketMaterials() {
                         </div>
 
                         <div className="min-w-0 space-y-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            {[
+                              ['解析', parseStatus],
+                              ['项目 Wiki', wikiStatus],
+                              ['Evidence', evidenceStatus],
+                              ['Milvus', materialMilvusStatus],
+                            ].map(([label, value]) => (
+                              <div key={label} className="min-w-0 rounded-md bg-muted/45 px-2.5 py-2">
+                                <p className="truncate text-xs font-semibold text-text">{label}</p>
+                                <StatusBadge className="mt-1 max-w-full" tone={pipelineStatusTone(value)}>{value}</StatusBadge>
+                              </div>
+                            ))}
+                          </div>
                           {prospectus ? (
                             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
                               {capabilities.map((capability) => (
@@ -692,6 +1108,20 @@ export default function PrimaryMarketMaterials() {
                                 {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}重新解析
                               </Button>
                             ) : null}
+                            {!prospectus && !isMaterialPolling(material) && !['succeeded', 'completed'].includes(parseStatus) ? (
+                              <Button type="button" variant="secondary" size="sm" onClick={() => handleParseOrdinaryMaterial(material)} disabled={Boolean(actionId) || !materialParseRetryable(material)}>
+                                {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+                                {!materialParseRetryable(material) ? '需绑定 Parser' : parseStatus === 'failed' ? '重试解析' : '开始解析'}
+                              </Button>
+                            ) : null}
+                            {!prospectus && material.parser_result_url ? (
+                              <Button asChild variant="secondary" size="sm"><a href={material.parser_result_url} target="_blank" rel="noreferrer"><FileSearch />解析结果</a></Button>
+                            ) : null}
+                            {!prospectus && !pdfMaterial ? (
+                              <Button type="button" variant="secondary" size="sm" onClick={() => toggleParserEditor(material)} disabled={Boolean(bindingId) && !parserBinding}>
+                                <Link2 />{parserExpanded ? '收起绑定' : material.parse_task_id ? '改绑 Parser' : '绑定 Parser'}
+                              </Button>
+                            ) : null}
                             {prospectus && sourceReviewable ? (
                               <>
                                 <Button type="button" size="sm" onClick={() => handleReview(material, 'activate')} disabled={Boolean(actionId) || material.parse_status !== 'succeeded'}>
@@ -709,6 +1139,22 @@ export default function PrimaryMarketMaterials() {
                               <Button type="button" variant="secondary" size="sm" onClick={() => handleSupersede(material)} disabled={Boolean(actionId)}><History />由新版替代</Button>
                             ) : null}
                           </div>
+                          {!prospectus && !pdfMaterial && parserExpanded ? (
+                            <form className="space-y-2 rounded-md border border-border/70 p-3" onSubmit={(event) => void handleBindParserTask(event, material)}>
+                              <label className="block space-y-1">
+                                <span className="text-xs font-semibold text-text-muted">Parser task_id</span>
+                                <Input value={parserDraft.taskId} onChange={(event) => updateParserDraft(material, { taskId: event.target.value })} disabled={parserBinding} />
+                              </label>
+                              <label className="block space-y-1">
+                                <span className="text-xs font-semibold text-text-muted">解析产物路径（可选）</span>
+                                <Input value={parserDraft.artifactPath} onChange={(event) => updateParserDraft(material, { artifactPath: event.target.value })} disabled={parserBinding} />
+                              </label>
+                              {parserErrors[material.document_id] ? <p className="text-xs text-destructive">{parserErrors[material.document_id]}</p> : null}
+                              <Button type="submit" size="sm" disabled={parserBinding || !parserDraft.taskId.trim()}>
+                                {parserBinding ? <Loader2 className="animate-spin" /> : <Link2 />}确认绑定
+                              </Button>
+                            </form>
+                          ) : null}
                         </div>
                       </article>
                     )

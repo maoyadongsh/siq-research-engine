@@ -25,6 +25,7 @@ from services import (
     deal_disputes,
     deal_documents,
     deal_evidence,
+    deal_evidence_milvus,
     deal_manifest,
     deal_phase_artifacts,
     deal_reports,
@@ -36,6 +37,7 @@ from services import (
     ic_report_submission,
     ic_startup_retrieval,
     ic_workflow,
+    primary_market_wiki,
 )
 
 router = APIRouter(prefix="/deals", tags=["deals"])
@@ -65,7 +67,7 @@ class StartupRetrievalRequest(BaseModel):
     include_external: bool = False
     external_providers: list[str] | None = None
     include_vector: bool = True
-    include_rerank: bool = False
+    include_rerank: bool = True
     vector_collections: list[str] | None = None
 
 
@@ -845,6 +847,30 @@ def get_deal_evidence_quality(
         raise _not_found(deal_id) from exc
 
 
+@router.post("/{deal_id}/evidence/index-milvus")
+def index_deal_evidence_milvus(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    try:
+        require_deal_access(deal_id, "write", current_user)
+        receipt = deal_evidence_milvus.index_deal_evidence_milvus(
+            deal_id,
+            created_by=_user_payload(current_user),
+        )
+        return {"milvus_index": deal_store.redact_public_payload(receipt)}
+    except deal_evidence_milvus.DealEvidenceMilvusIndexError as exc:
+        detail = exc.receipt or {"status": "failed", "error": str(exc)[:300]}
+        raise HTTPException(
+            status_code=502,
+            detail=deal_store.redact_public_payload(detail),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
 @router.post("/{deal_id}/evidence/ingest/dry-run")
 @router.post("/{deal_id}/evidence/ingest-dry-run")
 def build_deal_evidence_ingest_dry_run(
@@ -1127,6 +1153,37 @@ def get_deal_phase_artifacts(
     require_deal_access(deal_id, "view", current_user)
     try:
         return deal_phase_artifacts.summarize_deal_phase_artifacts(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.get("/{deal_id}/wiki")
+def get_primary_market_wiki(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    require_deal_access(deal_id, "view", current_user)
+    try:
+        return primary_market_wiki.read_primary_market_wiki(deal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _not_found(deal_id) from exc
+
+
+@router.post("/{deal_id}/wiki/rebuild")
+def rebuild_primary_market_wiki(
+    deal_id: str,
+    current_user: User = Depends(require_permission("report.create")),
+) -> dict[str, Any]:
+    require_deal_access(deal_id, "write", current_user)
+    try:
+        return primary_market_wiki.rebuild_primary_market_wiki(
+            deal_id,
+            created_by=_user_payload(current_user),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:

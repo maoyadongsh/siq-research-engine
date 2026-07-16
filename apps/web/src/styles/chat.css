@@ -221,11 +221,14 @@
   color: inherit;
   line-height: 1.66;
 }
+.chat-rendered-assistant {
+  font-size: .9375rem;
+}
 .chat-rendered > :first-child { margin-top: 0; }
 .chat-rendered > :last-child { margin-bottom: 0; }
 .chat-paragraph {
-  margin: .48rem 0;
-  line-height: 1.72;
+  margin: .52rem 0;
+  line-height: 1.66;
   white-space: normal;
 }
 .chat-rendered-user .chat-paragraph { white-space: pre-wrap; }
@@ -236,12 +239,12 @@
   letter-spacing: 0;
   line-height: 1.32;
 }
-.chat-heading-1 { font-size: 1.04rem; }
-.chat-heading-2 { font-size: .98rem; }
-.chat-heading-3,
-.chat-heading-4 { font-size: .94rem; }
-.chat-heading-5 { font-size: .9rem; }
-.chat-heading-6 { font-size: .86rem; }
+.chat-heading-1 { font-size: 1.35rem; }
+.chat-heading-2 { font-size: 1.2rem; }
+.chat-heading-3 { font-size: 1.1rem; }
+.chat-heading-4 { font-size: 1.04rem; }
+.chat-heading-5 { font-size: 1rem; }
+.chat-heading-6 { font-size: .96rem; }
 .chat-symbol-heading {
   display: flex;
   align-items: center;
@@ -273,7 +276,7 @@
 .chat-list {
   margin: .55rem 0;
   padding-left: 1.35rem;
-  line-height: 1.7;
+  line-height: 1.66;
 }
 .chat-list li + li { margin-top: .3rem; }
 .chat-list-unordered,
@@ -319,7 +322,7 @@
   background: rgba(0, 82, 255, .045);
   padding: .55rem .75rem;
   color: #475569;
-  line-height: 1.7;
+  line-height: 1.66;
 }
 .chat-divider {
   margin: .95rem 0;
@@ -943,6 +946,8 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
 .chat-page-message-list,
 .chat-page-composer {
   width: min(100%, 1180px);
+  min-width: 0;
+  max-width: 100%;
 }
 .chat-page-message-list > .flex > .flex {
   max-width: min(78%, 62rem);
@@ -983,28 +988,6 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
   scroll-padding-bottom: 1rem;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, .72), rgba(255, 255, 255, .88));
-}
-.primary-market-meeting-chat-list,
-.primary-market-meeting-composer {
-  width: min(100%, 1180px);
-  margin-left: 0;
-  margin-right: auto;
-}
-.primary-market-meeting-chat-list > .flex > .flex {
-  max-width: min(78%, 62rem);
-}
-.primary-market-meeting-chat-list > .justify-end > .flex {
-  max-width: min(72%, 42rem);
-}
-.primary-market-meeting-chat-list .chat-message-row {
-  width: auto;
-  align-items: flex-end;
-}
-.primary-market-meeting-chat-list .chat-message-row-user {
-  width: auto;
-}
-.primary-market-meeting-chat-list .chat-message-row .chat-message-bubble {
-  max-width: 100%;
 }
 .primary-market-meeting-composer-section {
   padding: .85rem clamp(1rem, 1.6vw, 1.5rem) 1rem;
@@ -1061,10 +1044,6 @@ html.dark .chat-md-table td.is-total:first-child { background: rgba(59, 130, 246
 @media (max-width: 900px) {
   .primary-market-meeting-chat {
     min-height: 560px;
-  }
-  .primary-market-meeting-chat-list > .flex > .flex,
-  .primary-market-meeting-chat-list > .justify-end > .flex {
-    max-width: 100%;
   }
   .primary-market-meeting-chat-messages {
     padding-inline: .85rem;

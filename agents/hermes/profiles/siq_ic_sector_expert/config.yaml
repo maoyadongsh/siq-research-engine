@@ -21,9 +21,6 @@ fallback_providers:
   temperature: 0.2
   base_url: http://127.0.0.1:8006/v1
 toolsets:
-- terminal
-- file
-- code_execution
 - web
 - skills
 agent:
@@ -32,6 +29,9 @@ agent:
   api_max_retries: 1
   tool_use_enforcement: true
   disabled_toolsets:
+  - terminal
+  - file
+  - code_execution
   - browser
   - memory
   - session_search

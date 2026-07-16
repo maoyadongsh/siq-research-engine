@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -12,8 +13,14 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Callable, Mapping
 
-from services import deal_documents, deal_store, primary_market_prospectus_quality
-from services.path_config import PDF_RESULTS_ROOT
+from services import (
+    deal_documents,
+    deal_store,
+    document_parser_artifact_transport,
+    primary_market_prospectus_quality,
+    primary_market_wiki,
+)
+from services.path_config import DOCUMENT_PARSER_RESULTS_ROOT, PDF_RESULTS_ROOT
 
 DEAL_DOCUMENT_SCHEMA_V1 = "siq_deal_document_v1"
 DEAL_DOCUMENT_SCHEMA_V2 = "siq_deal_document_v2"
@@ -113,7 +120,9 @@ INDEX_STATE_TRANSITIONS: Mapping[str, frozenset[str]] = {
     "failed": frozenset({"queued"}),
 }
 
-PARSER_SUCCESS_STATUSES = frozenset({"completed", "succeeded", "success", "done", "finished"})
+PARSER_SUCCESS_STATUSES = frozenset(
+    {"completed", "completed_with_warnings", "succeeded", "success", "done", "finished"}
+)
 PARSER_FAILURE_STATUSES = frozenset({"failed", "error", "failure"})
 PARSER_CANCELLED_STATUSES = frozenset({"cancelled", "canceled"})
 PARSER_QUEUED_STATUSES = frozenset({"uploaded", "queued", "pending"})
@@ -594,6 +603,11 @@ def _sync_manifest_documents(deal_id: str, *, wiki_root: Path | str | None = Non
                 "analysis_source_status",
                 "current_parse_run_id",
                 "supersedes_document_id",
+                "wiki_status",
+                "wiki_path",
+                "wiki_sha256",
+                "wiki_source_path",
+                "wiki_source_sha256",
                 "created_at",
             )
         }
@@ -615,11 +629,10 @@ def get_primary_market_material(
 
 def _public_document(metadata: dict[str, Any]) -> dict[str, Any]:
     payload = deal_store.redact_public_payload(metadata)
-    if payload.get("document_type") == PROSPECTUS_DOCUMENT_TYPE:
-        payload["original_url"] = (
-            f"/api/primary-market/projects/{payload['deal_id']}/materials/"
-            f"{payload['document_id']}/original"
-        )
+    payload["original_url"] = (
+        f"/api/primary-market/projects/{payload['deal_id']}/materials/"
+        f"{payload['document_id']}/original"
+    )
     return payload
 
 
@@ -795,6 +808,7 @@ def create_parse_run(
     document_id: str,
     *,
     submitted_by: dict[str, Any] | None = None,
+    parser_owner_scope: dict[str, Any] | None = None,
     parse_config_hash: str | None = None,
     parser_version: str | None = None,
     wiki_root: Path | str | None = None,
@@ -804,15 +818,20 @@ def create_parse_run(
         raise ValueError("material_state_conflict: only active material can be parsed")
     parse_run_id = new_parse_run_id()
     now = deal_store.utc_now_iso()
+    is_prospectus = metadata.get("document_type") == PROSPECTUS_DOCUMENT_TYPE
     run = {
         "schema_version": PRIMARY_MARKET_PARSE_RUN_SCHEMA,
         "parse_run_id": parse_run_id,
         "deal_id": metadata["deal_id"],
         "document_id": metadata["document_id"],
-        "parser_kind": "pdf",
+        "parser_kind": metadata.get("parser_kind") or "pdf",
         "parser_task_id": None,
         "market": "CN",
-        "document_profile": CN_A_SHARE_PROSPECTUS_PROFILE,
+        "document_profile": (
+            metadata.get("document_profile") or CN_A_SHARE_PROSPECTUS_PROFILE
+            if is_prospectus
+            else metadata.get("document_profile")
+        ),
         "raw_sha256": metadata.get("sha256"),
         "parse_config_hash": parse_config_hash,
         "parser_version": parser_version,
@@ -821,6 +840,7 @@ def create_parse_run(
         "quality_status": "pending",
         "capabilities": {},
         "submitted_by": submitted_by,
+        "parser_owner_scope": dict(parser_owner_scope or {}),
         "created_at": now,
         "updated_at": now,
     }
@@ -841,6 +861,8 @@ def update_parse_run_submission(
     parser_version: str | None = None,
     failure_code: str | None = None,
     failure_message: str | None = None,
+    artifact_root: str | None = None,
+    archive_receipt: dict[str, Any] | None = None,
     actor: dict[str, Any] | None = None,
     wiki_root: Path | str | None = None,
 ) -> dict[str, Any]:
@@ -853,16 +875,41 @@ def update_parse_run_submission(
         raise FileNotFoundError(normalized_run_id)
     if parser_task_id:
         run["parser_task_id"] = deal_documents.validate_parser_task_id(parser_task_id)
+        metadata["parse_task_id"] = run["parser_task_id"]
     run["status"] = normalized_status
     run["parse_config_hash"] = parse_config_hash or run.get("parse_config_hash")
     run["parser_version"] = parser_version or run.get("parser_version")
     run["failure_code"] = str(failure_code or "")[:80] or None
     run["failure_message"] = str(failure_message or "")[:500] or None
+    if artifact_root is not None:
+        run["artifact_root"] = str(artifact_root).strip() or None
+    if archive_receipt is not None:
+        run["archive_receipt"] = {
+            "status": str(archive_receipt.get("status") or "unknown")[:32],
+            "transport": str(archive_receipt.get("transport") or "unknown")[:32],
+            "artifact_contract_version": str(
+                archive_receipt.get("artifact_contract_version") or "unknown"
+            )[:96],
+            "bundle_sha256": str(archive_receipt.get("bundle_sha256") or "")[:64]
+            or None,
+        }
+    if normalized_status == "succeeded" and run.get("artifact_root"):
+        metadata["current_parse_run_id"] = normalized_run_id
+        metadata["parser_artifact_exists"] = True
     run["updated_at"] = deal_store.utc_now_iso()
     metadata["parse_status"] = normalized_status
     _replace_run_summary(metadata, run)
     _write_metadata(metadata, wiki_root=wiki_root)
-    event_type = "deal_prospectus_parse_submit_failed" if normalized_status == "failed" else "deal_prospectus_parse_submitted"
+    material_kind = (
+        "prospectus"
+        if metadata.get("document_type") == PROSPECTUS_DOCUMENT_TYPE
+        else "material"
+    )
+    event_type = (
+        f"deal_{material_kind}_parse_submit_failed"
+        if normalized_status == "failed"
+        else f"deal_{material_kind}_parse_status_updated"
+    )
     deal_store.append_audit_event(
         deal_id,
         {
@@ -989,6 +1036,47 @@ def list_analysis_sources(deal_id: str, *, wiki_root: Path | str | None = None) 
     )
 
 
+def disable_analysis_sources_for_deleted_document(
+    deal_id: str,
+    document_id: str,
+    *,
+    disabled_by: dict[str, Any] | None = None,
+    wiki_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Fail closed any active prospectus source before its document is deleted."""
+
+    normalized_document_id = validate_document_id(document_id)
+    registry = _read_sources_registry(deal_id, wiki_root=wiki_root)
+    now = deal_store.utc_now_iso()
+    disabled_source_ids: list[str] = []
+    sources: list[dict[str, Any]] = []
+    for source in registry["sources"]:
+        item = dict(source)
+        if (
+            item.get("document_id") == normalized_document_id
+            and item.get("status") in {"pending", "ready", "ready_with_restrictions", "review_required"}
+        ):
+            item.update({
+                "status": "disabled",
+                "disabled_by": disabled_by,
+                "disabled_at": now,
+                "disable_note": "document_deleted",
+                "updated_at": now,
+            })
+            disabled_source_ids.append(str(item.get("source_id") or ""))
+        sources.append(item)
+    if disabled_source_ids:
+        registry["sources"] = sources
+        registry["updated_at"] = now
+        deal_store.write_json(deal_analysis_sources_path(deal_id, wiki_root=wiki_root), registry)
+    return {
+        "deal_id": deal_store.validate_deal_id(deal_id),
+        "document_id": normalized_document_id,
+        "disabled_source_ids": [item for item in disabled_source_ids if item],
+        "disabled_count": len(disabled_source_ids),
+    }
+
+
 def _upsert_analysis_source(
     deal_id: str,
     source: dict[str, Any],
@@ -1110,12 +1198,43 @@ def promote_parse_run_artifacts(
             if not isinstance(existing, dict):
                 raise ValueError("existing parse run archive has no valid manifest")
             _verify_existing_archive(target_dir, existing)
+            wiki_projection = primary_market_wiki.project_material_to_company_wiki_safe(
+                deal_id,
+                document_id,
+                source_path=target_dir / "document.md",
+                structured_artifact_dir=target_dir,
+                parse_task_id=task_id,
+                parse_run_id=normalized_run_id,
+                wiki_root=wiki_root,
+                projected_by=promoted_by,
+            )
+            analysis_source = get_analysis_source_for_document(
+                deal_id, document_id, parse_run_id=normalized_run_id, wiki_root=wiki_root
+            )
+            evidence_result = None
+            if (
+                wiki_projection.get("status") != "failed"
+                and isinstance(analysis_source, dict)
+                and analysis_source.get("status") in {"ready", "ready_with_restrictions"}
+            ):
+                from services import deal_evidence
+
+                evidence_result = deal_evidence.build_deal_evidence_package(
+                    deal_id,
+                    built_by=promoted_by,
+                    wiki_root=wiki_root,
+                )
             return {
                 "status": "existing",
                 "parse_run": dict(run),
                 "archive_manifest": existing,
-                "analysis_source": get_analysis_source_for_document(
-                    deal_id, document_id, parse_run_id=normalized_run_id, wiki_root=wiki_root
+                "wiki": wiki_projection,
+                "analysis_source": analysis_source,
+                "evidence": evidence_result,
+                "evidence_snapshot": (
+                    evidence_result.get("evidence_snapshot")
+                    if isinstance(evidence_result, dict)
+                    else _refresh_snapshot(deal_id, actor=promoted_by, wiki_root=wiki_root)
                 ),
             }
 
@@ -1257,8 +1376,18 @@ def promote_parse_run_artifacts(
                 "parse_run_id": normalized_run_id,
                 "activated_by": promoted_by,
             },
-            wiki_root=wiki_root,
-        )
+                wiki_root=wiki_root,
+            )
+    wiki_projection = primary_market_wiki.project_material_to_company_wiki_safe(
+        deal_id,
+        document_id,
+        source_path=target_dir / "document.md",
+        structured_artifact_dir=target_dir,
+        parse_task_id=task_id,
+        parse_run_id=normalized_run_id,
+        wiki_root=wiki_root,
+        projected_by=promoted_by,
+    )
     evidence_result: dict[str, Any] | None = None
     evidence_warning: str | None = None
     if source["status"] in {"ready", "ready_with_restrictions"}:
@@ -1293,6 +1422,7 @@ def promote_parse_run_artifacts(
         "parse_run": dict(run),
         "archive_manifest": archive_manifest,
         "quality": quality,
+        "wiki": wiki_projection,
         "analysis_source": deal_store.redact_public_payload(source),
         "evidence": evidence_result,
         "evidence_snapshot": snapshot,
@@ -1763,9 +1893,15 @@ def material_original_path(
     wiki_root: Path | str | None = None,
 ) -> Path:
     metadata = _read_metadata(deal_id, document_id, wiki_root=wiki_root)
-    if metadata.get("document_type") != PROSPECTUS_DOCUMENT_TYPE:
-        raise ValueError("material is not a prospectus")
-    path = deal_raw_pdf_path(deal_id, document_id, wiki_root=wiki_root)
+    package_dir = _require_package_dir(deal_id, wiki_root=wiki_root)
+    storage_path = Path(str(metadata.get("storage_path") or "").replace("\\", "/"))
+    if storage_path.is_absolute() or ".." in storage_path.parts:
+        raise ValueError("material original path is invalid")
+    path = (package_dir / storage_path).resolve()
+    try:
+        path.relative_to((package_dir / "data_room" / "raw").resolve())
+    except ValueError as exc:
+        raise ValueError("material original path escapes Deal data room") from exc
     if not path.is_file():
         raise FileNotFoundError(document_id)
     return path
@@ -1845,6 +1981,9 @@ def recover_primary_market_materials_on_startup(
     *,
     wiki_root: Path | str | None = None,
     results_root: Path | str | None = None,
+    document_results_root: Path | str | None = None,
+    document_artifact_mode: str | None = None,
+    document_artifact_client: Any | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
     """Recover locally decidable non-terminal runs without requiring a browser."""
@@ -1855,6 +1994,11 @@ def recover_primary_market_materials_on_startup(
     scan_limit = max(1, min(int(requested_limit), 500))
     root = deal_store.deals_root(wiki_root=wiki_root)
     result_root = Path(results_root) if results_root is not None else PDF_RESULTS_ROOT
+    generic_result_root = (
+        Path(document_results_root)
+        if document_results_root is not None
+        else DOCUMENT_PARSER_RESULTS_ROOT
+    )
     summary: dict[str, Any] = {
         "scanned": 0,
         "promoted": 0,
@@ -1876,13 +2020,46 @@ def recover_primary_market_materials_on_startup(
             if summary["scanned"] >= scan_limit:
                 break
             payload = deal_store.read_json(path, None)
-            if not isinstance(payload, dict) or payload.get("document_type") != PROSPECTUS_DOCUMENT_TYPE:
+            if not isinstance(payload, dict):
                 continue
             try:
                 metadata = normalize_deal_document(payload)
                 run = _latest_parse_run(metadata)
-                if not run or run.get("status") in {"succeeded", "failed", "cancelled", "interrupted"}:
+                if not run or run.get("status") in {"failed", "cancelled", "interrupted"}:
                     continue
+                terminal_succeeded = run.get("status") == "succeeded"
+                if terminal_succeeded:
+                    from services import deal_evidence, deal_evidence_milvus
+
+                    snapshot = deal_store.read_json(
+                        package_dir / "evidence" / "evidence_snapshot.json", {}
+                    ) or {}
+                    receipt = deal_store.read_json(
+                        package_dir / deal_evidence_milvus.MILVUS_INDEX_RECEIPT_PATH, {}
+                    ) or {}
+                    receipt_current = (
+                        receipt.get("status") in {"indexed", "unchanged"}
+                        and receipt.get("snapshot_hash") == snapshot.get("snapshot_hash")
+                    )
+                    downstream_ready = (
+                        metadata.get("wiki_status") == "ready"
+                        and bool(snapshot.get("snapshot_hash"))
+                        and (
+                            receipt_current
+                            or not deal_evidence_milvus.primary_market_milvus_index_enabled()
+                        )
+                    )
+                    if downstream_ready:
+                        continue
+                    if metadata.get("wiki_status") == "ready":
+                        summary["scanned"] += 1
+                        deal_evidence.build_deal_evidence_package(
+                            deal_id,
+                            built_by={"username": "material-reconciler"},
+                            wiki_root=wiki_root,
+                        )
+                        summary["promoted"] += 1
+                        continue
                 summary["scanned"] += 1
                 task_id = str(run.get("parser_task_id") or "")
                 if not task_id:
@@ -1897,25 +2074,160 @@ def recover_primary_market_materials_on_startup(
                     )
                     summary["interrupted"] += 1
                     continue
-                parser_dir = result_root / task_id
+                is_prospectus = metadata.get("document_type") == PROSPECTUS_DOCUMENT_TYPE
+                parser_dir = (result_root if is_prospectus else generic_result_root) / task_id
                 manifest_exists = any(
                     (parser_dir / name).is_file()
                     for name in ("result_manifest.json", "artifact_manifest.json")
                 )
+                markdown_names = (
+                    ("result_complete.md", "result.md")
+                    if is_prospectus
+                    else ("document.md", "result_complete.md", "result.md")
+                )
                 markdown_exists = any(
                     (parser_dir / name).is_file()
-                    for name in ("result_complete.md", "result.md")
+                    for name in markdown_names
                 )
-                if manifest_exists and markdown_exists:
-                    recovered = reconcile_parse_run(
+                if is_prospectus and manifest_exists and markdown_exists:
+                    if terminal_succeeded:
+                        promoted = promote_parse_run_artifacts(
+                            deal_id,
+                            metadata["document_id"],
+                            run["parse_run_id"],
+                            parser_task_id=task_id,
+                            promoted_by={"username": "material-reconciler"},
+                            wiki_root=wiki_root,
+                            results_root=result_root,
+                        )
+                        summary["promoted"] += int(promoted.get("status") in {"existing", "promoted"})
+                    else:
+                        recovered = reconcile_parse_run(
+                            deal_id,
+                            metadata["document_id"],
+                            parser_task={"task_id": task_id, "status": "completed"},
+                            reconciled_by={"username": "startup-reconciler"},
+                            wiki_root=wiki_root,
+                            results_root=result_root,
+                        )
+                        summary["promoted"] += int(
+                            bool(recovered.get("reconciled") or recovered.get("promotion"))
+                        )
+                elif not is_prospectus:
+                    update_parse_run_submission(
                         deal_id,
                         metadata["document_id"],
-                        parser_task={"task_id": task_id, "status": "completed"},
-                        reconciled_by={"username": "startup-reconciler"},
+                        run["parse_run_id"],
+                        parser_task_id=task_id,
+                        status="archiving",
+                        actor={"username": "material-reconciler"},
                         wiki_root=wiki_root,
-                        results_root=result_root,
                     )
-                    summary["promoted"] += int(bool(recovered.get("reconciled")))
+                    document_parser_api_base = (
+                        os.environ.get("SIQ_DOCUMENT_PARSER_API_BASE")
+                        or os.environ.get("DOCUMENT_PARSER_API_BASE")
+                        or "http://127.0.0.1:15010"
+                    ).rstrip("/")
+                    headers = document_parser_artifact_transport.parser_owner_headers(
+                        run,
+                        access_token=os.environ.get(
+                            "SIQ_DOCUMENT_PARSER_ACCESS_TOKEN", ""
+                        ),
+                    )
+                    try:
+                        archived = asyncio.run(
+                            document_parser_artifact_transport.archive_document_parser_result(
+                                deal_id=deal_id,
+                                document_id=metadata["document_id"],
+                                parse_run_id=run["parse_run_id"],
+                                parser_task_id=task_id,
+                                target_dir=deal_parse_run_dir(
+                                    deal_id,
+                                    metadata["document_id"],
+                                    run["parse_run_id"],
+                                    wiki_root=wiki_root,
+                                ),
+                                api_base=document_parser_api_base,
+                                headers=headers,
+                                mode=document_artifact_mode,
+                                shared_results_root=generic_result_root,
+                                client=document_artifact_client,
+                                wiki_root=wiki_root,
+                                raw_sha256=str(run.get("raw_sha256") or "") or None,
+                                parse_config_hash=(
+                                    str(run.get("parse_config_hash") or "") or None
+                                ),
+                            )
+                        )
+                    except document_parser_artifact_transport.DocumentArtifactTransportUnavailable:
+                        summary["pending"] += 1
+                        continue
+                    except document_parser_artifact_transport.DocumentArtifactTransportError as exc:
+                        update_parse_run_submission(
+                            deal_id,
+                            metadata["document_id"],
+                            run["parse_run_id"],
+                            parser_task_id=task_id,
+                            status="failed",
+                            failure_code="parser_artifact_archive_failed",
+                            failure_message=str(exc),
+                            actor={"username": "material-reconciler"},
+                            wiki_root=wiki_root,
+                        )
+                        summary["failed"] += 1
+                        summary["errors"].append(
+                            {
+                                "deal_id": deal_id,
+                                "document_id": metadata["document_id"],
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                        continue
+                    markdown_path = Path(archived["document_path"])
+                    projection = primary_market_wiki.project_material_to_company_wiki_safe(
+                        deal_id,
+                        metadata["document_id"],
+                        source_path=markdown_path,
+                        structured_artifact_dir=Path(archived["archive_dir"]),
+                        parse_task_id=task_id,
+                        parse_run_id=run["parse_run_id"],
+                        wiki_root=wiki_root,
+                        projected_by={"username": "material-reconciler"},
+                    )
+                    update_parse_run_submission(
+                        deal_id,
+                        metadata["document_id"],
+                        run["parse_run_id"],
+                        parser_task_id=task_id,
+                        status="succeeded",
+                        artifact_root=(
+                            f"parsed_documents/{metadata['document_id']}/runs/"
+                            f"{run['parse_run_id']}"
+                        ),
+                        archive_receipt={
+                            "status": archived.get("status"),
+                            "transport": archived.get("transport"),
+                            "artifact_contract_version": (
+                                archived.get("archive_manifest") or {}
+                            ).get("artifact_contract_version"),
+                            "bundle_sha256": (
+                                archived.get("archive_manifest") or {}
+                            ).get("bundle_sha256"),
+                        },
+                        actor={"username": "material-reconciler"},
+                        wiki_root=wiki_root,
+                    )
+                    if projection.get("status") != "failed":
+                        from services import deal_evidence
+
+                        deal_evidence.build_deal_evidence_package(
+                            deal_id,
+                            built_by={"username": "material-reconciler"},
+                            wiki_root=wiki_root,
+                        )
+                        summary["promoted"] += 1
+                    else:
+                        summary["failed"] += 1
                 else:
                     summary["pending"] += 1
             except Exception as exc:
@@ -1967,6 +2279,7 @@ __all__ = [
     "create_parse_run",
     "create_prospectus_document",
     "disable_analysis_source",
+    "disable_analysis_sources_for_deleted_document",
     "get_analysis_source_for_document",
     "get_primary_market_material",
     "list_analysis_sources",

@@ -3,13 +3,11 @@ from types import SimpleNamespace
 import anyio
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-
 from routers import primary_market_meeting
-from services import deal_store
-from services import ic_policy
-from services import ic_profile_contract
 from services.auth_dependencies import get_current_user
 from services.auth_service import User, UserRole
+
+from services import deal_store, ic_policy, ic_profile_contract
 
 
 class _MeetingSessionManager:
@@ -156,6 +154,10 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
         assert captured["display_message"] == "@财务审计委员 请评估收入确认风险"
         assert captured["enforce_evidence_contract"] is False
         assert captured["context"].company is None
+        assert captured["context"].domain == "primary_market"
+        assert captured["context"].deal_id == "DEAL-YUSHU-2026-001"
+        assert captured["context"].profile_id == "siq_ic_finance_auditor"
+        assert captured["context"].retrieval_query == "请评估收入确认风险"
         assert "deal_id: DEAL-YUSHU-2026-001" in captured["context"].page.title
         assert "这是一级市场项目，不是二级市场股票代码上下文" in captured["context"].page.title
         assert captured["usage"]["source"] == "siq_ic_finance_auditor"
@@ -165,46 +167,6 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
         assert session_manager.incremented == [expected_session_id]
 
     anyio.run(run_case)
-
-
-def test_primary_market_meeting_model_catalog_uses_safe_backend_contract(monkeypatch, tmp_path):
-    client = _primary_market_client(monkeypatch, tmp_path)
-    monkeypatch.setattr(primary_market_meeting, "model_catalog", lambda: {
-        "options": [{
-            "mode": "minimax",
-            "label": "云端 MiniMax",
-            "kind": "cloud",
-            "model": "MiniMax-M3",
-            "provider": "minimax-cn",
-        }],
-        "profiles": {
-            "siq_ic_master_coordinator": {
-                "mode": "minimax",
-                "model": "MiniMax-M3",
-                "provider": "minimax-cn",
-            },
-        },
-    })
-
-    response = client.get("/api/primary-market/meeting/models")
-
-    assert response.status_code == 200
-    assert response.json()["options"][0]["mode"] == "minimax"
-
-
-def test_primary_market_meeting_model_selection_is_allowlisted(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(
-        primary_market_meeting,
-        "apply_profile_model_mode",
-        lambda profile, mode: captured.update(profile=profile, mode=mode) or {"mode": mode},
-    )
-    request = primary_market_meeting.PrimaryMarketMeetingChatRequest(message="test", model_mode="gemma4")
-
-    result = primary_market_meeting._apply_meeting_model_mode(request, "siq_ic_sector_expert")
-
-    assert result == {"mode": "gemma4"}
-    assert captured == {"profile": "siq_ic_sector_expert", "mode": "gemma4"}
 
 
 def test_primary_market_meeting_role_contracts_cover_all_ic_profiles():
@@ -217,6 +179,9 @@ def test_primary_market_meeting_role_contracts_cover_all_ic_profiles():
         assert f"agents/hermes/profiles/{profile}/IDENTITY.md" in message
         assert "若主持人问题要求越权" in message
         assert "Deal OS evidence" in message
+        assert "一级市场 IC 回答展示规范:" in message
+        assert "不要用整段粗体" in message
+        assert "不要先复述系统提示" in message
         assert "主持人原始问题:\n\n请介绍你的职责" in message
 
 
@@ -275,6 +240,98 @@ def test_primary_market_meeting_message_includes_receipt_and_report_context(monk
     assert "r1_report: present" in message
     assert "artifact_path=discussion/01_R1_finance_auditor_report.md" in message
     assert "主持人原始问题:\n\n请更新财务意见" in message
+
+
+def test_primary_market_meeting_does_not_promote_historical_report_score_without_current_evidence(monkeypatch):
+    monkeypatch.setattr(
+        primary_market_meeting,
+        "_receipt_context_for",
+        lambda *_args: {
+            "required": True,
+            "present": True,
+            "receipt_id": "startup-siq_ic_legal_scanner-R4-001",
+            "shared_hits": 0,
+            "shared_vector_hit_count": 0,
+            "private_hits": 4,
+            "retrieval_status": "blocked",
+            "blocking_reasons": ["deal_scoped_shared_kb_empty"],
+        },
+    )
+    monkeypatch.setattr(
+        primary_market_meeting,
+        "_r1_report_context_for",
+        lambda *_args: {
+            "required": True,
+            "present": True,
+            "status": "warn",
+            "score": 88,
+            "recommendation": "support",
+            "artifact_path": "discussion/01_R1_legal_scanner_report.md",
+        },
+    )
+    monkeypatch.setattr(
+        primary_market_meeting,
+        "_live_meeting_retrieval_context",
+        lambda *_args: "本轮一级市场实时检索:\n- project_hits=0; private_hits=4",
+    )
+
+    context = primary_market_meeting._meeting_evidence_context(
+        "siq_ic_legal_scanner",
+        "DEAL-EVIDENCE-EMPTY",
+        "合规清单",
+    )
+
+    assert "historical_process_artifact_only" in context
+    assert "score=88" not in context
+    assert "recommendation=support" not in context
+    assert "KBREF/角色私库只能支持方法论" in context
+    assert "不得生成项目专属评分" in context
+
+
+def test_primary_market_meeting_injects_live_deal_and_private_collection_hits(monkeypatch):
+    captured = {}
+
+    def fake_retrieve(deal_id, profile_id, **kwargs):
+        captured.update({"deal_id": deal_id, "profile_id": profile_id, **kwargs})
+        return {
+            "milvus_used": True,
+            "evidence_hits": [
+                {
+                    "evidence_id": "EVID-DEAL-LIVE-001-000001",
+                    "citation": "business-plan.pdf p.3",
+                    "quote_preview": "The company has signed customer contracts.",
+                }
+            ],
+            "shared_vector_hits": [],
+            "background_knowledge_hits": [
+                {
+                    "source_id": "VEC-siq_ic_strategist-001",
+                    "title": "Strategic diligence method",
+                    "knowledge_lane": "methodology",
+                    "quote_preview": "Test strategic assumptions with falsifiable triggers.",
+                }
+            ],
+            "vector_retrieval": {
+                "status": "completed",
+                "physical_collections": {"siq_ic_strategist": "ic_strategist"},
+            },
+        }
+
+    monkeypatch.setattr(primary_market_meeting.deal_retrieval, "retrieve_for_agent", fake_retrieve)
+    context = primary_market_meeting._live_meeting_retrieval_context(
+        "siq_ic_strategist",
+        "DEAL-LIVE-001",
+        "请验证增长战略",
+    )
+
+    assert captured["query"] == "请验证增长战略"
+    assert captured["include_vector"] is True
+    assert "project_tag=DEAL-LIVE-001" in context
+    assert "ic_collaboration_shared" in context
+    assert "private_collection: siq_ic_strategist -> ic_strategist" in context
+    assert "EVID-DEAL-LIVE-001-000001" in context
+    assert "VEC-siq_ic_strategist-001" in context
+    assert "严禁读取或引用 data/wiki/companies" in context
 
 
 def test_primary_market_meeting_quality_check_writes_transcript(monkeypatch, tmp_path):
@@ -787,7 +844,7 @@ def test_primary_market_meeting_suggestions_are_model_generated(monkeypatch, tmp
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["source"] == "model"
+    assert payload["source"] == "model+profile_contract"
     assert payload["profile"] == "siq_ic_risk_controller"
     assert payload["questions"][0]["label"] == "下行情景"
     assert payload["questions"][4]["prompt"].startswith("请提出交易文件")
@@ -798,6 +855,64 @@ def test_primary_market_meeting_suggestions_are_model_generated(monkeypatch, tmp
     assert "DEAL-SUGGEST-001" in captured["prompt"]
     assert "Suggestion Robotics" in captured["prompt"]
     assert "风险管理委员" in captured["prompt"]
+    assert "角色技能白名单" in captured["prompt"]
+    assert "data/wiki/companies" in captured["prompt"]
+
+
+def test_primary_market_meeting_model_catalog_uses_safe_backend_contract(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(primary_market_meeting, "model_catalog", lambda: {
+        "options": [{"mode": "minimax", "label": "云端 Minimax", "kind": "cloud", "model": "MiniMax-M3", "provider": "minimax-cn"}],
+        "profiles": {"siq_ic_master_coordinator": {"mode": "minimax", "model": "MiniMax-M3", "provider": "minimax-cn"}},
+    })
+
+    response = client.get("/api/primary-market/meeting/models")
+
+    assert response.status_code == 200
+    assert response.json()["options"][0]["mode"] == "minimax"
+
+
+def test_primary_market_meeting_model_selection_is_allowlisted(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        primary_market_meeting,
+        "apply_profile_model_mode",
+        lambda profile, mode: captured.update(profile=profile, mode=mode) or {"mode": mode},
+    )
+    request = primary_market_meeting.PrimaryMarketMeetingChatRequest(message="test", model_mode="gemma4")
+
+    result = primary_market_meeting._apply_meeting_model_mode(request, "siq_ic_sector_expert")
+
+    assert result == {"mode": "gemma4"}
+    assert captured == {"profile": "siq_ic_sector_expert", "mode": "gemma4"}
+
+
+def test_primary_market_meeting_suggestions_fall_back_to_role_contract(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    deal_store.create_deal_package(
+        deal_id="DEAL-SUGGEST-FALLBACK-001",
+        company_name="Fallback Robotics",
+    )
+
+    async def failed_create_run(*_args, **_kwargs):
+        raise RuntimeError("gateway unavailable")
+
+    monkeypatch.setattr(primary_market_meeting, "create_run", failed_create_run)
+    response = client.get(
+        "/api/primary-market/meeting/siq_ic_legal_scanner/suggestions",
+        params={
+            "deal_id": "DEAL-SUGGEST-FALLBACK-001",
+            "lane": "agent-siq_ic_legal_scanner",
+            "mode": "single",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "profile_contract_fallback"
+    assert "法" in payload["intro"]
+    assert len(payload["questions"]) == 5
+    assert payload["questions"][0]["label"] == "职责与服务"
 
 
 def test_primary_market_meeting_uploads_project_scoped_attachment(monkeypatch, tmp_path):

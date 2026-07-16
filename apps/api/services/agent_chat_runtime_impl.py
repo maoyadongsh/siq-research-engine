@@ -50,6 +50,7 @@ from services import (
     agent_runtime_statement_context,
     agent_runtime_task_ids,
     agent_runtime_wiki_context,
+    primary_market_agent_runtime,
 )
 from services.agent_runtime_fallback_contexts import (
     _markdown_table_cell,
@@ -351,7 +352,15 @@ HISTORY_LIMIT = _env_int_any(("SIQ_CHAT_HISTORY_LIMIT", "SIQ_CHAT_HISTORY_LIMIT"
 LOCAL_MEMORY_ENABLED = _env_bool_any(("SIQ_LOCAL_MEMORY_ENABLED", "SIQ_LOCAL_MEMORY_ENABLED"), True)
 LOCAL_MEMORY_ENABLED_PROFILES = {
     item.strip()
-    for item in (os.getenv("SIQ_LOCAL_MEMORY_PROFILES") or "siq_assistant").split(",")
+    for item in (
+        os.getenv("SIQ_LOCAL_MEMORY_PROFILES")
+        or (
+            "siq_assistant,siq_analysis,siq_factchecker,siq_tracking,siq_legal,"
+            "siq_ic_master_coordinator,siq_ic_chairman,siq_ic_strategist,"
+            "siq_ic_sector_expert,siq_ic_finance_auditor,siq_ic_legal_scanner,"
+            "siq_ic_risk_controller"
+        )
+    ).split(",")
     if item.strip()
 }
 LOCAL_MEMORY_RECENT_LIMIT = _env_int_any(("SIQ_LOCAL_MEMORY_RECENT_LIMIT", "SIQ_LOCAL_MEMORY_RECENT_LIMIT"), HISTORY_LIMIT, minimum=4, maximum=160)
@@ -890,6 +899,13 @@ HERMES_PROFILE_DIRS: dict[HermesProfile, Path] = {
     "siq_factchecker": HERMES_PROFILE_ROOTS["siq_factchecker"],
     "siq_tracking": HERMES_PROFILE_ROOTS["siq_tracking"],
     "siq_legal": HERMES_PROFILE_ROOTS["siq_legal"],
+    "siq_ic_master_coordinator": HERMES_PROFILE_ROOTS["siq_ic_master_coordinator"],
+    "siq_ic_chairman": HERMES_PROFILE_ROOTS["siq_ic_chairman"],
+    "siq_ic_strategist": HERMES_PROFILE_ROOTS["siq_ic_strategist"],
+    "siq_ic_sector_expert": HERMES_PROFILE_ROOTS["siq_ic_sector_expert"],
+    "siq_ic_finance_auditor": HERMES_PROFILE_ROOTS["siq_ic_finance_auditor"],
+    "siq_ic_legal_scanner": HERMES_PROFILE_ROOTS["siq_ic_legal_scanner"],
+    "siq_ic_risk_controller": HERMES_PROFILE_ROOTS["siq_ic_risk_controller"],
 }
 HERMES_LIVE_PROFILE_ALIASES: dict[str, str] = {
     "siq_assistant": "finsight_assistant",
@@ -901,6 +917,7 @@ HERMES_LIVE_PROFILE_ALIASES: dict[str, str] = {
 DEFAULT_WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 PROJECT_WIKI_ROOT = CONFIG_WIKI_ROOT
 ASSISTANT_WIKI_ROOT = CONFIG_ASSISTANT_WIKI_ROOT
+PRIMARY_MARKET_DEALS_ROOT = CONFIG_WIKI_ROOT / "deals"
 WIKI_FALLBACK_ROOTS: tuple[Path, ...] = tuple(
     dict.fromkeys(
         path
@@ -928,6 +945,8 @@ class _ProfileWikiRoot:
         profile = _CURRENT_PROFILE.get()
         if profile == "siq_assistant":
             return ASSISTANT_WIKI_ROOT
+        if primary_market_agent_runtime.is_primary_market_ic_profile(profile):
+            return PRIMARY_MARKET_DEALS_ROOT
         return PROJECT_WIKI_ROOT
 
     def __fspath__(self) -> str:
@@ -1117,6 +1136,13 @@ PROFILE_LABELS: dict[HermesProfile, str] = {
     "siq_factchecker": "事实核查助手",
     "siq_tracking": "跟踪助手",
     "siq_legal": "法务助手",
+    "siq_ic_master_coordinator": "投委会总协调员",
+    "siq_ic_chairman": "投委会主席",
+    "siq_ic_strategist": "战略委员",
+    "siq_ic_sector_expert": "行业专家",
+    "siq_ic_finance_auditor": "财务审计委员",
+    "siq_ic_legal_scanner": "法务合规委员",
+    "siq_ic_risk_controller": "风险管理委员",
 }
 DIAGNOSTIC_MAX_AGE_SECONDS = 30 * 60
 FORCE_REBUILD_TERMS = ("强制重建", "覆盖重建", "强制重新生成", "重新计算", "--force")
@@ -1960,7 +1986,17 @@ def _chat_message_payload(message: ChatMessage) -> dict[str, Any]:
 
 def _session_id_matches_profile(profile: HermesProfile, session_id: str) -> bool:
     prefix = PROFILE_SESSION_PREFIXES.get(profile)
-    return bool(prefix and session_id.startswith(prefix))
+    if prefix and session_id.startswith(prefix):
+        return True
+    parsed = agent_memory_service.context_from_session_id(session_id)
+    if parsed is None:
+        return False
+    if parsed.profile == profile:
+        return True
+    return bool(
+        str(profile).startswith("siq_ic_")
+        and parsed.profile.startswith("primary-market-")
+    )
 
 
 def hermes_runs_session_id(profile: HermesProfile, session_id: str) -> str:
@@ -2023,6 +2059,7 @@ async def refresh_session_memory(
     session_id: str,
     *,
     recent_limit: int = LOCAL_MEMORY_RECENT_LIMIT,
+    request_context: Any | None = None,
 ) -> None:
     await agent_runtime_memory.refresh_session_memory(
         async_session,
@@ -2033,8 +2070,36 @@ async def refresh_session_memory(
         enabled_profiles=LOCAL_MEMORY_ENABLED_PROFILES,
         session_id_matches_profile=_session_id_matches_profile,
         build_summary=build_local_memory_summary,
+        request_context=request_context,
         load_record=_load_session_memory_record,
     )
+
+
+def _chat_memory_save_kwargs(
+    profile: HermesProfile,
+    context: Any | None,
+) -> dict[str, Any]:
+    if primary_market_agent_runtime.is_primary_market_ic_runtime(profile, context):
+        return agent_runtime_memory.memory_context_kwargs(profile, context)
+    identity = agent_runtime_context.research_identity(context)
+    return {"research_identity": identity} if identity else {}
+
+
+async def _refresh_session_memory_for_request(
+    async_session: AsyncSession,
+    profile: HermesProfile,
+    session_id: str,
+    context: Any | None,
+) -> None:
+    if primary_market_agent_runtime.is_primary_market_ic_runtime(profile, context):
+        await refresh_session_memory(
+            async_session,
+            profile,
+            session_id,
+            request_context=context,
+        )
+        return
+    await refresh_session_memory(async_session, profile, session_id)
 
 
 async def load_local_memory_context(
@@ -2058,11 +2123,14 @@ async def ensure_local_memory_context(
     async_session: AsyncSession,
     profile: HermesProfile,
     session_id: str,
+    *,
+    request_context: Any | None = None,
 ) -> str | None:
     return await agent_runtime_memory.ensure_local_memory_context(
         async_session,
         profile,
         session_id,
+        request_context=request_context,
         refresh_memory=refresh_session_memory,
         load_context=load_local_memory_context,
     )
@@ -2097,18 +2165,35 @@ async def save_message_in_background(
     profile: HermesProfile | None = None,
     audit_trace_id: str | None = None,
     research_identity: Mapping[str, Any] | None = None,
+    request_context: Any | None = None,
 ) -> None:
     async with AsyncSession(async_engine) as async_session:
+        memory_kwargs = (
+            agent_runtime_memory.memory_context_kwargs(profile, request_context)
+            if profile
+            and primary_market_agent_runtime.is_primary_market_ic_runtime(
+                profile,
+                request_context,
+            )
+            else {}
+        )
+        if research_identity:
+            memory_kwargs["research_identity"] = research_identity
         await save_message(
             async_session,
             role,
             content,
             session_id,
             audit_trace_id=audit_trace_id,
-            research_identity=research_identity,
+            **memory_kwargs,
         )
         if role == "assistant" and profile:
-            await refresh_session_memory(async_session, profile, session_id)
+            await _refresh_session_memory_for_request(
+                async_session,
+                profile,
+                session_id,
+                request_context,
+            )
 
 
 def _clean_context_value(value: Any) -> str:
@@ -2246,7 +2331,9 @@ def _forced_context_company_dir(context: Any | None) -> Path | None:
             except OSError:
                 continue
             if path != resolved_root and resolved_root in path.parents and path.exists():
-                return path
+                relative = path.relative_to(resolved_root)
+                if "companies" in relative.parts:
+                    return path
         return None
     return agent_runtime_context.forced_context_company_dir(context, wiki_root=WIKI_ROOT)
 
@@ -5356,6 +5443,14 @@ def build_session_contextual_input(
     local_memory_context: str | None = None,
 ) -> str:
     profile = _runtime_profile(profile)
+    primary_market_agent_runtime.validate_market_runtime_context(profile, context)
+    if primary_market_agent_runtime.is_primary_market_ic_runtime(profile, context):
+        return primary_market_agent_runtime.build_primary_market_ic_input(
+            message,
+            profile=profile,
+            context=context,
+            local_memory_context=local_memory_context,
+        )
     return agent_runtime_context.build_session_contextual_input(
         message,
         profile=profile,
@@ -5476,6 +5571,28 @@ async def _load_chat_run_preflight_context(
     message: str = "",
     context: Any | None = None,
 ) -> ChatRunPreflightContext:
+    async def scoped_local_memory_context(
+        scoped_session: AsyncSession,
+        scoped_profile: HermesProfile,
+        scoped_session_id: str,
+        **_kwargs: Any,
+    ) -> str | None:
+        if primary_market_agent_runtime.is_primary_market_ic_runtime(
+            scoped_profile,
+            context,
+        ):
+            return await ensure_local_memory_context(
+                scoped_session,
+                scoped_profile,
+                scoped_session_id,
+                request_context=context,
+            )
+        return await ensure_local_memory_context(
+            scoped_session,
+            scoped_profile,
+            scoped_session_id,
+        )
+
     return await agent_runtime_preflight.load_chat_run_preflight_context_with_agent_memory(
         async_session,
         session_id=session_id,
@@ -5485,7 +5602,7 @@ async def _load_chat_run_preflight_context(
         message=message,
         request_context=context,
         load_history=load_history,
-        ensure_local_memory_context=ensure_local_memory_context,
+        ensure_local_memory_context=scoped_local_memory_context,
         ensure_agent_memory_context=ensure_agent_memory_context,
     )
 
@@ -5568,6 +5685,7 @@ async def _collect_chat_reply_impl(
     enforce_evidence_contract: bool = True,
     answer_audit_callback: AnswerAuditCallback | None = None,
 ) -> str:
+    primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
         message,
         async_session,
@@ -5580,9 +5698,12 @@ async def _collect_chat_reply_impl(
     message_hash = envelope.message_hash
     user_display_message = envelope.user_display_message
     audit_context = agent_runtime_context.mutable_context_dict(context)
-    memory_identity = agent_runtime_context.research_identity(audit_context)
-    memory_save_kwargs = {"research_identity": memory_identity} if memory_identity else {}
-    catalog_reply = build_wiki_catalog_reply(message)
+    memory_save_kwargs = _chat_memory_save_kwargs(profile, audit_context)
+    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(
+        profile,
+        audit_context,
+    )
+    catalog_reply = None if primary_market_ic_runtime else build_wiki_catalog_reply(message)
     short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
         catalog_reply=catalog_reply,
         is_general_assistant_request=_is_general_assistant_request(message),
@@ -5610,7 +5731,12 @@ async def _collect_chat_reply_impl(
             session_id,
             **memory_save_kwargs,
         )
-        await refresh_session_memory(async_session, profile, session_id)
+        await _refresh_session_memory_for_request(
+            async_session,
+            profile,
+            session_id,
+            audit_context,
+        )
         _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         return short_circuit.catalog_reply
 
@@ -5622,7 +5748,14 @@ async def _collect_chat_reply_impl(
 
     preflight_context = await _load_chat_run_preflight_context(
         async_session,
-        message=completed_guard_input or message,
+        message=(
+            primary_market_agent_runtime.primary_market_retrieval_query(
+                profile,
+                audit_context,
+            )
+            if primary_market_ic_runtime
+            else completed_guard_input or message
+        ),
         session_id=session_id,
         profile=profile,
         attachments=all_attachments,
@@ -5730,45 +5863,50 @@ async def _collect_chat_reply_impl(
             )
             ACTIVE_RUNS.pop(_active_key(profile, session_id), None)
 
-    trusted_runs = await _trusted_financial_receipts_after_run(
-        profile,
-        session_id,
-        message=message,
-        reply=reply,
-    )
-    trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
-    try:
-        raw_reply = reply
-        recovered_reply = recover_financial_tool_loop_reply(message, audit_context, reply)
-        reply = deterministic_pdf_market_reply(message, audit_context) or recovered_reply or reply
+    raw_reply = reply
+    answer_audit_record: Mapping[str, Any] | None = None
+    if primary_market_ic_runtime:
         reply = normalize_evidence_trace_for_display(reply)
-        if enforce_evidence_contract:
-            reply = enforce_financial_evidence_contract(message, audit_context, reply)
-        reply = normalize_evidence_trace_for_display(reply)
-        audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(audit_context, reply)
-        answer_audit_record = _record_answer_audit_trace_compat(
+    else:
+        trusted_runs = await _trusted_financial_receipts_after_run(
+            profile=profile,
+            session_id=session_id,
+            message=message,
+            reply=reply,
+        )
+        trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
+        try:
+            recovered_reply = recover_financial_tool_loop_reply(message, audit_context, reply)
+            reply = deterministic_pdf_market_reply(message, audit_context) or recovered_reply or reply
+            reply = normalize_evidence_trace_for_display(reply)
+            if enforce_evidence_contract:
+                reply = enforce_financial_evidence_contract(message, audit_context, reply)
+            reply = normalize_evidence_trace_for_display(reply)
+            audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(audit_context, reply)
+            answer_audit_record = _record_answer_audit_trace_compat(
+                message=message,
+                context=audit_context,
+                profile=profile,
+                session_id=session_id,
+                raw_reply=raw_reply,
+                final_reply=reply,
+                enforce_evidence_contract=enforce_evidence_contract,
+                trusted_calculation_runs=trusted_runs,
+            )
+        finally:
+            agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
+    if answer_audit_callback and isinstance(answer_audit_record, dict):
+        answer_audit_callback(answer_audit_record)
+    if not primary_market_ic_runtime:
+        _record_financial_llm_provenance_if_needed(
             message=message,
             context=audit_context,
             profile=profile,
-            session_id=session_id,
-            raw_reply=raw_reply,
-            final_reply=reply,
-            enforce_evidence_contract=enforce_evidence_contract,
-            trusted_calculation_runs=trusted_runs,
+            model_input=run_input,
+            raw_output=raw_reply,
+            stored_output=reply,
+            attachments=all_attachments,
         )
-    finally:
-        agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
-    if answer_audit_callback and isinstance(answer_audit_record, dict):
-        answer_audit_callback(answer_audit_record)
-    _record_financial_llm_provenance_if_needed(
-        message=message,
-        context=audit_context,
-        profile=profile,
-        model_input=run_input,
-        raw_output=raw_reply,
-        stored_output=reply,
-        attachments=all_attachments,
-    )
     await save_message(
         async_session,
         "assistant",
@@ -5777,7 +5915,12 @@ async def _collect_chat_reply_impl(
         audit_trace_id=_answer_audit_trace_id(answer_audit_record),
         **memory_save_kwargs,
     )
-    await refresh_session_memory(async_session, profile, session_id)
+    await _refresh_session_memory_for_request(
+        async_session,
+        profile,
+        session_id,
+        audit_context,
+    )
     _remember_completed_run(profile, session_id, message_hash, reply)
     state.status = "succeeded"
     await _release_durable_active_run(state, status="succeeded")
@@ -6193,75 +6336,95 @@ async def _collect_stream_run(
             if full_reply and terminal_result is not None and terminal_result.succeeded:
                 trusted_runs: tuple[Mapping[str, Any], ...] = ()
                 raw_full_reply = full_reply
-                recovered_reply = recover_financial_tool_loop_reply(
-                    state.original_message or "",
+                primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(
+                    state.profile,
                     state.context,
-                    full_reply,
                 )
-                if recovered_reply is not None:
-                    reply = deterministic_pdf_market_reply(
+                answer_audit_record: Mapping[str, Any] | None = None
+                audit_context = state.context
+                if primary_market_ic_runtime:
+                    reply = (
+                        _failed_run_reply_for_history(full_reply)
+                        if failed or _is_loop_polluted_assistant_message(full_reply)
+                        else normalize_evidence_trace_for_display(full_reply)
+                    )
+                else:
+                    recovered_reply = recover_financial_tool_loop_reply(
                         state.original_message or "",
                         state.context,
-                    ) or recovered_reply
-                    reply = normalize_evidence_trace_for_display(reply)
-                    trusted_runs = await _trusted_financial_receipts_after_run(
-                        state.profile,
-                        state.session_id,
-                        message=state.original_message or "",
-                        reply=reply,
+                        full_reply,
                     )
-                    trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
-                    try:
-                        if enforce_evidence_contract:
-                            reply = enforce_financial_evidence_contract(
-                                state.original_message or "",
-                                state.context,
-                                reply,
-                            )
-                    finally:
-                        agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
-                    reply = normalize_evidence_trace_for_display(reply)
-                elif failed or _is_loop_polluted_assistant_message(full_reply):
-                    reply = _failed_run_reply_for_history(full_reply)
-                else:
-                    reply = deterministic_pdf_market_reply(state.original_message or "", state.context) or full_reply
-                    reply = normalize_evidence_trace_for_display(reply)
-                    trusted_runs = await _trusted_financial_receipts_after_run(
-                        state.profile,
-                        state.session_id,
-                        message=state.original_message or "",
-                        reply=reply,
+                    if recovered_reply is not None:
+                        reply = deterministic_pdf_market_reply(
+                            state.original_message or "",
+                            state.context,
+                        ) or recovered_reply
+                        reply = normalize_evidence_trace_for_display(reply)
+                        trusted_runs = await _trusted_financial_receipts_after_run(
+                            state.profile,
+                            state.session_id,
+                            message=state.original_message or "",
+                            reply=reply,
+                        )
+                        trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
+                        try:
+                            if enforce_evidence_contract:
+                                reply = enforce_financial_evidence_contract(
+                                    state.original_message or "",
+                                    state.context,
+                                    reply,
+                                )
+                        finally:
+                            agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
+                        reply = normalize_evidence_trace_for_display(reply)
+                    elif failed or _is_loop_polluted_assistant_message(full_reply):
+                        reply = _failed_run_reply_for_history(full_reply)
+                    else:
+                        reply = deterministic_pdf_market_reply(state.original_message or "", state.context) or full_reply
+                        reply = normalize_evidence_trace_for_display(reply)
+                        trusted_runs = await _trusted_financial_receipts_after_run(
+                            state.profile,
+                            state.session_id,
+                            message=state.original_message or "",
+                            reply=reply,
+                        )
+                        trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
+                        try:
+                            if enforce_evidence_contract:
+                                reply = enforce_financial_evidence_contract(
+                                    state.original_message or "",
+                                    state.context,
+                                    reply,
+                                )
+                        finally:
+                            agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
+                        reply = normalize_evidence_trace_for_display(reply)
+                    audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(
+                        state.context,
+                        reply,
                     )
-                    trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
-                    try:
-                        if enforce_evidence_contract:
-                            reply = enforce_financial_evidence_contract(
-                                state.original_message or "",
-                                state.context,
-                                reply,
-                            )
-                    finally:
-                        agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
-                    reply = normalize_evidence_trace_for_display(reply)
+                    answer_audit_record = _record_answer_audit_trace_compat(
+                        message=state.original_message or "",
+                        context=audit_context,
+                        profile=state.profile,
+                        session_id=state.session_id,
+                        raw_reply=raw_full_reply,
+                        final_reply=reply,
+                        enforce_evidence_contract=enforce_evidence_contract,
+                        trusted_calculation_runs=trusted_runs,
+                    )
 
                 if reply != full_reply and not failed:
                     full_reply = reply
                     await _append_state_event(state, "replace", {"content": reply})
-                audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(state.context, reply)
-                answer_audit_record = _record_answer_audit_trace_compat(
-                    message=state.original_message or "",
-                    context=audit_context,
-                    profile=state.profile,
-                    session_id=state.session_id,
-                    raw_reply=raw_full_reply,
-                    final_reply=reply,
-                    enforce_evidence_contract=enforce_evidence_contract,
-                    trusted_calculation_runs=trusted_runs,
-                )
                 audit_trace_id = _answer_audit_trace_id(answer_audit_record)
                 if not failed:
                     full_reply = reply
-                if not failed and not _is_loop_polluted_assistant_message(raw_full_reply):
+                if (
+                    not primary_market_ic_runtime
+                    and not failed
+                    and not _is_loop_polluted_assistant_message(raw_full_reply)
+                ):
                     _record_financial_llm_provenance_if_needed(
                         message=state.original_message or "",
                         context=audit_context,
@@ -6271,12 +6434,13 @@ async def _collect_stream_run(
                         stored_output=reply,
                         attachments=getattr(state, "provenance_attachments", None),
                     )
-                stream_memory_identity = agent_runtime_context.research_identity(state.context)
-                stream_memory_kwargs = (
-                    {"research_identity": stream_memory_identity}
-                    if stream_memory_identity
-                    else {}
-                )
+                stream_memory_kwargs: dict[str, Any] = {}
+                if primary_market_ic_runtime:
+                    stream_memory_kwargs["request_context"] = state.context
+                else:
+                    stream_memory_identity = agent_runtime_context.research_identity(state.context)
+                    if stream_memory_identity:
+                        stream_memory_kwargs["research_identity"] = stream_memory_identity
                 await save_message_in_background(
                     "assistant",
                     reply,
@@ -6362,6 +6526,7 @@ async def _stream_chat_reply_impl(
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
 ) -> AsyncGenerator[dict, None]:
+    primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
         message,
         async_session,
@@ -6374,8 +6539,7 @@ async def _stream_chat_reply_impl(
     message_hash = envelope.message_hash
     user_display_message = envelope.user_display_message
     audit_context = agent_runtime_context.mutable_context_dict(context)
-    memory_identity = agent_runtime_context.research_identity(audit_context)
-    memory_save_kwargs = {"research_identity": memory_identity} if memory_identity else {}
+    memory_save_kwargs = _chat_memory_save_kwargs(profile, audit_context)
 
     if has_active_run(profile, session_id):
         async for event in stream_active_run_events(
@@ -6386,7 +6550,11 @@ async def _stream_chat_reply_impl(
             yield event
         return
 
-    catalog_reply = build_wiki_catalog_reply(message)
+    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(
+        profile,
+        audit_context,
+    )
+    catalog_reply = None if primary_market_ic_runtime else build_wiki_catalog_reply(message)
     short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
         catalog_reply=catalog_reply,
         is_general_assistant_request=_is_general_assistant_request(message),
@@ -6422,7 +6590,12 @@ async def _stream_chat_reply_impl(
             session_id,
             **memory_save_kwargs,
         )
-        await refresh_session_memory(async_session, profile, session_id)
+        await _refresh_session_memory_for_request(
+            async_session,
+            profile,
+            session_id,
+            audit_context,
+        )
         _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         yield {"event": "delta", "data": json.dumps({"content": short_circuit.catalog_reply}, ensure_ascii=False)}
         yield {
@@ -6444,7 +6617,14 @@ async def _stream_chat_reply_impl(
 
     preflight_context = await _load_chat_run_preflight_context(
         async_session,
-        message=completed_guard_input or message,
+        message=(
+            primary_market_agent_runtime.primary_market_retrieval_query(
+                profile,
+                audit_context,
+            )
+            if primary_market_ic_runtime
+            else completed_guard_input or message
+        ),
         session_id=session_id,
         profile=profile,
         attachments=all_attachments,

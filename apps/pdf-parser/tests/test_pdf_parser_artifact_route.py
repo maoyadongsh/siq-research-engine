@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -6,7 +7,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-import app
+import app  # noqa: E402
 
 
 def _task(task_id="artifact-route"):
@@ -77,8 +78,18 @@ def test_open_artifact_route_lists_and_downloads_images(tmp_path, monkeypatch):
         "artifact": "images",
         "count": 2,
         "images": [
-            {"name": "a.jpg", "url": f"/api/artifact/{task['task_id']}/images/a.jpg"},
-            {"name": "b.png", "url": f"/api/artifact/{task['task_id']}/images/b.png"},
+            {
+                "name": "a.jpg",
+                "url": f"/api/artifact/{task['task_id']}/images/a.jpg",
+                "size_bytes": 3,
+                "sha256": hashlib.sha256(b"jpg").hexdigest(),
+            },
+            {
+                "name": "b.png",
+                "url": f"/api/artifact/{task['task_id']}/images/b.png",
+                "size_bytes": 3,
+                "sha256": hashlib.sha256(b"png").hexdigest(),
+            },
         ],
     }
 
@@ -125,6 +136,65 @@ def test_open_artifact_route_preserves_error_responses(tmp_path, monkeypatch):
     empty_download = client.get(f"/api/artifact/{task['task_id']}/images/download")
     assert empty_download.status_code == 404
     assert empty_download.get_json() == {"error": "No downloadable images found"}
+
+
+def test_open_artifact_route_rejects_symlinked_core_and_image_artifacts(tmp_path, monkeypatch):
+    client, results_dir, task = _artifact_client(tmp_path, monkeypatch)
+    result_dir = results_dir / task["task_id"]
+    result_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret_json = outside / "secret.json"
+    secret_json.write_text('{"secret": true}\n', encoding="utf-8")
+    (result_dir / "quality_report.json").symlink_to(secret_json)
+
+    core = client.get(f"/api/artifact/{task['task_id']}/quality_report.json")
+
+    assert core.status_code == 404
+    assert b"secret" not in core.data
+
+    outside_images = outside / "images"
+    outside_images.mkdir()
+    (outside_images / "secret.png").write_bytes(b"secret-image")
+    (result_dir / "images").symlink_to(outside_images, target_is_directory=True)
+
+    listing = client.get(f"/api/artifact/{task['task_id']}/images")
+    image = client.get(f"/api/artifact/{task['task_id']}/images/secret.png")
+    archive = client.get(f"/api/artifact/{task['task_id']}/images/download")
+
+    assert listing.status_code == 404
+    assert image.status_code == 404
+    assert archive.status_code == 404
+    assert b"secret-image" not in image.data
+
+
+def test_open_artifact_route_rejects_symlinked_result_directory_and_image_file(tmp_path, monkeypatch):
+    client, results_dir, task = _artifact_client(tmp_path, monkeypatch)
+    outside_result = tmp_path / "outside-result"
+    outside_result.mkdir()
+    (outside_result / "quality_report.json").write_text('{"secret": true}\n', encoding="utf-8")
+    result_dir = results_dir / task["task_id"]
+    result_dir.symlink_to(outside_result, target_is_directory=True)
+
+    result_link = client.get(f"/api/artifact/{task['task_id']}/quality_report.json")
+
+    assert result_link.status_code == 404
+    result_dir.unlink()
+    images_dir = result_dir / "images"
+    images_dir.mkdir(parents=True)
+    secret_image = tmp_path / "secret.png"
+    secret_image.write_bytes(b"secret-image")
+    (images_dir / "secret.png").symlink_to(secret_image)
+
+    listing = client.get(f"/api/artifact/{task['task_id']}/images")
+    image = client.get(f"/api/artifact/{task['task_id']}/images/secret.png")
+    archive = client.get(f"/api/artifact/{task['task_id']}/images/download")
+
+    assert listing.status_code == 200
+    assert listing.get_json()["images"] == []
+    assert image.status_code == 404
+    assert archive.status_code == 404
+    assert b"secret-image" not in image.data
 
 
 def test_from_download_reference_enqueues_allowed_pdf(tmp_path, monkeypatch):

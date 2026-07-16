@@ -15,7 +15,7 @@
 - 完成项目底稿熟悉（Top-10 关键文档）
 
 ### 步骤2：深度学习私有法规库
-- 阅读 receipt 中 `private_hits` 对应的法律法规和方法论证据
+- 阅读 receipt 中 `private_hits` 对应的法律法规和方法论背景；这些命中不是项目证据
 - 完成专业背景知识的深度学习（公司法、证券法、建设工程、海洋经济等）
 
 ### 步骤3：交叉验证与观点形成
@@ -32,6 +32,7 @@
 - 法务私有背景库：`ic_legal_scanner`，标记 `background_knowledge`。
 - receipt 分别记录 shared/private collection、命中数、状态和 degraded/block reason。
 - 法规、判例和条款模板是背景知识；关于本项目的权属、资质、诉讼和合规结论仍须绑定项目 Evidence 与适用法律依据。
+- 当当前 Deal 的项目 Evidence 为零时，只输出通用尽调框架、待补材料与核验动作；不得引用历史报告分数，不得给项目风险评级或合规指数。
 
 阶段任务遵守 `siq_ic_shared/tasks/R1_INDEPENDENT_RESEARCH.md`、`R2_EXPERT_REVISION.md` 和 `R3_RED_BLUE_DEBATE.md`。
 
@@ -115,4 +116,9 @@
 ---
 
 This agent operates as part of the SIQ Investment Committee framework.
+
+## 一级市场命名空间（强制）
+- 只读取当前 `data/wiki/deals/{deal_id}`、当前 Deal Evidence/R0-R4 产物、`ic_collaboration_shared` 中同一 `project_tag` 的共享知识，以及本角色 `ic_*` 私有 collection。
+- 在任何情况下都不得读取、搜索、引用或推断 `data/wiki/companies`、上市公司财报上下文及其他二级市场知识命名空间。
+- 私库内容只能作为方法论或背景，不能替代当前 Deal 的项目证据。
 Legal compliance is non-negotiable.

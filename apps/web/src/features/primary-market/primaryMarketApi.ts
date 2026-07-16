@@ -31,10 +31,12 @@ import type {
   DealDecisionHumanConfirmationPayload,
   DealDecisionHumanConfirmationUpdateResponse,
   DealDetailResponse,
+  DealEvidenceMilvusIndexResponse,
   DealListResponse,
   PrimaryMarketMaterialParseStatusResponse,
   PrimaryMarketMaterialResponse,
   PrimaryMarketMaterialsResponse,
+  PrimaryMarketWikiProjection,
   DealQuery,
   DealStartupReceipt,
   DealStatusResponse,
@@ -93,6 +95,13 @@ export function fetchPrimaryMarketProjectStatus(dealId: string, signal?: AbortSi
   return apiJson<DealStatusResponse>(`/api/primary-market/projects/${encodeURIComponent(dealId)}/status`, { signal })
 }
 
+export function fetchPrimaryMarketWiki(dealId: string, signal?: AbortSignal) {
+  return apiJson<PrimaryMarketWikiProjection>(
+    `/api/deals/${encodeURIComponent(dealId)}/wiki`,
+    { signal },
+  )
+}
+
 function primaryMarketMaterialsPath(dealId: string) {
   return `/api/primary-market/projects/${encodeURIComponent(dealId)}/materials`
 }
@@ -140,6 +149,24 @@ export function fetchPrimaryMarketMaterialParseStatus(
   return apiJson<PrimaryMarketMaterialParseStatusResponse>(
     `${primaryMarketMaterialPath(dealId, documentId)}/parse-status`,
     { signal },
+  )
+}
+
+export function parsePrimaryMarketMaterial(
+  dealId: string,
+  documentId: string,
+  signal?: AbortSignal,
+) {
+  return apiJson<PrimaryMarketMaterialResponse>(
+    `${primaryMarketMaterialPath(dealId, documentId)}/parse`,
+    { method: 'POST', signal },
+  )
+}
+
+export function indexPrimaryMarketEvidenceMilvus(dealId: string, signal?: AbortSignal) {
+  return apiJson<DealEvidenceMilvusIndexResponse>(
+    `/api/deals/${encodeURIComponent(dealId)}/evidence/index-milvus`,
+    { method: 'POST', signal },
   )
 }
 
@@ -250,6 +277,7 @@ export interface PrimaryMarketMeetingChatRequest {
   agentId: string
   agentLabel: string
   message: string
+  retrievalQuery?: string
   displayMessage: string
   dealId: string
   companyName?: string | null
@@ -377,6 +405,8 @@ export interface PrimaryMarketMeetingAgentContractReadiness {
 export interface PrimaryMarketMeetingStartupReceiptReadiness {
   present: boolean
   receiptId: string
+  sharedConnected?: boolean
+  privateConnected?: boolean
   sharedHits: number
   privateHits: number
   evidenceHits: number
@@ -386,6 +416,11 @@ export interface PrimaryMarketMeetingStartupReceiptReadiness {
   sharedCollection?: string
   privateCollection?: string
   retrievalStatus?: string
+  rerankReady?: boolean
+  rerankStatus?: string
+  rerankCandidateCount?: number
+  rerankResultCount?: number
+  retrievalStrategy?: string
   degradedReasons?: string[]
   blockingReasons?: string[]
   evidenceSnapshotHash?: string
@@ -417,6 +452,9 @@ export interface PrimaryMarketMeetingReadinessProfile {
   startupReceipt: PrimaryMarketMeetingStartupReceiptReadiness
   r1Report: PrimaryMarketMeetingR1ReportReadiness
   quality: PrimaryMarketMeetingQualityReadiness
+  serviceReadyForChat?: boolean
+  chatBlockingReasons?: string[]
+  contentWarnings?: string[]
   phaseTaskStatus?: string
 }
 
@@ -424,6 +462,8 @@ export interface PrimaryMarketMeetingReadinessSummary {
   runtimeRunning: number
   receiptPresent: number
   r1ReportsPresent: number
+  serviceReadyForChat?: number
+  formalTaskReady?: number
   blockingProfiles: string[]
 }
 
@@ -657,6 +697,33 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
     ? startupReceipt.evidence_hits.length
     : asNumber(startupReceipt.evidence_hit_count ?? startupReceipt.evidenceHits)
   const sourceFiles = asPathArray(contract.source_files || contract.sourceFiles)
+  const retrievalStrategy = asRecord(startupReceipt.retrieval_strategy || startupReceipt.retrievalStrategy)
+  const physicalCollections = asStringArray(startupReceipt.physical_collections || startupReceipt.physicalCollections)
+  const sharedCollection = asString(startupReceipt.shared_collection || startupReceipt.sharedCollection)
+  const privateCollection = asString(startupReceipt.private_collection || startupReceipt.privateCollection)
+  const sharedConnected = asBoolean(
+    startupReceipt.shared_connected ?? startupReceipt.sharedConnected,
+    false,
+  )
+  const privateConnected = asBoolean(
+    startupReceipt.private_connected ?? startupReceipt.privateConnected,
+    false,
+  )
+  const chatBlockingReasons = asStringArray(
+    data.chat_blocking_reasons
+      || data.chatBlockingReasons
+      || quality.chat_blocking_reasons
+      || quality.chatBlockingReasons,
+  )
+  const serviceReadyForChat = asBoolean(
+    data.service_ready_for_chat
+      ?? data.serviceReadyForChat
+      ?? quality.service_ready_for_chat
+      ?? quality.serviceReadyForChat,
+    ['running', 'ready', 'healthy', 'ok', 'enabled'].includes(
+      asString(runtime.health || runtime.status).toLowerCase(),
+    ) && sourceFiles.length > 0 && sharedConnected && privateConnected && chatBlockingReasons.length === 0,
+  )
   return {
     profileId,
     label: asString(data.label, profileId),
@@ -681,15 +748,22 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
     startupReceipt: {
       present: asBoolean(startupReceipt.present, Boolean(receiptId)),
       receiptId,
+      sharedConnected,
+      privateConnected,
       sharedHits: asNumber(startupReceipt.shared_hits ?? startupReceipt.sharedHits),
       privateHits: asNumber(startupReceipt.private_hits ?? startupReceipt.privateHits),
       evidenceHits: evidenceHitCount,
       gaps: asStringArray(startupReceipt.gaps),
       collections: asStringArray(startupReceipt.collections),
-      physicalCollections: asStringArray(startupReceipt.physical_collections || startupReceipt.physicalCollections),
-      sharedCollection: asString(startupReceipt.shared_collection || startupReceipt.sharedCollection),
-      privateCollection: asString(startupReceipt.private_collection || startupReceipt.privateCollection),
+      physicalCollections,
+      sharedCollection,
+      privateCollection,
       retrievalStatus: asString(startupReceipt.retrieval_status || startupReceipt.retrievalStatus || startupReceipt.status),
+      rerankReady: asBoolean(startupReceipt.rerank_ready ?? startupReceipt.rerankReady),
+      rerankStatus: asString(startupReceipt.rerank_status || startupReceipt.rerankStatus),
+      rerankCandidateCount: asNumber(startupReceipt.rerank_candidate_count ?? startupReceipt.rerankCandidateCount),
+      rerankResultCount: asNumber(startupReceipt.rerank_result_count ?? startupReceipt.rerankResultCount),
+      retrievalStrategy: asString(retrievalStrategy.mode),
       degradedReasons: asStringArray(startupReceipt.degraded_reasons || startupReceipt.degradedReasons || startupReceipt.retrieval_warnings),
       blockingReasons: asStringArray(startupReceipt.blocking_reasons || startupReceipt.blockingReasons),
       evidenceSnapshotHash: asString(startupReceipt.evidence_snapshot_hash || startupReceipt.evidenceSnapshotHash),
@@ -715,6 +789,14 @@ function normalizeReadinessProfile(item: unknown, index: number): PrimaryMarketM
       status: asString(quality.status),
       stale: asBoolean(quality.stale || data.stale),
     },
+    serviceReadyForChat,
+    chatBlockingReasons,
+    contentWarnings: asStringArray(
+      data.content_warnings
+        || data.contentWarnings
+        || quality.content_warnings
+        || quality.contentWarnings,
+    ),
     phaseTaskStatus: asString(workflow.phase_task_status || workflow.phaseTaskStatus || workflow.task_status || workflow.taskStatus),
   }
 }
@@ -734,6 +816,8 @@ export function normalizePrimaryMarketMeetingAgentReadiness(
   const fallbackReceiptPresent = profiles.filter((profile) => profile.startupReceipt.present).length
   const fallbackReportsPresent = profiles.filter((profile) => profile.r1Report.present).length
   const fallbackRuntimeRunning = profiles.filter((profile) => profile.runtime.health === 'running').length
+  const fallbackServiceReadyForChat = profiles.filter((profile) => profile.serviceReadyForChat).length
+  const fallbackFormalTaskReady = profiles.filter((profile) => profile.quality.readyForFormalTask).length
   return {
     schemaVersion: asString(payload.schema_version || payload.schemaVersion, 'siq_primary_market_meeting_readiness_v1'),
     dealId: asString(payload.deal_id || payload.dealId, fallbackDealId),
@@ -743,6 +827,17 @@ export function normalizePrimaryMarketMeetingAgentReadiness(
       runtimeRunning: asNumber(rawSummary.runtime_running ?? rawSummary.runtimeRunning, fallbackRuntimeRunning),
       receiptPresent: asNumber(rawSummary.receipt_present ?? rawSummary.receiptPresent ?? rawSummary.startup_receipts ?? rawSummary.startupReceipts, fallbackReceiptPresent),
       r1ReportsPresent: asNumber(rawSummary.r1_reports_present ?? rawSummary.r1ReportsPresent ?? rawSummary.r1_reports ?? rawSummary.r1Reports, fallbackReportsPresent),
+      serviceReadyForChat: asNumber(
+        rawSummary.service_ready_for_chat ?? rawSummary.serviceReadyForChat,
+        fallbackServiceReadyForChat,
+      ),
+      formalTaskReady: asNumber(
+        rawSummary.formal_task_ready
+          ?? rawSummary.formalTaskReady
+          ?? rawSummary.ready_for_formal_task
+          ?? rawSummary.readyForFormalTask,
+        fallbackFormalTaskReady,
+      ),
       blockingProfiles: asStringArray(rawSummary.blocking_profiles || rawSummary.blockingProfiles),
     },
   }
@@ -763,6 +858,7 @@ function primaryMarketMeetingChatPayload(request: PrimaryMarketMeetingChatReques
   const lane = request.lane || 'main'
   const payload: Record<string, unknown> = {
     message: request.message,
+    retrieval_query: request.retrievalQuery || request.message,
     display_message: request.displayMessage,
     deal_id: dealId,
     company_name: request.companyName || dealId,
@@ -784,8 +880,40 @@ function primaryMarketMeetingChatPayload(request: PrimaryMarketMeetingChatReques
   return { dealId, lane, payload }
 }
 
-export function fetchPrimaryMarketMeetingModels(signal?: AbortSignal) {
-  return apiJson<PrimaryMarketMeetingModelCatalog>('/api/primary-market/meeting/models', { signal })
+function normalizePrimaryMarketMeetingModelCatalog(data: unknown): PrimaryMarketMeetingModelCatalog {
+  const payload = asRecord(data)
+  const options = (Array.isArray(payload.options) ? payload.options : [])
+    .map((item): PrimaryMarketMeetingModelOption | null => {
+      const option = asRecord(item)
+      const mode = asString(option.mode)
+      const kind = option.kind === 'cloud' || option.kind === 'local' ? option.kind : null
+      if (!mode || !kind) return null
+      return {
+        mode,
+        label: asString(option.label, mode),
+        kind,
+        model: asString(option.model),
+        provider: asString(option.provider),
+      }
+    })
+    .filter((option): option is PrimaryMarketMeetingModelOption => option !== null)
+  const profiles = Object.fromEntries(
+    Object.entries(asRecord(payload.profiles)).map(([profileId, value]) => {
+      const profile = asRecord(value)
+      return [profileId, {
+        mode: asString(profile.mode),
+        model: asString(profile.model),
+        provider: asString(profile.provider),
+      }]
+    }),
+  )
+  return { options, profiles }
+}
+
+export async function fetchPrimaryMarketMeetingModels(signal?: AbortSignal) {
+  return normalizePrimaryMarketMeetingModelCatalog(
+    await apiJson<unknown>('/api/primary-market/meeting/models', { signal }),
+  )
 }
 
 function normalizeMeetingEventType(value: unknown): MeetingEventType {
@@ -1016,7 +1144,7 @@ function primaryMarketMeetingPreparePayload(options: PrimaryMarketMeetingPrepare
     include_external: options.include_external ?? false,
     external_providers: options.external_providers || undefined,
     include_vector: options.include_vector ?? true,
-    include_rerank: options.include_rerank ?? false,
+    include_rerank: options.include_rerank ?? true,
     vector_collections: options.vector_collections || undefined,
   }
 }

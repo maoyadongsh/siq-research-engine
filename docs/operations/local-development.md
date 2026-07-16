@@ -215,7 +215,10 @@ PR 和本地开发可以继续运行不依赖外部服务的 parser financial PD
 覆盖当前报告的全部 benchmark；新增探针但未更新受批准 baseline 时，比较会 fail closed，避免空基线
 或过期基线把新探针静默排除在回归门禁之外。
 
-- 模型服务、MinerU API、VLM 和 vLLM 是主机相关服务，不由 `start_all.sh` 自动启动。
+- 通用模型服务仍由主机独立管理。对于本机 `127.0.0.1:8002/8003`，`start_all.sh` 默认以
+  `SIQ_START_MINERU_SERVICES=auto` 幂等恢复已安装的 `mineru-vllm.service` 和
+  `mineru-api.service`，但不会在整栈退出时停止它们，也不会接管远端 MinerU。设置为 `1`
+  可将本地解析能力设为启动硬门禁，设置为 `0` 则完全由运维人员管理。
 - `data/` 是运行态目录，不应整体纳入 Git。
 - Docker Compose 的 Postgres init 脚本只在首次创建数据库 volume 时执行；已有 volume 需要手动补建数据库或重建 volume。
 - 新增路径配置时优先使用 `SIQ_*`，旧变量只作为兼容回退。

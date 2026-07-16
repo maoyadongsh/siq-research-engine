@@ -180,6 +180,7 @@ def ensure_deal_package_dirs(package_dir: Path) -> None:
         "discussion",
         "decision",
         "audit",
+        "wiki",
     ):
         (package_dir / relative).mkdir(parents=True, exist_ok=True)
 

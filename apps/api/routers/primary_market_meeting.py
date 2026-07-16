@@ -49,6 +49,7 @@ from services import (
     deal_evidence,
     deal_phase_artifacts,
     deal_reports,
+    deal_retrieval,
     deal_status,
     deal_store,
     ic_agent_output_quality,
@@ -56,6 +57,7 @@ from services import (
     ic_policy,
     ic_profile_contract,
     ic_startup_retrieval,
+    primary_market_agent_runtime,
     primary_market_meeting_readiness,
 )
 
@@ -96,6 +98,7 @@ class PrimaryMarketMeetingContext(BaseModel):
 
 class PrimaryMarketMeetingChatRequest(BaseModel):
     message: str
+    retrieval_query: str | None = None
     session_id: str | None = None
     display_message: str | None = None
     deal_id: str | None = None
@@ -172,7 +175,7 @@ class PrimaryMarketMeetingPrepareRequest(BaseModel):
     include_external: bool = False
     external_providers: list[str] | None = None
     include_vector: bool = True
-    include_rerank: bool = False
+    include_rerank: bool = True
     vector_collections: list[str] | None = None
 
 
@@ -755,7 +758,24 @@ def primary_market_runtime_context(
             "- 注意: 这是一级市场项目，不是二级市场股票代码上下文；请优先依据 Deal OS evidence、R0-R4 产物和用户提供材料回答。",
         ]
     )
-    return ChatContext(page=ChatContextPage(title=metadata))
+    return ChatContext(
+        domain="primary_market",
+        deal_id=deal_id,
+        profile_id=profile,
+        retrieval_query=_meeting_retrieval_query(req.message, req.retrieval_query),
+        company_name=company_name,
+        phase=phase or None,
+        lane=lane,
+        page=ChatContextPage(title=metadata),
+    )
+
+
+def _primary_market_memory_scope(profile: str, deal_id: str) -> dict[str, str]:
+    return {
+        "profile": profile,
+        "deal_id": deal_id,
+        "visibility": "project_shared",
+    }
 
 
 _IC_PROFILE_LABELS = {
@@ -766,6 +786,57 @@ _IC_PROFILE_LABELS = {
     "siq_ic_finance_auditor": "财务审计委员",
     "siq_ic_legal_scanner": "法务合规委员",
     "siq_ic_risk_controller": "风险管理委员",
+}
+_PROFILE_SERVICE_QUESTIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    "siq_ic_master_coordinator": (
+        ("职责与协作", "请基于你的总协调职责，介绍你能独立提供的服务、不能替代的专家判断，以及你如何编排其他委员。"),
+        ("材料盘点", "请核对当前项目材料范围、证据快照和缺口，并给出按优先级排序的补证清单。"),
+        ("流程门禁", "请检查当前 R0-R4 所处阶段、可推进动作、阻断项和需要人工确认的门禁。"),
+        ("任务拆解", "请把这个投研问题拆成各委员可独立执行的任务、交接条件和验收产物。"),
+        ("产物审计", "请检查当前智能体产物是否齐备、是否过期，以及引用身份和审计链是否一致。"),
+    ),
+    "siq_ic_chairman": (
+        ("职责与服务", "请以投委会主席身份介绍你的职责边界、独立服务能力、所需材料和标准输出。"),
+        ("投决框架", "请为当前项目建立投决判断框架，列出必须回答的核心问题和否决条件。"),
+        ("综合分歧", "请综合现有委员意见，保留关键分歧，并指出进入裁决前仍需补齐的证据。"),
+        ("交易条件", "请从投决角度提出估值、交割、治理和风险缓释条件，但明确哪些部分需专业委员核验。"),
+        ("结论压力测", "请对当前支持、观察或反对意见做一次反事实压力测试，并说明什么新证据会改变结论。"),
+    ),
+    "siq_ic_strategist": (
+        ("职责与服务", "请以战略委员身份介绍你的职责边界、可独立提供的战略研究服务、所需材料和输出。"),
+        ("战略匹配", "请分析当前项目与基金策略、赛道周期、资本流向和退出窗口的匹配度。"),
+        ("增长假设", "请拆解项目增长逻辑，列出可证伪的关键假设、领先指标和下行触发点。"),
+        ("竞争路径", "请评估公司的战略定位、扩张路径和竞争反应，并区分已核实事实与待验证假设。"),
+        ("退出情景", "请设计三种退出情景，说明实现条件、时间窗口和最需要补证的变量。"),
+    ),
+    "siq_ic_sector_expert": (
+        ("职责与服务", "请以行业专家身份介绍你的职责边界、可独立提供的行业研究服务、所需材料和输出。"),
+        ("市场空间", "请建立当前项目的 TAM/SAM/SOM 口径，指出数据来源、计算假设和验证方式。"),
+        ("竞争格局", "请分析竞争格局、技术路线和产业链位置，并指出项目护城河最需要核验的证据。"),
+        ("客户验证", "请设计客户、供应商和行业专家访谈提纲，用于验证需求真实性与产品替代性。"),
+        ("行业风险", "请列出可能改变行业判断的政策、技术和供需变量，以及可持续监测指标。"),
+    ),
+    "siq_ic_finance_auditor": (
+        ("职责与服务", "请以财务审计委员身份介绍你的职责边界、可独立提供的财务核验服务、所需材料和输出。"),
+        ("收入质量", "请核验收入确认、客户集中、回款和毛利质量，逐项列出需要的底稿与勾稽关系。"),
+        ("三表勾稽", "请设计历史三表与预测模型的勾稽检查，并保留期间、币种、单位和公式轨迹。"),
+        ("估值敏感性", "请建立估值与回报敏感性框架，说明关键驱动变量和不能由现有证据支持的数字。"),
+        ("财务红旗", "请扫描当前材料中的财务红旗、数据断点和管理层口径矛盾，并给出补证清单。"),
+    ),
+    "siq_ic_legal_scanner": (
+        ("职责与服务", "请以法务合规委员身份介绍你的职责边界、可独立提供的法律尽调服务、所需材料和输出。"),
+        ("权属资质", "请检查股权权属、核心资质、知识产权和历史沿革，列出证据要求与待核验事项。"),
+        ("合同风险", "请扫描重大合同、关联交易、诉讼和数据合规风险，并标明法律依据和项目证据。"),
+        ("交割条件", "请把可整改风险转化为先决条件、陈述保证、赔偿或投后承诺，并说明验收标准。"),
+        ("法务红旗", "请区分否决性、可缓释和一般性法律风险，列出下一步法律尽调动作。"),
+    ),
+    "siq_ic_risk_controller": (
+        ("职责与服务", "请以风险管理委员身份介绍你的职责边界、可独立提供的压力测试服务、所需材料和输出。"),
+        ("反方论证", "请针对当前投资逻辑建立最强反方论证，列出反证、传导路径和可能的相关性风险。"),
+        ("压力情景", "请设计基准、下行和极端情景，给出需要监测的指标、阈值和止损触发条件。"),
+        ("否决扫描", "请扫描当前项目的重大与关键风险，区分否决项、条件通过项和可投后监控项。"),
+        ("假设关联", "请检查各委员结论是否依赖同一组未经验证的假设，并提出最小补证方案。"),
+    ),
 }
 _SUGGESTIONS_TIMEOUT_SECONDS = 18
 
@@ -782,19 +853,40 @@ def _ic_profile_role_contract(profile: str) -> str:
 
 
 def _receipt_context_for(profile: str, deal_id: str) -> dict[str, Any]:
-    if profile == "siq_ic_master_coordinator":
-        return {"required": False, "present": False, "skipped": True}
     try:
         payload = ic_startup_retrieval.read_startup_retrieval_receipt(deal_id, profile)
     except (FileNotFoundError, ValueError):
         return {"required": True, "present": False}
     receipt = payload.get("receipt") if isinstance(payload.get("receipt"), dict) else None
+    gate = receipt.get("gate") if isinstance(receipt, dict) and isinstance(receipt.get("gate"), dict) else {}
+    readiness_status = str(receipt.get("readiness_status") or "unknown") if isinstance(receipt, dict) else "missing"
+    retrieval_status = str(receipt.get("retrieval_status") or "unknown") if isinstance(receipt, dict) else "missing"
+    ready = bool(
+        isinstance(receipt, dict)
+        and readiness_status == "current"
+        and retrieval_status == "ready"
+        and gate.get("allowed_to_speak") is True
+    )
     return {
         "required": True,
         "present": receipt is not None,
+        "ready": ready,
         "receipt_id": receipt.get("receipt_id") if isinstance(receipt, dict) else None,
         "shared_hits": receipt.get("shared_hits") if isinstance(receipt, dict) else None,
+        "shared_ready": receipt.get("shared_ready") if isinstance(receipt, dict) else None,
+        "shared_vector_hit_count": receipt.get("shared_vector_hit_count") if isinstance(receipt, dict) else None,
         "private_hits": receipt.get("private_hits") if isinstance(receipt, dict) else None,
+        "private_ready": receipt.get("private_ready") if isinstance(receipt, dict) else None,
+        "rerank_ready": receipt.get("rerank_ready") if isinstance(receipt, dict) else None,
+        "rerank_status": (
+            (receipt.get("rerank") or {}).get("status")
+            if isinstance(receipt, dict) and isinstance(receipt.get("rerank"), dict)
+            else None
+        ),
+        "readiness_status": readiness_status,
+        "retrieval_status": retrieval_status,
+        "allowed_to_speak": gate.get("allowed_to_speak"),
+        "blocking_reasons": gate.get("blocking_reasons") if isinstance(gate.get("blocking_reasons"), list) else [],
         "gaps": receipt.get("gaps") if isinstance(receipt, dict) else [],
     }
 
@@ -821,7 +913,100 @@ def _r1_report_context_for(profile: str, deal_id: str) -> dict[str, Any]:
     }
 
 
-def _meeting_evidence_context(profile: str, deal_id: str | None) -> str:
+def _meeting_retrieval_query(message: str, explicit_query: str | None = None) -> str:
+    explicit = " ".join(str(explicit_query or "").split()).strip()
+    if explicit:
+        return explicit[:600]
+    raw = str(message or "").strip()
+    match = re.search(r"(?:人类主持人问题|主持人原始问题)[：:]\s*(.+)\s*$", raw, flags=re.DOTALL)
+    if match:
+        raw = match.group(1).strip()
+    return " ".join(raw.split())[:600]
+
+
+def _meeting_model_control_message(req: PrimaryMarketMeetingChatRequest) -> str:
+    """Return only the human's raw query, excluding UI prompt/context expansion."""
+
+    return _meeting_retrieval_query(req.message, req.retrieval_query)
+
+
+def _live_meeting_retrieval_context(profile: str, deal_id: str, query: str) -> str:
+    try:
+        retrieval = deal_retrieval.retrieve_for_agent(
+            deal_id,
+            profile,
+            query=query,
+            limit=8,
+            include_vector=True,
+            include_rerank=True,
+        )
+    except Exception as exc:
+        return "\n".join(
+            [
+                "本轮一级市场实时检索:",
+                f"- status: unavailable; reason={type(exc).__name__}: {str(exc)[:180]}",
+                "- 降级规则: 只能提供职责范围内的方法论咨询；不得声称项目材料或知识库支持了具体事实。",
+            ]
+        )
+
+    vector = retrieval.get("vector_retrieval") if isinstance(retrieval.get("vector_retrieval"), dict) else {}
+    rerank = retrieval.get("rerank") if isinstance(retrieval.get("rerank"), dict) else {}
+    observability = (
+        retrieval.get("retrieval_observability")
+        if isinstance(retrieval.get("retrieval_observability"), dict)
+        else {}
+    )
+    candidate_counts = (
+        observability.get("collection_candidate_counts")
+        if isinstance(observability.get("collection_candidate_counts"), dict)
+        else {}
+    )
+    project_hits = [
+        item
+        for item in [
+            *(retrieval.get("evidence_hits") or []),
+            *(retrieval.get("shared_vector_hits") or []),
+        ]
+        if isinstance(item, dict)
+    ]
+    private_hits = [
+        item for item in retrieval.get("background_knowledge_hits") or [] if isinstance(item, dict)
+    ]
+    lines = [
+        "本轮一级市场实时检索:",
+        f"- query: {query or '-'}",
+        f"- namespace: primary_market; project_tag={deal_id}",
+        "- shared_collection: siq_deal_shared -> ic_collaboration_shared (仅允许当前 project_tag)",
+        f"- private_collection: {profile} -> {(vector.get('physical_collections') or {}).get(profile, profile)}",
+        f"- status: {vector.get('status') or 'unknown'}; milvus_used={str(bool(retrieval.get('milvus_used'))).lower()}; project_hits={len(project_hits)}; private_hits={len(private_hits)}",
+        (
+            f"- retrieval_strategy: {(vector.get('retrieval_strategy') or {}).get('mode') or '-'}; "
+            f"candidates={sum(int(value or 0) for value in candidate_counts.values())}; "
+            f"rerank_status={rerank.get('status') or 'unknown'}; rerank_candidates={rerank.get('candidate_count', 0)}; "
+            f"rerank_results={rerank.get('result_count', 0)}; degraded_reason={rerank.get('reason') or '-'}"
+        ),
+    ]
+    for index, item in enumerate(project_hits[:6], start=1):
+        evidence_id = item.get("evidence_id") or item.get("source_id") or f"PROJECT-{index}"
+        citation = item.get("citation") or (item.get("metadata") or {}).get("citation") or item.get("document_id") or "-"
+        quote = str(item.get("quote_preview") or item.get("text") or "").replace("\n", " ")[:420]
+        lines.append(f"- [PROJECT:{evidence_id}] citation={citation}; quote={quote or '-'}")
+    for index, item in enumerate(private_hits[:4], start=1):
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        ref_id = item.get("ref_id") or item.get("source_id") or f"KBREF-{index}"
+        title = item.get("title") or metadata.get("title") or profile
+        usage = item.get("knowledge_lane") or metadata.get("knowledge_type") or "background"
+        quote = str(item.get("quote_preview") or item.get("text") or "").replace("\n", " ")[:420]
+        lines.append(f"- [KBREF:{ref_id}] title={title}; usage={usage}; quote={quote or '-'}")
+    if not project_hits:
+        lines.append("- 项目证据命中为空：不得把私库方法论或行业背景写成该项目已核实事实。")
+    if not private_hits:
+        lines.append("- 角色私库命中为空：明确说明未获得私有知识库支持，仍可按角色职责提供基础咨询。")
+    lines.append("- 严禁读取或引用 data/wiki/companies 及任何二级市场财报命名空间。")
+    return "\n".join(lines)
+
+
+def _meeting_evidence_context(profile: str, deal_id: str | None, retrieval_query: str = "") -> str:
     if not deal_id:
         return ""
     try:
@@ -830,6 +1015,10 @@ def _meeting_evidence_context(profile: str, deal_id: str | None) -> str:
         return ""
     receipt = _receipt_context_for(profile, normalized_deal_id)
     report = _r1_report_context_for(profile, normalized_deal_id)
+    project_evidence_available = bool(
+        int(receipt.get("shared_vector_hit_count") or 0)
+        or int(receipt.get("shared_hits") or 0)
+    )
     lines = [
         "一级市场项目证据上下文:",
         f"- deal_id: {normalized_deal_id}",
@@ -837,9 +1026,16 @@ def _meeting_evidence_context(profile: str, deal_id: str | None) -> str:
             "- startup_retrieval_receipt: not_required"
             if not receipt.get("required")
             else (
-                f"- startup_retrieval_receipt: present; receipt_id={receipt.get('receipt_id') or '-'}; "
+                f"- startup_retrieval_receipt: present; ready={str(bool(receipt.get('ready'))).lower()}; receipt_id={receipt.get('receipt_id') or '-'}; "
                 f"shared_hits={receipt.get('shared_hits') if receipt.get('shared_hits') is not None else '-'}; "
+                f"shared_ready={receipt.get('shared_ready') if receipt.get('shared_ready') is not None else '-'}; "
+                f"shared_vector_hits={receipt.get('shared_vector_hit_count') if receipt.get('shared_vector_hit_count') is not None else '-'}; "
                 f"private_hits={receipt.get('private_hits') if receipt.get('private_hits') is not None else '-'}; "
+                f"private_ready={receipt.get('private_ready') if receipt.get('private_ready') is not None else '-'}; "
+                f"rerank_ready={receipt.get('rerank_ready') if receipt.get('rerank_ready') is not None else '-'}; "
+                f"rerank_status={receipt.get('rerank_status') or '-'}; "
+                f"readiness_status={receipt.get('readiness_status') or '-'}; retrieval_status={receipt.get('retrieval_status') or '-'}; "
+                f"blocking_reasons={', '.join(str(item) for item in receipt.get('blocking_reasons', [])[:5]) if isinstance(receipt.get('blocking_reasons'), list) else '-'}; "
                 f"gaps={', '.join(str(item) for item in receipt.get('gaps', [])[:5]) if isinstance(receipt.get('gaps'), list) else '-'}"
                 if receipt.get("present")
                 else "- startup_retrieval_receipt: missing; 普通聊天可继续，但本轮只能作为临时咨询，正式任务请先运行准备智能体。"
@@ -849,14 +1045,24 @@ def _meeting_evidence_context(profile: str, deal_id: str | None) -> str:
             "- r1_report: not_required"
             if not report.get("required")
             else (
-                f"- r1_report: present; status={report.get('status') or '-'}; score={report.get('score') if report.get('score') is not None else '-'}; "
-                f"recommendation={report.get('recommendation') or '-'}; artifact_path={report.get('artifact_path') or '-'}"
+                (
+                    f"- r1_report: present; status={report.get('status') or '-'}; score={report.get('score') if report.get('score') is not None else '-'}; "
+                    f"recommendation={report.get('recommendation') or '-'}; artifact_path={report.get('artifact_path') or '-'}"
+                    if project_evidence_available
+                    else (
+                        f"- r1_report: historical_process_artifact_only; artifact_path={report.get('artifact_path') or '-'}; "
+                        "当前项目 Evidence 为空，不得复述其分数、风险评级或 recommendation 作为当前结论。"
+                    )
+                )
                 if report.get("present")
                 else "- r1_report: missing; 当前聊天输出不会自动成为正式 R1 产物。"
             )
         ),
-        "- 回答要求: 使用现有证据时标注 receipt/evidence/report 来源；缺信息时写 assumed/待核验，不得把临时咨询表述成正式投研产物。",
+        "- 证据分类: PROJECT/EVIDENCE 命中可支持项目事实；KBREF/角色私库只能支持方法论或法律框架；历史 report 只表示流程中曾有该产物。",
+        "- 回答要求: 使用项目证据时标注 evidence/source；Evidence 为空时明确说尚无项目底稿，只给核验框架与材料清单，不得生成项目专属评分、风险等级或已核实结论。",
     ]
+    if retrieval_query:
+        lines.extend(["", _live_meeting_retrieval_context(profile, normalized_deal_id, retrieval_query)])
     return "\n".join(lines)
 
 
@@ -1024,13 +1230,28 @@ def _evaluate_and_store_reply_quality(
     return quality
 
 
-def _profile_scoped_meeting_message(profile: str, message: str, deal_id: str | None = None) -> str:
+def _profile_scoped_meeting_message(
+    profile: str,
+    message: str,
+    deal_id: str | None = None,
+    *,
+    retrieval_query: str | None = None,
+) -> str:
     raw = str(message or "").strip()
     if "一级市场 IC profile 职责护栏:" in raw:
         return raw
     contract = _ic_profile_role_contract(profile)
-    evidence_context = _meeting_evidence_context(profile, deal_id)
-    parts = [part for part in (contract, evidence_context) if part]
+    query = _meeting_retrieval_query(raw, retrieval_query)
+    evidence_context = _meeting_evidence_context(profile, deal_id, query)
+    parts = [
+        part
+        for part in (
+            contract,
+            evidence_context,
+            primary_market_agent_runtime.PRIMARY_MARKET_RESPONSE_FORMAT_CONTRACT,
+        )
+        if part
+    ]
     if not parts:
         return raw
     return "\n\n".join([*parts, "主持人原始问题:", raw])
@@ -1090,10 +1311,13 @@ def _suggestion_context(deal_id: str, lane: str, mode: str, profile: str) -> dic
 
 def _suggestions_prompt(deal_id: str, lane: str, mode: str, profile: str) -> str:
     context = _suggestion_context(deal_id, lane, mode, profile)
+    role_contract = ic_profile_contract.get_ic_profile_contract(profile)
     return "\n".join([
         "你正在为 SIQ 一级市场投委会会议室生成空状态建议问题。",
         f"当前智能体: {_profile_label(profile)} ({profile})",
         f"会议模式: {mode}; lane: {lane}",
+        "",
+        _ic_profile_role_contract(profile),
         "",
         "请根据下方真实项目上下文，生成当前最适合用户点击的建议问题。",
         "要求:",
@@ -1103,10 +1327,36 @@ def _suggestions_prompt(deal_id: str, lane: str, mode: str, profile: str) -> str
         "4. questions 必须正好 5 个；label 为 2-8 个中文字符；prompt 是点击后发给该智能体的完整中文问题。",
         "5. 问题必须贴合当前项目的阶段、证据状态、材料缺口、分歧或投决动作；不要输出泛泛的模板问题。",
         "6. 不要虚构数据、文件路径、证据 id 或结论；信息不足时，问题应引导补证、核验或确认。",
+        "7. intro 和每个问题必须体现该 profile 的职责、边界或独立服务能力，不能写成通用聊天助手。",
+        "8. 这是一级市场命名空间，禁止读取或暗示使用二级市场公司 Wiki、财报问答或股票研究资料。",
+        "",
+        "角色契约 JSON:",
+        _compact_json(role_contract, max_chars=5200),
         "",
         "项目上下文 JSON:",
         _compact_json(context),
     ])
+
+
+def _profile_contract_suggestions(
+    profile: str,
+    mode: str,
+) -> tuple[str, list[PrimaryMarketMeetingSuggestedQuestion]]:
+    contract = ic_profile_contract.get_ic_profile_contract(profile)
+    role_name = str(contract.get("role_name") or contract.get("label") or _profile_label(profile))
+    focus = str(contract.get("mission") or contract.get("core_focus") or "").strip()
+    if mode == "committee":
+        intro = "这里是一级市场投委会协同窗口。各委员会保留各自职责边界，基于同一 Deal 证据链独立发言并暴露分歧。"
+    elif mode == "workflow":
+        intro = "我是一级市场投委会总协调员，负责核验证据快照、编排 R0-R4 交接和门禁，不替代专业委员作出判断。"
+    else:
+        intro = f"我是{role_name}，{focus or '只在本角色职责内提供独立研究、核验与建议'}。我会区分项目证据、私库方法论和待核验假设。"
+    definitions = _PROFILE_SERVICE_QUESTIONS.get(profile) or _PROFILE_SERVICE_QUESTIONS["siq_ic_master_coordinator"]
+    questions = [
+        PrimaryMarketMeetingSuggestedQuestion(key=f"role-{index}", label=label, prompt=prompt)
+        for index, (label, prompt) in enumerate(definitions, start=1)
+    ]
+    return intro[:180], questions
 
 
 def _extract_suggestions_json(raw: str) -> dict[str, Any]:
@@ -1371,15 +1621,21 @@ async def meeting_suggestions(
             normalized_mode,
             normalized_profile,
         )
-        source = "model"
+        fallback_intro, fallback_questions = _profile_contract_suggestions(normalized_profile, normalized_mode)
+        intro = intro or fallback_intro
+        if len(questions) < 5:
+            existing = {item.label for item in questions}
+            questions.extend(item for item in fallback_questions if item.label not in existing)
+            questions = questions[:5]
+        source = "model+profile_contract"
         error = None
     except asyncio.TimeoutError:
-        intro, questions = "", []
-        source = "model_error"
+        intro, questions = _profile_contract_suggestions(normalized_profile, normalized_mode)
+        source = "profile_contract_fallback"
         error = "智能体建议生成超时，请确认对应 IC Hermes 网关已启动后重试。"
     except Exception as exc:
-        intro, questions = "", []
-        source = "model_error"
+        intro, questions = _profile_contract_suggestions(normalized_profile, normalized_mode)
+        source = "profile_contract_fallback"
         error = str(exc) or exc.__class__.__name__
     return PrimaryMarketMeetingSuggestionsResponse(
         deal_id=normalized_deal_id,
@@ -1786,11 +2042,11 @@ async def chat_stream(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> EventSourceResponse:
     normalized_profile = canonical_meeting_profile(profile)
-    _apply_meeting_model_mode(req, normalized_profile)
     deal_id = deal_id_from_request(req)
     deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")
     _assert_profile_allowed_for_lane(normalized_profile, lane)
+    _apply_meeting_model_mode(req, normalized_profile)
     current_user_id = int(current_user.id)
     current_user_role = _role_value(current_user)
     _detach_current_user(async_session, current_user)
@@ -1829,16 +2085,24 @@ async def chat_stream(
         return {"new_achievements": [], "session_id": session_id, "quality": quality}
 
     async def event_generator():
-        control_reply = maybe_handle_model_control(req.message, normalized_profile)
+        control_reply = maybe_handle_model_control(_meeting_model_control_message(req), normalized_profile)
         if control_reply:
+            memory_scope = _primary_market_memory_scope(normalized_profile, deal_id)
             await save_message(
                 async_session,
                 "user",
                 req.display_message or req.message,
                 session_id,
                 attachments=req.attachments,
+                **memory_scope,
             )
-            await save_message(async_session, "assistant", control_reply, session_id)
+            await save_message(
+                async_session,
+                "assistant",
+                control_reply,
+                session_id,
+                **memory_scope,
+            )
             get_session_manager().increment_message_count(session_id)
             yield {
                 "event": "run",
@@ -1860,7 +2124,13 @@ async def chat_stream(
             profile=normalized_profile,
             deal_summary=deal_summary,
         )
-        scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message, deal_id)
+        scoped_message = await asyncio.to_thread(
+            _profile_scoped_meeting_message,
+            normalized_profile,
+            req.message,
+            deal_id,
+            retrieval_query=req.retrieval_query,
+        )
         async for event in stream_chat_reply(
             scoped_message,
             request,
@@ -2080,11 +2350,11 @@ async def chat(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> ChatResponse:
     normalized_profile = canonical_meeting_profile(profile)
-    _apply_meeting_model_mode(req, normalized_profile)
     deal_id = deal_id_from_request(req)
     deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")
     _assert_profile_allowed_for_lane(normalized_profile, lane)
+    _apply_meeting_model_mode(req, normalized_profile)
     current_user_id = int(current_user.id)
     current_user_role = _role_value(current_user)
     _detach_current_user(async_session, current_user)
@@ -2113,16 +2383,24 @@ async def chat(
         user_role=current_user_role,
     )
 
-    control_reply = maybe_handle_model_control(req.message, normalized_profile)
+    control_reply = maybe_handle_model_control(_meeting_model_control_message(req), normalized_profile)
     if control_reply:
+        memory_scope = _primary_market_memory_scope(normalized_profile, deal_id)
         await save_message(
             async_session,
             "user",
             req.display_message or req.message,
             session_id,
             attachments=req.attachments,
+            **memory_scope,
         )
-        await save_message(async_session, "assistant", control_reply, session_id)
+        await save_message(
+            async_session,
+            "assistant",
+            control_reply,
+            session_id,
+            **memory_scope,
+        )
         get_session_manager().increment_message_count(session_id)
         return PrimaryMarketMeetingChatResponse(reply=control_reply, new_achievements=[], session_id=session_id)
 
@@ -2132,7 +2410,13 @@ async def chat(
         profile=normalized_profile,
         deal_summary=deal_summary,
     )
-    scoped_message = _profile_scoped_meeting_message(normalized_profile, req.message, deal_id)
+    scoped_message = await asyncio.to_thread(
+        _profile_scoped_meeting_message,
+        normalized_profile,
+        req.message,
+        deal_id,
+        retrieval_query=req.retrieval_query,
+    )
     reply = await collect_chat_reply(
         scoped_message,
         async_session,

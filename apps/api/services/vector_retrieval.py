@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+from collections import Counter
 from importlib.util import find_spec
 from typing import Any
 
@@ -12,6 +14,10 @@ import httpx
 
 VECTOR_RETRIEVAL_SCHEMA = "siq_vector_retrieval_result_v1"
 MAX_VECTOR_TOP_K = 50
+DEFAULT_CANDIDATE_MULTIPLIER = 4
+DEFAULT_RRF_K = 40
+DEFAULT_BM25_K1 = 1.5
+DEFAULT_BM25_B = 0.75
 DEFAULT_VECTOR_FIELD = "embedding"
 DEFAULT_METRIC_TYPE = "COSINE"
 DEFAULT_EMBEDDING_MODEL = "Qwen3-VL-Embedding-2B"
@@ -22,8 +28,9 @@ MANAGED_KNOWLEDGE_TYPE = "methodology"
 MANAGED_KNOWLEDGE_WRITER = "siq_ingest_ic_profile_knowledge_v1"
 DEFAULT_MANAGED_KNOWLEDGE_PROJECT_TAG = "siq-ic-profile-knowledge-2026-07-13-v1"
 _PROJECT_TAG_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+SHARED_DEAL_COLLECTION = "siq_deal_shared"
 DEFAULT_COLLECTION_ALIASES = {
-    "siq_deal_shared": "ic_collaboration_shared",
+    SHARED_DEAL_COLLECTION: "ic_collaboration_shared",
     "siq_ic_master_coordinator": "ic_master_coordinator",
     "siq_ic_chairman": "ic_chairman",
     "siq_ic_strategist": "ic_strategist",
@@ -63,6 +70,18 @@ def _physical_collection(logical_name: str) -> str:
     return str(os.getenv(env_key) or DEFAULT_COLLECTION_ALIASES.get(logical_name) or logical_name).strip()
 
 
+def primary_market_physical_collections(profile_id: str) -> dict[str, str]:
+    """Return the immutable logical-to-physical bindings for an IC role."""
+    profile = str(profile_id or "").strip()
+    private = DEFAULT_COLLECTION_ALIASES.get(profile)
+    if not profile.startswith("siq_ic_") or not private:
+        raise ValueError(f"Unknown primary-market IC profile: {profile_id}")
+    return {
+        SHARED_DEAL_COLLECTION: DEFAULT_COLLECTION_ALIASES[SHARED_DEAL_COLLECTION],
+        profile: private,
+    }
+
+
 def _round_robin_hits(hits_by_collection: dict[str, list[dict[str, Any]]], *, limit: int) -> list[dict[str, Any]]:
     """Keep one busy collection from starving another required knowledge source."""
 
@@ -77,10 +96,134 @@ def _round_robin_hits(hits_by_collection: dict[str, list[dict[str, Any]]], *, li
     return merged
 
 
+def _candidate_limit(final_limit: int) -> int:
+    raw = os.getenv("SIQ_VECTOR_CANDIDATE_MULTIPLIER")
+    try:
+        multiplier = int(raw) if raw is not None else DEFAULT_CANDIDATE_MULTIPLIER
+    except (TypeError, ValueError):
+        multiplier = DEFAULT_CANDIDATE_MULTIPLIER
+    return min(MAX_VECTOR_TOP_K, max(final_limit, final_limit * max(1, min(multiplier, 10))))
+
+
+def _search_tokens(value: str) -> list[str]:
+    tokens: list[str] = []
+    for part in re.findall(r"[A-Za-z0-9_.-]+|[\u4e00-\u9fff]+", str(value or "").lower()):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", part):
+            if len(part) == 1:
+                tokens.append(part)
+            else:
+                tokens.extend(part[index:index + 2] for index in range(len(part) - 1))
+                if len(part) <= 8:
+                    tokens.append(part)
+        else:
+            tokens.append(part)
+    return tokens[:1200]
+
+
+def _hybrid_hit_text(hit: dict[str, Any]) -> str:
+    metadata = _metadata(hit.get("metadata"))
+    return " ".join(
+        str(value or "")
+        for value in (
+            hit.get("text"),
+            hit.get("title"),
+            hit.get("quote_preview"),
+            metadata.get("text"),
+            metadata.get("title"),
+            metadata.get("source"),
+            metadata.get("file_stem"),
+        )
+        if value
+    )
+
+
+def _bm25_scores(query: str, hits: list[dict[str, Any]]) -> list[float]:
+    query_terms = _search_tokens(query)
+    documents = [_search_tokens(_hybrid_hit_text(hit)) for hit in hits]
+    if not query_terms or not documents:
+        return [0.0 for _ in hits]
+    average_length = sum(len(document) for document in documents) / max(1, len(documents))
+    if average_length <= 0:
+        return [0.0 for _ in hits]
+    document_frequency = Counter(
+        term
+        for document in documents
+        for term in set(document)
+    )
+    document_count = len(documents)
+    scores: list[float] = []
+    for document in documents:
+        frequencies = Counter(document)
+        length_ratio = len(document) / average_length
+        score = 0.0
+        for term in query_terms:
+            frequency = frequencies.get(term, 0)
+            if not frequency:
+                continue
+            frequency_docs = document_frequency.get(term, 0)
+            inverse_document_frequency = math.log(
+                1.0 + (document_count - frequency_docs + 0.5) / (frequency_docs + 0.5)
+            )
+            denominator = frequency + DEFAULT_BM25_K1 * (
+                1.0 - DEFAULT_BM25_B + DEFAULT_BM25_B * length_ratio
+            )
+            score += inverse_document_frequency * frequency * (DEFAULT_BM25_K1 + 1.0) / denominator
+        scores.append(round(score, 8))
+    return scores
+
+
+def _hybrid_rank_hits(
+    query: str,
+    hits: list[dict[str, Any]],
+    *,
+    limit: int,
+    rrf_k: int = DEFAULT_RRF_K,
+) -> list[dict[str, Any]]:
+    """Fuse Milvus dense order with dependency-free BM25 using weighted RRF."""
+
+    if not hits:
+        return []
+    lexical_scores = _bm25_scores(query, hits)
+    lexical_order = sorted(
+        (index for index in range(len(hits)) if lexical_scores[index] > 0),
+        key=lambda index: (lexical_scores[index], -index),
+        reverse=True,
+    )
+    lexical_ranks = {index: rank for rank, index in enumerate(lexical_order, start=1)}
+    ranked: list[dict[str, Any]] = []
+    for index, hit in enumerate(hits):
+        dense_rank = index + 1
+        lexical_rank = lexical_ranks.get(index)
+        # Dense recall remains primary; BM25 improves exact legal, financial and
+        # company-term matching within the expanded Milvus candidate pool.
+        rrf_score = 0.55 / (rrf_k + dense_rank)
+        if lexical_rank is not None:
+            rrf_score += 0.45 / (rrf_k + lexical_rank)
+        ranked.append({
+            **hit,
+            "dense_rank": dense_rank,
+            "bm25_score": lexical_scores[index],
+            "lexical_rank": lexical_rank,
+            "rrf_score": round(rrf_score, 10),
+            "hybrid_score": round(rrf_score, 10),
+        })
+    ranked.sort(key=lambda item: (-float(item["rrf_score"]), int(item["dense_rank"])))
+    for rank, item in enumerate(ranked, start=1):
+        item["hybrid_rank"] = rank
+    return ranked[:limit]
+
+
 def _embedding_endpoint() -> str:
-    base = str(os.getenv("SIQ_EMBEDDING_BASE_URL") or os.getenv("EMBEDDING_BASE_URL") or "").strip().rstrip("/")
+    base = str(
+        os.getenv("SIQ_EMBEDDING_BASE_URL")
+        or os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_BASE_URL")
+        or os.getenv("EMBEDDING_BASE_URL")
+        or ""
+    ).strip().rstrip("/")
     if not base:
         return ""
+    if base.endswith("/v1/embeddings"):
+        return base
     if base.endswith("/v1"):
         return base + "/embeddings"
     return base + "/v1/embeddings"
@@ -91,7 +234,11 @@ def _embed_query(query: str, *, timeout: float) -> list[float]:
     if not endpoint:
         raise ValueError("embedding_endpoint_not_configured")
     headers: dict[str, str] = {"Content-Type": "application/json"}
-    api_key = os.getenv("SIQ_EMBEDDING_API_KEY") or os.getenv("EMBEDDING_API_KEY")
+    api_key = (
+        os.getenv("SIQ_EMBEDDING_API_KEY")
+        or os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_API_KEY")
+        or os.getenv("EMBEDDING_API_KEY")
+    )
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     with httpx.Client() as client:
@@ -101,6 +248,7 @@ def _embed_query(query: str, *, timeout: float) -> list[float]:
             json={
                 "model": (
                     os.getenv("SIQ_EMBEDDING_MODEL")
+                    or os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_MODEL")
                     or os.getenv("EMBEDDING_MODEL")
                     or DEFAULT_EMBEDDING_MODEL
                 ),
@@ -139,6 +287,22 @@ def _managed_knowledge_project_tag() -> str:
     if not _PROJECT_TAG_RE.fullmatch(value):
         raise ValueError("managed_knowledge_project_tag_invalid")
     return value
+
+
+def _allowed_project_tag(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    if not _PROJECT_TAG_RE.fullmatch(normalized):
+        raise ValueError("allowed_project_tag_invalid")
+    return normalized
+
+
+def _matches_project_tag(hit: Any, project_tag: str) -> bool:
+    if not isinstance(hit, dict):
+        return False
+    metadata = _metadata(hit.get("metadata"))
+    return str(hit.get("project_tag") or metadata.get("project_tag") or "").strip() == project_tag
 
 
 def _is_managed_methodology_hit(hit: Any, *, profile_id: str, project_tag: str) -> bool:
@@ -287,33 +451,41 @@ def _search_milvus_collection(
     host = os.getenv("SIQ_MILVUS_HOST") or os.getenv("MILVUS_HOST") or "127.0.0.1"
     port = os.getenv("SIQ_MILVUS_PORT") or os.getenv("MILVUS_PORT") or "19530"
     alias = os.getenv("SIQ_MILVUS_ALIAS") or "siq_deal_retrieval"
-    connections.connect(alias=alias, host=host, port=port)
     physical_name = _physical_collection(collection_name)
-    if not utility.has_collection(physical_name, using=alias):
-        return []
-    collection = Collection(physical_name, using=alias)
-    collection.load()
-    search_config = _collection_search_config(collection)
-    search_kwargs: dict[str, Any] = {
-        "data": [embedding],
-        "anns_field": search_config["vector_field"],
-        "param": {
-            "metric_type": search_config["metric_type"],
-            "params": search_config["search_params"],
-        },
-        "limit": top_k,
-        "output_fields": search_config["output_fields"],
-    }
-    if expr:
-        search_kwargs["expr"] = expr
-    results = collection.search(
-        **search_kwargs,
-    )
-    hits: list[dict[str, Any]] = []
-    first = results[0] if results else []
-    for index, hit in enumerate(first):
-        hits.append(_normalize_hit(collection_name, hit, index))
-    return hits
+    for attempt in range(2):
+        try:
+            connections.connect(alias=alias, host=host, port=port)
+            if not utility.has_collection(physical_name, using=alias):
+                return []
+            collection = Collection(physical_name, using=alias)
+            collection.load()
+            search_config = _collection_search_config(collection)
+            search_kwargs: dict[str, Any] = {
+                "data": [embedding],
+                "anns_field": search_config["vector_field"],
+                "param": {
+                    "metric_type": search_config["metric_type"],
+                    "params": search_config["search_params"],
+                },
+                "limit": top_k,
+                "output_fields": search_config["output_fields"],
+            }
+            if expr:
+                search_kwargs["expr"] = expr
+            results = collection.search(**search_kwargs)
+            hits: list[dict[str, Any]] = []
+            first = results[0] if results else []
+            for index, hit in enumerate(first):
+                hits.append(_normalize_hit(collection_name, hit, index))
+            return hits
+        except Exception:
+            if attempt:
+                raise
+            try:
+                connections.disconnect(alias)
+            except Exception:
+                pass
+    return []
 
 
 def retrieve_vector_hits(
@@ -323,6 +495,8 @@ def retrieve_vector_hits(
     private_query: str | None = None,
     enabled: bool | None = None,
     collections: list[str] | tuple[str, ...] | None = None,
+    required_physical_collections: dict[str, str] | None = None,
+    allowed_project_tag: str | None = None,
     top_k: int | str | None = 10,
     timeout: float = 10.0,
 ) -> dict[str, Any]:
@@ -333,6 +507,32 @@ def retrieve_vector_hits(
         for collection_name in collection_names
     }
     embedding_configured = bool(_embedding_endpoint())
+    required_bindings = dict(required_physical_collections or {})
+    binding_mismatches = {
+        logical: {
+            "expected": expected,
+            "actual": physical_collections.get(logical),
+        }
+        for logical, expected in required_bindings.items()
+        if physical_collections.get(logical) != expected
+    }
+    if binding_mismatches:
+        return {
+            "schema_version": VECTOR_RETRIEVAL_SCHEMA,
+            "enabled": bool(should_run),
+            "configured": embedding_configured,
+            "status": "error",
+            "reason": "collection_alias_scope_violation",
+            "milvus_used": False,
+            "collections": collection_names,
+            "physical_collections": physical_collections,
+            "required_physical_collections": required_bindings,
+            "binding_mismatches": binding_mismatches,
+            "hits": [],
+            "hit_count": 0,
+            "methodology_hits": [],
+            "methodology_hit_count": 0,
+        }
     if not should_run:
         return {
             "schema_version": VECTOR_RETRIEVAL_SCHEMA,
@@ -379,9 +579,12 @@ def retrieve_vector_hits(
             "methodology_hit_count": 0,
         }
     limit = _normalize_top_k(top_k)
+    candidate_limit = _candidate_limit(limit)
     failed_collection: str | None = None
-    failure_stage = "embedding"
+    failure_stage = "project_tag_validation"
     try:
+        normalized_project_tag = _allowed_project_tag(allowed_project_tag)
+        failure_stage = "embedding"
         embedding = _embed_query(str(query or "")[:600], timeout=timeout)
         normalized_private_query = str(private_query or "").strip()[:600]
         private_embedding = (
@@ -390,34 +593,65 @@ def retrieve_vector_hits(
             else embedding
         )
         hits_by_collection: dict[str, list[dict[str, Any]]] = {}
+        candidate_counts: dict[str, int] = {}
+        shared_hits_rejected = 0
         failure_stage = "collection_search"
         for collection_name in collection_names:
             failed_collection = collection_name
-            hits_by_collection[collection_name] = _search_milvus_collection(
+            if collection_name == SHARED_DEAL_COLLECTION and not normalized_project_tag:
+                hits_by_collection[collection_name] = []
+                candidate_counts[collection_name] = 0
+                continue
+            collection_hits = _search_milvus_collection(
                 collection_name,
                 private_embedding if collection_name == profile_id else embedding,
-                top_k=limit,
+                top_k=candidate_limit,
+                expr=(
+                    f'project_tag == "{normalized_project_tag}"'
+                    if collection_name == SHARED_DEAL_COLLECTION
+                    else None
+                ),
+            )
+            if collection_name == SHARED_DEAL_COLLECTION:
+                filtered_hits = [
+                    item
+                    for item in collection_hits
+                    if _matches_project_tag(item, normalized_project_tag or "")
+                ]
+                shared_hits_rejected += len(collection_hits) - len(filtered_hits)
+                collection_hits = filtered_hits
+            candidate_counts[collection_name] = len(collection_hits)
+            collection_query = normalized_private_query if collection_name == profile_id else str(query or "")[:600]
+            hits_by_collection[collection_name] = _hybrid_rank_hits(
+                collection_query,
+                collection_hits,
+                limit=limit,
             )
         methodology_hits: list[dict[str, Any]] = []
-        project_tag = _managed_knowledge_project_tag()
+        methodology_project_tag = _managed_knowledge_project_tag()
         if profile_id in collection_names:
             failed_collection = profile_id
             failure_stage = "methodology_search"
             filtered_hits = _search_milvus_collection(
                 profile_id,
                 private_embedding,
-                top_k=min(limit, 10),
-                expr=f'project_tag == "{project_tag}"',
+                top_k=min(candidate_limit, 20),
+                expr=f'project_tag == "{methodology_project_tag}"',
             )
-            methodology_hits = [
+            methodology_candidates = [
                 {**item, "knowledge_lane": "methodology"}
                 for item in filtered_hits
                 if _is_managed_methodology_hit(
                     item,
                     profile_id=profile_id,
-                    project_tag=project_tag,
+                    project_tag=methodology_project_tag,
                 )
             ]
+            methodology_hits = _hybrid_rank_hits(
+                normalized_private_query or str(query or "")[:600],
+                methodology_candidates,
+                limit=min(limit, 10),
+            )
         failed_collection = None
     except Exception as exc:  # Milvus raises several backend-specific exception classes.
         return {
@@ -438,6 +672,13 @@ def retrieve_vector_hits(
             "hit_count": 0,
             "methodology_hits": [],
             "methodology_hit_count": 0,
+            "retrieval_strategy": {
+                "mode": "dense_bm25_rrf",
+                "candidate_top_k": candidate_limit,
+                "final_top_k": limit,
+                "bm25": {"enabled": True, "k1": DEFAULT_BM25_K1, "b": DEFAULT_BM25_B},
+                "rrf": {"enabled": True, "k": DEFAULT_RRF_K},
+            },
         }
     hits = _round_robin_hits(hits_by_collection, limit=limit)
     return {
@@ -453,9 +694,31 @@ def retrieve_vector_hits(
             collection_name: len(items)
             for collection_name, items in hits_by_collection.items()
         },
+        "collection_candidate_counts": candidate_counts,
         "hits": hits,
         "hit_count": len(hits),
-        "methodology_project_tag": project_tag,
+        "shared_project_tag": normalized_project_tag,
+        "shared_filter_applied": bool(
+            normalized_project_tag and SHARED_DEAL_COLLECTION in collection_names
+        ),
+        "shared_hits_rejected": shared_hits_rejected,
+        "methodology_project_tag": methodology_project_tag,
         "methodology_hits": methodology_hits,
         "methodology_hit_count": len(methodology_hits),
+        "retrieval_strategy": {
+            "mode": "dense_bm25_rrf",
+            "embedding_model": (
+                os.getenv("SIQ_EMBEDDING_MODEL")
+                or os.getenv("SIQ_AGENT_MEMORY_EMBEDDING_MODEL")
+                or os.getenv("EMBEDDING_MODEL")
+                or DEFAULT_EMBEDDING_MODEL
+            ),
+            "candidate_top_k": candidate_limit,
+            "final_top_k": limit,
+            "candidate_count": sum(candidate_counts.values()),
+            "selected_count": len(hits),
+            "connection_attempts": 2,
+            "bm25": {"enabled": True, "k1": DEFAULT_BM25_K1, "b": DEFAULT_BM25_B},
+            "rrf": {"enabled": True, "k": DEFAULT_RRF_K, "dense_weight": 0.55, "lexical_weight": 0.45},
+        },
     }

@@ -22,9 +22,6 @@ fallback_providers:
   model: kimi-for-coding
   base_url: https://api.kimi.com/coding
 toolsets:
-- terminal
-- file
-- code_execution
 - web
 - skills
 agent:
@@ -33,6 +30,9 @@ agent:
   api_max_retries: 1
   tool_use_enforcement: true
   disabled_toolsets:
+  - terminal
+  - file
+  - code_execution
   - browser
   - memory
   - session_search

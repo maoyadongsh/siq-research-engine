@@ -174,10 +174,16 @@ def evaluate_startup_receipt_freshness(
     reasons: list[str] = []
     if not receipt_payload:
         reasons.append("startup_receipt_missing")
-    if current_hash and receipt_hash != current_hash:
+    if (current_hash or receipt_hash) and receipt_hash != current_hash:
         reasons.append("evidence_snapshot_changed")
-    if current_sources and receipt_sources != current_sources:
+    if (current_sources or receipt_sources) and receipt_sources != current_sources:
         reasons.append("active_source_set_changed")
+    if (
+        receipt_payload.get("readiness_status") == "stale"
+        or receipt_payload.get("stale_reason")
+    ):
+        reasons.append(str(receipt_payload.get("stale_reason") or "receipt_marked_stale"))
+    reasons = list(dict.fromkeys(reasons))
     return {
         "status": "stale" if reasons else "current",
         "stale": bool(reasons),
@@ -249,25 +255,55 @@ def _background_reference(item: dict[str, Any], *, profile_id: str, physical_col
     }
 
 
+def _shared_vector_hit_is_current(
+    item: Any,
+    *,
+    deal_id: str,
+    snapshot_hash: str,
+) -> bool:
+    if not isinstance(item, dict):
+        return False
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    return bool(
+        snapshot_hash
+        and str(item.get("project_tag") or metadata.get("project_tag") or "") == deal_id
+        and metadata.get("domain") == "primary_market"
+        and metadata.get("source_class") == "project_evidence"
+        and metadata.get("project_fact") is True
+        and metadata.get("deal_id") == deal_id
+        and metadata.get("snapshot_hash") == snapshot_hash
+    )
+
+
 def _read_receipts(path: Path, deal_id: str) -> dict[str, Any]:
     payload = deal_store.read_json(path, None)
     if not isinstance(payload, dict):
         payload = {}
-    agents = payload.get("agents") if isinstance(payload.get("agents"), dict) else {}
+    raw_agents = payload.get("agents") if isinstance(payload.get("agents"), dict) else {}
+    agents: dict[str, dict[str, Any]] = {}
+    for raw_agent_id, raw_receipt in raw_agents.items():
+        if not isinstance(raw_receipt, dict):
+            continue
+        raw_key = str(raw_agent_id)
+        canonical_key = ic_policy.canonical_ic_profile_id(raw_key)
+        key = canonical_key if canonical_key in ic_policy.IC_PROFILE_IDS else raw_key
+        agents.setdefault(key, dict(raw_receipt))
     by_agent_phase = (
         payload.get("by_agent_phase")
         if isinstance(payload.get("by_agent_phase"), dict)
         else {}
     )
-    normalized_history: dict[str, dict[str, Any]] = {
-        str(agent_id): {
-            str(round_name).upper(): dict(receipt)
-            for round_name, receipt in rounds.items()
-            if isinstance(receipt, dict)
-        }
-        for agent_id, rounds in by_agent_phase.items()
-        if isinstance(rounds, dict)
-    }
+    normalized_history: dict[str, dict[str, Any]] = {}
+    for raw_agent_id, rounds in by_agent_phase.items():
+        if not isinstance(rounds, dict):
+            continue
+        raw_key = str(raw_agent_id)
+        canonical_key = ic_policy.canonical_ic_profile_id(raw_key)
+        key = canonical_key if canonical_key in ic_policy.IC_PROFILE_IDS else raw_key
+        target = normalized_history.setdefault(key, {})
+        for round_name, receipt in rounds.items():
+            if isinstance(receipt, dict):
+                target.setdefault(str(round_name).upper(), dict(receipt))
     for agent_id, receipt in agents.items():
         if not isinstance(receipt, dict):
             continue
@@ -292,7 +328,7 @@ def generate_startup_retrieval_receipt(
     include_external: bool = False,
     external_providers: list[str] | tuple[str, ...] | None = None,
     include_vector: bool = True,
-    include_rerank: bool = False,
+    include_rerank: bool = True,
     vector_collections: list[str] | tuple[str, ...] | None = None,
     created_by: dict[str, Any] | None = None,
     wiki_root: Path | str | None = None,
@@ -335,16 +371,75 @@ def generate_startup_retrieval_receipt(
         if isinstance(retrieval.get("domain_background_hits"), list)
         else []
     )
+    shared_vector_hits = (
+        retrieval.get("shared_vector_hits")
+        if isinstance(retrieval.get("shared_vector_hits"), list)
+        else []
+    )
     vector_retrieval = retrieval.get("vector_retrieval") if isinstance(retrieval.get("vector_retrieval"), dict) else {}
+    rerank = retrieval.get("rerank") if isinstance(retrieval.get("rerank"), dict) else {}
     expected_collections = ["siq_deal_shared", canonical_profile]
     actual_collections = [str(item) for item in vector_retrieval.get("collections") or []]
-    background_retrieval_ready = (
+    physical_collections = (
+        vector_retrieval.get("physical_collections")
+        if isinstance(vector_retrieval.get("physical_collections"), dict)
+        else {}
+    )
+    expected_private_physical = canonical_profile.removeprefix("siq_")
+    vector_completed = (
         bool(retrieval.get("milvus_used"))
         and bool(vector_retrieval.get("milvus_used", retrieval.get("milvus_used")))
         and vector_retrieval.get("status") == "completed"
-        and all(collection in actual_collections for collection in expected_collections)
+    )
+    private_collection_connected = (
+        vector_completed
+        and canonical_profile in actual_collections
+        and physical_collections.get(canonical_profile) == expected_private_physical
+    )
+    shared_collection_connected = (
+        vector_completed
+        and "siq_deal_shared" in actual_collections
+        and physical_collections.get("siq_deal_shared") == "ic_collaboration_shared"
+        and vector_retrieval.get("shared_filter_applied") is True
+        and vector_retrieval.get("shared_project_tag") == normalized_deal_id
+    )
+    private_retrieval_ready = (
+        private_collection_connected
         and bool(methodology_hits)
     )
+    shared_retrieval_ready = (
+        shared_collection_connected
+        and bool(shared_vector_hits)
+        and all(
+            _shared_vector_hit_is_current(
+                item,
+                deal_id=normalized_deal_id,
+                snapshot_hash=str(source_context.get("evidence_snapshot_hash") or ""),
+            )
+            for item in shared_vector_hits
+        )
+    )
+    rerank_ready = (
+        not include_rerank
+        or rerank.get("status") == "completed"
+        or (rerank.get("status") == "skipped" and rerank.get("reason") == "no_candidates")
+    )
+    retrieval_ready = private_retrieval_ready and shared_retrieval_ready and rerank_ready
+    collections_connected = private_collection_connected and shared_collection_connected
+    chat_retrieval_ready = collections_connected and rerank_ready
+    if collections_connected:
+        connection_status = "connected"
+    elif vector_retrieval.get("status") in {"skipped", "disabled"}:
+        connection_status = "not_checked"
+    elif private_collection_connected or shared_collection_connected:
+        connection_status = "partial"
+    else:
+        connection_status = "failed"
+    connection_errors: list[str] = []
+    if not shared_collection_connected:
+        connection_errors.append("shared_collection_connection_failed")
+    if not private_collection_connected:
+        connection_errors.append("private_collection_connection_failed")
 
     gaps = [str(item) for item in retrieval.get("gaps", []) if str(item or "").strip()]
     missing_dimensions = _quality_missing_dimensions(package_dir)
@@ -358,17 +453,44 @@ def generate_startup_retrieval_receipt(
         gaps.append("primary_market_financial_facts_restricted")
     if methodology_hits and not domain_background_hits:
         gaps.append("private_domain_corpus_empty")
-    if not background_retrieval_ready:
+    if not private_collection_connected:
         gaps.append("private_kb_unavailable")
+    if not shared_collection_connected:
+        gaps.append("deal_scoped_shared_kb_unavailable")
+    elif not shared_retrieval_ready:
+        gaps.append("deal_scoped_shared_kb_empty")
+    if not rerank_ready:
+        gaps.append("reranker_unavailable")
+    content_warnings: list[str] = []
+    if shared_collection_connected and not shared_vector_hits:
+        content_warnings.append("deal_scoped_shared_kb_empty")
+    if shared_collection_connected and not source_context.get("evidence_snapshot_hash"):
+        content_warnings.append("evidence_snapshot_unavailable")
+    if private_collection_connected and not methodology_hits:
+        content_warnings.append("private_methodology_missing")
 
-    if background_retrieval_ready:
-        retrieval_blocking_reasons: list[str] = []
-    elif vector_retrieval.get("status") == "completed" and not methodology_hits:
-        retrieval_blocking_reasons = ["private_methodology_missing"]
-    else:
-        retrieval_blocking_reasons = [
-            str(vector_retrieval.get("reason") or "background_knowledge_retrieval_incomplete")
-        ]
+    retrieval_blocking_reasons: list[str] = []
+    if not private_retrieval_ready:
+        if vector_retrieval.get("status") == "completed" and not methodology_hits:
+            retrieval_blocking_reasons.append("private_methodology_missing")
+        else:
+            retrieval_blocking_reasons.append(
+                str(vector_retrieval.get("reason") or "background_knowledge_retrieval_incomplete")
+            )
+    if not shared_retrieval_ready:
+        if vector_retrieval.get("status") != "completed":
+            shared_reason = str(vector_retrieval.get("reason") or "shared_knowledge_retrieval_incomplete")
+        elif vector_retrieval.get("shared_filter_applied") is not True:
+            shared_reason = "deal_scoped_shared_filter_missing"
+        elif vector_retrieval.get("shared_project_tag") != normalized_deal_id:
+            shared_reason = "deal_scoped_shared_project_tag_mismatch"
+        else:
+            shared_reason = "deal_scoped_shared_kb_empty"
+        if shared_reason not in retrieval_blocking_reasons:
+            retrieval_blocking_reasons.append(shared_reason)
+    if not rerank_ready:
+        rerank_reason = str(rerank.get("reason") or rerank.get("status") or "rerank_incomplete")
+        retrieval_blocking_reasons.append(rerank_reason)
     physical_collection = str(
         (vector_retrieval.get("physical_collections") or {}).get(canonical_profile)
         or canonical_profile
@@ -408,6 +530,10 @@ def generate_startup_retrieval_receipt(
         "retrieval_contract": retrieval,
         "dynamic_queries": retrieval.get("dynamic_queries") or [],
         "shared_hits": int(retrieval.get("matched_evidence_count") or 0),
+        "shared_vector_hits": shared_vector_hits,
+        "shared_vector_hit_count": len(shared_vector_hits),
+        "local_evidence_hit_count": len(evidence_hits),
+        "private_selected_hit_count": len(background_hits),
         "private_hits": len(background_hits),
         "project_evidence_hits": evidence_hits,
         "background_knowledge_hits": background_hits,
@@ -418,10 +544,39 @@ def generate_startup_retrieval_receipt(
         "domain_background_hit_count": len(domain_background_hits),
         "background_selection": retrieval.get("background_selection") or {},
         "retrieval_collections": expected_collections,
-        "physical_collections": vector_retrieval.get("physical_collections") or {},
+        "physical_collections": physical_collections,
         "shared_collection": "siq_deal_shared",
         "private_collection": canonical_profile,
-        "retrieval_status": "ready" if background_retrieval_ready else "blocked",
+        "private_connected": private_collection_connected,
+        "shared_connected": shared_collection_connected,
+        "collections_connected": collections_connected,
+        "dual_kb_connected": collections_connected,
+        "connection_status": connection_status,
+        "connection_errors": connection_errors,
+        "connection_checked_at": created_at,
+        "chat_retrieval_ready": chat_retrieval_ready,
+        "content_warnings": content_warnings,
+        "private_ready": private_retrieval_ready,
+        "shared_ready": shared_retrieval_ready,
+        "rerank_ready": rerank_ready,
+        "retrieval_status": "ready" if retrieval_ready else "blocked",
+        "chat_retrieval_status": "ready" if chat_retrieval_ready else "blocked",
+        "collection_connections": {
+            "shared": {
+                "logical_collection": "siq_deal_shared",
+                "physical_collection": physical_collections.get("siq_deal_shared"),
+                "connected": shared_collection_connected,
+                "filter_applied": vector_retrieval.get("shared_filter_applied") is True,
+                "project_tag": vector_retrieval.get("shared_project_tag"),
+                "hit_count": len(shared_vector_hits),
+            },
+            "private": {
+                "logical_collection": canonical_profile,
+                "physical_collection": physical_collections.get(canonical_profile),
+                "connected": private_collection_connected,
+                "hit_count": len(background_hits),
+            },
+        },
         "degraded_reasons": retrieval_blocking_reasons,
         "evidence_hits": evidence_hits,
         "evidence_hit_count": len(evidence_hits),
@@ -431,7 +586,11 @@ def generate_startup_retrieval_receipt(
         "workspace_rules_read": _workspace_rules_read(canonical_profile),
         "gaps": gaps,
         "vector_retrieval": vector_retrieval,
-        "rerank": retrieval.get("rerank") or {},
+        "retrieval_strategy": vector_retrieval.get("retrieval_strategy") or {},
+        "collection_candidate_counts": vector_retrieval.get("collection_candidate_counts") or {},
+        "collection_hit_counts": vector_retrieval.get("collection_hit_counts") or {},
+        "retrieval_observability": retrieval.get("retrieval_observability") or {},
+        "rerank": rerank,
         "external_research": retrieval.get("external_research") or {},
         "milvus_used": bool(retrieval.get("milvus_used")),
         "postgres_used": False,
@@ -443,7 +602,7 @@ def generate_startup_retrieval_receipt(
         "research_identities": source_context["research_identities"],
         "readiness_status": "current",
         "gate": {
-            "allowed_to_speak": background_retrieval_ready,
+            "allowed_to_speak": retrieval_ready,
             "blocking_reasons": retrieval_blocking_reasons,
         },
         "created_at": created_at,

@@ -142,6 +142,32 @@ def _receipt_agents(package_dir: Path) -> dict[str, dict[str, Any]]:
         if isinstance(phases, dict) and isinstance(phases.get("R1"), dict):
             canonical = ic_policy.canonical_ic_profile_id(str(agent_id))
             result[canonical] = {**phases["R1"], "agent_id": canonical}
+    current_snapshot = str(_evidence_identity(package_dir).get("evidence_snapshot_hash") or "")
+    for agent_id, receipt in list(result.items()):
+        receipt_snapshot = str(receipt.get("evidence_snapshot_hash") or "")
+        # Legacy receipts without a snapshot are rejected by their missing v2
+        # gate contract below; they are not evidence that a known snapshot
+        # changed. Preserve the more precise audit reason.
+        if not receipt_snapshot:
+            continue
+        if current_snapshot and receipt_snapshot == current_snapshot:
+            continue
+        gate = receipt.get("gate") if isinstance(receipt.get("gate"), dict) else {}
+        blocking_reasons = _dedupe_strings([
+            *_as_list(gate.get("blocking_reasons")),
+            "evidence_snapshot_changed",
+        ])
+        result[agent_id] = {
+            **receipt,
+            "readiness_status": "stale",
+            "stale_reason": "evidence_snapshot_changed",
+            "current_evidence_snapshot_hash": current_snapshot or None,
+            "gate": {
+                **gate,
+                "allowed_to_speak": False,
+                "blocking_reasons": blocking_reasons,
+            },
+        }
     return result
 
 
@@ -273,6 +299,8 @@ def _startup_receipt_gate_blocks(receipt: dict[str, Any] | None) -> list[str]:
 
     if not isinstance(receipt, dict):
         return []
+    if receipt.get("readiness_status") == "stale" or receipt.get("stale_reason"):
+        return ["startup_receipt_gate_blocked:evidence_snapshot_changed"]
     gate = receipt.get("gate")
     if not isinstance(gate, dict):
         return ["startup_receipt_gate_blocked:receipt_gate_missing"]
@@ -285,7 +313,40 @@ def _startup_receipt_gate_blocks(receipt: dict[str, Any] | None) -> list[str]:
         return ["startup_receipt_gate_blocked:milvus_not_used"]
     if not _as_list(receipt.get("background_knowledge_refs")):
         return ["startup_receipt_gate_blocked:background_knowledge_refs_missing"]
-    return []
+    agent_id = ic_policy.canonical_ic_profile_id(str(receipt.get("agent_id") or ""))
+    deal_id = str(receipt.get("deal_id") or receipt.get("project_tag") or "").strip()
+    project_tag = str(receipt.get("project_tag") or "").strip()
+    vector = receipt.get("vector_retrieval") if isinstance(receipt.get("vector_retrieval"), dict) else {}
+    physical = receipt.get("physical_collections") if isinstance(receipt.get("physical_collections"), dict) else {}
+    if not physical and isinstance(vector.get("physical_collections"), dict):
+        physical = vector["physical_collections"]
+    strategy = receipt.get("retrieval_strategy") if isinstance(receipt.get("retrieval_strategy"), dict) else {}
+    if not strategy and isinstance(vector.get("retrieval_strategy"), dict):
+        strategy = vector["retrieval_strategy"]
+    rerank = receipt.get("rerank") if isinstance(receipt.get("rerank"), dict) else {}
+
+    contract_blocks: list[str] = []
+    if not deal_id or project_tag != deal_id:
+        contract_blocks.append("shared_project_tag_mismatch")
+    if receipt.get("dual_kb_connected") is not True:
+        contract_blocks.append("dual_kb_not_connected")
+    if physical.get("siq_deal_shared") != "ic_collaboration_shared":
+        contract_blocks.append("shared_physical_collection_mismatch")
+    if not agent_id or physical.get(agent_id) != agent_id.removeprefix("siq_"):
+        contract_blocks.append("private_physical_collection_mismatch")
+    if vector.get("shared_filter_applied") is not True or vector.get("shared_project_tag") != deal_id:
+        contract_blocks.append("deal_scoped_shared_filter_missing")
+    if strategy.get("mode") != "dense_bm25_rrf" or not str(strategy.get("embedding_model") or "").strip():
+        contract_blocks.append("hybrid_embedding_receipt_missing")
+    if receipt.get("rerank_ready") is not True:
+        contract_blocks.append("reranker_not_ready")
+    elif rerank.get("status") not in {"completed", "skipped"}:
+        contract_blocks.append("reranker_not_completed")
+    elif rerank.get("status") == "skipped" and rerank.get("reason") != "no_candidates":
+        contract_blocks.append("reranker_skipped_unexpectedly")
+    elif rerank.get("status") == "completed" and not str(rerank.get("model") or "").strip():
+        contract_blocks.append("reranker_model_receipt_missing")
+    return [f"startup_receipt_gate_blocked:{reason}" for reason in contract_blocks]
 
 
 def _preflight_blocks(
@@ -1792,7 +1853,7 @@ def _task_payload(
             "必须引用已知 evidence_id；历史文本引用只能作为兼容说明",
             "所有一级市场引用必须匹配 payload 的 source_ids 和 evidence_snapshot_hash",
             "financial_facts 受限时不得生成 verified 数字 claim，只能标记 assumed/contested/insufficient_evidence",
-            "不得访问 data/wiki/companies，除非任务显式授权",
+            "一级市场 IC 任务在任何情况下都不得访问 data/wiki/companies 或二级市场财报命名空间",
             "不得输出投资执行指令，只输出投委会建议",
             "API 服务层负责最终写文件、审计和阶段状态更新",
         ],

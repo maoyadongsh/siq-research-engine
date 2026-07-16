@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import hmac
 import logging
 import os
@@ -65,6 +66,20 @@ FRONT_DIR = str(FRONTEND_ROOT)
 logger = logging.getLogger("siq.api")
 
 
+async def _primary_market_material_reconciler() -> None:
+    interval = max(5.0, float(os.environ.get("SIQ_PRIMARY_MARKET_RECONCILE_INTERVAL_SECONDS", "20")))
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await asyncio.to_thread(
+                primary_market_materials_service.recover_primary_market_materials_on_startup
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("primary_market_periodic_reconcile_failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     AuthService.validate_runtime_config()
@@ -80,7 +95,18 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             logger.exception("primary_market_startup_reconcile_failed")
-    yield
+    reconciler: asyncio.Task[None] | None = None
+    if os.environ.get("SIQ_PRIMARY_MARKET_RECONCILE_PERIODIC", "1").strip().lower() in {
+        "1", "true", "yes", "on"
+    }:
+        reconciler = asyncio.create_task(_primary_market_material_reconciler())
+    try:
+        yield
+    finally:
+        if reconciler is not None:
+            reconciler.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reconciler
 
 
 app = FastAPI(title="SIQ API", lifespan=lifespan)

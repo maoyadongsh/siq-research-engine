@@ -22,7 +22,7 @@ if str(API_ROOT) not in sys.path:
 from services import agent_memory_milvus  # noqa: E402
 
 
-DEFAULT_COLLECTION = "siq_agent_memory"
+DEFAULT_COLLECTION = "siq_agent_memory_active"
 DEFAULT_EMBED_URL = "http://127.0.0.1:8013/v1/embeddings"
 DEFAULT_EMBED_MODEL = "Qwen3-VL-Embedding-2B"
 DEFAULT_VECTOR_DIM = 1024

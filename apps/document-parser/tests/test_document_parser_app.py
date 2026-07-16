@@ -591,6 +591,16 @@ def test_markdown_upload_generates_normalized_artifacts(tmp_path):
     assert result.json["manifest"]["document_kind"] == "text"
     assert result.json["artifacts"]["blocks.json"]["exists"] is True
 
+    compact = client.get(f"/api/result/{task_id}?include_markdown=false")
+    assert compact.status_code == 200
+    assert "markdown" not in compact.json
+    assert compact.json["task"]["task_id"] == task_id
+    assert compact.json["manifest"]["task_id"] == task_id
+    assert compact.json["artifact_contract_version"] == "document_parser_artifact_contract_v1"
+    document_descriptor = compact.json["artifacts"]["document.md"]
+    assert document_descriptor["size"] == document_descriptor["size_bytes"]
+    assert len(document_descriptor["sha256"]) == 64
+
     blocks = client.get(f"/api/artifact/{task_id}/blocks.json")
     assert blocks.status_code == 200
     assert blocks.json["schema_version"] == "document_blocks_v1"
@@ -613,6 +623,11 @@ def test_health_describes_pdf_bridge_and_document_artifact_archive(tmp_path):
     assert response.json["parser_engine"]["service"] == "apps/pdf-parser"
     assert response.json["parser_engine"]["final_artifact_root"] == str(tmp_path / "data" / "results")
     assert response.json["conversion_pipeline"]["image"] == "image_to_pdf -> pdf_parser_bridge"
+    transport = response.json["pdf_artifact_transport"]
+    assert transport["ready"] is True
+    assert transport["configured_mode"] == "auto"
+    assert transport["contract_version"] == "pdf_parser_artifact_api_v1"
+    assert transport["limits"]["max_files"] > 0
 
 
 def test_readiness_requires_worker_and_pdf_bridge(tmp_path, monkeypatch):
@@ -625,17 +640,106 @@ def test_readiness_requires_worker_and_pdf_bridge(tmp_path, monkeypatch):
 
     module.worker_thread = AliveThread()
     module.WORKER_AUTOSTART = True
-    monkeypatch.setattr(module, "pdf_parser_json_request", lambda *args, **kwargs: {"ready": True, "status": "ready"})
+    monkeypatch.setattr(
+        module,
+        "pdf_parser_json_request",
+        lambda *args, **kwargs: {
+            "ready": True,
+            "status": "ready",
+            "artifact_api_contract_version": "pdf_parser_artifact_api_v1",
+        },
+    )
 
     payload = module._readiness_payload()
 
-    assert payload == {
-        "status": "ready",
-        "ready": True,
-        "worker_ready": True,
-        "pdf_parser_ready": True,
-        "pdf_parser_status": "ready",
-    }
+    assert payload["status"] == "ready"
+    assert payload["ready"] is True
+    assert payload["worker_ready"] is True
+    assert payload["pdf_parser_ready"] is True
+    assert payload["pdf_parser_status"] == "ready"
+    assert payload["pdf_artifact_transport"]["ready"] is True
+    assert payload["pdf_artifact_transport"]["configured_mode"] == "auto"
+    assert payload["pdf_artifact_transport"]["upstream_contract_required"] is True
+    assert payload["pdf_artifact_transport"]["upstream_contract_ready"] is True
+
+
+def test_readiness_fails_closed_when_api_transport_contract_is_missing(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+
+    class AliveThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    module.worker_thread = AliveThread()
+    module.WORKER_AUTOSTART = True
+    monkeypatch.setenv("SIQ_DOCUMENT_PARSE_PDF_ARTIFACT_TRANSPORT", "api")
+    monkeypatch.setattr(
+        module,
+        "pdf_parser_json_request",
+        lambda *args, **kwargs: {"ready": True, "status": "ready"},
+    )
+
+    payload = module._readiness_payload()
+
+    assert payload["ready"] is False
+    assert payload["pdf_parser_ready"] is True
+    assert payload["pdf_artifact_transport"]["ready"] is False
+    assert payload["pdf_artifact_transport"]["upstream_contract_required"] is True
+    assert payload["pdf_artifact_transport"]["upstream_contract_ready"] is False
+    assert payload["pdf_artifact_transport"]["upstream_contract_version"] == ""
+
+
+def test_readiness_shared_fs_mode_does_not_require_artifact_api_contract(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+
+    class AliveThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    module.worker_thread = AliveThread()
+    module.WORKER_AUTOSTART = True
+    monkeypatch.setenv("SIQ_DOCUMENT_PARSE_PDF_ARTIFACT_TRANSPORT", "shared_fs")
+    monkeypatch.setattr(
+        module,
+        "pdf_parser_json_request",
+        lambda *args, **kwargs: {"ready": True, "status": "ready"},
+    )
+
+    payload = module._readiness_payload()
+
+    assert payload["ready"] is True
+    assert payload["pdf_artifact_transport"]["ready"] is True
+    assert payload["pdf_artifact_transport"]["upstream_contract_required"] is False
+    assert payload["pdf_artifact_transport"]["upstream_contract_ready"] is True
+
+
+def test_readiness_rejects_invalid_pdf_artifact_transport_mode(tmp_path, monkeypatch):
+    module = load_app_module(tmp_path)
+
+    class AliveThread:
+        @staticmethod
+        def is_alive():
+            return True
+
+    module.worker_thread = AliveThread()
+    module.WORKER_AUTOSTART = True
+    monkeypatch.setenv("SIQ_DOCUMENT_PARSE_PDF_ARTIFACT_TRANSPORT", "invalid-mode")
+    monkeypatch.setattr(
+        module,
+        "pdf_parser_json_request",
+        lambda *args, **kwargs: {"ready": True, "status": "ready"},
+    )
+
+    payload = module._readiness_payload()
+
+    assert payload["status"] == "unavailable"
+    assert payload["ready"] is False
+    assert payload["pdf_parser_ready"] is True
+    assert payload["pdf_artifact_transport"]["ready"] is False
+    assert payload["pdf_artifact_transport"]["configured_mode"] == "invalid-mode"
+    assert "must be auto, api, or shared_fs" in payload["pdf_artifact_transport"]["error"]
 
 
 def test_ready_endpoint_returns_503_without_auth_challenge_when_dependency_is_down(tmp_path, monkeypatch):
@@ -819,6 +923,7 @@ def test_pdf_provider_ignores_transient_poll_timeouts(tmp_path, monkeypatch):
         [
             {"_error": True, "status": 504, "detail": "timed out"},
             {"status": "completed", "stage": "completed", "task_id": "upstream-1"},
+            {},
         ]
     )
 
@@ -920,7 +1025,7 @@ def test_failed_pdf_bridge_task_recovers_when_upstream_artifacts_are_ready(tmp_p
     upload_dir.mkdir(parents=True)
     source_pdf = upload_dir / "annual.pdf"
     source_pdf.write_bytes(b"%PDF-1.4\n%stub\n%%EOF\n")
-    upstream_dir = document_app._pdf_parser_result_dir(f"doc-{task_id}")
+    upstream_dir = tmp_path / "api-staging" / f"doc-{task_id}"
     upstream_dir.mkdir(parents=True)
     (upstream_dir / "annual.pdf").write_bytes(source_pdf.read_bytes())
     (upstream_dir / "result.md").write_text("# Recovered Bridge\n\nRecovered from upstream.\n", encoding="utf-8")
@@ -964,6 +1069,25 @@ def test_failed_pdf_bridge_task_recovers_when_upstream_artifacts_are_ready(tmp_p
     )
     document_app.store.add_log(task_id, "解析失败: MinerU PDF 解析失败: timed out", level="error")
 
+    seen = {}
+
+    def fake_status(*args, **kwargs):
+        seen["status_headers"] = dict(kwargs.get("headers") or {})
+        return {"status": "completed", "stage": "completed"}
+
+    def fake_materialize(local_task_id, upstream_task_id, source, **kwargs):
+        seen["materialize"] = {
+            "task_id": local_task_id,
+            "upstream_task_id": upstream_task_id,
+            "source": source.path,
+            "identity_scope": dict(kwargs.get("identity_scope") or {}),
+        }
+        return upstream_dir
+
+    monkeypatch.setattr(document_app, "pdf_parser_json_request", fake_status)
+    monkeypatch.setattr(document_app, "_materialize_pdf_parser_result", fake_materialize)
+    monkeypatch.setattr(document_app, "cleanup_pdf_parser_bridge_output", lambda *args, **kwargs: None)
+
     status = document_app.app.test_client().get(f"/api/status/{task_id}")
 
     assert status.status_code == 200
@@ -971,6 +1095,9 @@ def test_failed_pdf_bridge_task_recovers_when_upstream_artifacts_are_ready(tmp_p
     assert status.json["upstream_task_id"] == f"doc-{task_id}"
     assert status.json["parser_provider"] == "mineru_import"
     assert status.json["artifacts_ready"] is True
+    assert seen["materialize"]["task_id"] == task_id
+    assert seen["materialize"]["upstream_task_id"] == f"doc-{task_id}"
+    assert seen["materialize"]["source"] == source_pdf
 
     result = document_app.app.test_client().get(f"/api/result/{task_id}")
     assert result.status_code == 200

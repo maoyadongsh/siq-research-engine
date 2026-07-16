@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
 import re
+import stat
 import threading
-from typing import Any, Callable, Mapping
 import zipfile
+from typing import Any, Callable, Mapping
+
+ARTIFACT_API_CONTRACT_VERSION = "pdf_parser_artifact_api_v1"
 
 
 ARTIFACT_OPEN_ALLOWLIST = {
@@ -29,6 +33,42 @@ ARTIFACT_OPEN_ALLOWLIST = {
     "hash_manifest.json": ("application/json; charset=utf-8", False),
     "metadata.json": ("application/json; charset=utf-8", False),
 }
+
+
+def _safe_path_kind(path: str, root: str, *, directory: bool) -> bool:
+    """Return true only for a real child path with no symlink components."""
+    root = os.path.abspath(root)
+    path = os.path.abspath(path)
+    try:
+        if os.path.commonpath([root, path]) != root or path == root:
+            return False
+        relative = os.path.relpath(path, root)
+    except (OSError, ValueError):
+        return False
+
+    current = root
+    parts = relative.split(os.sep)
+    try:
+        for index, part in enumerate(parts):
+            if part in {"", ".", ".."}:
+                return False
+            current = os.path.join(current, part)
+            mode = os.stat(current, follow_symlinks=False).st_mode
+            if stat.S_ISLNK(mode):
+                return False
+            if index < len(parts) - 1 and not stat.S_ISDIR(mode):
+                return False
+        return stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)
+    except OSError:
+        return False
+
+
+def is_safe_artifact_directory(path: str, root: str) -> bool:
+    return _safe_path_kind(path, root, directory=True)
+
+
+def is_safe_artifact_file(path: str, root: str) -> bool:
+    return _safe_path_kind(path, root, directory=False)
 
 
 def classify_open_artifact_name(
@@ -83,14 +123,37 @@ def classify_open_artifact_name(
     }
 
 
-def build_images_index_payload(task_id: str, image_names: list[str]) -> dict[str, Any]:
-    images = [
-        {
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as infile:
+        for chunk in iter(lambda: infile.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_images_index_payload(
+    task_id: str,
+    image_names: list[str],
+    *,
+    images_dir: str | None = None,
+) -> dict[str, Any]:
+    images = []
+    for name in image_names:
+        item = {
             "name": name,
             "url": f"/api/artifact/{task_id}/images/{name}",
         }
-        for name in image_names
-    ]
+        if images_dir:
+            path = os.path.join(images_dir, name)
+            if not is_safe_artifact_file(path, images_dir):
+                raise ValueError("Unsafe image artifact path")
+            item.update(
+                {
+                    "size_bytes": os.path.getsize(path),
+                    "sha256": _sha256_file(path),
+                }
+            )
+        images.append(item)
     return {
         "task_id": task_id,
         "artifact": "images",
@@ -240,11 +303,14 @@ def artifact_status(task: dict[str, Any], *, results_folder: str) -> dict[str, d
 
 
 def image_artifact_names(images_dir: str) -> list[str]:
+    parent = os.path.dirname(os.path.abspath(images_dir))
+    if not is_safe_artifact_directory(images_dir, parent):
+        return []
     return [
         name
         for name in sorted(os.listdir(images_dir))
         if name.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
-        and os.path.isfile(os.path.join(images_dir, name))
+        and is_safe_artifact_file(os.path.join(images_dir, name), images_dir)
     ]
 
 
@@ -252,7 +318,10 @@ def build_images_zip(images_dir: str, image_names: list[str]) -> io.BytesIO:
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
         for name in image_names:
-            zip_file.write(os.path.join(images_dir, name), arcname=name)
+            path = os.path.join(images_dir, name)
+            if not is_safe_artifact_file(path, images_dir):
+                raise ValueError("Unsafe image artifact path")
+            zip_file.write(path, arcname=name)
     archive.seek(0)
     return archive
 
