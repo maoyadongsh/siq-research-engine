@@ -7,6 +7,7 @@ import {
   Calculator,
   CheckCircle2,
   ClipboardPenLine,
+  Cloud,
   Compass,
   Cpu,
   Crown,
@@ -14,6 +15,7 @@ import {
   FileCheck2,
   GitBranch,
   History,
+  HardDrive,
   Loader2,
   MessageSquareText,
   Network,
@@ -56,6 +58,7 @@ import {
   fetchPrimaryMarketMeetingAgentReadiness,
   fetchPrimaryMarketMeetingChatHistory,
   fetchPrimaryMarketMeetingChatSessions,
+  fetchPrimaryMarketMeetingModels,
   fetchPrimaryMarketDecision,
   fetchPrimaryMarketDisputes,
   fetchPrimaryMarketEvidence,
@@ -77,7 +80,7 @@ import {
   switchPrimaryMarketMeetingChatSession,
   uploadPrimaryMarketMeetingAttachments,
 } from '@/features/primary-market/primaryMarketApi'
-import type { PrimaryMarketMeetingAgentReadiness } from '@/features/primary-market/primaryMarketApi'
+import type { PrimaryMarketMeetingAgentReadiness, PrimaryMarketMeetingModelCatalog } from '@/features/primary-market/primaryMarketApi'
 import {
   IC_AGENT_OPTIONS,
   R1_AGENT_SEQUENCE,
@@ -358,6 +361,10 @@ export default function PrimaryMarketMeeting() {
   const [currentSessionByLane, setCurrentSessionByLane] = useState<Record<string, string | null>>({})
   const [chatMessagesByLane, setChatMessagesByLane] = useState<Record<string, AgentMessage[]>>({})
   const [chatSessionsByLane, setChatSessionsByLane] = useState<Record<string, ChatSessionSummary[]>>({})
+  const [modelCatalog, setModelCatalog] = useState<PrimaryMarketMeetingModelCatalog | null>(null)
+  const [selectedModelMode, setSelectedModelMode] = useState('')
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [modelsError, setModelsError] = useState('')
   const [persistedEventsByLane, setPersistedEventsByLane] = useState<Record<string, MeetingEvent[]>>({})
   const [localEventsByLane, setLocalEventsByLane] = useState<Record<string, MeetingEvent[]>>({})
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -372,7 +379,23 @@ export default function PrimaryMarketMeeting() {
   const activeWindowTitle = windowTitle(speakerMode, selectedAgent)
   const currentSessionId = currentSessionByLane[activeLane] || null
   const selectedDeal = deals.find((deal) => deal.deal_id === selectedDealId) || bundle.detail?.summary || null
+  const selectedModelOption = modelCatalog?.options.find((option) => option.mode === selectedModelMode) || null
   useAutosizeTextarea(textareaRef, meetingInput)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetchPrimaryMarketMeetingModels(controller.signal).then((catalog) => {
+      if (controller.signal.aborted) return
+      setModelCatalog(catalog)
+      setSelectedModelMode((current) => current || catalog.profiles.siq_ic_master_coordinator?.mode || catalog.options[0]?.mode || '')
+      setModelsError('')
+    }).catch((err) => {
+      if (!controller.signal.aborted) setModelsError(err instanceof Error ? err.message : '模型列表加载失败')
+    }).finally(() => {
+      if (!controller.signal.aborted) setModelsLoading(false)
+    })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -913,6 +936,7 @@ export default function PrimaryMarketMeeting() {
             companyName: selectedDeal?.company_name,
             lane,
             sessionId: effectiveSessionId,
+            modelMode: selectedModelMode,
             attachments: messageAttachments,
             signal: abort.signal,
           })
@@ -1640,7 +1664,7 @@ export default function PrimaryMarketMeeting() {
               actions={<StatusBadge tone={statusTone(bundle.workflow?.workflow.status)}>{text(bundle.workflow?.workflow.status, '未加载')}</StatusBadge>}
               contentClassName="space-y-4"
             >
-              <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1fr)]">
+              <div className="grid w-full gap-6 px-2 py-1 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto] xl:items-end">
                 <label className="min-w-0 space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Agent</span>
                   <div className="flex items-center gap-2">
@@ -1659,9 +1683,32 @@ export default function PrimaryMarketMeeting() {
                     </select>
                   </div>
                 </label>
-                <div className="min-w-0 space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Mode</span>
-                  <div className="flex flex-wrap gap-2">
+                <label className="min-w-0 space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Model</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${selectedModelOption ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-muted/40 text-text-muted'}`} aria-hidden="true">
+                      {selectedModelOption?.kind === 'local' ? <HardDrive className="h-4.5 w-4.5" /> : <Cloud className="h-4.5 w-4.5" />}
+                    </span>
+                    <select
+                      value={selectedModelMode}
+                      onChange={(event) => setSelectedModelMode(event.target.value)}
+                      disabled={Boolean(chatBusy || modelsLoading || !modelCatalog?.options.length)}
+                      className={`h-10 min-w-0 flex-1 rounded-md border px-3 py-2 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 ${modelsError ? 'border-border bg-muted/40 text-text-muted' : selectedModelOption ? 'border-primary/60 bg-primary/10 font-medium text-primary' : 'border-input bg-muted/40 text-text-muted'}`}
+                      aria-label="选择 Hermes 模型"
+                    >
+                      {modelsError ? <option value="">模型服务暂不可用</option> : null}
+                      {modelsLoading ? <option value="">加载模型...</option> : null}
+                      <optgroup label="云端模型">
+                        {(modelCatalog?.options || []).filter((option) => option.kind === 'cloud').map((option) => <option key={option.mode} value={option.mode}>{option.label}</option>)}
+                      </optgroup>
+                      <optgroup label="本地模型">
+                        {(modelCatalog?.options || []).filter((option) => option.kind === 'local').map((option) => <option key={option.mode} value={option.mode}>{option.label}</option>)}
+                      </optgroup>
+                    </select>
+                  </div>
+                </label>
+                <div className="min-w-0 xl:pt-[22px]">
+                  <div className="flex flex-wrap gap-2.5 xl:flex-nowrap">
                     <Button type="button" size="sm" variant={speakerMode === 'single' ? 'default' : 'secondary'} onClick={() => setSpeakerMode('single')} disabled={chatBusy !== ''}>
                       <MessageSquareText />
                       点名对话

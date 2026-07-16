@@ -8,6 +8,7 @@ const {
   appendPrimaryMarketMeetingEvent,
   confirmPrimaryMarketDecision,
   fetchPrimaryMarketMeetingAgentReadiness,
+  fetchPrimaryMarketMeetingModels,
   fetchPrimaryMarketMeetingTranscript,
   fetchPrimaryMarketProject,
   fetchPrimaryMarketProjects,
@@ -93,6 +94,28 @@ test('primary-market meeting chat uses isolated route and project context', asyn
       },
     },
   ])
+})
+
+test('primary-market meeting model catalog and chat selection use the backend contract', async () => {
+  const calls = installFetchRecorder({
+    options: [{ mode: 'qwen36', label: '本地 Qwen3.6', kind: 'local', model: 'Qwen3.6', provider: 'custom:qwen' }],
+    profiles: {},
+  })
+
+  const catalog = await fetchPrimaryMarketMeetingModels()
+  assert.equal(catalog.options[0]?.mode, 'qwen36')
+  assert.equal(calls[0]?.url, '/api/primary-market/meeting/models')
+
+  calls.length = 0
+  await postPrimaryMarketMeetingChat({
+    agentId: 'siq_ic_strategist',
+    agentLabel: '战略专家',
+    message: '分析投资逻辑',
+    displayMessage: '分析投资逻辑',
+    dealId: 'DEAL-MODEL-001',
+    modelMode: 'qwen36',
+  })
+  assert.equal((calls[0]?.body as Record<string, unknown>).model_mode, 'qwen36')
 })
 
 test('primary-market meeting chat can target an agent window with attachments', async () => {

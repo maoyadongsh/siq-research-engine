@@ -255,8 +255,22 @@ export interface PrimaryMarketMeetingChatRequest {
   companyName?: string | null
   lane?: string
   sessionId?: string | null
+  modelMode?: string | null
   attachments?: AgentAttachment[]
   signal?: AbortSignal
+}
+
+export interface PrimaryMarketMeetingModelOption {
+  mode: string
+  label: string
+  kind: 'cloud' | 'local'
+  model: string
+  provider: string
+}
+
+export interface PrimaryMarketMeetingModelCatalog {
+  options: PrimaryMarketMeetingModelOption[]
+  profiles: Record<string, { mode: string; model: string; provider: string }>
 }
 
 export interface PrimaryMarketMeetingChatResponse {
@@ -766,7 +780,12 @@ function primaryMarketMeetingChatPayload(request: PrimaryMarketMeetingChatReques
   }
   if (request.attachments?.length) payload.attachments = request.attachments
   if (request.sessionId) payload.session_id = request.sessionId
+  if (request.modelMode) payload.model_mode = request.modelMode
   return { dealId, lane, payload }
+}
+
+export function fetchPrimaryMarketMeetingModels(signal?: AbortSignal) {
+  return apiJson<PrimaryMarketMeetingModelCatalog>('/api/primary-market/meeting/models', { signal })
 }
 
 function normalizeMeetingEventType(value: unknown): MeetingEventType {

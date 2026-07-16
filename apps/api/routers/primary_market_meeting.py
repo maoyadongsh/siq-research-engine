@@ -35,7 +35,7 @@ from services.agent_chat_runtime import (
 from services.auth_dependencies import get_current_user, require_permission
 from services.auth_service import User
 from services.hermes_client import HermesProfile, collect_run_result, create_run
-from services.hermes_model_control import maybe_handle_model_control
+from services.hermes_model_control import apply_profile_model_mode, maybe_handle_model_control, model_catalog
 from services.path_config import BACKEND_DATA_ROOT
 from services.session_manager import get_session_manager
 from services.usage_service import AGENT_QUESTION_EVENT, record_usage_async
@@ -102,8 +102,26 @@ class PrimaryMarketMeetingChatRequest(BaseModel):
     company_name: str | None = None
     phase: str | None = None
     lane: str = "main"
+    model_mode: str | None = None
     context: PrimaryMarketMeetingContext | None = None
     attachments: list[ChatAttachment] = Field(default_factory=list)
+
+
+def _apply_meeting_model_mode(req: PrimaryMarketMeetingChatRequest, profile: str) -> dict[str, Any] | None:
+    if not req.model_mode:
+        return None
+    try:
+        return apply_profile_model_mode(cast(HermesProfile, profile), req.model_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/primary-market/meeting/models")
+def get_primary_market_meeting_models(
+    current_user: User = Depends(require_permission("report.view")),
+) -> dict[str, Any]:
+    del current_user
+    return model_catalog()
 
 
 class PrimaryMarketMeetingChatResponse(ChatResponse):
@@ -1768,6 +1786,7 @@ async def chat_stream(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> EventSourceResponse:
     normalized_profile = canonical_meeting_profile(profile)
+    _apply_meeting_model_mode(req, normalized_profile)
     deal_id = deal_id_from_request(req)
     deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")
@@ -2061,6 +2080,7 @@ async def chat(
     async_session: AsyncSession = Depends(get_async_session),
 ) -> ChatResponse:
     normalized_profile = canonical_meeting_profile(profile)
+    _apply_meeting_model_mode(req, normalized_profile)
     deal_id = deal_id_from_request(req)
     deal_summary = _load_deal_summary(deal_id, current_user=current_user)
     lane = _normalize_lane(req.lane or (req.context.lane if req.context else None) or "main")

@@ -562,6 +562,39 @@ def describe_all_profile_models() -> dict[str, Any]:
     }
 
 
+def model_catalog() -> dict[str, Any]:
+    """Return configured selector fields without credentials or endpoint URLs."""
+    return {
+        "options": [
+            {
+                "mode": mode,
+                "label": MODEL_OPTIONS[mode]["label"],
+                "kind": MODEL_OPTIONS[mode]["kind"],
+                "model": MODEL_OPTIONS[mode]["model"],
+                "provider": MODEL_OPTIONS[mode]["provider"],
+            }
+            for mode in CANONICAL_MODEL_MODES
+        ],
+        "profiles": {
+            profile: {
+                "mode": status["mode"],
+                "model": status["model"],
+                "provider": status["provider"],
+            }
+            for profile, status in describe_all_profile_models().items()
+        },
+    }
+
+
+def apply_profile_model_mode(profile: HermesProfile | str, mode: str) -> dict[str, Any]:
+    if mode not in CANONICAL_MODEL_MODES:
+        raise ValueError(f"Unsupported Hermes model mode: {mode}")
+    canonical_profile = normalize_profile(profile)
+    if current_model_mode(canonical_profile) == mode:
+        return describe_profile_model(canonical_profile)
+    return set_profile_model_mode(canonical_profile, mode)  # type: ignore[arg-type]
+
+
 def infer_model_mode(*, provider_name: str = "", provider: str = "", model: str = "", base_url: str = "") -> ModelMode | None:
     normalized = " ".join([provider_name, provider, model, base_url]).lower()
     if not normalized.strip():

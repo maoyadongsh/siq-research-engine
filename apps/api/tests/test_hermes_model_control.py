@@ -1,5 +1,6 @@
 import stat
 
+import pytest
 import yaml
 
 from services import hermes_model_control as control
@@ -256,3 +257,19 @@ def test_status_question_mentioning_gemma4_does_not_switch(tmp_path, monkeypatch
     assert "当前使用本地 Qwen3.6" in reply
     assert data["model"]["default"] == control.QWEN36_MODEL
     assert data["model"]["provider"] == control.QWEN36_PROVIDER
+
+
+def test_model_catalog_is_safe_and_apply_rejects_unknown_modes(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path)
+    _patch_profile(monkeypatch, config_path)
+
+    catalog = control.model_catalog()
+
+    assert [item["mode"] for item in catalog["options"]] == list(control.CANONICAL_MODEL_MODES)
+    assert all(set(item) == {"mode", "label", "kind", "model", "provider"} for item in catalog["options"])
+    assert "base_url" not in str(catalog)
+    assert catalog["profiles"]["siq_assistant"]["mode"] == "qwen36"
+
+    with pytest.raises(ValueError, match="Unsupported Hermes model mode"):
+        control.apply_profile_model_mode("siq_assistant", "unconfigured-model")

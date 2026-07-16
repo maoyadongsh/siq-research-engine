@@ -167,6 +167,46 @@ def test_primary_market_meeting_chat_uses_project_scoped_ic_session(monkeypatch)
     anyio.run(run_case)
 
 
+def test_primary_market_meeting_model_catalog_uses_safe_backend_contract(monkeypatch, tmp_path):
+    client = _primary_market_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(primary_market_meeting, "model_catalog", lambda: {
+        "options": [{
+            "mode": "minimax",
+            "label": "云端 MiniMax",
+            "kind": "cloud",
+            "model": "MiniMax-M3",
+            "provider": "minimax-cn",
+        }],
+        "profiles": {
+            "siq_ic_master_coordinator": {
+                "mode": "minimax",
+                "model": "MiniMax-M3",
+                "provider": "minimax-cn",
+            },
+        },
+    })
+
+    response = client.get("/api/primary-market/meeting/models")
+
+    assert response.status_code == 200
+    assert response.json()["options"][0]["mode"] == "minimax"
+
+
+def test_primary_market_meeting_model_selection_is_allowlisted(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        primary_market_meeting,
+        "apply_profile_model_mode",
+        lambda profile, mode: captured.update(profile=profile, mode=mode) or {"mode": mode},
+    )
+    request = primary_market_meeting.PrimaryMarketMeetingChatRequest(message="test", model_mode="gemma4")
+
+    result = primary_market_meeting._apply_meeting_model_mode(request, "siq_ic_sector_expert")
+
+    assert result == {"mode": "gemma4"}
+    assert captured == {"profile": "siq_ic_sector_expert", "mode": "gemma4"}
+
+
 def test_primary_market_meeting_role_contracts_cover_all_ic_profiles():
     expected = set(primary_market_meeting.IC_MEETING_PROFILES)
     contracts = ic_profile_contract.list_ic_profile_contracts()
