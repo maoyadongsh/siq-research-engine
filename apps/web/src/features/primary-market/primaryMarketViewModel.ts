@@ -95,7 +95,7 @@ export const EVIDENCE_DIMENSIONS = [
 ]
 
 export const IC_AGENT_OPTIONS = [
-  { value: 'siq_ic_master_coordinator', label: '总协调员', shortLabel: 'Coordinator', r1: false },
+  { value: 'siq_ic_master_coordinator', label: '投委会秘书', shortLabel: 'Coordinator', r1: false },
   { value: 'siq_ic_chairman', label: '投委会主席', shortLabel: 'Chairman', r1: true },
   { value: 'siq_ic_strategist', label: '战略专家', shortLabel: 'Strategy', r1: true },
   { value: 'siq_ic_sector_expert', label: '行业专家', shortLabel: 'Sector', r1: true },
@@ -121,7 +121,7 @@ const MEETING_INTRO_LABEL = '智能体简介'
 
 const IC_MEETING_QUESTION_PROFILES: Record<string, MeetingQuestionProfile> = {
   siq_ic_master_coordinator: {
-    intro: '我是总协调员，负责把 R0-R4 流程、证据门禁、委员发言和投决产物串成可推进的会议节奏。',
+    intro: '我是投委会秘书，负责把 R0-R4 流程、证据门禁、委员发言和投决产物串成可推进的会议节奏。',
     questions: [
       { label: '同步状态', prompt: '请同步当前项目 R0-R4 状态，指出已完成、阻断、待人工确认和下一步优先级。' },
       { label: '流程推进', prompt: '请基于当前项目上下文判断应该推进到哪一步，并给出推进前的门禁条件。' },
@@ -204,7 +204,7 @@ const COMMITTEE_MEETING_PROFILE: MeetingQuestionProfile = {
 }
 
 const WORKFLOW_MEETING_PROFILE: MeetingQuestionProfile = {
-  intro: '当前是总协调员工作流窗口，用于按 R0-R4 程序预演、检查门禁并推进投研决策任务。',
+  intro: '当前是投委会秘书工作流窗口，用于按 R0-R4 程序预演、检查门禁并推进投研决策任务。',
   questions: [
     { label: '预演流程', prompt: '请预演当前项目从 R0 到 R4 的完整投研决策流程，并标出每一步门禁。' },
     { label: '推进下一步', prompt: '请判断当前最适合推进的下一步动作，并说明需要哪些人工确认。' },
@@ -226,7 +226,7 @@ export function primaryMarketMeetingIntro(agentId: string, mode: PrimaryMarketMe
 
 export function primaryMarketMeetingQuickQuestions(agentId: string, mode: PrimaryMarketMeetingMode): PrimaryMarketMeetingQuickQuestion[] {
   const profile = meetingProfileFor(agentId, mode)
-  const label = mode === 'committee' ? '全体委员' : mode === 'workflow' ? '总协调员工作流' : agentLabel(agentId)
+  const label = mode === 'committee' ? '全体委员' : mode === 'workflow' ? '投委会秘书工作流' : agentLabel(agentId)
   return [
     {
       label: MEETING_INTRO_LABEL,

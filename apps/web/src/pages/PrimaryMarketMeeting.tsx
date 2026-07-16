@@ -4,7 +4,12 @@ import {
   Activity,
   ArrowRightLeft,
   Bot,
+  Calculator,
   CheckCircle2,
+  ClipboardPenLine,
+  Compass,
+  Cpu,
+  Crown,
   Eye,
   FileCheck2,
   GitBranch,
@@ -15,7 +20,9 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Scale,
   ShieldAlert,
+  ShieldCheck,
   Trash2,
   UsersRound,
   XCircle,
@@ -119,7 +126,7 @@ function meetingLane(mode: SpeakerMode, agentId: string) {
 }
 
 function windowTitle(mode: SpeakerMode, agentId: string) {
-  if (mode === 'workflow') return '总协调员工作流'
+  if (mode === 'workflow') return '投委会秘书工作流'
   if (mode === 'committee') return '全体委员会议'
   return agentLabel(agentId)
 }
@@ -243,9 +250,45 @@ function messageIdentityMeta(message: AgentMessage, mode: SpeakerMode) {
   if (message.streaming) return '输出中'
   if (message.progress?.status === 'error') return '调用异常'
   if (message.progress?.status === 'stopped') return '已停止'
-  if (mode === 'workflow') return '总协调员工作流'
+  if (mode === 'workflow') return '投委会秘书工作流'
   if (mode === 'committee') return '委员发言'
   return '一级市场智能体'
+}
+
+function AgentRoleAvatar({ agentId, compact = false }: { agentId: string; compact?: boolean }) {
+  const config = agentId === 'siq_ic_master_coordinator'
+    ? { Icon: ClipboardPenLine, className: 'border-warning/35 bg-warning/15 text-warning' }
+    : agentId === 'siq_ic_chairman'
+      ? { Icon: Crown, className: 'border-warning/35 bg-warning/15 text-warning' }
+      : agentId === 'siq_ic_strategist'
+        ? { Icon: Compass, className: 'border-warning/35 bg-warning/15 text-warning' }
+        : agentId === 'siq_ic_sector_expert'
+          ? { Icon: Cpu, className: 'border-warning/35 bg-warning/15 text-warning' }
+          : agentId === 'siq_ic_finance_auditor'
+            ? { Icon: Calculator, className: 'border-warning/35 bg-warning/15 text-warning' }
+            : agentId === 'siq_ic_legal_scanner'
+              ? { Icon: Scale, className: 'border-warning/35 bg-warning/15 text-warning' }
+              : { Icon: ShieldCheck, className: 'border-warning/35 bg-warning/15 text-warning' }
+  const { Icon, className } = config
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-full border ${compact ? 'h-7 w-7' : 'h-10 w-10'} ${className}`}
+      aria-hidden="true"
+    >
+      <Icon className={compact ? 'h-4 w-4' : 'h-5 w-5'} />
+    </span>
+  )
+}
+
+function AgentChatbotAvatar({ agentId }: { agentId: string }) {
+  return (
+    <span className="relative inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/5 text-primary shadow-sm" aria-hidden="true">
+      <Bot className="h-8 w-8" />
+      <span className="absolute -bottom-1 -right-1 rounded-full border-2 border-background bg-background">
+        <AgentRoleAvatar agentId={agentId} compact />
+      </span>
+    </span>
+  )
 }
 
 function IcMessageIdentity({
@@ -262,7 +305,7 @@ function IcMessageIdentity({
   const name = message.agentName || agentLabel(id)
   return (
     <div className="primary-market-message-identity" title={id}>
-      <span className="primary-market-message-avatar"><Bot className="h-3.5 w-3.5" /></span>
+      <AgentRoleAvatar agentId={id} compact />
       <span className="primary-market-message-name">{name}</span>
       <span className="primary-market-message-meta">{messageIdentityMeta(message, mode)}</span>
     </div>
@@ -710,7 +753,7 @@ export default function PrimaryMarketMeeting() {
       `本智能体 R1 报告：${score?.hasReport ? 'present' : 'missing'}；score=${score?.scoreText || '-'}；recommendation=${score?.recommendation || '-'}`,
       `R1 评分：${scoringSummary.scoredCount}/${scoringSummary.count} 已评分；均分=${scoringSummary.average ?? '-'}；支持/观察/反对=${scoringSummary.supportCount}/${scoringSummary.watchCount}/${scoringSummary.opposeCount}`,
       `R1.5 分歧：${disputeCount} 个；未解决=${unresolvedCount}`,
-      `总协调员建议：${recommendations || '-'}`,
+      `投委会秘书建议：${recommendations || '-'}`,
       `本次用户上传附件：\n${attachmentSummary(sentAttachments)}`,
       '',
       `最近会议纪要：\n${recentTranscript}`,
@@ -744,7 +787,7 @@ export default function PrimaryMarketMeeting() {
       type: 'human_intervention',
       speaker: 'Human',
       title: speakerMode === 'workflow'
-        ? '主持人交给总协调员'
+        ? '主持人交给投委会秘书'
         : speakerMode === 'committee'
           ? '主持人提问全体委员'
           : `主持人点名 ${agentLabel(selectedAgent)}`,
@@ -780,7 +823,7 @@ export default function PrimaryMarketMeeting() {
             ? [
               basePrompt,
               '',
-              '会议模式：总协调员工作流。',
+              '会议模式：投委会秘书工作流。',
               '请根据当前 R0-R4 状态判断下一步应该执行的投研决策动作，输出执行计划、风险门禁、需要人工确认的点。',
               '不要声称已经写入或已经执行；真正写入由现有 Workflow/投决页面完成。',
             ].join('\n')
@@ -895,7 +938,7 @@ export default function PrimaryMarketMeeting() {
             phase: currentPhase,
             type: 'agent_speech',
             speaker: agentLabel(agentId),
-            title: speakerMode === 'workflow' ? '总协调员工作流建议' : speakerMode === 'committee' ? '委员顺序发言' : '点名发言',
+            title: speakerMode === 'workflow' ? '投委会秘书工作流建议' : speakerMode === 'committee' ? '委员顺序发言' : '点名发言',
             body: reply,
             tone: 'info',
             meta: `hermes:${agentId}`,
@@ -1600,17 +1643,21 @@ export default function PrimaryMarketMeeting() {
               <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1fr)]">
                 <label className="min-w-0 space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Agent</span>
-                  <select
-                    value={selectedAgent}
-                    onChange={(event) => {
-                      setSpeakerMode('single')
-                      setSelectedAgent(event.target.value)
-                    }}
-                    className="h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    disabled={chatBusy !== ''}
-                  >
-                    {IC_AGENT_OPTIONS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label} ({agent.value})</option>)}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <AgentRoleAvatar agentId={selectedAgent} />
+                    <select
+                      value={selectedAgent}
+                      onChange={(event) => {
+                        setSpeakerMode('single')
+                        setSelectedAgent(event.target.value)
+                      }}
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      disabled={chatBusy !== ''}
+                      aria-label="选择投委会智能体"
+                    >
+                      {IC_AGENT_OPTIONS.map((agent) => <option key={agent.value} value={agent.value}>{agent.label} ({agent.value})</option>)}
+                    </select>
+                  </div>
                 </label>
                 <div className="min-w-0 space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Mode</span>
@@ -1625,7 +1672,7 @@ export default function PrimaryMarketMeeting() {
                     </Button>
                     <Button type="button" size="sm" variant={speakerMode === 'workflow' ? 'default' : 'secondary'} onClick={() => setSpeakerMode('workflow')} disabled={chatBusy !== ''}>
                       <GitBranch />
-                      总协调员工作流
+                      投委会秘书工作流
                     </Button>
                   </div>
                 </div>
@@ -1641,8 +1688,9 @@ export default function PrimaryMarketMeeting() {
                         type="button"
                         onClick={() => toggleCommitteeSpeaker(agent.value)}
                         disabled={chatBusy !== ''}
-                        className={`min-h-9 rounded-md border px-3 text-sm font-semibold transition-colors ${selected ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-muted/40 text-text-muted hover:bg-muted'}`}
+                        className={`inline-flex min-h-10 items-center gap-2 rounded-md border px-2.5 text-sm font-semibold transition-colors ${selected ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-muted/40 text-text-muted hover:bg-muted'}`}
                       >
+                        <AgentRoleAvatar agentId={agent.value} compact />
                         {agent.label}
                       </button>
                     )
@@ -1650,22 +1698,32 @@ export default function PrimaryMarketMeeting() {
                 </div>
               ) : null}
 
-              <div className="flex flex-col gap-3 border-y border-border/70 py-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex min-w-0 flex-wrap gap-2">
-                  {readinessChips.map((chip) => (
-                    <span key={chip.id} title={chip.detail}>
-                      <StatusBadge tone={chip.tone}>{chip.label}</StatusBadge>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span title={preparationPlan.reason}>
-                    <StatusBadge tone="info">检索目标 {preparationPlan.roundName} · {preparationPlan.profileIds.length} roles</StatusBadge>
-                  </span>
+              <div className="grid overflow-hidden rounded-md border border-border/80 bg-background xl:grid-cols-[300px_250px_minmax(0,1fr)]">
+                <section className="border-b border-border/70 bg-muted/20 px-4 py-3 xl:border-b-0 xl:border-r">
+                  <div className="mb-3 flex min-h-6 items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-text">运行状态</p>
+                    <StatusBadge tone="info">{preparationPlan.roundName}</StatusBadge>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap gap-2.5">
+                    {readinessChips.map((chip) => (
+                      <span key={chip.id} title={chip.detail} className="min-w-0">
+                        <StatusBadge tone={chip.tone}>{chip.label}</StatusBadge>
+                      </span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="border-b border-border/70 px-3 py-3 xl:border-b-0 xl:border-r" title={preparationPlan.reason}>
+                  <div className="mb-3 flex min-h-6 items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-text">检索准备</p>
+                    <span className="text-xs text-text-muted">{preparationPlan.profileIds.length} 个角色</span>
+                  </div>
+                  <div className="grid gap-2">
                   <Button
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="h-9 w-full justify-start px-3"
                     onClick={() => { prepareSelectedAgent().catch(() => {}) }}
                     disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !selectedAgentCanPrepare)}
                     title={selectedAgentCanPrepare ? `${preparationPlan.label} · include_vector=true` : `${agentLabel(selectedAgent)}不参与${preparationPlan.label}`}
@@ -1677,6 +1735,7 @@ export default function PrimaryMarketMeeting() {
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="h-9 w-full justify-start px-3"
                     onClick={() => { prepareCommittee().catch(() => {}) }}
                     disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !preparationPlan.profileIds.length)}
                     title={`${preparationPlan.reason} include_vector=true`}
@@ -1684,13 +1743,23 @@ export default function PrimaryMarketMeeting() {
                     {taskBusy === 'prepare-committee' ? <Loader2 className="animate-spin" /> : <UsersRound />}
                     准备 {preparationPlan.roundName} 参与角色
                   </Button>
+                  </div>
+                </section>
+
+                <section className="min-w-0 px-4 py-3">
+                  <div className="mb-3 flex min-h-6 items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-text">流程执行</p>
+                    <span className="text-xs text-text-muted">预演 · 执行 · 同步</span>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   <Button
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="h-10 min-w-0 justify-start"
                     onClick={() => { runCurrentAgentR1(true).catch(() => {}) }}
                     disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !selectedAgentCanRunR1)}
-                    title={selectedAgentCanRunR1 ? '预演当前智能体 R1 正式任务' : '总协调员不执行 R1 agent 任务'}
+                    title={selectedAgentCanRunR1 ? '预演当前智能体 R1 正式任务' : '投委会秘书不执行 R1 agent 任务'}
                   >
                     {taskBusy === 'r1-agent-dry-run' ? <Loader2 className="animate-spin" /> : <Eye />}
                     预演当前 R1
@@ -1699,6 +1768,7 @@ export default function PrimaryMarketMeeting() {
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="h-10 min-w-0 justify-start"
                     onClick={() => { runCurrentAgentR1(false).catch(() => {}) }}
                     disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !selectedAgentCanRunR1 || !selectedAgentReadyForR1)}
                     title={selectedAgentReadyForR1 ? '执行当前智能体正式 R1 任务' : selectedReadinessRow?.blockingReasons.join(' / ') || '当前智能体 readiness 未通过'}
@@ -1710,6 +1780,7 @@ export default function PrimaryMarketMeeting() {
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="h-10 min-w-0 justify-start"
                     onClick={() => { runR1Serial().catch(() => {}) }}
                     disabled={Boolean(chatBusy || taskBusy || !selectedDealId || !r1CommitteeReady)}
                     title={r1CommitteeReady ? '执行 R1 串行正式任务' : 'R1 委员 readiness 未全部通过'}
@@ -1717,19 +1788,20 @@ export default function PrimaryMarketMeeting() {
                     {taskBusy === 'r1-serial-execute' ? <Loader2 className="animate-spin" /> : <UsersRound />}
                     执行 R1 串行
                   </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => { advanceWorkflow(true).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                  <Button type="button" size="sm" variant="secondary" className="h-10 min-w-0 justify-start" onClick={() => { advanceWorkflow(true).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
                     {taskBusy === 'workflow-dry-run' ? <Loader2 className="animate-spin" /> : <GitBranch />}
                     预演下一步（模型）
                   </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => { advanceWorkflow(false).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
+                  <Button type="button" size="sm" variant="secondary" className="h-10 min-w-0 justify-start" onClick={() => { advanceWorkflow(false).catch(() => {}) }} disabled={Boolean(chatBusy || taskBusy || !selectedDealId)}>
                     {taskBusy === 'workflow-execute' ? <Loader2 className="animate-spin" /> : <GitBranch />}
                     执行下一步（Hermes）
                   </Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || Boolean(taskBusy) || !selectedDealId}>
+                  <Button type="button" size="sm" variant="secondary" className="h-10 min-w-0 justify-start" onClick={() => void refreshMeeting()} disabled={contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading || Boolean(taskBusy) || !selectedDealId}>
                     {contextLoading || transcriptLoading || chatHistoryLoading || sessionsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                     刷新状态
                   </Button>
-                </div>
+                  </div>
+                </section>
               </div>
 
               {decisionReadyForHuman ? (
@@ -1768,8 +1840,8 @@ export default function PrimaryMarketMeeting() {
                   <ChatHeader
                     className="primary-market-meeting-chat-header gap-3 border-b border-border/80 bg-white/54 px-4 py-3 backdrop-blur"
                     leadingClassName="flex min-w-0 flex-1 items-center gap-3"
-                    avatar={<Bot className="h-5 w-5" />}
-                    avatarClassName="premium-icon h-10 w-10 shrink-0 rounded-xl"
+                    avatar={<AgentRoleAvatar agentId={activeSessionAgent} />}
+                    avatarClassName="h-10 w-10 shrink-0"
                     title={<p className="truncate text-base font-semibold text-text">{activeWindowTitle}</p>}
                     subtitle={`Session: ${currentSessionId ? currentSessionId.slice(-16) : 'new'} · Lane: ${activeLane} · Hermes IC`}
                     actionsClassName="flex shrink-0 items-center justify-end gap-1 sm:gap-2"
@@ -1820,7 +1892,7 @@ export default function PrimaryMarketMeeting() {
                   <ChatMessageList
                     messages={messages}
                     endRef={messagesEnd}
-                    emptyAvatar={<div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-surface text-primary"><Bot className="h-7 w-7" /></div>}
+                    emptyAvatar={<div className="mb-4"><AgentChatbotAvatar agentId={activeSessionAgent} /></div>}
                     emptyDescription={emptyDescription}
                     quickQuestions={quickQuestions}
                     quickQuestionClassName="primary-market-quick-question-cloud"
@@ -1828,13 +1900,13 @@ export default function PrimaryMarketMeeting() {
                     onCopyMessage={copyMessage}
                     renderMessageHeader={(msg) => <IcMessageIdentity message={msg} mode={speakerMode} selectedAgent={selectedAgent} />}
                     renderProgress={(msg) => msg.progress && msg.progress.status !== 'completed' ? <AgentProgressCard progress={msg.progress} compact /> : null}
-                    listClassName="chat-page-message-list primary-market-meeting-chat-list w-full"
+                    listClassName="chat-page-message-list primary-market-meeting-chat-list mx-auto w-full"
                     messageGapClassName="space-y-4"
                   />
                 }
                 messagesClassName="chat-page-messages primary-market-meeting-chat-messages flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
                 composer={
-                  <div className="chat-page-composer primary-market-meeting-composer w-full">
+                  <div className="chat-page-composer primary-market-meeting-composer mx-auto w-full">
                     <ChatComposer
                       input={meetingInput}
                       setInput={setMeetingInput}
@@ -1850,7 +1922,7 @@ export default function PrimaryMarketMeeting() {
                       onNewChat={() => { createNewChat().catch((err) => setActionError(err instanceof Error ? err.message : '新建会话失败')) }}
                       onAttachmentChange={(files) => { handleAttachmentChange(files).catch(() => {}) }}
                       onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
-                      placeholder={speakerMode === 'workflow' ? '交给总协调员判断下一步 R0-R4 工作流...' : speakerMode === 'committee' ? '向全体委员提出同一个问题...' : `向 ${agentLabel(selectedAgent)} 提问...`}
+                      placeholder={speakerMode === 'workflow' ? '交给投委会秘书判断下一步 R0-R4 工作流...' : speakerMode === 'committee' ? '向全体委员提出同一个问题...' : `向 ${agentLabel(selectedAgent)} 提问...`}
                       showNewChat={false}
                     />
                   </div>

@@ -23,6 +23,7 @@ import {
   deriveProjectMetrics,
   deriveProjectRow,
   isMaterialPolling,
+  IC_AGENT_OPTIONS,
   IC_EXPERT_AGENT_IDS,
   materialCapabilities,
   materialFromResponse,
@@ -31,11 +32,26 @@ import {
   materialsFromResponse,
   mergeMaterialParseStatus,
   R1_AGENT_SEQUENCE,
+  primaryMarketMeetingQuickQuestions,
   validateHumanConfirmationDraft,
   validateR3Action,
   withMaterialVersions,
 } from './primaryMarketViewModel'
 import type { DealStatusResponse, DealSummary, DealWorkflowResponse } from '@/lib/dealTypes'
+
+test('meeting quick questions stay fixed at six items for every role and mode', () => {
+  for (const agent of IC_AGENT_OPTIONS) {
+    const questions = primaryMarketMeetingQuickQuestions(agent.value, 'single')
+    assert.equal(questions.length, 6, agent.label)
+    assert.equal(questions[0]?.label, '智能体简介', agent.label)
+  }
+
+  for (const mode of ['committee', 'workflow'] as const) {
+    const questions = primaryMarketMeetingQuickQuestions('siq_ic_master_coordinator', mode)
+    assert.equal(questions.length, 6, mode)
+    assert.equal(questions[0]?.label, '智能体简介', mode)
+  }
+})
 
 test('deriveProjectRow prioritizes blocking status and preserves next action', () => {
   const deal: DealSummary = {
