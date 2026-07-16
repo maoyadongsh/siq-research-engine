@@ -22,6 +22,8 @@ class AgentActionResponse(BaseModel):
 
 
 class ChatContextCompany(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     code: Optional[str] = None
     name: Optional[str] = None
     dir: Optional[str] = None
@@ -29,9 +31,12 @@ class ChatContextCompany(BaseModel):
     company_id: Optional[str] = None
     filing_id: Optional[str] = None
     parse_run_id: Optional[str] = None
+    company_key: Optional[str] = None
 
 
 class ChatContextReport(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     type: Optional[str] = None
     title: Optional[str] = None
     filename: Optional[str] = None
@@ -41,9 +46,15 @@ class ChatContextReport(BaseModel):
     company_id: Optional[str] = None
     filing_id: Optional[str] = None
     parse_run_id: Optional[str] = None
+    artifact_id: Optional[str] = None
+    report_id: Optional[str] = None
+    source_report_id: Optional[str] = None
+    source_family: Optional[str] = None
 
 
 class ChatContextPage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     title: Optional[str] = None
 
 
@@ -54,12 +65,53 @@ class ResearchIdentity(BaseModel):
     parse_run_id: Optional[str] = None
 
 
+class ChatContextSourceReport(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    report_id: Optional[str] = None
+    market: Optional[str] = None
+    company_id: Optional[str] = None
+    filing_id: Optional[str] = None
+    parse_run_id: Optional[str] = None
+    source_family: Optional[str] = None
+    document_format: Optional[str] = None
+    report_type: Optional[str] = None
+    form_type: Optional[str] = None
+    fiscal_year: Optional[int] = None
+    period_end: Optional[str] = None
+    published_at: Optional[str] = None
+    accounting_standard: Optional[str] = None
+    reporting_currency: Optional[str] = None
+    quality_status: Optional[str] = None
+    filename: Optional[str] = None
+    baseline_analysis_artifact_id: Optional[str] = None
+
+
+class ChatContextResearchTarget(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: Optional[str] = None
+    company_key: Optional[str] = None
+    company_wiki_id: Optional[str] = None
+    display_code: Optional[str] = None
+    display_name: Optional[str] = None
+    research_identity: Optional[ResearchIdentity] = None
+    source_report: Optional[ChatContextSourceReport] = None
+
+
 class ChatContext(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     company: Optional[ChatContextCompany] = None
     report: Optional[ChatContextReport] = None
     page: Optional[ChatContextPage] = None
     research_identity: Optional[ResearchIdentity] = None
+    source_report: Optional[ChatContextSourceReport] = None
+    research_target: Optional[ChatContextResearchTarget] = None
     market: Optional[str] = None
+    company_key: Optional[str] = None
+    report_id: Optional[str] = None
+    upstream_analysis_artifact_id: Optional[str] = None
     company_id: Optional[str] = None
     filing_id: Optional[str] = None
     parse_run_id: Optional[str] = None

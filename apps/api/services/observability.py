@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import logging
 import re
@@ -41,6 +42,17 @@ _BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL: Counter[str] = Counter()
 _BACKGROUND_JOB_DURATION_SECONDS: dict[tuple[str, str], dict[str, float]] = defaultdict(
     lambda: {"count": 0.0, "sum": 0.0, "max": 0.0}
 )
+_RESEARCH_READINESS_TOTAL: Counter[tuple[str, str, str]] = Counter()
+_RESEARCH_WORKFLOW_TERMINAL_TOTAL: Counter[tuple[str, str, str]] = Counter()
+_RESEARCH_IDENTITY_MISMATCH_TOTAL: Counter[tuple[str, str]] = Counter()
+_RESEARCH_CITATION_FAILURE_TOTAL: Counter[tuple[str, str]] = Counter()
+
+_RESEARCH_MARKETS = frozenset({"CN", "HK", "US", "EU", "KR", "JP", "unknown"})
+_RESEARCH_AGENT_TYPES = frozenset(
+    {"analysis", "factcheck", "tracking", "research-universe", "legal", "unknown"}
+)
+_RESEARCH_READINESS_STATES = frozenset({"ready", "degraded", "unavailable"})
+_RESEARCH_TERMINAL_STATES = frozenset({"success", "degraded", "failed"})
 
 
 def current_request_id() -> str:
@@ -68,6 +80,8 @@ def monotonic_ms(start: float) -> int:
 
 def _is_sensitive_key(key: str) -> bool:
     lowered = key.lower()
+    if lowered == "company_key_summary":
+        return False
     return any(term in lowered for term in SENSITIVE_KEY_TERMS)
 
 
@@ -91,6 +105,137 @@ def emit_json_log(logger: logging.Logger, event: str, **fields: Any) -> None:
         **redact_sensitive(fields),
     }
     logger.info(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def research_company_key_summary(company_key: Any | None) -> str:
+    """Return a non-reversible, stable summary suitable for operational logs."""
+    value = str(company_key or "").strip()
+    if not value:
+        return ""
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]}"
+
+
+def _research_market_label(value: Any | None) -> str:
+    market = str(value or "").strip().upper().replace("US_SEC", "US").replace("US-SEC", "US")
+    return market if market in _RESEARCH_MARKETS else "unknown"
+
+
+def _research_agent_label(value: Any | None) -> str:
+    agent_type = str(value or "").strip().lower().replace("_", "-")
+    aliases = {"factchecker": "factcheck", "researchuniverse": "research-universe"}
+    agent_type = aliases.get(agent_type, agent_type)
+    return agent_type if agent_type in _RESEARCH_AGENT_TYPES else "unknown"
+
+
+def normalize_research_terminal_status(value: Any | None, *, ok: bool | None = None) -> str:
+    status = str(value or "").strip().lower().replace("-", "_")
+    if ok is False:
+        return "failed"
+    if status in {"degraded", "partial_success", "warning"}:
+        return "degraded"
+    if status in {"success", "succeeded", "completed", "complete", "passed", "pass"}:
+        return "success"
+    if status in _RESEARCH_TERMINAL_STATES:
+        return status
+    return "success" if ok is True else "failed"
+
+
+def _research_identity_log_value(value: Any | None) -> dict[str, str]:
+    if value is None:
+        raw: Mapping[str, Any] = {}
+    elif isinstance(value, Mapping):
+        raw = value
+    elif callable(getattr(value, "to_dict", None)):
+        payload = value.to_dict()
+        raw = payload if isinstance(payload, Mapping) else {}
+    elif callable(getattr(value, "model_dump", None)):
+        payload = value.model_dump(exclude_none=True)
+        raw = payload if isinstance(payload, Mapping) else {}
+    else:
+        raw = {}
+    return {
+        "market": _research_market_label(raw.get("market")),
+        "company_id": _label_value(raw.get("company_id")),
+        "filing_id": _label_value(raw.get("filing_id")),
+        "parse_run_id": _label_value(raw.get("parse_run_id")),
+    }
+
+
+def emit_research_event(
+    logger: logging.Logger,
+    event: str,
+    *,
+    agent_type: Any | None,
+    market: Any | None = None,
+    company_key: Any | None = None,
+    research_identity: Any | None = None,
+    source_family: Any | None = None,
+    adapter_version: Any | None = None,
+    artifact_id: Any | None = None,
+    status: Any | None = None,
+    **fields: Any,
+) -> None:
+    """Emit the fixed, redacted research workflow envelope required by T9."""
+    identity = _research_identity_log_value(research_identity)
+    effective_market = _research_market_label(market or identity.get("market"))
+    identity["market"] = effective_market
+    emit_json_log(
+        logger,
+        event,
+        agent_type=_research_agent_label(agent_type),
+        market=effective_market,
+        company_key_summary=research_company_key_summary(company_key),
+        research_identity=identity,
+        source_family=_label_value(source_family),
+        adapter_version=_label_value(adapter_version),
+        artifact_id=_label_value(artifact_id),
+        status=_label_value(status),
+        **fields,
+    )
+
+
+def record_research_readiness(
+    *,
+    market: Any | None,
+    agent_type: Any | None,
+    status: str,
+) -> None:
+    state = str(status or "").strip().lower()
+    if state not in _RESEARCH_READINESS_STATES:
+        state = "unavailable"
+    with _METRICS_LOCK:
+        _RESEARCH_READINESS_TOTAL[
+            (_research_market_label(market), _research_agent_label(agent_type), state)
+        ] += 1
+
+
+def record_research_workflow_terminal(
+    *,
+    market: Any | None,
+    agent_type: Any | None,
+    status: Any | None,
+    ok: bool | None = None,
+) -> None:
+    terminal = normalize_research_terminal_status(status, ok=ok)
+    with _METRICS_LOCK:
+        _RESEARCH_WORKFLOW_TERMINAL_TOTAL[
+            (_research_market_label(market), _research_agent_label(agent_type), terminal)
+        ] += 1
+
+
+def record_research_validation_failure(
+    *,
+    market: Any | None,
+    agent_type: Any | None,
+    failure: str,
+) -> None:
+    key = (_research_market_label(market), _research_agent_label(agent_type))
+    normalized = str(failure or "").strip().lower()
+    with _METRICS_LOCK:
+        if normalized == "identity_mismatch":
+            _RESEARCH_IDENTITY_MISMATCH_TOTAL[key] += 1
+        elif normalized == "citation_failure":
+            _RESEARCH_CITATION_FAILURE_TOTAL[key] += 1
 
 
 def _label_value(value: Any) -> str:
@@ -296,6 +441,18 @@ def metrics_snapshot() -> dict[str, Any]:
                 "|".join(key): dict(value) for key, value in _BACKGROUND_JOB_DURATION_SECONDS.items()
             },
             "background_job_persistence_failure_counts": dict(_BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL),
+            "research_readiness_counts": {
+                "|".join(key): value for key, value in _RESEARCH_READINESS_TOTAL.items()
+            },
+            "research_workflow_terminal_counts": {
+                "|".join(key): value for key, value in _RESEARCH_WORKFLOW_TERMINAL_TOTAL.items()
+            },
+            "research_identity_mismatch_counts": {
+                "|".join(key): value for key, value in _RESEARCH_IDENTITY_MISMATCH_TOTAL.items()
+            },
+            "research_citation_failure_counts": {
+                "|".join(key): value for key, value in _RESEARCH_CITATION_FAILURE_TOTAL.items()
+            },
         }
 
 
@@ -430,6 +587,50 @@ def render_prometheus_metrics() -> str:
                 "siq_background_job_persistence_failure_total"
                 f'{{operation="{_prom_label(operation)}"}} {count}'
             )
+        lines.extend(
+            [
+                "# HELP siq_research_readiness_total Research readiness observations by bounded market, agent, and state.",
+                "# TYPE siq_research_readiness_total counter",
+            ]
+        )
+        for (market, agent_type, status), count in sorted(_RESEARCH_READINESS_TOTAL.items()):
+            lines.append(
+                "siq_research_readiness_total"
+                f'{{market="{market}",agent_type="{agent_type}",status="{status}"}} {count}'
+            )
+        lines.extend(
+            [
+                "# HELP siq_research_workflow_terminal_total Research workflow terminal results by bounded market, agent, and status.",
+                "# TYPE siq_research_workflow_terminal_total counter",
+            ]
+        )
+        for (market, agent_type, status), count in sorted(_RESEARCH_WORKFLOW_TERMINAL_TOTAL.items()):
+            lines.append(
+                "siq_research_workflow_terminal_total"
+                f'{{market="{market}",agent_type="{agent_type}",status="{status}"}} {count}'
+            )
+        lines.extend(
+            [
+                "# HELP siq_research_identity_mismatch_total Research identity validation failures by bounded market and agent.",
+                "# TYPE siq_research_identity_mismatch_total counter",
+            ]
+        )
+        for (market, agent_type), count in sorted(_RESEARCH_IDENTITY_MISMATCH_TOTAL.items()):
+            lines.append(
+                "siq_research_identity_mismatch_total"
+                f'{{market="{market}",agent_type="{agent_type}"}} {count}'
+            )
+        lines.extend(
+            [
+                "# HELP siq_research_citation_failure_total Research citation validation failures by bounded market and agent.",
+                "# TYPE siq_research_citation_failure_total counter",
+            ]
+        )
+        for (market, agent_type), count in sorted(_RESEARCH_CITATION_FAILURE_TOTAL.items()):
+            lines.append(
+                "siq_research_citation_failure_total"
+                f'{{market="{market}",agent_type="{agent_type}"}} {count}'
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -447,6 +648,10 @@ def reset_observability_metrics_for_tests() -> None:
         _BACKGROUND_JOB_FINAL_STATE_TOTAL.clear()
         _BACKGROUND_JOB_PERSISTENCE_FAILURE_TOTAL.clear()
         _BACKGROUND_JOB_DURATION_SECONDS.clear()
+        _RESEARCH_READINESS_TOTAL.clear()
+        _RESEARCH_WORKFLOW_TERMINAL_TOTAL.clear()
+        _RESEARCH_IDENTITY_MISMATCH_TOTAL.clear()
+        _RESEARCH_CITATION_FAILURE_TOTAL.clear()
         global _ANSWER_CALCULATOR_RUN_TOTAL, _ANSWER_CITATION_TOTAL
         _ANSWER_CALCULATOR_RUN_TOTAL = 0
         _ANSWER_CITATION_TOTAL = 0

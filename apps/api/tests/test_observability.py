@@ -7,6 +7,7 @@ from services.observability import (
     REQUEST_ID_HEADER,
     current_request_id,
     emit_json_log,
+    emit_research_event,
     metrics_snapshot,
     normalize_http_metric_path,
     normalize_request_id,
@@ -16,6 +17,9 @@ from services.observability import (
     record_frontend_pipeline_job_failure,
     record_ingestion_duration,
     record_ingestion_fact_counts,
+    record_research_readiness,
+    record_research_validation_failure,
+    record_research_workflow_terminal,
     record_wiki_postgres_parity_summary,
     redact_sensitive,
     render_prometheus_metrics,
@@ -240,3 +244,73 @@ def test_redact_sensitive_keeps_non_sensitive_values():
         "token": "***REDACTED***",
         "path": "/health",
     }
+
+
+def test_research_observability_uses_bounded_labels_and_exports_all_t9_counters():
+    reset_observability_metrics_for_tests()
+
+    record_research_readiness(market="US", agent_type="analysis", status="degraded")
+    record_research_readiness(market="user-controlled-market", agent_type="user-agent", status="custom")
+    record_research_workflow_terminal(market="HK", agent_type="factchecker", status="completed", ok=True)
+    record_research_workflow_terminal(market="JP", agent_type="tracking", status="partial_success", ok=True)
+    record_research_workflow_terminal(market="EU", agent_type="analysis", status="timeout", ok=False)
+    record_research_validation_failure(market="KR", agent_type="tracking", failure="identity_mismatch")
+    record_research_validation_failure(market="US", agent_type="factcheck", failure="citation_failure")
+
+    snapshot = metrics_snapshot()
+    assert snapshot["research_readiness_counts"]["US|analysis|degraded"] == 1
+    assert snapshot["research_readiness_counts"]["unknown|unknown|unavailable"] == 1
+    assert snapshot["research_workflow_terminal_counts"]["HK|factcheck|success"] == 1
+    assert snapshot["research_workflow_terminal_counts"]["JP|tracking|degraded"] == 1
+    assert snapshot["research_workflow_terminal_counts"]["EU|analysis|failed"] == 1
+    assert snapshot["research_identity_mismatch_counts"]["KR|tracking"] == 1
+    assert snapshot["research_citation_failure_counts"]["US|factcheck"] == 1
+
+    rendered = render_prometheus_metrics()
+    assert 'siq_research_readiness_total{market="US",agent_type="analysis",status="degraded"} 1' in rendered
+    assert 'siq_research_workflow_terminal_total{market="HK",agent_type="factcheck",status="success"} 1' in rendered
+    assert 'siq_research_identity_mismatch_total{market="KR",agent_type="tracking"} 1' in rendered
+    assert 'siq_research_citation_failure_total{market="US",agent_type="factcheck"} 1' in rendered
+    assert "user-controlled-market" not in rendered
+    assert "user-agent" not in rendered
+
+
+def test_research_log_hashes_company_key_and_never_serializes_body_prompt_or_path(caplog):
+    logger = logging.getLogger("siq.test.research_observability")
+    caplog.set_level(logging.INFO, logger=logger.name)
+    company_key = "us-aapl-private-selector"
+    local_path = "/home/private/wiki/us/companies/AAPL/reports/secret"
+
+    emit_research_event(
+        logger,
+        "research_workflow_finished",
+        agent_type="analysis",
+        market="US",
+        company_key=company_key,
+        research_identity={
+            "market": "US",
+            "company_id": "US:AAPL",
+            "filing_id": "US:AAPL:10-K:2025",
+            "parse_run_id": "parse-1",
+            "ignored_report_body": "secret body",
+            "local_path": local_path,
+        },
+        source_family="sec_ixbrl",
+        adapter_version="sec_ixbrl_v1",
+        artifact_id="analysis-aapl-2025",
+        status="completed",
+    )
+
+    message = caplog.records[-1].message
+    payload = json.loads(message)
+    assert payload["company_key_summary"].startswith("sha256:")
+    assert payload["research_identity"] == {
+        "market": "US",
+        "company_id": "US:AAPL",
+        "filing_id": "US:AAPL:10-K:2025",
+        "parse_run_id": "parse-1",
+    }
+    assert company_key not in message
+    assert "secret body" not in message
+    assert local_path not in message
+    assert "prompt" not in payload

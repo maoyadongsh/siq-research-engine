@@ -48,5 +48,8 @@ def test_specialist_contract_records_traceable_facts_and_session(monkeypatch, tm
 
 def test_citation_gate_rejects_unlocated_evidence():
     assert citation_has_locator({"source_path": "report.md", "chunk_index": 3}) is True
+    assert citation_has_locator({"source_url": "https://www.sec.gov/filing", "html_anchor": "item7"}) is True
+    assert citation_has_locator({"local_source_id": "xbrl/facts_raw.json", "xbrl_fact_id": "fact-123"}) is True
+    assert citation_has_locator({"source_path": "legacy-report.md", "quote": "legacy excerpt"}) is True
     assert citation_has_locator({"source_path": "report.md"}) is False
     assert citation_has_locator({"quote": "unsupported"}) is False

@@ -1,0 +1,137 @@
+{
+  "template_id": "siq_analysis_report_v1.1",
+  "template_name": "SIQ 年度财务诊断报告模板 v1.1",
+  "template_style": "CFO narrative, evidence-auditable, model-reasoned",
+  "module_count": 14,
+  "sections": [
+    {
+      "order": 1,
+      "section_id": "executive_summary",
+      "title": "一、执行摘要",
+      "section_type": "investment_committee_memo",
+      "preferred_blocks": ["经营状态定性", "财务健康度速览", "核心结论", "改变结论的条件"]
+    },
+    {
+      "order": 2,
+      "section_id": "key_changes",
+      "title": "二、关键变化概览",
+      "section_type": "variance_radar",
+      "preferred_blocks": ["年度异动雷达", "改善/恶化/观察项", "三表联动解释", "口径与证据"]
+    },
+    {
+      "order": 3,
+      "section_id": "operating_quality",
+      "title": "三、经营质量分析",
+      "section_type": "order_to_cash_diagnosis",
+      "preferred_blocks": ["收入变化分析", "收入与现金流匹配度", "经营稳定性评估", "业务韧性与待验证信号"]
+    },
+    {
+      "order": 4,
+      "section_id": "profitability_and_cost",
+      "title": "四、盈利能力与成本成因",
+      "section_type": "profit_bridge",
+      "preferred_blocks": ["杜邦分析", "利润变化桥", "毛利率与成本成因", "费用/减值/非经常性损益"]
+    },
+    {
+      "order": 5,
+      "section_id": "asset_quality_working_capital",
+      "title": "五、资产质量与营运资金",
+      "section_type": "balance_sheet_quality",
+      "preferred_blocks": ["资产结构与安全垫", "存货分析", "应收款项分析", "现金转换周期"]
+    },
+    {
+      "order": 6,
+      "section_id": "debt_liquidity",
+      "title": "六、债务安全与流动性",
+      "section_type": "liquidity_wall",
+      "preferred_blocks": ["短期偿债能力", "长期偿债能力", "现金覆盖与融资弹性", "Altman Z-Score 适用性"]
+    },
+    {
+      "order": 7,
+      "section_id": "cash_flow_quality",
+      "title": "七、现金流质量",
+      "section_type": "cash_conversion_diagnosis",
+      "preferred_blocks": ["现金流量表概览", "经营现金流与利润匹配度", "自由现金流", "现金流恶化/改善原因"]
+    },
+    {
+      "order": 8,
+      "section_id": "industry_competition",
+      "title": "八、行业周期与竞争位置",
+      "section_type": "competitive_positioning",
+      "preferred_blocks": ["行业周期判断", "同业对比", "竞争位置", "价格战与产品结构传导"]
+    },
+    {
+      "order": 9,
+      "section_id": "strategy_policy_external_risk",
+      "title": "九、战略政策与外部风险",
+      "section_type": "strategy_to_financials",
+      "preferred_blocks": ["管理层战略", "政策/出口/供应链变量", "战略兑现的财务验证", "待验证事项"]
+    },
+    {
+      "order": 10,
+      "section_id": "governance_compliance_shareholders",
+      "title": "十、治理合规与股东结构",
+      "section_type": "governance_audit",
+      "preferred_blocks": ["治理观察", "股东结构与资本动作", "合规/审计/监管事项", "治理风险信号"]
+    },
+    {
+      "order": 11,
+      "section_id": "valuation_expectation_gap",
+      "title": "十一、A 股估值与市场预期差",
+      "section_type": "expectation_gap_audit",
+      "preferred_blocks": ["估值数据缺口", "基本面锚", "市场预期差", "A 股特有风险"]
+    },
+    {
+      "order": 12,
+      "section_id": "risk_chain_scenario",
+      "title": "十二、风险链条与情景推演",
+      "section_type": "causal_scenario",
+      "preferred_blocks": ["主要风险链条", "情景推演", "可能推翻当前结论的证据", "风险缓释条件"]
+    },
+    {
+      "order": 13,
+      "section_id": "tracking_checklist",
+      "title": "十三、后续跟踪清单",
+      "section_type": "tracking_dashboard",
+      "preferred_blocks": ["核心跟踪指标", "改善信号", "恶化信号", "跟踪频率与数据源"]
+    },
+    {
+      "order": 14,
+      "section_id": "data_quality_traceability",
+      "title": "十四、数据质量与溯源声明",
+      "section_type": "audit_trail",
+      "preferred_blocks": ["数据来源", "数据质量检查", "关键证据索引", "限制与免责声明"]
+    }
+  ],
+  "section_schema": {
+    "required_fields": [
+      "section_id",
+      "title",
+      "section_type",
+      "narrative_blocks",
+      "facts",
+      "calculations",
+      "judgements",
+      "risks_or_improvement_conditions",
+      "evidence_ids",
+      "review_required"
+    ]
+  },
+  "visible_render_rule": "Render narrative_blocks as the visible subsection structure. Do not render every chapter as 事实/计算/判断/风险/改善条件.",
+  "evidence_reasoning_rule": "Quantitative facts must be evidence-bound and auditable. LLM reasoning should be used for causality, hypothesis, scenario, falsification, and financial statement linkage, while clearly separating inference from sourced facts.",
+  "tool_model_placement": {
+    "dupont_analysis": "profitability_and_cost",
+    "cash_conversion_cycle": "asset_quality_working_capital",
+    "free_cash_flow": "cash_flow_quality",
+    "altman_z_score": "debt_liquidity",
+    "three_statement_reconciliation": "data_quality_traceability"
+  },
+  "forbidden_outputs": [
+    "综合评分",
+    "维度得分",
+    "AAA/CCC/A-E 等评级",
+    "目标价",
+    "买入/卖出评级",
+    "无证据违法舞弊定性"
+  ]
+}

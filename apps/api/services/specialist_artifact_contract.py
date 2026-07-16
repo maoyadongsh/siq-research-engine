@@ -77,13 +77,41 @@ def normalize_citations(items: Any, *, default_source_type: str) -> list[dict[st
 
 
 def citation_has_locator(citation: Mapping[str, Any]) -> bool:
-    return any(
+    has_source = any(
         citation.get(key) not in (None, "")
-        for key in ("source_path", "file", "task_id", "evidence_id", "report_id")
-    ) and any(
-        citation.get(key) not in (None, "")
-        for key in ("chunk_index", "pdf_page", "pdf_page_number", "table_index", "md_line", "quote")
+        for key in (
+            "source_path",
+            "file",
+            "task_id",
+            "pdf_task_id",
+            "evidence_id",
+            "report_id",
+            "source_url",
+            "local_source_id",
+        )
     )
+    has_locator = any(
+        citation.get(key) not in (None, "")
+        for key in (
+            "chunk_index",
+            "pdf_page",
+            "pdf_page_number",
+            "table_index",
+            "table_id",
+            "md_line",
+            "section_id",
+            "html_anchor",
+            "xpath",
+            "xbrl_fact_id",
+            "fact_id",
+            "quote",
+        )
+    )
+    has_xbrl_locator = citation.get("xbrl_fact_id") not in (None, "") or (
+        citation.get("xbrl_concept") not in (None, "")
+        and citation.get("xbrl_context") not in (None, "")
+    )
+    return has_source and (has_locator or has_xbrl_locator)
 
 
 def finalize_specialist_artifact(

@@ -78,6 +78,26 @@ test('vite proxy exposes deal APIs without inheriting the finder rewrite', () =>
   assert.equal(finderRewrite('/api/v1/reports/search'), '/v1/reports/search')
 })
 
+test('research universe APIs stay on the backend in Vite and production nginx', () => {
+  const rules = createProxyRules({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const prefixes = rules.map((rule) => rule.prefix)
+  const proxy = createViteProxy({
+    backendUrl: 'http://backend.local',
+    reportFinderUrl: 'http://finder.local',
+  })
+  const nginxTemplate = readFileSync(resolvePath('nginx.conf.template'), 'utf8')
+  const backendRoute = nginxTemplate.match(/location ~ \^\/api\/\(([^)]+)\)/)?.[1] || ''
+
+  assert.ok(prefixes.includes('/api/research-universe'))
+  assert.ok(prefixes.indexOf('/api/research-universe') < prefixes.indexOf('/api'))
+  assert.equal(proxy['/api/research-universe'].target, 'http://backend.local')
+  assert.equal(proxy['/api/research-universe'].rewrite, undefined)
+  assert.ok(backendRoute.split('|').includes('research-universe'))
+})
+
 test('meeting APIs stay on the backend before the finder fallback', () => {
   const rules = createProxyRules({
     backendUrl: 'http://backend.local',

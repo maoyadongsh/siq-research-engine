@@ -48,6 +48,7 @@ export interface ReportViewerProps {
   emptyTitle: (companyName: string) => string
   emptyDescription: string
   infoFields: (company: Company) => { label: string; value: string }[]
+  marketScope?: 'cn-only' | 'all-parsed'
 }
 
 export function companyHasReportForType(company: Company, reportType: ReportType) {

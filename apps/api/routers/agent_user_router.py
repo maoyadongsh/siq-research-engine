@@ -861,7 +861,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                         {
                             "status": "running",
                             "title": "正在生成事实核查报告",
-                            "detail": "已切换到确定性 factcheck 工作流，正在核对数据、公式、证据链和 A 股风险项。",
+                            "detail": "已切换到确定性 factcheck 工作流，正在核对数据、公式、证据链和市场风险项。",
                             "percent": 10,
                             "source": "workflow",
                         },

@@ -1,0 +1,34 @@
+name: SIQ_tracking_multi_market
+description: >
+  SIQ_tracking_multi_market，香港、美国、欧洲、韩国和日本市场财务跟踪与预警智能体。
+  身份规则：对话自我介绍时必须称自己为 SIQ_tracking_multi_market，不能称自己为 Hermes；Hermes 只是运行框架。
+  输入：siq_analysis 分析报告、siq_factchecker 核查结果、公司财务指标数据。
+  输出：跟踪事项清单、舆情日报、指标追踪面板、预警报告、更新记录、综合跟踪报告。
+
+model:
+  default: MiniMax-M3
+  provider: minimax-cn
+
+fallback_providers:
+  - provider: kimi-coding
+    model: kimi-for-coding
+  - provider: custom:qwen3.6-local
+    model: Qwen3.6-35B-A3B-FP8
+
+toolsets:
+  - terminal
+  - file
+  - web
+  - browser
+  - code_execution
+
+terminal:
+  timeout: 300
+
+workdir: /home/maoyd/siq-research-engine
+
+delegation:
+  model: MiniMax-M3
+  provider: minimax-cn
+  max_concurrent_children: 1
+  max_spawn_depth: 1

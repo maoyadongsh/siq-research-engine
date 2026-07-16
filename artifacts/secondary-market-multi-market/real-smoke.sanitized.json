@@ -1,0 +1,1618 @@
+{
+  "schema_version": "siq_secondary_market_multi_market_real_smoke_v1",
+  "generated_at": "2026-07-16T09:48:43.674379Z",
+  "release_gate": "passed",
+  "scope": {
+    "markets": [
+      "CN",
+      "HK",
+      "US",
+      "EU",
+      "KR",
+      "JP"
+    ],
+    "workflows": [
+      "analysis",
+      "factcheck",
+      "tracking"
+    ],
+    "source": "authoritative_local_wiki",
+    "target_selection": "deterministic_research_universe",
+    "tracking_external_sources": "disabled_for_deterministic_smoke",
+    "pipeline_strategy": {
+      "CN": "legacy_golden_readonly",
+      "overseas": "formal_bundle_v2"
+    },
+    "cn_target_selection": "fixed_golden_000333",
+    "formal_quality_gate_markets": [
+      "HK",
+      "US",
+      "EU",
+      "KR",
+      "JP"
+    ]
+  },
+  "summary": {
+    "market_count": 6,
+    "passed_market_count": 6,
+    "formal_quality_market_count": 5,
+    "quality_passed_market_count": 5,
+    "legacy_compatibility_market_count": 1,
+    "legacy_compatibility_passed_market_count": 1,
+    "fact_surface_unchanged_count": 6
+  },
+  "markets": [
+    {
+      "market": "CN",
+      "pipeline": {
+        "expected": "legacy_golden_readonly",
+        "validated": true,
+        "generated": false
+      },
+      "input": {
+        "company_key": "rk1_cf4809f9f111aaa3579f9d9b4697cd50",
+        "company_wiki_id": "000333-美的集团",
+        "display_code": "000333",
+        "display_name": "美的集团",
+        "research_identity": {
+          "market": "CN",
+          "company_id": "000333-美的集团",
+          "filing_id": "CN:000333-美的集团:2025-annual",
+          "parse_run_id": "f4dead73-e0de-42b4-b1b7-d8cf217214ee"
+        },
+        "source_report": {
+          "report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "document_format": "pdf",
+          "report_type": "annual_report",
+          "form_type": null,
+          "fiscal_year": 2025,
+          "period_end": null,
+          "accounting_standard": null,
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "status": "verified",
+          "pipeline_mode": "legacy_golden_readonly",
+          "generated": false,
+          "html_present": true,
+          "html_content_hash": "sha256:bc6c66a5395236710450e1e1021e7cd90524bb49546d8f498c0bd3d2776e25e6",
+          "formal_markers_absent": true,
+          "markdown_present": true,
+          "json_present": true
+        },
+        "factcheck": {
+          "status": "verified",
+          "pipeline_mode": "legacy_golden_readonly",
+          "generated": false,
+          "html_present": true,
+          "html_content_hash": "sha256:081feece45ac17b8a89e6cf3e0a5585bf2257f85760d756f3b1eee2b10b9f425",
+          "formal_markers_absent": true
+        },
+        "tracking": {
+          "status": "verified",
+          "pipeline_mode": "legacy_golden_readonly",
+          "generated": false,
+          "html_present": true,
+          "html_content_hash": "sha256:2e9e6bdeb5d86d51b8df9af6aafc7a660e86972743345de5735c4507775a4f42",
+          "formal_markers_absent": true,
+          "manifest_latest_verified": true
+        }
+      },
+      "fact_surface": {
+        "before_digest": "2c4a718d70c31062db76ca1cacf7e615bae9c581bc3fc2ffe98fa6319829fb0c",
+        "before_file_count": 200,
+        "after_digest": "2c4a718d70c31062db76ca1cacf7e615bae9c581bc3fc2ffe98fa6319829fb0c",
+        "after_file_count": 200,
+        "unchanged": true
+      },
+      "legacy_compatibility_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "cn_golden_company_verified",
+            "passed": true
+          },
+          {
+            "code": "analysis_golden_html_readable",
+            "passed": true
+          },
+          {
+            "code": "analysis_formal_markers_absent",
+            "passed": true
+          },
+          {
+            "code": "factcheck_golden_html_readable",
+            "passed": true
+          },
+          {
+            "code": "factcheck_formal_markers_absent",
+            "passed": true
+          },
+          {
+            "code": "tracking_golden_html_readable",
+            "passed": true
+          },
+          {
+            "code": "tracking_formal_markers_absent",
+            "passed": true
+          },
+          {
+            "code": "analysis_golden_markdown_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_golden_json_present",
+            "passed": true
+          },
+          {
+            "code": "tracking_manifest_latest_verified",
+            "passed": true
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "market": "HK",
+      "pipeline": {
+        "expected": "formal_bundle_v2",
+        "validated": true,
+        "generated": true
+      },
+      "input": {
+        "company_key": "rk1_4d66d1b0e93871e20d644dd7f5734263",
+        "company_wiki_id": "00005-HSBC-HOLDINGS",
+        "display_code": "00005",
+        "display_name": "HSBC HOLDINGS",
+        "research_identity": {
+          "market": "HK",
+          "company_id": "HK:00005",
+          "filing_id": "HK:00005:12071408",
+          "parse_run_id": "HK:00005:12071408:e44a6a2f1d51ecee"
+        },
+        "source_report": {
+          "report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "document_format": "pdf",
+          "report_type": "年报",
+          "form_type": "annual_report",
+          "fiscal_year": 2025,
+          "period_end": "2025-12-31",
+          "accounting_standard": "HKFRS",
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "artifact_id": "analysis_ea43c8625f8a190745566fdb",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "1.0.0",
+          "upstream_artifact_ids": [],
+          "content_hash": "22c8d39bd50e2a6c36021a9dae5576cd38abde0917f0ae63486b764f53bb996f",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "financial_checks:warning_count=9",
+              "source_quality_warning",
+              "metric_unit_semantics_warning",
+              "financial_metric_canonical_conflict",
+              "财务检查状态为存在告警，汇总到 9 条告警、0 条失败项；检查结果用于限定结论强度，不能替代原始报表和证据定位。"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 32,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "research_pack_validation_status": "pass",
+            "evidence_catalog": {
+              "rendered_count": 6,
+              "total_count": 32,
+              "limit": 64,
+              "full_evidence_file": "analysis_ea43c8625f8a190745566fdb.json"
+            }
+          }
+        },
+        "factcheck": {
+          "artifact_id": "factcheck_20260716T094833_bae3cbffab05",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_factcheck_v1",
+          "upstream_artifact_ids": [
+            "analysis_ea43c8625f8a190745566fdb"
+          ],
+          "content_hash": "4531bf402d8406fa4381b918022292431bb4c159e4f687e7492883c34547df8f",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 50,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "verdict": "request_changes",
+            "checked_claim_count": 6,
+            "verified_claim_count": 6,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0,
+            "identity_mismatch_count": 0,
+            "citation_locator_failure_count": 0,
+            "degraded_reasons": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          }
+        },
+        "tracking": {
+          "artifact_id": "tracking_20260716T094834_721301fbb160",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_tracking_v1",
+          "upstream_artifact_ids": [
+            "analysis_ea43c8625f8a190745566fdb"
+          ],
+          "content_hash": "9f69acb63d36ed286ce6302a692b8014c3f3305675f051078439b7220a99ce36",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "sentiment_skipped_by_request"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 13,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "pipeline_status": "success",
+            "degraded_reasons": [
+              "sentiment_skipped_by_request"
+            ],
+            "module_status": {
+              "module1": "success",
+              "module2": "skipped",
+              "module3": "success",
+              "module4": "success",
+              "module5": "success",
+              "module6": "success"
+            },
+            "analysis_baseline_content_hash": "22c8d39bd50e2a6c36021a9dae5576cd38abde0917f0ae63486b764f53bb996f"
+          }
+        }
+      },
+      "fact_surface": {
+        "before_digest": "35209db5b9272ffced01ed02729dad8ece12df05a5597ed30b93466a5f7a9547",
+        "before_file_count": 73,
+        "after_digest": "35209db5b9272ffced01ed02729dad8ece12df05a5597ed30b93466a5f7a9547",
+        "after_file_count": 73,
+        "unchanged": true
+      },
+      "quality_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "analysis_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "analysis_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1910,
+            "minimum_count": 1800
+          },
+          {
+            "code": "analysis_html_payload_bounded",
+            "passed": true,
+            "observed_count": 22639,
+            "maximum_count": 524288
+          },
+          {
+            "code": "analysis_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 947,
+            "minimum_count": 900
+          },
+          {
+            "code": "factcheck_html_payload_bounded",
+            "passed": true,
+            "observed_count": 70366,
+            "maximum_count": 524288
+          },
+          {
+            "code": "factcheck_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2755,
+            "minimum_count": 1200
+          },
+          {
+            "code": "tracking_html_payload_bounded",
+            "passed": true,
+            "observed_count": 36814,
+            "maximum_count": 524288
+          },
+          {
+            "code": "tracking_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_valid",
+            "passed": true,
+            "claim_count": 6
+          },
+          {
+            "code": "analysis_claims_evidence_bound",
+            "passed": true,
+            "claim_count": 6
+          },
+          {
+            "code": "analysis_companion_json_available",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_collapsed",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_complete",
+            "passed": true,
+            "evidence_count": 6
+          },
+          {
+            "code": "analysis_evidence_catalog_bounded",
+            "passed": true,
+            "observed_count": 6,
+            "maximum_count": 64
+          },
+          {
+            "code": "analysis_full_evidence_preserved_in_companion",
+            "passed": true,
+            "evidence_count": 32,
+            "rendered_count": 6
+          },
+          {
+            "code": "analysis_no_bare_evidence_id_links",
+            "passed": true
+          },
+          {
+            "code": "analysis_sections_without_raw_evidence_flood",
+            "passed": true,
+            "maximum_links_per_section": 6
+          },
+          {
+            "code": "factcheck_never_approves_without_claims",
+            "passed": true
+          },
+          {
+            "code": "factcheck_all_analysis_claims_checked",
+            "passed": true,
+            "analysis_claim_count": 6,
+            "checked_claim_count": 6
+          },
+          {
+            "code": "factcheck_claims_supported",
+            "passed": true,
+            "checked_claim_count": 6,
+            "verified_claim_count": 6,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0
+          },
+          {
+            "code": "tracking_sentiment_skip_disclosed",
+            "passed": true
+          },
+          {
+            "code": "tracking_sentiment_skip_not_misrepresented",
+            "passed": true
+          },
+          {
+            "code": "tracking_no_comparable_period_not_overclaimed",
+            "passed": true,
+            "comparable_periods_available": true
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "market": "US",
+      "pipeline": {
+        "expected": "formal_bundle_v2",
+        "validated": true,
+        "generated": true
+      },
+      "input": {
+        "company_key": "rk1_35e174018cc6522f47d721e3c5bf3f03",
+        "company_wiki_id": "AAPL-Apple-Inc",
+        "display_code": "AAPL",
+        "display_name": "Apple Inc.",
+        "research_identity": {
+          "market": "US",
+          "company_id": "US:0000320193",
+          "filing_id": "US:0000320193:0000320193-25-000079",
+          "parse_run_id": "83af1dd537b35c9085dc81249123f58579b056ae4298ee78d01e8087e6605151"
+        },
+        "source_report": {
+          "report_id": "2025-10-K-0000320193-25-000079",
+          "source_family": "sec_ixbrl",
+          "document_format": "ixbrl_html",
+          "report_type": "annual",
+          "form_type": "10-K",
+          "fiscal_year": 2025,
+          "period_end": "2025-09-27",
+          "accounting_standard": "US_GAAP",
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "artifact_id": "analysis_f57611824cee49eb6298e47c",
+          "status": "degraded",
+          "source_report_id": "2025-10-K-0000320193-25-000079",
+          "source_family": "sec_ixbrl",
+          "adapter_version": "1.0.0",
+          "upstream_artifact_ids": [],
+          "content_hash": "9d19629593e8a7e5829d9fee5169568fbf4ced4c517b2c84ac45dee18a19065a",
+          "quality": {
+            "status": "pass",
+            "warnings": [
+              "Use standard three-statement bridge checks.",
+              "财务检查状态为通过，汇总到 1 条告警、0 条失败项；检查结果用于限定结论强度，不能替代原始报表和证据定位。"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 2061,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "research_pack_validation_status": "pass",
+            "evidence_catalog": {
+              "rendered_count": 14,
+              "total_count": 2061,
+              "limit": 64,
+              "full_evidence_file": "analysis_f57611824cee49eb6298e47c.json"
+            }
+          }
+        },
+        "factcheck": {
+          "artifact_id": "factcheck_20260716T094835_8e2c12b64595",
+          "status": "completed",
+          "source_report_id": "2025-10-K-0000320193-25-000079",
+          "source_family": "sec_ixbrl",
+          "adapter_version": "market_factcheck_v1",
+          "upstream_artifact_ids": [
+            "analysis_f57611824cee49eb6298e47c"
+          ],
+          "content_hash": "3448f4c4eebfe05130b99de62fb4b3771ea88f9d3ffacb260b61b1587cbca0d1",
+          "quality": {
+            "status": "pass",
+            "warnings": []
+          },
+          "evidence_summary": {
+            "citation_count": 86,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "verdict": "approve",
+            "checked_claim_count": 14,
+            "verified_claim_count": 14,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0,
+            "identity_mismatch_count": 0,
+            "citation_locator_failure_count": 0,
+            "degraded_reasons": []
+          }
+        },
+        "tracking": {
+          "artifact_id": "tracking_20260716T094836_b775ac281af5",
+          "status": "degraded",
+          "source_report_id": "2025-10-K-0000320193-25-000079",
+          "source_family": "sec_ixbrl",
+          "adapter_version": "market_tracking_v1",
+          "upstream_artifact_ids": [
+            "analysis_f57611824cee49eb6298e47c"
+          ],
+          "content_hash": "145fc65e90f9be034d32a49a17525688dd9ea90451192ddfadb60385db31a943",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "sentiment_skipped_by_request"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 7,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "pipeline_status": "success",
+            "degraded_reasons": [
+              "sentiment_skipped_by_request"
+            ],
+            "module_status": {
+              "module1": "success",
+              "module2": "skipped",
+              "module3": "success",
+              "module4": "success",
+              "module5": "success",
+              "module6": "success"
+            },
+            "analysis_baseline_content_hash": "9d19629593e8a7e5829d9fee5169568fbf4ced4c517b2c84ac45dee18a19065a"
+          }
+        }
+      },
+      "fact_surface": {
+        "before_digest": "01f4c366f2eef8328b81f813e981d4dad838e35c5df85ee4ea200ec8a67f87e3",
+        "before_file_count": 116,
+        "after_digest": "01f4c366f2eef8328b81f813e981d4dad838e35c5df85ee4ea200ec8a67f87e3",
+        "after_file_count": 116,
+        "unchanged": true
+      },
+      "quality_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "analysis_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "analysis_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2613,
+            "minimum_count": 1800
+          },
+          {
+            "code": "analysis_html_payload_bounded",
+            "passed": true,
+            "observed_count": 42257,
+            "maximum_count": 524288
+          },
+          {
+            "code": "analysis_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1191,
+            "minimum_count": 900
+          },
+          {
+            "code": "factcheck_html_payload_bounded",
+            "passed": true,
+            "observed_count": 80144,
+            "maximum_count": 524288
+          },
+          {
+            "code": "factcheck_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2522,
+            "minimum_count": 1200
+          },
+          {
+            "code": "tracking_html_payload_bounded",
+            "passed": true,
+            "observed_count": 40680,
+            "maximum_count": 524288
+          },
+          {
+            "code": "tracking_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_valid",
+            "passed": true,
+            "claim_count": 14
+          },
+          {
+            "code": "analysis_claims_evidence_bound",
+            "passed": true,
+            "claim_count": 14
+          },
+          {
+            "code": "analysis_companion_json_available",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_collapsed",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_complete",
+            "passed": true,
+            "evidence_count": 14
+          },
+          {
+            "code": "analysis_evidence_catalog_bounded",
+            "passed": true,
+            "observed_count": 14,
+            "maximum_count": 64
+          },
+          {
+            "code": "analysis_full_evidence_preserved_in_companion",
+            "passed": true,
+            "evidence_count": 2061,
+            "rendered_count": 14
+          },
+          {
+            "code": "analysis_no_bare_evidence_id_links",
+            "passed": true
+          },
+          {
+            "code": "analysis_sections_without_raw_evidence_flood",
+            "passed": true,
+            "maximum_links_per_section": 6
+          },
+          {
+            "code": "factcheck_never_approves_without_claims",
+            "passed": true
+          },
+          {
+            "code": "factcheck_all_analysis_claims_checked",
+            "passed": true,
+            "analysis_claim_count": 14,
+            "checked_claim_count": 14
+          },
+          {
+            "code": "factcheck_claims_supported",
+            "passed": true,
+            "checked_claim_count": 14,
+            "verified_claim_count": 14,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0
+          },
+          {
+            "code": "tracking_sentiment_skip_disclosed",
+            "passed": true
+          },
+          {
+            "code": "tracking_sentiment_skip_not_misrepresented",
+            "passed": true
+          },
+          {
+            "code": "tracking_no_comparable_period_not_overclaimed",
+            "passed": true,
+            "comparable_periods_available": true
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "market": "EU",
+      "pipeline": {
+        "expected": "formal_bundle_v2",
+        "validated": true,
+        "generated": true
+      },
+      "input": {
+        "company_key": "rk1_2907b7e35c2ee3cf05219354fb86e442",
+        "company_wiki_id": "AD-Koninklijke-Ahold-Delhaize-N-V",
+        "display_code": "AD",
+        "display_name": "Koninklijke Ahold Delhaize N.V",
+        "research_identity": {
+          "market": "EU",
+          "company_id": "EU:NL:AD",
+          "filing_id": "EU:AD:2025-annual:7a96d9c8-5919-45f2-85ea-afd32151decc",
+          "parse_run_id": "EU:7a96d9c8-5919-45f2-85ea-afd32151decc"
+        },
+        "source_report": {
+          "report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "document_format": "pdf",
+          "report_type": "年报",
+          "form_type": "eu_esef_annual_report",
+          "fiscal_year": 2025,
+          "period_end": "2025-12-28",
+          "accounting_standard": "IFRS / EU local GAAP",
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "artifact_id": "analysis_3027ed7de4eaec1398871c07",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "1.0.0",
+          "upstream_artifact_ids": [],
+          "content_hash": "6d9482473d1c857e1cbbf5807c623f89a881891a7d72498ab46e04d7cadaeb69",
+          "quality": {
+            "status": "pass",
+            "warnings": [
+              "metric_unit_semantics_warning",
+              "源报告会计准则字段为“IFRS / EU local GAAP”，与该市场常用政策标签不同；分析仍应以源字段为准并人工复核。"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 34,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "research_pack_validation_status": "pass",
+            "evidence_catalog": {
+              "rendered_count": 10,
+              "total_count": 34,
+              "limit": 64,
+              "full_evidence_file": "analysis_3027ed7de4eaec1398871c07.json"
+            }
+          }
+        },
+        "factcheck": {
+          "artifact_id": "factcheck_20260716T094838_b04b5a6fc01d",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_factcheck_v1",
+          "upstream_artifact_ids": [
+            "analysis_3027ed7de4eaec1398871c07"
+          ],
+          "content_hash": "700a2c71dbafed9cfa166e5564b05a2bc9d14fe31bdc6d3a80abd76ec44e1dec",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 50,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "verdict": "request_changes",
+            "checked_claim_count": 10,
+            "verified_claim_count": 10,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0,
+            "identity_mismatch_count": 0,
+            "citation_locator_failure_count": 0,
+            "degraded_reasons": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          }
+        },
+        "tracking": {
+          "artifact_id": "tracking_20260716T094839_3f9759c004df",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_tracking_v1",
+          "upstream_artifact_ids": [
+            "analysis_3027ed7de4eaec1398871c07"
+          ],
+          "content_hash": "ca934d3b28ac6c614e48ed20891301b77d83ccba141a66c2591050aeadefbd30",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "sentiment_skipped_by_request"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 11,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "pipeline_status": "success",
+            "degraded_reasons": [
+              "sentiment_skipped_by_request"
+            ],
+            "module_status": {
+              "module1": "success",
+              "module2": "skipped",
+              "module3": "success",
+              "module4": "success",
+              "module5": "success",
+              "module6": "success"
+            },
+            "analysis_baseline_content_hash": "6d9482473d1c857e1cbbf5807c623f89a881891a7d72498ab46e04d7cadaeb69"
+          }
+        }
+      },
+      "fact_surface": {
+        "before_digest": "d88c79dfd1ba81846e59e4518b256c295aaa4a3453a80eca745c1ae841ac444c",
+        "before_file_count": 63,
+        "after_digest": "d88c79dfd1ba81846e59e4518b256c295aaa4a3453a80eca745c1ae841ac444c",
+        "after_file_count": 63,
+        "unchanged": true
+      },
+      "quality_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "analysis_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "analysis_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1933,
+            "minimum_count": 1800
+          },
+          {
+            "code": "analysis_html_payload_bounded",
+            "passed": true,
+            "observed_count": 28614,
+            "maximum_count": 524288
+          },
+          {
+            "code": "analysis_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1071,
+            "minimum_count": 900
+          },
+          {
+            "code": "factcheck_html_payload_bounded",
+            "passed": true,
+            "observed_count": 66022,
+            "maximum_count": 524288
+          },
+          {
+            "code": "factcheck_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2371,
+            "minimum_count": 1200
+          },
+          {
+            "code": "tracking_html_payload_bounded",
+            "passed": true,
+            "observed_count": 33724,
+            "maximum_count": 524288
+          },
+          {
+            "code": "tracking_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_valid",
+            "passed": true,
+            "claim_count": 10
+          },
+          {
+            "code": "analysis_claims_evidence_bound",
+            "passed": true,
+            "claim_count": 10
+          },
+          {
+            "code": "analysis_companion_json_available",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_collapsed",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_complete",
+            "passed": true,
+            "evidence_count": 10
+          },
+          {
+            "code": "analysis_evidence_catalog_bounded",
+            "passed": true,
+            "observed_count": 10,
+            "maximum_count": 64
+          },
+          {
+            "code": "analysis_full_evidence_preserved_in_companion",
+            "passed": true,
+            "evidence_count": 34,
+            "rendered_count": 10
+          },
+          {
+            "code": "analysis_no_bare_evidence_id_links",
+            "passed": true
+          },
+          {
+            "code": "analysis_sections_without_raw_evidence_flood",
+            "passed": true,
+            "maximum_links_per_section": 6
+          },
+          {
+            "code": "factcheck_never_approves_without_claims",
+            "passed": true
+          },
+          {
+            "code": "factcheck_all_analysis_claims_checked",
+            "passed": true,
+            "analysis_claim_count": 10,
+            "checked_claim_count": 10
+          },
+          {
+            "code": "factcheck_claims_supported",
+            "passed": true,
+            "checked_claim_count": 10,
+            "verified_claim_count": 10,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0
+          },
+          {
+            "code": "tracking_sentiment_skip_disclosed",
+            "passed": true
+          },
+          {
+            "code": "tracking_sentiment_skip_not_misrepresented",
+            "passed": true
+          },
+          {
+            "code": "tracking_no_comparable_period_not_overclaimed",
+            "passed": true,
+            "comparable_periods_available": true
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "market": "KR",
+      "pipeline": {
+        "expected": "formal_bundle_v2",
+        "validated": true,
+        "generated": true
+      },
+      "input": {
+        "company_key": "rk1_2fe6bd2cd10019630b2d4b0ee63ac595",
+        "company_wiki_id": "000270-Kia-Corporation",
+        "display_code": "000270",
+        "display_name": "Kia Corporation",
+        "research_identity": {
+          "market": "KR",
+          "company_id": "KR:000270",
+          "filing_id": "KR:000270:2025-annual:3e27fbba-bf58-4145-9ba1-88acba6e4921",
+          "parse_run_id": "KR:3e27fbba-bf58-4145-9ba1-88acba6e4921"
+        },
+        "source_report": {
+          "report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "document_format": "pdf",
+          "report_type": "年报",
+          "form_type": "kr_business_report",
+          "fiscal_year": 2025,
+          "period_end": "2025-12-31",
+          "accounting_standard": "KIFRS",
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "artifact_id": "analysis_408d47e09e5332461b2bd7f6",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "1.0.0",
+          "upstream_artifact_ids": [],
+          "content_hash": "6d2043c4d2168e256a4424dd76325f47d7b33b30f597458cbd82f210b30ee9b2",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "KR DART hybrid parser: no XBRL/API facts supplied; used PDF/HTML tables when available.",
+              "Shipment and production units require unit-aware comparisons.",
+              "financial_checks:warning_count=4",
+              "source_quality_warning",
+              "财务检查状态为存在告警，汇总到 4 条告警、0 条失败项；检查结果用于限定结论强度，不能替代原始报表和证据定位。"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 48,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "research_pack_validation_status": "pass",
+            "evidence_catalog": {
+              "rendered_count": 16,
+              "total_count": 48,
+              "limit": 64,
+              "full_evidence_file": "analysis_408d47e09e5332461b2bd7f6.json"
+            }
+          }
+        },
+        "factcheck": {
+          "artifact_id": "factcheck_20260716T094840_d83fa89813e1",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_factcheck_v1",
+          "upstream_artifact_ids": [
+            "analysis_408d47e09e5332461b2bd7f6"
+          ],
+          "content_hash": "a03ab42c7e0c737fa8f21cf243ebefe7d973d75bb673d8ec5c5ab708205b488c",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 50,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "verdict": "request_changes",
+            "checked_claim_count": 16,
+            "verified_claim_count": 16,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0,
+            "identity_mismatch_count": 0,
+            "citation_locator_failure_count": 0,
+            "degraded_reasons": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          }
+        },
+        "tracking": {
+          "artifact_id": "tracking_20260716T094841_9ffa1042cb04",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_tracking_v1",
+          "upstream_artifact_ids": [
+            "analysis_408d47e09e5332461b2bd7f6"
+          ],
+          "content_hash": "3ba9852d258d5c538f1de9c8071f9714cd462b7fbec2d9491b14464850220ca4",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "sentiment_skipped_by_request"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 13,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "pipeline_status": "success",
+            "degraded_reasons": [
+              "sentiment_skipped_by_request"
+            ],
+            "module_status": {
+              "module1": "success",
+              "module2": "skipped",
+              "module3": "success",
+              "module4": "success",
+              "module5": "success",
+              "module6": "success"
+            },
+            "analysis_baseline_content_hash": "6d2043c4d2168e256a4424dd76325f47d7b33b30f597458cbd82f210b30ee9b2"
+          }
+        }
+      },
+      "fact_surface": {
+        "before_digest": "8a4b3b6f5a5a2ff89c87c172e844f16b5b29a345a6d094376f551cbc1122ebfc",
+        "before_file_count": 72,
+        "after_digest": "8a4b3b6f5a5a2ff89c87c172e844f16b5b29a345a6d094376f551cbc1122ebfc",
+        "after_file_count": 72,
+        "unchanged": true
+      },
+      "quality_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "analysis_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "analysis_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2048,
+            "minimum_count": 1800
+          },
+          {
+            "code": "analysis_html_payload_bounded",
+            "passed": true,
+            "observed_count": 33622,
+            "maximum_count": 524288
+          },
+          {
+            "code": "analysis_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1304,
+            "minimum_count": 900
+          },
+          {
+            "code": "factcheck_html_payload_bounded",
+            "passed": true,
+            "observed_count": 74084,
+            "maximum_count": 524288
+          },
+          {
+            "code": "factcheck_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 2435,
+            "minimum_count": 1200
+          },
+          {
+            "code": "tracking_html_payload_bounded",
+            "passed": true,
+            "observed_count": 35008,
+            "maximum_count": 524288
+          },
+          {
+            "code": "tracking_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_valid",
+            "passed": true,
+            "claim_count": 16
+          },
+          {
+            "code": "analysis_claims_evidence_bound",
+            "passed": true,
+            "claim_count": 16
+          },
+          {
+            "code": "analysis_companion_json_available",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_collapsed",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_complete",
+            "passed": true,
+            "evidence_count": 16
+          },
+          {
+            "code": "analysis_evidence_catalog_bounded",
+            "passed": true,
+            "observed_count": 16,
+            "maximum_count": 64
+          },
+          {
+            "code": "analysis_full_evidence_preserved_in_companion",
+            "passed": true,
+            "evidence_count": 48,
+            "rendered_count": 16
+          },
+          {
+            "code": "analysis_no_bare_evidence_id_links",
+            "passed": true
+          },
+          {
+            "code": "analysis_sections_without_raw_evidence_flood",
+            "passed": true,
+            "maximum_links_per_section": 6
+          },
+          {
+            "code": "factcheck_never_approves_without_claims",
+            "passed": true
+          },
+          {
+            "code": "factcheck_all_analysis_claims_checked",
+            "passed": true,
+            "analysis_claim_count": 16,
+            "checked_claim_count": 16
+          },
+          {
+            "code": "factcheck_claims_supported",
+            "passed": true,
+            "checked_claim_count": 16,
+            "verified_claim_count": 16,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0
+          },
+          {
+            "code": "tracking_sentiment_skip_disclosed",
+            "passed": true
+          },
+          {
+            "code": "tracking_sentiment_skip_not_misrepresented",
+            "passed": true
+          },
+          {
+            "code": "tracking_no_comparable_period_not_overclaimed",
+            "passed": true,
+            "comparable_periods_available": true
+          }
+        ]
+      },
+      "passed": true
+    },
+    {
+      "market": "JP",
+      "pipeline": {
+        "expected": "formal_bundle_v2",
+        "validated": true,
+        "generated": true
+      },
+      "input": {
+        "company_key": "rk1_911487a9c9e33f6c85327f233762499b",
+        "company_wiki_id": "3382-Seven-and-i-Holdings-Co-Ltd",
+        "display_code": "3382",
+        "display_name": "Seven & i Holdings Co., Ltd",
+        "research_identity": {
+          "market": "JP",
+          "company_id": "JP:3382",
+          "filing_id": "JP:3382:2025-annual:1cf9d6a3-e414-4b43-996d-520aac13ccd6",
+          "parse_run_id": "JP:1cf9d6a3-e414-4b43-996d-520aac13ccd6"
+        },
+        "source_report": {
+          "report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "document_format": "pdf",
+          "report_type": "年报",
+          "form_type": "jp_annual_securities_report",
+          "fiscal_year": 2025,
+          "period_end": "2025-02-28",
+          "accounting_standard": "IFRS",
+          "quality_status": "pass"
+        }
+      },
+      "workflows": {
+        "analysis": {
+          "artifact_id": "analysis_86da3edb723382d23a5a61c8",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "1.0.0",
+          "upstream_artifact_ids": [],
+          "content_hash": "96c821cc90cee2b2d8306e1e45c4d0fc85bf78748bf293a6200ec015ac0df1ad",
+          "quality": {
+            "status": "pass",
+            "warnings": [
+              "JP EDINET hybrid parser: no XBRL/API facts supplied; used PDF/HTML tables when available.",
+              "Store count and same-store sales are usually operating tables, not XBRL-standardized.",
+              "financial_checks:warning_count=17",
+              "财务检查状态为通过，汇总到 17 条告警、0 条失败项；检查结果用于限定结论强度，不能替代原始报表和证据定位。"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 24,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "research_pack_validation_status": "pass",
+            "evidence_catalog": {
+              "rendered_count": 8,
+              "total_count": 24,
+              "limit": 64,
+              "full_evidence_file": "analysis_86da3edb723382d23a5a61c8.json"
+            }
+          }
+        },
+        "factcheck": {
+          "artifact_id": "factcheck_20260716T094843_e13f2d2853cb",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_factcheck_v1",
+          "upstream_artifact_ids": [
+            "analysis_86da3edb723382d23a5a61c8"
+          ],
+          "content_hash": "f6aa163def019938df9fe8e497122fe741eb8a307d33bc8d333b045c3a496d5a",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 50,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "verdict": "request_changes",
+            "checked_claim_count": 8,
+            "verified_claim_count": 8,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0,
+            "identity_mismatch_count": 0,
+            "citation_locator_failure_count": 0,
+            "degraded_reasons": [
+              "factcheck_verdict:request_changes",
+              "calculation_consistency:源报告未提供 financial checks，算术和同比只能做有限核验"
+            ]
+          }
+        },
+        "tracking": {
+          "artifact_id": "tracking_20260716T094843_9621760da7ae",
+          "status": "degraded",
+          "source_report_id": "2025-annual",
+          "source_family": "pdf_market",
+          "adapter_version": "market_tracking_v1",
+          "upstream_artifact_ids": [
+            "analysis_86da3edb723382d23a5a61c8"
+          ],
+          "content_hash": "b54e76fd95946234f327773c5fc09937baf5f59e9be3387ba0c105fd06df209f",
+          "quality": {
+            "status": "warning",
+            "warnings": [
+              "sentiment_skipped_by_request"
+            ]
+          },
+          "evidence_summary": {
+            "citation_count": 15,
+            "unresolved_count": 0
+          },
+          "metadata": {
+            "pipeline_status": "success",
+            "degraded_reasons": [
+              "sentiment_skipped_by_request"
+            ],
+            "module_status": {
+              "module1": "success",
+              "module2": "skipped",
+              "module3": "success",
+              "module4": "success",
+              "module5": "success",
+              "module6": "success"
+            },
+            "analysis_baseline_content_hash": "96c821cc90cee2b2d8306e1e45c4d0fc85bf78748bf293a6200ec015ac0df1ad"
+          }
+        }
+      },
+      "fact_surface": {
+        "before_digest": "c6b617f5a8b16234f133f57d1cda382e04194e2eda7d6d0a66f123b966a431d7",
+        "before_file_count": 72,
+        "after_digest": "c6b617f5a8b16234f133f57d1cda382e04194e2eda7d6d0a66f123b966a431d7",
+        "after_file_count": 72,
+        "unchanged": true
+      },
+      "quality_checks": {
+        "status": "passed",
+        "failure_codes": [],
+        "checks": [
+          {
+            "code": "analysis_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "analysis_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1956,
+            "minimum_count": 1800
+          },
+          {
+            "code": "analysis_html_payload_bounded",
+            "passed": true,
+            "observed_count": 24616,
+            "maximum_count": 524288
+          },
+          {
+            "code": "analysis_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "factcheck_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1041,
+            "minimum_count": 900
+          },
+          {
+            "code": "factcheck_html_payload_bounded",
+            "passed": true,
+            "observed_count": 70728,
+            "maximum_count": 524288
+          },
+          {
+            "code": "factcheck_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_lang_zh_cn",
+            "passed": true
+          },
+          {
+            "code": "tracking_html_chinese_narrative",
+            "passed": true,
+            "observed_count": 1909,
+            "minimum_count": 1200
+          },
+          {
+            "code": "tracking_html_payload_bounded",
+            "passed": true,
+            "observed_count": 29710,
+            "maximum_count": 524288
+          },
+          {
+            "code": "tracking_html_market_unit",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_structured_claims_valid",
+            "passed": true,
+            "claim_count": 8
+          },
+          {
+            "code": "analysis_claims_evidence_bound",
+            "passed": true,
+            "claim_count": 8
+          },
+          {
+            "code": "analysis_companion_json_available",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_present",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_collapsed",
+            "passed": true
+          },
+          {
+            "code": "analysis_evidence_catalog_complete",
+            "passed": true,
+            "evidence_count": 8
+          },
+          {
+            "code": "analysis_evidence_catalog_bounded",
+            "passed": true,
+            "observed_count": 8,
+            "maximum_count": 64
+          },
+          {
+            "code": "analysis_full_evidence_preserved_in_companion",
+            "passed": true,
+            "evidence_count": 24,
+            "rendered_count": 8
+          },
+          {
+            "code": "analysis_no_bare_evidence_id_links",
+            "passed": true
+          },
+          {
+            "code": "analysis_sections_without_raw_evidence_flood",
+            "passed": true,
+            "maximum_links_per_section": 6
+          },
+          {
+            "code": "factcheck_never_approves_without_claims",
+            "passed": true
+          },
+          {
+            "code": "factcheck_all_analysis_claims_checked",
+            "passed": true,
+            "analysis_claim_count": 8,
+            "checked_claim_count": 8
+          },
+          {
+            "code": "factcheck_claims_supported",
+            "passed": true,
+            "checked_claim_count": 8,
+            "verified_claim_count": 8,
+            "contradicted_claim_count": 0,
+            "unsupported_claim_count": 0
+          },
+          {
+            "code": "tracking_sentiment_skip_disclosed",
+            "passed": true
+          },
+          {
+            "code": "tracking_sentiment_skip_not_misrepresented",
+            "passed": true
+          },
+          {
+            "code": "tracking_no_comparable_period_not_overclaimed",
+            "passed": true,
+            "comparable_periods_available": false
+          }
+        ]
+      },
+      "passed": true
+    }
+  ],
+  "sanitization": {
+    "report_bodies": "excluded",
+    "prompts": "excluded",
+    "credentials": "excluded",
+    "local_paths": "excluded"
+  }
+}

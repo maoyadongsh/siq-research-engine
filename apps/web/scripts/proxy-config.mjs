@@ -9,6 +9,7 @@ const BACKEND_PREFIXES = [
   '/api/analysis',
   '/api/factchecker',
   '/api/tracking',
+  '/api/research-universe',
   '/api/legal',
   '/api/settings',
   '/api/system',

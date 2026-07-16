@@ -14,6 +14,8 @@ import ReportEmptyState from './ReportEmptyState'
 import ReportFrame from './ReportFrame'
 import ReportSelector from './ReportSelector'
 import ReportToolbar from './ReportToolbar'
+import ResearchUniverseReportViewer from '@/features/research-universe/ResearchUniverseReportViewer'
+import { isMultiMarketResearchEnabled } from '@/features/research-universe/featureFlag'
 
 const REPORT_TYPE_META = {
   analysis: {
@@ -46,7 +48,9 @@ const REPORT_TYPE_META = {
   },
 } as const
 
-export default function ReportViewer({ agentConfig, pageTitle, reportType, reportApiSuffix, iframeTitle, emptyTitle, emptyDescription, infoFields }: ReportViewerProps) {
+const DEFAULT_SECONDARY_COMPANY_DIR = '600104-上汽集团'
+
+function LegacyReportViewer({ agentConfig, pageTitle, reportType, reportApiSuffix, iframeTitle, emptyTitle, emptyDescription, infoFields }: ReportViewerProps) {
   const { toast } = useToast()
   const { hasPermission } = useAuth()
   const [searchParams] = useSearchParams()
@@ -71,9 +75,11 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
         const list: Company[] = data.companies || []
         setCompanies(list)
         const requested = list.find((c) => c.dir === requestedCompany)
+        const defaultSecondaryCompany = list.find((c) => c.dir === DEFAULT_SECONDARY_COMPANY_DIR)
         const first = list.find((c) => companyHasReportForType(c, reportType))
           || list.find((c) => c.hasReport || c.hasFactcheck || c.hasTracking || c.hasLegal)
         if (requested) setSelectedDir(requested.dir)
+        else if (defaultSecondaryCompany) setSelectedDir(defaultSecondaryCompany.dir)
         else if (first) setSelectedDir(first.dir)
         else if (list[0]) setSelectedDir(list[0].dir)
         setLoading(false)
@@ -363,4 +369,15 @@ export default function ReportViewer({ agentConfig, pageTitle, reportType, repor
       </div>
     </PageWithAgentChat>
   )
+}
+
+export default function ReportViewer(props: ReportViewerProps) {
+  if (
+    props.marketScope === 'all-parsed'
+    && props.reportType !== 'legal'
+    && isMultiMarketResearchEnabled()
+  ) {
+    return <ResearchUniverseReportViewer {...props} reportType={props.reportType} />
+  }
+  return <LegacyReportViewer {...props} />
 }

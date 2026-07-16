@@ -1,0 +1,76 @@
+{
+  "schema_version": 2,
+  "name": "SIQ section_drafts schema",
+  "description": "CFO-style section drafts for SIQ v1.1. The visible report must render narrative_blocks; legacy fact/calculation/judgement/risk arrays are retained only for compatibility and validation.",
+  "expected_section_ids": [
+    "executive_summary",
+    "key_changes",
+    "operating_quality",
+    "profitability_and_cost",
+    "asset_quality_working_capital",
+    "debt_liquidity",
+    "cash_flow_quality",
+    "industry_competition",
+    "strategy_policy_external_risk",
+    "governance_compliance_shareholders",
+    "valuation_expectation_gap",
+    "risk_chain_scenario",
+    "tracking_checklist",
+    "data_quality_traceability"
+  ],
+  "required_section_fields": [
+    "section_id",
+    "title",
+    "section_type",
+    "narrative_blocks",
+    "facts",
+    "calculations",
+    "judgements",
+    "risks_or_improvement_conditions",
+    "evidence_ids",
+    "review_required",
+    "missing_fields"
+  ],
+  "array_fields": [
+    "narrative_blocks",
+    "facts",
+    "calculations",
+    "judgements",
+    "risks_or_improvement_conditions",
+    "evidence_ids",
+    "missing_fields"
+  ],
+  "minimum_items": {
+    "narrative_blocks": 3,
+    "facts": 1,
+    "calculations": 0,
+    "judgements": 1,
+    "risks_or_improvement_conditions": 1,
+    "evidence_ids": 1
+  },
+  "minimum_compact_text_length": 220,
+  "visible_render_contract": {
+    "primary_field": "narrative_blocks",
+    "forbidden_repeated_subheadings": [
+      "事实",
+      "计算",
+      "判断",
+      "风险/改善条件"
+    ],
+    "rule": "Markdown and HTML must render section-specific block titles from narrative_blocks. The legacy arrays must not be rendered as repeated visible subheadings across every chapter."
+  },
+  "narrative_block_contract": {
+    "title": "Section-specific CFO analysis action, for example 财务健康度速览, 收入与现金流匹配度, 杜邦分析, 自由现金流, 主要风险链条.",
+    "items": "Evidence-bound bullets or short paragraphs. Each block should perform the action named by its title, not merely relabel facts.",
+    "role": "Optional machine hint: diagnosis, table, bridge, model, risk_chain, scenario, tracking, evidence."
+  },
+  "legacy_field_contract": {
+    "facts": "Compatibility field for evidence-bound observations or explicit data gaps.",
+    "calculations": "Compatibility field for ratios, yoy changes, model outputs, or model downgrade statements.",
+    "judgements": "Compatibility field for analytical interpretation separating facts, calculations, and hypotheses.",
+    "risks_or_improvement_conditions": "Compatibility field for risk chains, improvement triggers, falsifying evidence, or review gates.",
+    "evidence_ids": "Evidence identifiers or explicit missing markers such as market_data:missing; no invented PDF page or table index.",
+    "review_required": "Boolean marker for sections that need human/model review before being considered final.",
+    "missing_fields": "Concrete data fields missing from the checkpoint, empty only when the section is sufficiently supported."
+  }
+}

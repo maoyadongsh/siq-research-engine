@@ -10,5 +10,5 @@ const ANALYSIS_AGENT = {
 }
 
 export default function AnalysisReport() {
-  return <ReportViewer agentConfig={ANALYSIS_AGENT} pageTitle="智能分析" reportType="analysis" reportApiSuffix="reports" iframeTitle="智能分析" emptyTitle={(name) => `${name} 暂无分析`} emptyDescription="先完成财报解析，生成后的分析报告会在这里展示。" infoFields={(company) => [{ label: '公司', value: company.name }, { label: '代码', value: company.code }, { label: '报告', value: `${company.reportCount} 份` }, { label: '状态', value: company.hasReport ? '已生成' : '待生成' }]} />
+  return <ReportViewer agentConfig={ANALYSIS_AGENT} pageTitle="智能分析" reportType="analysis" reportApiSuffix="reports" iframeTitle="智能分析" emptyTitle={(name) => `${name} 暂无分析`} emptyDescription="先完成财报解析，生成后的分析报告会在这里展示。" infoFields={(company) => [{ label: '公司', value: company.name }, { label: '代码', value: company.code }, { label: '报告', value: `${company.reportCount} 份` }, { label: '状态', value: company.hasReport ? '已生成' : '待生成' }]} marketScope="all-parsed" />
 }

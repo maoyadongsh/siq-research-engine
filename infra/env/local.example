@@ -70,6 +70,11 @@ SIQ_FINANCIAL_GUARDRAIL_MODE=warn
 SIQ_IMAGE_MODEL_ENABLED=true
 SIQ_IMAGE_MODEL_BASE_URL=http://127.0.0.1:8007/v1
 SIQ_IMAGE_MODEL=nemotron_3_nano_omni
+
+# Secondary-market multi-market research remains fail-closed until release gates pass.
+# The first flag drives both the API and the frontend build/start process.
+SIQ_MULTI_MARKET_RESEARCH_ENABLED=0
+SIQ_US_SEC_ANALYSIS_ENABLED=0
 SIQ_FUNASR_BASE_URL=http://127.0.0.1:8899/asr
 SIQ_FUNASR_TIMEOUT_SECONDS=90
 SIQ_CHAT_VOICE_MAX_BYTES=10485760

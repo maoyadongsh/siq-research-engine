@@ -33,6 +33,15 @@
   line-height: 1;
   box-shadow: 0 1px 0 rgba(255,255,255,.90) inset;
 }
+.secondary-title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: .9rem;
+}
+.secondary-title-row .secondary-title {
+  margin-top: 0;
+}
 .secondary-title {
   margin-top: .75rem;
   color: var(--color-text);

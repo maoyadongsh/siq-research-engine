@@ -29,6 +29,7 @@ from routers import (
     meetings,
     primary_market_materials,
     primary_market_meeting,
+    research_universe,
     settings,
     source,
     system,
@@ -156,6 +157,7 @@ app.include_router(auth.router, prefix="/api/auth")
 # 只读展示路由。报告 iframe 入口保持公开；来源/PDF 页码链接在 source router
 # 内做任务归属校验，并使用短期签名 token 支持无 Bearer 头的页面跳转。
 app.include_router(wiki.router, prefix="/api")
+app.include_router(research_universe.router, prefix="/api")
 app.include_router(source.router, prefix="/api")
 
 # 业务路由

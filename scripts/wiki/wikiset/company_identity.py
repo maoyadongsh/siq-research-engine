@@ -11,6 +11,7 @@ The canonical example is `000333-美的集团`:
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,8 @@ DOWNLOAD_PDF_FILENAME_PATTERN = (
     "<company_short_name>_<market>_<stock_code>_<report_end>_"
     "<report_type>_<published_at>_<source_id>_<url_hash>.pdf"
 )
+
+RESOLVED_COMPANY_DIR_ENV = "SIQ_RESOLVED_COMPANY_DIR"
 
 
 MANUAL_COMPANY_BY_CODE: dict[str, tuple[str, str]] = {
@@ -247,7 +250,32 @@ def company_dir_name(stock_code: Any, company_short_name: Any) -> str:
     return canonical_company_id(stock_code, company_short_name)
 
 
+def resolved_company_dir_override(wiki_root: Any) -> Path | None:
+    """Return the server-resolved company directory when explicitly provided.
+
+    The override is used by downstream agent workflows after catalog/manifest
+    resolution.  It is never joined from a ticker and must remain inside the
+    configured Wiki root under a ``companies`` path component.
+    """
+
+    raw = str(os.environ.get(RESOLVED_COMPANY_DIR_ENV) or "").strip()
+    if not raw:
+        return None
+    root = Path(wiki_root).expanduser().resolve()
+    candidate = Path(raw).expanduser().resolve()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"resolved company directory escapes Wiki root: {candidate}") from exc
+    if "companies" not in relative.parts:
+        raise ValueError(f"resolved company directory is not a company workspace: {candidate}")
+    return candidate
+
+
 def company_dir_path(wiki_root: Any, stock_code: Any, company_short_name: Any) -> Path:
+    override = resolved_company_dir_override(wiki_root)
+    if override is not None:
+        return override
     return Path(wiki_root) / "companies" / company_dir_name(stock_code, company_short_name)
 
 

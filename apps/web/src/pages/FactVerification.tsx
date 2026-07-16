@@ -9,5 +9,5 @@ const FACTCHECKER_AGENT = {
 }
 
 export default function FactVerification() {
-  return <ReportViewer agentConfig={FACTCHECKER_AGENT} pageTitle="事实核查" reportType="factcheck" reportApiSuffix="factchecks" iframeTitle="事实核查报告" emptyTitle={(name) => `${name} 暂无核查报告`} emptyDescription="运行事实核查流程后，生成的 HTML 报告会在这里展示。" infoFields={(company) => [{ label: '公司', value: company.name }, { label: '代码', value: company.code }, { label: '核查', value: `${company.factcheckCount || 0} 份` }, { label: '状态', value: company.hasFactcheck ? '已生成' : '待核查' }]} />
+  return <ReportViewer agentConfig={FACTCHECKER_AGENT} pageTitle="事实核查" reportType="factcheck" reportApiSuffix="factchecks" iframeTitle="事实核查报告" emptyTitle={(name) => `${name} 暂无核查报告`} emptyDescription="运行事实核查流程后，生成的 HTML 报告会在这里展示。" infoFields={(company) => [{ label: '公司', value: company.name }, { label: '代码', value: company.code }, { label: '核查', value: `${company.factcheckCount || 0} 份` }, { label: '状态', value: company.hasFactcheck ? '已生成' : '待核查' }]} marketScope="all-parsed" />
 }

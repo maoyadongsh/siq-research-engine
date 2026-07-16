@@ -23,6 +23,13 @@ if (!parsedBaseURL.port) {
 }
 const baseURL = parsedBaseURL.toString()
 const webServerPort = parseTcpPort(parsedBaseURL.port, 'PLAYWRIGHT_BASE_URL port')
+const multiMarketResearchEnabled = ['1', 'true', 'yes', 'on'].includes(
+  String(
+    process.env.SIQ_MULTI_MARKET_RESEARCH_ENABLED
+      ?? process.env.VITE_SIQ_MULTI_MARKET_RESEARCH_ENABLED
+      ?? '0',
+  ).trim().toLowerCase(),
+) ? '1' : '0'
 
 export default defineConfig({
   testDir: './e2e/tests',
@@ -41,7 +48,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: `VITE_SIQ_MEETINGS_ENABLED=0 VITE_SIQ_MEETING_IMPORT_ENABLED=0 SIQ_FRONTEND_PORT=${webServerPort} npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
+    command: `VITE_SIQ_MEETINGS_ENABLED=0 VITE_SIQ_MEETING_IMPORT_ENABLED=0 VITE_SIQ_MULTI_MARKET_RESEARCH_ENABLED=${multiMarketResearchEnabled} SIQ_FRONTEND_PORT=${webServerPort} npm run dev -- --host 127.0.0.1 --port ${webServerPort}`,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,
