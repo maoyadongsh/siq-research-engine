@@ -3723,11 +3723,12 @@ def _is_same_metric_unit_restatement(
         "",
         clause[previous_match.end() : current_match.start()],
     ).lower()
-    if not connector:
-        return False
+    current_token = current_match.group(0).lstrip()
+    if not connector and current_token.startswith(("(", "（", "[", "【")):
+        return True
     return bool(
         re.fullmatch(
-            r"[，,；;:]?[（(\[【]?(?:约(?:为)?|折合(?:为)?|换算(?:为|成)?|相当于|即|≈|~|=|＝|→|->)?",
+            r"[，,；;:/]?[（(\[【]?(?:约(?:为)?|折合(?:为)?|换算(?:为|成)?|相当于|即|≈|~|=|＝|→|->)?",
             connector,
         )
     )
@@ -4192,12 +4193,16 @@ def _extract_claims(
                 )
                 if equation_matched:
                     fact = equation_fact
-                if (
-                    fact is None
-                    and match_index > 0
+                unit_restatement_matched = (
+                    match_index > 0
                     and resolved_facts[match_index - 1] is not None
                     and _is_same_metric_unit_restatement(clause, matches[match_index - 1], match)
-                ):
+                )
+                if unit_restatement_matched:
+                    # A parenthetical or slash-separated unit conversion is
+                    # locally bound to the amount immediately before it. That
+                    # binding outranks broader metric words earlier in a long
+                    # multi-metric sentence.
                     fact = resolved_facts[match_index - 1]
                 if fact is None and any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS):
                     change_facts = tuple(item for item in facts if item.metric.endswith("_absolute_change"))
@@ -4211,8 +4216,11 @@ def _extract_claims(
                         change_facts,
                         amount_end=match.end(),
                     )
-                elif fact is not None and not fact.metric.endswith("_absolute_change") and any(
-                    term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS
+                elif (
+                    not unit_restatement_matched
+                    and fact is not None
+                    and not fact.metric.endswith("_absolute_change")
+                    and any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS)
                 ):
                     # A coordinated phrase can put the movement verb before a
                     # preceding operand (for example "转出原值 X 及减值准备 Y").
@@ -4380,7 +4388,46 @@ def _evidence_bound_unit_normalization_claims(
             )
         if not candidates:
             continue
-        _distance, fact, reference = min(candidates, key=lambda item: item[0])
+        distance, fact, reference = min(candidates, key=lambda item: item[0])
+        tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+        if distance > tolerance:
+            exact_value_candidates: list[tuple[float, EvidenceFact, Mapping[str, Any]]] = []
+            for alternate in facts:
+                if alternate.value_category != claim.value_category:
+                    continue
+                if claim.period_tokens and not _period_tokens_compatible(
+                    claim.period_tokens,
+                    _period_tokens(alternate.period),
+                ):
+                    continue
+                alternate_reference = reference_by_evidence_id.get(alternate.evidence_id)
+                if alternate_reference is None:
+                    continue
+                alternate_scale = _normalized_amount(1, alternate.unit, scale=alternate_reference.get("scale"))
+                claim_scale = _normalized_amount(1, claim.unit)
+                if (
+                    alternate_scale is None
+                    or claim_scale is None
+                    or alternate_scale[1] != claim_scale[1]
+                    or math.isclose(alternate_scale[0], claim_scale[0], rel_tol=0.0, abs_tol=1e-12)
+                ):
+                    continue
+                alternate_distance = _claim_fact_value_distance(
+                    claim.normalized_value,
+                    alternate.normalized_value,
+                    alternate.metric,
+                )
+                if alternate_distance <= _display_amount_tolerance(
+                    claim.value_text,
+                    claim.unit,
+                    alternate.normalized_value,
+                ):
+                    exact_value_candidates.append((alternate_distance, alternate, alternate_reference))
+            if exact_value_candidates:
+                _distance, fact, reference = min(
+                    exact_value_candidates,
+                    key=lambda item: (item[0], item[1].evidence_id),
+                )
         key = (claim.line_number, claim.match_start, fact.evidence_id)
         if key in seen:
             continue

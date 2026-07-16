@@ -6,9 +6,11 @@ import pytest
 from services.agent_runtime_financial_claim_verifier import (
     NUMBER_WITH_UNIT_RE,
     _amount_match_number,
+    _extract_claims,
     _extract_source_fields,
     _percent_claim_details,
     _period_tokens,
+    _reference_facts,
     _trace_decimal,
     _trusted_evidence_value,
     _trusted_trace_input,
@@ -3296,6 +3298,30 @@ def test_evidence_recompute_accepts_source_bound_collective_thresholds_and_cross
         "goodwill_to_parent_equity_ratio",
         "goodwill_impairment_coverage",
     }
+
+
+def test_unit_restatement_in_multi_metric_sentence_keeps_nearest_amount_binding():
+    reply = (
+        "账面原值结构包括华域视觉 781,115,081.73 元"
+        "（78,111.5082 万元 / 7.81115082 亿元）以及上汽通用汽车金融 "
+        "333,378,433.68 元（33,337.8434 万元 / 3.33378434 亿元）。"
+        "\n[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325"
+    )
+    facts = _reference_facts(
+        reply,
+        references=[
+            {**reference, "source_type": "wiki_metrics"}
+            for reference in _trusted_saic_scale_and_collective_ratio_evidence()
+        ],
+    )
+    claims = _extract_claims(reply, facts)
+    metrics_by_value = {claim.value_text.replace(",", ""): claim.metric for claim in claims}
+
+    assert metrics_by_value["78111.5082"] == "goodwill_component_vision"
+    assert metrics_by_value["7.81115082"] == "goodwill_component_vision"
+    assert metrics_by_value["33337.8434"] == "goodwill_component_finance"
+    assert metrics_by_value["3.33378434"] == "goodwill_component_finance"
 
 
 @pytest.mark.parametrize(
