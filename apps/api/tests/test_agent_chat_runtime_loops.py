@@ -929,6 +929,28 @@ def test_inline_financial_evidence_labels_are_hidden_after_validation():
     assert displayed == "商誉增加 46.76 亿元；占比 15.35%。引用见 [1]。"
 
 
+def test_financial_display_sanitizer_hides_real_answer_trace_pollution():
+    displayed = runtime._sanitize_financial_reply_for_display(
+        "## 结论\n\n"
+        "- 商誉净值 342.56859 亿元（34,256,859 千元，[calc:7994652a09e1cde3]）。\n"
+        "- 商誉占比 15.35%（[calc:net] / [calc:equity]）。\n\n"
+        "| 科目 | 金额 |\n| --- | ---: |\n"
+        "| 商誉 | 342.56859 亿元（[calc:net]） |\n\n"
+        "## 计算器校验\ntrace_id=calc:net\nstatus: ok\n\n"
+        "## 勾稽校验\ntrace_id=recon:goodwill\nstatus: ok\n\n"
+        "## 引用来源\n[1] source_type=wiki_metrics, pdf_page=132。"
+    )
+
+    assert "[calc:" not in displayed
+    assert "trace_id=" not in displayed
+    assert "## 计算器校验" not in displayed
+    assert "## 勾稽校验" not in displayed
+    assert "（）" not in displayed
+    assert "34,256,859 千元）。" in displayed
+    assert "## 引用来源" in displayed
+    assert "[1] source_type=wiki_metrics" in displayed
+
+
 def test_saic_wrong_change_conversions_are_blocked_and_replaced_by_deterministic_pack(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "block")
     reply = (

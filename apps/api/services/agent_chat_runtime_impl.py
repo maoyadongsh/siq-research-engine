@@ -1906,7 +1906,9 @@ async def save_message(
         agent_runtime_message_identity.normalize_research_identity_snapshot(research_identity)
     )
     if role == "assistant":
-        content = normalize_evidence_trace_for_display(content)
+        content = _sanitize_financial_reply_for_display(
+            normalize_evidence_trace_for_display(content)
+        )
     attachment_items = _attachments_with_fresh_metadata(attachments)
     normalized_audit_trace_id = (
         audit_trace_id
@@ -1991,7 +1993,9 @@ def _chat_message_payload(message: ChatMessage) -> dict[str, Any]:
         message,
         message_attachments=_message_attachments,
         assistant_reply_for_display=_assistant_reply_for_display,
-        normalize_evidence_trace_for_display=normalize_evidence_trace_for_display,
+        normalize_evidence_trace_for_display=lambda content: _sanitize_financial_reply_for_display(
+            normalize_evidence_trace_for_display(content)
+        ),
     )
 
 
@@ -5479,8 +5483,19 @@ _INLINE_FINANCIAL_EVIDENCE_EXPRESSION_RE = re.compile(
 def _strip_inline_financial_evidence_labels_for_display(reply: str) -> str:
     text = _INLINE_FINANCIAL_EVIDENCE_EXPRESSION_RE.sub("", reply or "")
     text = _INLINE_FINANCIAL_EVIDENCE_LABEL_RE.sub("", text)
+    text = re.sub(r"[，,]\s*([)）])", r"\1", text)
+    text = re.sub(r"[（(]\s*[)）]", "", text)
     text = re.sub(r"[ \t]+(?=[，。；;：:,])", "", text)
     return text
+
+
+def _sanitize_financial_reply_for_display(reply: str) -> str:
+    """Hide machine validation metadata after it has served the guardrail."""
+
+    text = _strip_verbose_financial_validation_sections(reply or "")
+    text = _strip_inline_financial_evidence_labels_for_display(text)
+    text = re.sub(r"[ \t]+\|", " |", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def _append_missing_calculation_evidence_locators(
@@ -6222,6 +6237,8 @@ async def _collect_chat_reply_impl(
     if answer_audit_callback and isinstance(answer_audit_record, dict):
         answer_audit_callback(answer_audit_record)
     if not primary_market_ic_runtime:
+        reply = _sanitize_financial_reply_for_display(reply)
+    if not primary_market_ic_runtime:
         _record_financial_llm_provenance_if_needed(
             message=message,
             context=audit_context,
@@ -6831,6 +6848,9 @@ async def _collect_stream_run(
                         enforce_evidence_contract=enforce_evidence_contract,
                         trusted_calculation_runs=trusted_runs,
                     )
+
+                if not primary_market_ic_runtime:
+                    reply = _sanitize_financial_reply_for_display(reply)
 
                 if reply != full_reply and not failed:
                     full_reply = reply
