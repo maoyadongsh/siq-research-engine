@@ -4214,6 +4214,19 @@ def _note_detail_result(
 
     metric_queries = [message]
     normalized_message = _normalize_financial_text(message)
+    if any(term in normalized_message for term in ("偿债", "流动性", "现金流", "现金流量")):
+        company_hint = _context_company_hint(resolved_context) or message
+        cashflow_result, _cashflow_renderer = _statement_metric_result(
+            f"{company_hint} 经营活动现金流量净额",
+            resolved_context,
+        )
+        evidence.extend(
+            agent_runtime_financial_evidence.build_trusted_calculation_evidence(
+                statement_result=cashflow_result,
+                note_result=None,
+                expected_identity=identity,
+            )
+        )
     if any(term in normalized_message for term in ("商誉", "商譽", "goodwill", "のれん", "영업권")):
         # Compound questions with formulas/numbers can over-constrain the
         # semantic note matcher. Retry the same resolved company with the
@@ -5470,11 +5483,14 @@ def enforce_financial_evidence_contract(
     return guarded_reply
 
 
-_INLINE_FINANCIAL_EVIDENCE_LABEL_RE = re.compile(r"\[(?:calc|recon|trusted):[^\]\n]+\]", re.IGNORECASE)
+_INLINE_FINANCIAL_EVIDENCE_LABEL_RE = re.compile(
+    r"(?:\[|〔)(?:calc|recon|trusted):[^\]\n〕]+(?:\]|〕)",
+    re.IGNORECASE,
+)
 _INLINE_FINANCIAL_EVIDENCE_EXPRESSION_RE = re.compile(
     r"[（(]\s*"
-    r"\[(?:calc|recon|trusted):[^\]\n]+\]"
-    r"(?:\s*[/÷+\-]\s*\[(?:calc|recon|trusted):[^\]\n]+\])*"
+    r"(?:\[|〔)(?:calc|recon|trusted):[^\]\n〕]+(?:\]|〕)"
+    r"(?:\s*[/÷+\-]\s*(?:\[|〔)(?:calc|recon|trusted):[^\]\n〕]+(?:\]|〕))*"
     r"\s*[)）]",
     re.IGNORECASE,
 )

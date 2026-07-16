@@ -929,6 +929,14 @@ def test_inline_financial_evidence_labels_are_hidden_after_validation():
     assert displayed == "商誉增加 46.76 亿元；占比 15.35%。引用见 [1]。"
 
 
+def test_fullwidth_financial_evidence_labels_are_hidden():
+    displayed = runtime._strip_inline_financial_evidence_labels_for_display(
+        "商誉净值 11.83 亿元。〔calc:net-1〕引用见 [1]。"
+    )
+
+    assert displayed == "商誉净值 11.83 亿元。引用见 [1]。"
+
+
 def test_financial_display_sanitizer_hides_real_answer_trace_pollution():
     displayed = runtime._sanitize_financial_reply_for_display(
         "## 结论\n\n"

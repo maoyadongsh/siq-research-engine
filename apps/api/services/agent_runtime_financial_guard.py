@@ -274,7 +274,23 @@ def _has_contextual_yoy_change(text: str) -> bool:
 
 
 def _has_contextual_ratio(text: str) -> bool:
-    return any(_RATIO_PERCENTAGE_RE.search(line) for line in (text or "").splitlines())
+    ratio_terms = (
+        "占比", "比例", "比重", "覆盖比", "覆盖率", "资产负债率",
+        "流动比率", "速动比率", "现金比率", "毛利率", "净利率",
+        "收益率", "回报率", "净息差",
+    )
+    percent_re = re.compile(rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?\d[\d,.]*\s*(?:%|％)")
+    for line in (text or "").splitlines():
+        if _RATIO_PERCENTAGE_RE.search(line):
+            return True
+        for clause in re.split(r"[。；;\n]", line):
+            for match in percent_re.finditer(clause):
+                prefix = clause[max(0, match.start() - 240) : match.start()]
+                if any(term in prefix for term in ratio_terms):
+                    return True
+                if "/" in prefix and len(_AMOUNT_NORMALIZATION_RE.findall(prefix)) >= 2:
+                    return True
+    return False
 
 
 def _has_contextual_amount_normalization(text: str) -> bool:

@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+from itertools import combinations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Mapping, Sequence
@@ -882,6 +883,11 @@ DERIVED_METRIC_REPLY_ALIASES = {
     "goodwill_to_total_assets_ratio": ("占总资产", "总资产比重", "总资产占比"),
     "goodwill_to_parent_equity_ratio": ("占归母净资产", "归母净资产比重", "归母净资产占比"),
     "goodwill_to_equity_ratio": ("占净资产", "净资产比重", "净资产占比"),
+    "cash_to_current_liabilities_ratio": ("现金比率", "货币资金/流动负债", "货币资金对流动负债覆盖率"),
+    "operating_cashflow_to_current_liabilities_ratio": (
+        "经营现金流/流动负债",
+        "经营现金流对流动负债覆盖率",
+    ),
 }
 
 
@@ -1037,6 +1043,13 @@ def _trace_identity_payload(expected_identity: Mapping[str, Any] | None) -> dict
 def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
     numerator = str(inputs.get("numerator", {}).get("metric") or "").strip().lower()
     denominator = str(inputs.get("denominator", {}).get("metric") or "").strip().lower()
+    numerator_name = str(inputs.get("numerator", {}).get("metric_name") or "").lower()
+    denominator_name = str(inputs.get("denominator", {}).get("metric_name") or "").lower()
+    if "流动负债" in denominator_name:
+        if "货币资金" in numerator_name:
+            return "cash_to_current_liabilities_ratio"
+        if "经营活动" in numerator_name and "现金流量净额" in numerator_name:
+            return "operating_cashflow_to_current_liabilities_ratio"
     if denominator == "goodwill_gross" and any(
         token in numerator for token in ("allowance", "impairment", "provision")
     ):
@@ -1306,6 +1319,7 @@ def _trusted_trace_input(reference: Mapping[str, Any], role: str) -> dict[str, A
     return {
         "role": role,
         "metric": _trusted_evidence_metric(reference),
+        "metric_name": str(reference.get("metric_name") or ""),
         "period": _trusted_evidence_period(reference),
         "value": "" if value is None else str(value),
         "unit": str(reference.get("unit") or reference.get("currency") or ""),
@@ -2271,6 +2285,25 @@ def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, 
     )
 
 
+def _explicit_ratio_pair_present(
+    reply: str,
+    numerator: Mapping[str, Any],
+    denominator: Mapping[str, Any],
+) -> bool:
+    """Allow arbitrary source-bound A/B ratios when both operands are explicit."""
+
+    for line in (reply or "").splitlines():
+        if "/" not in line and "÷" not in line:
+            continue
+        if not _line_contains_trusted_value(line, numerator):
+            continue
+        if not _line_contains_trusted_value(line, denominator):
+            continue
+        if _percent_claim_occurrences(line, require_derived_term=False):
+            return True
+    return False
+
+
 def materialize_evidence_bound_calculation_runs(
     reply: str,
     trusted_evidence: Sequence[Mapping[str, Any]],
@@ -2409,11 +2442,18 @@ def materialize_evidence_bound_calculation_runs(
     if not expected_operations or "ratio" in expected_operations:
         for denominator in evidence:
             for numerator in evidence:
-                if _trusted_evidence_period(numerator) != _trusted_evidence_period(denominator):
+                if not _period_tokens_compatible(
+                    _period_tokens(_trusted_evidence_period(numerator)),
+                    _period_tokens(_trusted_evidence_period(denominator)),
+                ):
                     continue
                 if not _ratio_scope_compatible((numerator, denominator)):
                     continue
-                if not _ratio_pair_allowed(numerator, denominator):
+                if not _ratio_pair_allowed(numerator, denominator) and not _explicit_ratio_pair_present(
+                    reply,
+                    numerator,
+                    denominator,
+                ):
                     continue
                 inputs = {
                     "numerator": _trusted_trace_input(numerator, "numerator"),
@@ -2644,6 +2684,24 @@ def validate_calculation_traces(
             candidate_results = directly_bound_results or contextual_results
         else:
             candidate_results = calculator_results
+        explicit_results: list[Decimal] = []
+        for numerator in trusted_evidence:
+            for denominator in trusted_evidence:
+                if numerator is denominator:
+                    continue
+                if not _period_tokens_compatible(
+                    _period_tokens(_trusted_evidence_period(numerator)),
+                    _period_tokens(_trusted_evidence_period(denominator)),
+                ):
+                    continue
+                if not _ratio_scope_compatible((numerator, denominator)):
+                    continue
+                if not _explicit_ratio_pair_present(occurrence.line, numerator, denominator):
+                    continue
+                result = _trusted_ratio_result(numerator, denominator)
+                if result is not None:
+                    explicit_results.append(result)
+        candidate_results = [*candidate_results, *explicit_results]
         direct_match = any(_percent_occurrence_matches_expected(occurrence, result) for result in candidate_results)
         difference_candidates = (
             [
@@ -2701,6 +2759,38 @@ def validate_calculation_traces(
                 expected is not None and _claim_fact_value_distance(claimed, expected, fact.metric) <= tolerance
                 for expected in expected_values
             ):
+                aggregate_match = False
+                if "合计" in claim.line:
+                    aggregate_values: list[Decimal] = []
+                    for item in trusted_evidence:
+                        if not _trusted_evidence_metric(item).lower().endswith("_absolute_change"):
+                            continue
+                        if claim.period_tokens and not _period_tokens_compatible(
+                            claim.period_tokens,
+                            _period_tokens(_trusted_evidence_period(item)),
+                        ):
+                            continue
+                        compact_line = _compact_semantic_text(claim.line).replace("的", "")
+                        aggregate_aliases = {
+                            re.sub(r"(?:同比变动|绝对变动|变动额|变动)$", "", _compact_semantic_text(alias)).replace("的", "")
+                            for alias in _trace_reference_aliases(item)
+                        }
+                        if not any(alias and alias in compact_line for alias in aggregate_aliases):
+                            continue
+                        normalized = _normalized_amount(
+                            item.get("value", item.get("raw_value")),
+                            item.get("unit") or item.get("currency"),
+                            scale=item.get("scale"),
+                        )
+                        if normalized is not None and normalized[1] == claim.value_category:
+                            aggregate_values.append(Decimal(str(abs(normalized[0]))))
+                    aggregate_match = any(
+                        abs(sum(parts, Decimal("0")) - abs(claimed)) <= tolerance
+                        for size in range(2, min(4, len(aggregate_values)) + 1)
+                        for parts in combinations(aggregate_values, size)
+                    )
+                if aggregate_match:
+                    continue
                 return CalculationTraceValidation(
                     True,
                     False,
@@ -4220,7 +4310,9 @@ def _extract_claims(
                     not unit_restatement_matched
                     and fact is not None
                     and not fact.metric.endswith("_absolute_change")
-                    and any(term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS)
+                    and any(
+                    term in clause for term in ABSOLUTE_CHANGE_CLAIM_TERMS
+                    )
                 ):
                     # A coordinated phrase can put the movement verb before a
                     # preceding operand (for example "转出原值 X 及减值准备 Y").
@@ -4389,8 +4481,17 @@ def _evidence_bound_unit_normalization_claims(
         if not candidates:
             continue
         distance, fact, reference = min(candidates, key=lambda item: item[0])
-        tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+        tolerance = _display_amount_tolerance(
+            claim.value_text,
+            claim.unit,
+            fact.normalized_value,
+        )
         if distance > tolerance:
+            # In a long multi-metric sentence, a broad metric phrase can
+            # outscore the local subject even though the converted amount is
+            # an exact restatement of another visible source fact. For unit
+            # normalization, prefer an exact same-period evidence value over
+            # turning that semantic ambiguity into a false arithmetic error.
             exact_value_candidates: list[tuple[float, EvidenceFact, Mapping[str, Any]]] = []
             for alternate in facts:
                 if alternate.value_category != claim.value_category:
@@ -4403,7 +4504,11 @@ def _evidence_bound_unit_normalization_claims(
                 alternate_reference = reference_by_evidence_id.get(alternate.evidence_id)
                 if alternate_reference is None:
                     continue
-                alternate_scale = _normalized_amount(1, alternate.unit, scale=alternate_reference.get("scale"))
+                alternate_scale = _normalized_amount(
+                    1,
+                    alternate.unit,
+                    scale=alternate_reference.get("scale"),
+                )
                 claim_scale = _normalized_amount(1, claim.unit)
                 if (
                     alternate_scale is None
@@ -4422,7 +4527,9 @@ def _evidence_bound_unit_normalization_claims(
                     claim.unit,
                     alternate.normalized_value,
                 ):
-                    exact_value_candidates.append((alternate_distance, alternate, alternate_reference))
+                    exact_value_candidates.append(
+                        (alternate_distance, alternate, alternate_reference)
+                    )
             if exact_value_candidates:
                 _distance, fact, reference = min(
                     exact_value_candidates,
@@ -4600,6 +4707,69 @@ def verify_financial_claims(
     # let an unrelated or contradictory amount on that line bypass fact checks.
     claims = _extract_claims(reply, facts)
     for claim in claims:
+        aggregate_fact_match = False
+        if "合计" in claim.line:
+            compact_line = _compact_semantic_text(claim.line).replace("的", "")
+            aggregate_values = [
+                Decimal(str(abs(fact.normalized_value)))
+                for fact in facts
+                if fact.metric.endswith("_absolute_change")
+                and fact.value_category == claim.value_category
+                and (
+                    not claim.period_tokens
+                    or _period_tokens_compatible(claim.period_tokens, _period_tokens(fact.period))
+                )
+                and any(
+                    alias
+                    and alias in compact_line
+                    for alias in {
+                        re.sub(
+                            r"(?:同比变动|绝对变动|变动额|变动)$",
+                            "",
+                            _compact_semantic_text(alias),
+                        ).replace("的", "")
+                        for alias in fact.aliases
+                    }
+                )
+            ]
+            claim_value = Decimal(str(abs(claim.normalized_value)))
+            tolerance = Decimal(
+                str(_display_amount_tolerance(claim.value_text, claim.unit, claim.normalized_value))
+            )
+            aggregate_fact_match = any(
+                abs(sum(parts, Decimal("0")) - claim_value) <= tolerance
+                for size in range(2, min(4, len(aggregate_values)) + 1)
+                for parts in combinations(aggregate_values, size)
+            )
+        if aggregate_fact_match:
+            continue
+        arithmetic_fact_line = (
+            "=" in claim.line or "＝" in claim.line
+        ) and len(NUMBER_WITH_UNIT_RE.findall(claim.line)) >= 3
+        if (claim.line_number in validated_calculation_lines or arithmetic_fact_line) and any(
+            fact.value_category == claim.value_category
+            and fact.company_id
+            and fact.filing_id
+            and fact.evidence_id
+            and (fact.quote or fact.has_locator)
+            and (not claim.currency or not fact.currency or claim.currency == fact.currency)
+            and (
+                not claim.period_tokens
+                or _period_tokens_compatible(claim.period_tokens, _period_tokens(fact.period))
+            )
+            and _claim_fact_value_distance(
+                claim.normalized_value,
+                fact.normalized_value,
+                fact.metric,
+            )
+            <= _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+            for fact in facts
+        ):
+            # The deterministic calculator has already validated the line's
+            # operation and operands. If the numeric value exactly matches a
+            # visible fact, do not turn a local metric-name parsing ambiguity
+            # into a second-stage contradiction.
+            continue
         candidates = [
             fact for fact in facts if fact.metric == claim.metric and fact.value_category == claim.value_category
         ]

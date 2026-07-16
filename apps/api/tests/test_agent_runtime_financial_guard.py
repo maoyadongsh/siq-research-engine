@@ -1473,3 +1473,16 @@ def test_runtime_dedupe_hash_includes_financial_evidence_hash():
         context_b,
         [],
     )
+
+
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "商誉净额占总资产比例：1,183,122,320.47 元 / 960,207,461,450.69 元约为 0.1232%。",
+        "资产负债率 62.37%（负债 5989.02 亿元 / 资产 9602.07 亿元）。",
+    ),
+)
+def test_required_operations_detects_long_contextual_ratios(reply: str):
+    operations = guard._required_calculator_operations("分析偿债能力", reply)
+
+    assert "ratio" in operations
