@@ -322,7 +322,7 @@ export default function DealAgents() {
         </div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <div className="primary-market-metric-grid primary-market-metric-grid-emphasis-first grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             <Surface kind="card">
               <p className="text-sm text-text-muted">Profiles</p>
               <p className="mt-1 text-2xl font-semibold text-text">{data?.counts?.agents ?? agents.length}</p>

@@ -112,7 +112,7 @@ export default function DealWorkspace() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 lg:grid-cols-4">
+          <div className="primary-market-metric-grid primary-market-metric-grid-emphasis-first grid gap-3 lg:grid-cols-4">
             <Surface kind="card" className="lg:col-span-2">
               <p className="text-sm text-text-muted">项目 ID</p>
               <p className="mt-1 break-all text-lg font-semibold text-text">{summary.deal_id}</p>
@@ -198,7 +198,7 @@ export default function DealWorkspace() {
           </PageSection>
 
           <PageSection title="项目概览">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="primary-market-metric-grid grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {[
                 ['公司', summary.company_name],
                 ['行业', summary.industry],
@@ -232,7 +232,7 @@ export default function DealWorkspace() {
           </PageSection>
 
           <PageSection title="快捷入口">
-            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+            <div className="primary-market-shortcut-grid grid gap-3 md:grid-cols-3 xl:grid-cols-7">
               {[
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/data-room`, title: 'Data Room', desc: '上传和管理项目文档', icon: FolderOpen },
                 { to: `/deals/${encodeURIComponent(summary.deal_id)}/evidence`, title: 'Evidence', desc: '查看和构建证据包', icon: FileSearch },

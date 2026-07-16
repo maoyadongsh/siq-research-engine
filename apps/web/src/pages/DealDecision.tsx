@@ -148,7 +148,7 @@ export default function DealDecision() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="primary-market-metric-grid primary-market-metric-grid-emphasis-first grid gap-3 md:grid-cols-3">
             <Surface kind="card">
               <p className="text-sm text-text-muted">决策</p>
               <div className="mt-2">

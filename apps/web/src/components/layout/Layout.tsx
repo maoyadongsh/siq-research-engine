@@ -5,7 +5,7 @@ import Topbar from './Topbar'
 import ChatBot from '../chat/ChatBot'
 import { useScrollHintState } from '@/hooks/useScrollHintState'
 
-const AGENT_PAGE_PATHS = ['/analysis', '/verify', '/tracking', '/legal', '/chat', '/meetings']
+const AGENT_PAGE_PATHS = ['/analysis', '/verify', '/tracking', '/legal', '/chat', '/meetings', '/primary-market', '/deals']
 const COMPACT_DESKTOP_QUERY = '(min-width: 1024px) and (max-width: 1439px), (min-width: 1024px) and (max-height: 820px)'
 
 function shouldUseCompactDesktop() {
@@ -19,6 +19,10 @@ export default function Layout() {
   const sidebarManuallyChanged = useRef(false)
   const { pathname } = useLocation()
   const hideGlobalChat = AGENT_PAGE_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))
+  const primaryMarketRoute = pathname === '/primary-market'
+    || pathname.startsWith('/primary-market/')
+    || pathname === '/deals'
+    || pathname.startsWith('/deals/')
 
   useScrollHintState(pathname)
 
@@ -64,7 +68,7 @@ export default function Layout() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`transition-[padding-left] duration-300 ease-out ${collapsed ? 'lg:pl-20' : 'lg:pl-64 xl:pl-72'}`}
+        className={`transition-[padding-left] duration-300 ease-out ${primaryMarketRoute ? 'primary-market-route' : ''} ${collapsed ? 'lg:pl-20' : 'lg:pl-64 xl:pl-72'}`}
         style={{ paddingTop: 'var(--app-topbar-height)' }}
       >
         <div

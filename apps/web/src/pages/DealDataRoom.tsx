@@ -389,7 +389,7 @@ export default function DealDataRoom() {
         ) : documents.length === 0 ? (
           <EmptyState icon={FileText} title="暂无文档" description="上传后的 deal 文件会显示在这里。" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="primary-market-table-scroll overflow-x-auto">
             <table className="w-full min-w-[1160px] border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-wide text-text-muted">

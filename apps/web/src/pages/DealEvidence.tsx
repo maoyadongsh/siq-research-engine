@@ -264,7 +264,7 @@ export default function DealEvidence() {
           description={`Postgres ${dryRun.postgres_written ? '会写入' : '未写入'} · Milvus ${dryRun.milvus_written ? '会写入' : '未写入'}`}
           actions={<StatusBadge tone={statusTone(dryRun.status)}>{text(dryRun.status)}</StatusBadge>}
         >
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="primary-market-metric-grid grid gap-3 md:grid-cols-4">
             <Surface kind="card">
               <p className="text-sm text-text-muted">Schema</p>
               <p className="mt-1 break-all text-sm font-semibold text-text">{text(dryRun.schema_version)}</p>
@@ -457,7 +457,7 @@ export default function DealEvidence() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="primary-market-metric-grid grid gap-3 md:grid-cols-4">
             <Surface kind="card">
               <p className="text-sm text-text-muted">质量状态</p>
               <div className="mt-2">
@@ -545,7 +545,7 @@ export default function DealEvidence() {
                         ) : null}
                         <p className="mt-2 break-all font-mono text-xs text-text-muted">{text(item.evidence_id)}</p>
                       </div>
-                      <div className="grid min-w-56 gap-3 text-sm lg:max-w-md">
+                      <div className="primary-market-mobile-fluid grid min-w-56 gap-3 text-sm lg:max-w-md">
                         <div className="grid gap-2 sm:grid-cols-2">
                           <div>
                             <p className="text-xs text-text-muted">Confidence</p>

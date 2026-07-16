@@ -289,7 +289,7 @@ export default function DealReports() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="primary-market-metric-grid grid gap-3 md:grid-cols-4">
             <Surface kind="card">
               <p className="text-sm text-text-muted">Available</p>
               <p className="mt-1 text-2xl font-semibold text-text">{data.counts?.reports ?? reports.length}</p>
@@ -566,7 +566,7 @@ export default function DealReports() {
                   />
                 </div>
               </div>
-              <label className="min-w-56">
+              <label className="primary-market-mobile-fluid min-w-56">
                 <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-text-muted">Category</span>
                 <select
                   value={category}

@@ -67,7 +67,7 @@ export function PageHeader({
           {description ? <p className="page-description">{description}</p> : null}
           {meta ? <div className="mt-4 flex flex-wrap items-center gap-2">{meta}</div> : null}
         </div>
-        {actions ? <div className="min-w-0">{actions}</div> : null}
+        {actions ? <div className="page-header-actions min-w-0">{actions}</div> : null}
       </div>
       {children}
     </section>
@@ -89,11 +89,11 @@ export function PageSection({
       {(title || description || actions) && (
         <div
           className={cn(
-            'flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between',
+            'page-section-header flex flex-col gap-3 border-b border-border/70 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between',
             compact && 'py-3 sm:py-3.5'
           )}
         >
-          <div className="min-w-0">
+          <div className="page-section-heading min-w-0">
             {title ? (
               <h2 className={cn('text-lg font-bold text-text sm:text-xl', compact && 'text-base sm:text-lg')}>
                 {title}
@@ -105,10 +105,10 @@ export function PageSection({
               </p>
             ) : null}
           </div>
-          {actions ? <div className="shrink-0">{actions}</div> : null}
+          {actions ? <div className="page-section-actions shrink-0">{actions}</div> : null}
         </div>
       )}
-      <div className={cn(compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5', contentClassName)}>{children}</div>
+      <div className={cn('page-section-content', compact ? 'p-3 sm:p-4' : 'p-4 sm:p-5', contentClassName)}>{children}</div>
     </section>
   )
 }

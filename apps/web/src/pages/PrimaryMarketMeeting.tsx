@@ -597,7 +597,11 @@ export default function PrimaryMarketMeeting() {
   }, [selectedDealId, activeLane, activeSessionAgent, loadChatHistory])
 
   useEffect(() => {
-    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
+    const messageEnd = messagesEnd.current
+    const messageViewport = messageEnd?.closest('.primary-market-meeting-chat-messages')
+    if (messageViewport instanceof HTMLElement) {
+      messageViewport.scrollTo({ top: messageViewport.scrollHeight, behavior: chatBusy ? 'smooth' : 'auto' })
+    }
   }, [activeLane, chatMessagesByLane, chatBusy])
 
   const agenda = useMemo(() => deriveMeetingAgenda(bundle), [bundle])
@@ -1108,7 +1112,12 @@ export default function PrimaryMarketMeeting() {
     await loadChatHistory(activeSessionAgent, activeLane, sessionId)
     setHistoryOpen(false)
     setHistoryNotice('已打开历史会话')
-    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
+    window.requestAnimationFrame(() => {
+      const messageViewport = messagesEnd.current?.closest('.primary-market-meeting-chat-messages')
+      if (messageViewport instanceof HTMLElement) {
+        messageViewport.scrollTo({ top: messageViewport.scrollHeight, behavior: 'smooth' })
+      }
+    })
   }
 
   const deleteHistory = async () => {
@@ -1376,7 +1385,7 @@ export default function PrimaryMarketMeeting() {
       />
 
       <PageSection title="会议控制台" compact>
-        <div className="grid items-stretch gap-3 lg:grid-cols-[minmax(320px,1.35fr)_minmax(180px,0.65fr)_minmax(260px,0.9fr)]">
+        <div className="primary-market-project-context-grid grid items-stretch gap-3 lg:grid-cols-[minmax(320px,1.35fr)_minmax(180px,0.65fr)_minmax(260px,0.9fr)]">
           <label className="flex min-w-0 flex-col justify-center rounded-md border border-border/70 bg-surface/70 px-4 py-3">
             <span className="mb-2 text-xs font-semibold text-text-muted">会议项目</span>
             <select
@@ -1398,9 +1407,11 @@ export default function PrimaryMarketMeeting() {
           </Surface>
           <Surface kind="muted" padding="sm" className="flex min-h-[92px] flex-col justify-center">
             <p className="text-xs font-medium text-text-muted">决策窗口</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-2 flex min-w-0 flex-wrap gap-2">
               <StatusBadge tone={chatBusy ? 'warning' : 'success'}>{chatBusy ? `${agentLabel(chatBusy)} 发言中` : activeWindowTitle}</StatusBadge>
-              <StatusBadge tone="info">{activeLane}</StatusBadge>
+              <StatusBadge tone="info" className="min-w-0 max-w-full">
+                <span className="truncate" title={activeLane}>{activeLane}</span>
+              </StatusBadge>
             </div>
           </Surface>
         </div>
@@ -1708,7 +1719,7 @@ export default function PrimaryMarketMeeting() {
                   </div>
                 </label>
                 <div className="min-w-0 xl:pt-[22px]">
-                  <div className="flex flex-wrap gap-2.5 xl:flex-nowrap">
+                  <div className="primary-market-meeting-mode-actions flex flex-wrap gap-2.5 xl:flex-nowrap">
                     <Button type="button" size="sm" variant={speakerMode === 'single' ? 'default' : 'secondary'} onClick={() => setSpeakerMode('single')} disabled={chatBusy !== ''}>
                       <MessageSquareText />
                       点名对话
@@ -1882,7 +1893,7 @@ export default function PrimaryMarketMeeting() {
               ) : null}
 
               <ChatShell
-                className="primary-market-meeting-chat chat-page-shell premium-shell h-[calc(100dvh-220px)] min-h-[620px] max-h-[980px] rounded-lg border border-border bg-white/68 lg:min-h-[720px]"
+                className="primary-market-meeting-chat chat-page-shell premium-shell h-[calc(100dvh-220px)] min-h-[620px] min-w-0 max-w-full max-h-[980px] overflow-hidden rounded-lg border border-border bg-white/68 lg:min-h-[720px]"
                 header={
                   <ChatHeader
                     className="primary-market-meeting-chat-header gap-3 border-b border-border/80 bg-white/54 px-4 py-3 backdrop-blur"
@@ -1951,9 +1962,9 @@ export default function PrimaryMarketMeeting() {
                     messageGapClassName="space-y-4"
                   />
                 }
-                messagesClassName="chat-page-messages primary-market-meeting-chat-messages flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
+                messagesClassName="chat-page-messages primary-market-meeting-chat-messages min-w-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
                 composer={
-                  <div className="chat-page-composer primary-market-meeting-composer mx-auto w-full">
+                  <div className="chat-page-composer primary-market-meeting-composer mx-auto w-full min-w-0 max-w-full">
                     <ChatComposer
                       input={meetingInput}
                       setInput={setMeetingInput}

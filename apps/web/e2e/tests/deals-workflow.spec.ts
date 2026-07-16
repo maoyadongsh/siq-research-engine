@@ -12,13 +12,16 @@ test.describe('Deal OS demo 最小浏览验收', () => {
     await page.goto('/deals')
     await page.waitForLoadState('networkidle')
     await expect(page.getByRole('heading', { name: '项目管理' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '打开财报助手' })).toHaveCount(0)
     await expect(page.getByText('SIQ-YUSHU-2026-002')).toBeVisible()
-    await expect(page.getByText(dealId)).toBeVisible()
+    const projectTable = page.getByRole('table')
+    await expect(projectTable.getByText(dealId)).toBeVisible()
 
-    await page.getByRole('link', { name: /宇树科技/ }).click()
+    await projectTable.getByRole('link', { name: /宇树科技/ }).click()
     await page.waitForLoadState('networkidle')
     await expect(page).toHaveURL(new RegExp(`${dealPath}$`))
     await expect(page.getByRole('heading', { name: '宇树科技' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '打开财报助手' })).toHaveCount(0)
     await expect(page.getByText('Deal Status')).toBeVisible()
     await expect(page.getByText('历史来源: SIQ-YUSHU-2026-002')).toBeVisible()
 

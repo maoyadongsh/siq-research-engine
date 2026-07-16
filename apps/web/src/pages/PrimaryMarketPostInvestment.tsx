@@ -181,7 +181,7 @@ export default function PrimaryMarketPostInvestment() {
       />
 
       <PageSection title="项目推进上下文" compact>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.38fr)_minmax(220px,0.38fr)]">
+        <div className="primary-market-project-context-grid grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.38fr)_minmax(220px,0.38fr)]">
           <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">项目</span>
             <select
@@ -221,7 +221,7 @@ export default function PrimaryMarketPostInvestment() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="primary-market-metric-grid grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Surface kind="card">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">

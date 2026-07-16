@@ -10,6 +10,7 @@
 @import "./styles/system-surfaces.css";
 @import "./styles/quick-questions.css";
 @import "./styles/app-base.css";
+@import "./styles/primary-market-mobile.css";
 
 @theme {
   --color-primary: #0071e3;

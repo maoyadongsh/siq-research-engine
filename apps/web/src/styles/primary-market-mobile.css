@@ -1,0 +1,195 @@
+/* Mobile-only layout refinements for the primary-market route family. */
+@media (max-width: 767px) {
+  .primary-market-route .page-shell {
+    gap: 1rem;
+  }
+
+  .primary-market-route .page-header-inner {
+    gap: .875rem;
+  }
+
+  .primary-market-route .page-header-actions {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .primary-market-route .page-header-actions > .flex {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+  }
+
+  .primary-market-route .page-header-actions > .flex > [data-slot="button"] {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .primary-market-route .page-header-actions > .flex > [data-slot="button"]:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .primary-market-route .page-section-header {
+    gap: .75rem;
+    padding: 1rem;
+  }
+
+  .primary-market-route .page-section-actions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .primary-market-route .page-section-content {
+    min-width: 0;
+    padding: 1rem;
+  }
+
+  .primary-market-route :is(button, input, select, textarea, [role="button"], [data-slot="button"]) {
+    min-height: 44px;
+  }
+
+  .primary-market-route :is(input[type="checkbox"], input[type="radio"]) {
+    min-height: 0;
+  }
+
+  .primary-market-route label:has(> input[type="checkbox"]),
+  .primary-market-route label:has(> input[type="radio"]) {
+    min-height: 44px;
+  }
+
+  .primary-market-route :is(button, [data-slot="button"], select, input, textarea) {
+    touch-action: manipulation;
+  }
+
+  .primary-market-route .primary-market-search-form {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .5rem;
+  }
+
+  .primary-market-route .primary-market-search-form input {
+    width: 100%;
+  }
+
+  .primary-market-route .primary-market-filter-row {
+    width: 100%;
+  }
+
+  .primary-market-route .primary-market-filter-row > * {
+    width: 100%;
+  }
+
+  .primary-market-route .primary-market-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+
+  .primary-market-route .primary-market-metric-grid-emphasis-first > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .primary-market-route .primary-market-shortcut-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+
+  .primary-market-route .primary-market-shortcut-grid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .primary-market-route .primary-market-shortcut-grid > a {
+    min-height: 44px;
+  }
+
+  .primary-market-route .primary-market-mobile-fluid {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .primary-market-route .primary-market-project-context-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+
+  .primary-market-route .primary-market-project-context-grid > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .primary-market-route .primary-market-material-types {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+  }
+
+  .primary-market-route .primary-market-material-types > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
+  }
+
+  .primary-market-route .primary-market-material-types button {
+    min-width: 0;
+  }
+
+  .primary-market-route .primary-market-pipeline-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .primary-market-route .primary-market-pipeline-grid > * > :first-child {
+    flex-wrap: wrap;
+  }
+
+  .primary-market-route .primary-market-meeting-mode-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .5rem;
+  }
+
+  .primary-market-route .primary-market-meeting-mode-actions > [data-slot="button"] {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .primary-market-route .primary-market-meeting-mode-actions > [data-slot="button"]:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .primary-market-route .primary-market-meeting-chat {
+    height: clamp(520px, 72dvh, 640px) !important;
+    min-height: 520px !important;
+    max-height: 640px !important;
+  }
+
+  .primary-market-route .primary-market-meeting-chat-header {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: .625rem;
+    align-items: center;
+  }
+
+  .primary-market-route .primary-market-meeting-chat-header > :last-child {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .primary-market-route .primary-market-table-scroll {
+    max-width: calc(100% + 2rem);
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .primary-market-route pre {
+    max-width: 100%;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+}

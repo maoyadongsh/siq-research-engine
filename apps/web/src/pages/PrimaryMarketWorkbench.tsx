@@ -202,7 +202,7 @@ export default function PrimaryMarketWorkbench() {
         </PageSection>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <div className="primary-market-metric-grid primary-market-metric-grid-emphasis-first grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             {metricCards(metrics, isMultiPage).map((metric) => {
               const Icon = metric.icon
               return (
@@ -231,12 +231,12 @@ export default function PrimaryMarketWorkbench() {
                 ? `共 ${totalProjects} 个一级市场项目，当前显示 ${firstVisibleProject}-${lastVisibleProject}。状态失败会降级展示，不阻塞列表。`
                 : '当前没有可展示的一级市场项目。状态失败会降级展示，不阻塞列表。'}
               actions={
-                <form onSubmit={submitSearch} className="flex min-w-0 gap-2">
+                <form onSubmit={submitSearch} className="primary-market-search-form min-w-0">
                   <Input
                     value={queryDraft}
                     onChange={(event) => setQueryDraft(event.target.value)}
                     placeholder="搜索公司、行业或 deal id"
-                    className="w-56"
+                    className="w-full sm:w-56"
                     aria-label="搜索一级市场项目"
                   />
                   <Button type="submit" variant="secondary" disabled={loading}>

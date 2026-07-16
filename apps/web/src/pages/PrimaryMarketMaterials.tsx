@@ -447,7 +447,7 @@ export default function PrimaryMarketMaterials() {
       />
 
       <PageSection title="项目概览" compact>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.35fr)_minmax(220px,0.35fr)]">
+        <div className="primary-market-project-context-grid grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.35fr)_minmax(220px,0.35fr)]">
           <label className="min-w-0 space-y-1.5">
             <span className="text-xs font-semibold text-text-muted">项目</span>
             <select
@@ -483,7 +483,7 @@ export default function PrimaryMarketMaterials() {
         </PageSection>
       ) : (
         <div className="grid gap-5 xl:grid-cols-[200px_minmax(0,1fr)_280px]">
-          <PageSection title="材料类型" compact contentClassName="space-y-2">
+          <PageSection title="材料类型" compact contentClassName="primary-market-material-types space-y-2">
             <button
               type="button"
               onClick={() => setActiveType('all')}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  ArrowRight,
   BriefcaseBusiness,
   CheckCircle2,
   Clock3,
@@ -123,7 +124,7 @@ export default function Deals() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="primary-market-metric-grid grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {metricCards(stats).map(({ label, value, icon: Icon }) => (
           <Surface key={label} kind="card" padding="md" className="min-w-0">
             <div className="flex items-center gap-3">
@@ -142,7 +143,7 @@ export default function Deals() {
       <PageSection
         title="项目列表"
         actions={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="primary-market-filter-row flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative min-w-0 sm:w-72">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
               <Input
@@ -150,12 +151,14 @@ export default function Deals() {
                 onChange={(event) => setQuery(event.target.value)}
                 className="pl-9"
                 placeholder="搜索项目或公司"
+                aria-label="搜索一级市场项目"
               />
             </div>
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
               className="h-9 rounded-md border border-input bg-background px-3 text-sm text-text shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              aria-label="筛选项目状态"
             >
               <option value="">全部状态</option>
               <option value="draft">草稿</option>
@@ -177,7 +180,55 @@ export default function Deals() {
         ) : data.deals.length === 0 ? (
           <EmptyState icon={BriefcaseBusiness} title="暂无一级市场项目" description="创建项目后会显示在这里。" />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="grid gap-3 md:hidden" aria-label="项目卡片列表">
+            {data.deals.map((deal) => (
+              <Surface key={deal.deal_id} kind="row" padding="sm">
+                <div className="flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link
+                      to={`/deals/${encodeURIComponent(deal.deal_id)}`}
+                      className="inline-flex min-h-11 max-w-full items-center break-words text-base font-semibold leading-6 text-text"
+                    >
+                      {deal.company_name || deal.deal_id}
+                    </Link>
+                    <p className="break-all font-mono text-xs leading-5 text-text-muted">{deal.deal_id}</p>
+                  </div>
+                  <StatusBadge className="shrink-0" tone={statusTone(deal.status)}>{statusLabel(deal.status)}</StatusBadge>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="min-w-0 rounded-md bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs text-text-muted">行业 / 阶段</p>
+                    <p className="mt-1 break-words font-semibold text-text">{deal.industry || '未设置'} · {deal.stage || '未设置'}</p>
+                  </div>
+                  <div className="min-w-0 rounded-md bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs text-text-muted">当前阶段</p>
+                    <p className="mt-1 font-semibold text-text">{deal.current_phase || '未开始'}</p>
+                  </div>
+                  <div className="min-w-0 rounded-md bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs text-text-muted">投决</p>
+                    <p className="mt-1 break-words font-semibold text-text">
+                      {deal.final_decision ? `${deal.final_decision}${typeof deal.final_score === 'number' ? ` · ${deal.final_score}` : ''}` : '未生成'}
+                    </p>
+                  </div>
+                  <div className="min-w-0 rounded-md bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs text-text-muted">更新</p>
+                    <p className="mt-1 font-semibold text-text">{formatUpdatedAt(deal.updated_at)}</p>
+                  </div>
+                </div>
+
+                <Button asChild variant="secondary" className="mt-3 w-full justify-between">
+                  <Link to={`/deals/${encodeURIComponent(deal.deal_id)}`}>
+                    查看项目详情
+                    <ArrowRight />
+                  </Link>
+                </Button>
+              </Surface>
+            ))}
+          </div>
+
+          <div className="primary-market-table-scroll hidden overflow-x-auto md:block">
             <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="text-xs uppercase tracking-wide text-text-muted">
@@ -228,6 +279,7 @@ export default function Deals() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </PageSection>
     </PageShell>
