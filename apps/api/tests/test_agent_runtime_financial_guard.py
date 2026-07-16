@@ -361,7 +361,7 @@ def test_warn_mode_guard_application_is_idempotent(monkeypatch):
     assert second.count("guardrail_status=warning") == 1
 
 
-def test_warn_mode_keeps_output_for_identity_invalid_reference_and_claim_mismatch(monkeypatch):
+def test_warn_mode_keeps_identity_and_reference_diagnostics_but_blocks_proven_claim_mismatch(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
 
     identity_reply = guard.enforce_financial_evidence_contract(
@@ -392,12 +392,10 @@ def test_warn_mode_keeps_output_for_identity_invalid_reference_and_claim_mismatc
     assert "guardrail_reason=financial_research_identity_incomplete" in identity_reply
     assert "模型原始引用回答。" in invalid_reference_reply
     assert "## 证据链无效" in invalid_reference_reply
-    assert "营业收入为 100 亿元" in mismatch_reply
+    assert "营业收入为 100 亿元" not in mismatch_reply
     assert "guardrail_reason=financial_claim_mismatch" in mismatch_reply
-    assert all(
-        "guardrail_status=warning" in reply
-        for reply in (identity_reply, invalid_reference_reply, mismatch_reply)
-    )
+    assert "guardrail_status=blocked" in mismatch_reply
+    assert all("guardrail_status=warning" in reply for reply in (identity_reply, invalid_reference_reply))
 
 
 def test_warn_mode_keeps_output_when_auto_evidence_adds_invalid_task_id(monkeypatch):

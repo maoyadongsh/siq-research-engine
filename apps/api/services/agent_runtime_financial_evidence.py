@@ -791,4 +791,77 @@ def build_trusted_calculation_evidence(
     return tuple(output)
 
 
-__all__ = ["build_trusted_calculation_evidence"]
+_AMOUNT_UNIT_TO_BASE = {
+    "元": Decimal("1"),
+    "人民币元": Decimal("1"),
+    "千元": Decimal("1000"),
+    "人民币千元": Decimal("1000"),
+    "万元": Decimal("10000"),
+    "百万元": Decimal("1000000"),
+    "亿元": Decimal("100000000"),
+}
+
+
+def _decimal_text(value: Decimal, places: int | None = None) -> str:
+    if places is not None:
+        value = value.quantize(Decimal(1).scaleb(-places))
+    return format(value, "f").rstrip("0").rstrip(".") or "0"
+
+
+def render_deterministic_calculation_pack(
+    evidence: Sequence[Mapping[str, Any]],
+) -> str | None:
+    """Render backend-owned display values before the model writes prose."""
+
+    rows: list[str] = []
+    for item in evidence:
+        unit = str(item.get("unit") or "")
+        multiplier = _AMOUNT_UNIT_TO_BASE.get(unit)
+        if multiplier is None:
+            continue
+        try:
+            value = Decimal(str(item.get("value") or item.get("raw_value")))
+        except (InvalidOperation, TypeError):
+            continue
+        base = value * multiplier
+        metric = str(item.get("metric") or "")
+        metric_name = str(item.get("metric_name") or metric)
+        period = str(item.get("period") or "")
+        evidence_id = str(item.get("evidence_id") or "")
+        direction = str(item.get("change_direction") or "")
+        direction_text = {"increase": "增加", "decrease": "减少", "unchanged": "不变"}.get(direction, "")
+        calculation_id = "calc:" + hashlib.sha256(
+            f"{evidence_id}|display-units-v1".encode("utf-8")
+        ).hexdigest()[:16]
+        rows.append(
+            "| {calculation_id} | {metric} | {metric_name}{direction} | {period} | {raw} {unit} | "
+            "{ten_thousand} 万元 | {hundred_million} 亿元 | {evidence_id} |".format(
+                calculation_id=calculation_id,
+                metric=metric,
+                metric_name=metric_name,
+                direction=direction_text,
+                period=period,
+                raw=_decimal_text(value),
+                unit=unit,
+                ten_thousand=_decimal_text(base / Decimal("10000"), 4),
+                hundred_million=_decimal_text(base / Decimal("100000000"), 8),
+                evidence_id=evidence_id,
+            )
+        )
+    if not rows:
+        return None
+    return "\n".join(
+        [
+            "## 后端确定性财务结果包",
+            "以下换算由后端在模型生成前完成，是本轮派生金额的唯一允许来源。",
+            "- 正文不得自行移动小数点、重新换算或改变项目归属。",
+            "- 使用派生金额时必须保持本表数值和单位，并在句末标注对应 `[calc:...]`。",
+            "- 结果包没有覆盖的派生金额不得输出；可保留原始披露值并说明未计算。",
+            "| calculation_id | metric | 项目/方向 | period | 原始口径 | 万元 | 亿元 | evidence_id |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
+            *rows,
+        ]
+    )
+
+
+__all__ = ["build_trusted_calculation_evidence", "render_deterministic_calculation_pack"]

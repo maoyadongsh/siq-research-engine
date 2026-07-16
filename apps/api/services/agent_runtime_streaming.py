@@ -14,7 +14,7 @@ import httpx
 from fastapi import Request
 
 from services import agent_runtime_citations, agent_runtime_dedupe, agent_runtime_progress
-from services.hermes_client import HermesProfile, RunTerminalResult, normalize_profile
+from services.hermes_client import HermesProfile, HermesRunRoute, RunTerminalResult, normalize_profile
 
 
 def _env_int(name: str, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
@@ -67,6 +67,7 @@ class ActiveRunState:
     task: asyncio.Task | None = None
     owner_id: str | None = None
     lease_heartbeat_task: asyncio.Task | None = None
+    run_route: HermesRunRoute | None = None
 
     def __post_init__(self) -> None:
         self.profile = _runtime_profile(self.profile)
@@ -294,6 +295,7 @@ def get_active_run_snapshot(
         "updated_at": state.updated_at.isoformat(),
         "error": state.error,
         "terminal": state.terminal_result.to_payload() if state.terminal_result else None,
+        "runtime_target": state.run_route.target if state.run_route is not None else "host",
     }
 
 
@@ -376,7 +378,14 @@ async def stop_active_run(
     )
     await _append_state_event(state, "replace", {"content": stopped_message})
     try:
-        result = await stop_run_call(state.run_id, profile=state.profile)
+        if state.run_route is None:
+            result = await stop_run_call(state.run_id, profile=state.profile)
+        else:
+            result = await stop_run_call(
+                state.run_id,
+                profile=state.profile,
+                route=state.run_route,
+            )
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             await _append_progress_event(

@@ -2767,6 +2767,69 @@ def test_evidence_recompute_reconciliation_allows_cross_table_only_with_same_sco
         assert result.reason == "trace_unstructured"
 
 
+def test_evidence_recompute_reconciliation_accepts_same_identity_when_all_scopes_are_unknown():
+    gross, allowance, net = (dict(item) for item in _trusted_goodwill_evidence())
+    for item in (gross, allowance, net):
+        item.pop("financial_scope", None)
+        item.pop("statement_scope", None)
+        item.pop("scope", None)
+    gross.update({"value": "1282085915.36", "unit": "元", "period": "2025-12-31"})
+    allowance.update({"value": "98963594.89", "unit": "元", "period": "2025-12-31"})
+    net.update(
+        {
+            "value": "1183122320.47",
+            "unit": "元",
+            "period": "2025-12-31",
+            "pdf_page": 65,
+            "table_index": 84,
+            "md_line": 1840,
+        }
+    )
+    reply = (
+        "商誉账面原值 1,282,085,915.36 元 - 减值准备 98,963,594.89 元 = "
+        "商誉净额 1,183,122,320.47 元。\n"
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_metrics task_id=task-midea "
+        "pdf_page=65 table_index=84 md_line=1840"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is True
+    assert any(run["operation"] == "goodwill_reconciliation" for run in result.runs)
+
+
+def test_evidence_recompute_reconciliation_uses_exact_evidence_for_rounded_display_equation():
+    gross, allowance, net = (dict(item) for item in _trusted_goodwill_evidence())
+    for item in (gross, allowance, net):
+        item.pop("financial_scope", None)
+    gross.update({"value": "1282085915.36", "unit": "元", "period": "2025-12-31"})
+    allowance.update({"value": "98963594.89", "unit": "元", "period": "2025-12-31"})
+    net.update({"value": "1183122320.47", "unit": "元", "period": "2025-12-31"})
+    reply = (
+        "商誉账面净值 11.83 亿元 = 商誉账面原值 12.82 亿元 - 商誉减值准备 0.99 亿元。\n"
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is True
+    reconciliation = next(run for run in result.runs if run["operation"] == "goodwill_reconciliation")
+    assert reconciliation["result"]["net"] == "1183122320.47"
+
+
 def test_evidence_recompute_accepts_yoy_when_nearest_year_labels_explicit_previous_operand():
     evidence = (
         _trusted_period_goodwill_fact(
@@ -3373,6 +3436,61 @@ def test_claim_verifier_binds_quoted_metric_yoy_result_to_its_absolute_change():
 
     assert result.allowed is True
     assert result.claims[0].metric == "goodwill_component_other_absolute_change"
+
+
+def test_calculation_trace_accepts_delta_over_previous_as_equivalent_yoy_formula():
+    evidence = (
+        _trusted_period_goodwill_fact(
+            "goodwill_net", "商誉账面价值", "2024-12-31", "1198210116.59", "saic-net-2024", ("商誉",)
+        ),
+        _trusted_period_goodwill_fact(
+            "goodwill_net", "商誉账面价值", "2025-12-31", "1183122320.47", "saic-net-2025", ("商誉",)
+        ),
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_net_absolute_change",
+                "商誉账面价值变动额",
+                "2025-12-31",
+                "15087796.12",
+                "saic-net-change-2025",
+                ("商誉变动额", "绝对变动"),
+            ),
+            "change_direction": "decrease",
+        },
+    )
+    reply = (
+        "YoY：-15,087,796.12 / 1,198,210,116.59 = -1.26%。\n"
+        "[D1] source_type=wiki_metrics task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"yoy"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert result.reason == ""
+
+
+def test_claim_verifier_binds_declared_reconciliation_roles_before_bare_equation():
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+    reply = (
+        "账面原值、减值准备余额、账面价值已按附注勾稽："
+        "34,813,270 - 556,411 = 34,256,859 千元。\n"
+        f"{source}"
+    )
+
+    result = verify_financial_claims(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        trusted_evidence=_trusted_goodwill_evidence(),
+    )
+
+    assert result.allowed is True
+    assert [claim.metric for claim in result.claims] == ["goodwill_net"]
 
 
 def test_claim_verifier_local_component_change_semantics_override_balance_value_proximity():

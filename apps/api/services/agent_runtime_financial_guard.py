@@ -216,6 +216,16 @@ def financial_guardrail_mode() -> str:
     return mode if mode in {"block", "warn"} else "block"
 
 
+def _may_observe_calculation_failure(reason: str) -> bool:
+    """Preserve output only while calculation validity is still unknown."""
+
+    return reason in {
+        "calculator_trace_missing",
+        "reconciliation_trace_missing",
+        "trace_unstructured",
+    }
+
+
 def _observation_reply(original_reply: str, diagnostic: str) -> str:
     """Keep the model output while attaching the exact diagnostic that would block it."""
     notice = (diagnostic or "").replace("原始模型回答已被阻断", "原始模型回答已保留（观察模式，仅供调试）")
@@ -690,15 +700,43 @@ def build_missing_calculation_trace_guardrail_reply(message: str, reply: str, re
     )
 
 
-def build_invalid_calculation_trace_guardrail_reply(reason: str) -> str:
+def build_invalid_calculation_trace_guardrail_reply(
+    reason: str,
+    failures: Sequence[Mapping[str, Any]] = (),
+    deterministic_pack: str | None = None,
+) -> str:
+    detail_lines = []
+    for index, failure in enumerate(failures[:5], start=1):
+        fields = " ".join(
+            f"{key}={failure[key]}"
+            for key in (
+                "line_number",
+                "operation",
+                "metric",
+                "claimed_value",
+                "claimed_unit",
+                "expected_results",
+                "expected_normalized_value",
+                "expected_normalized_values",
+                "evidence_id",
+                "evidence_value",
+                "evidence_unit",
+            )
+            if failure.get(key) not in (None, "", [])
+        )
+        detail_lines.append(f"- failure_{index}: {fields or 'detail_unavailable'}")
+    details = ("\n" + "\n".join(detail_lines)) if detail_lines else ""
+    pack = f"\n\n{deterministic_pack}" if deterministic_pack else ""
     return (
         "## 计算校验无效\n"
         "- 后端检测到计算/勾稽 trace 不是完整结构化运行记录，或其 operation、metric、period、inputs、result、"
         "ResearchIdentity、证据绑定或确定性重算不一致。\n"
-        "- 工具名、章节标题和手写 operation/result 文本不构成可信 trace；原始模型回答已被阻断。\n\n"
+        "- 工具名、章节标题和手写 operation/result 文本不构成可信 trace；原始模型回答已被阻断。"
+        f"{details}\n\n"
         "guardrail_status=blocked\n"
         f"guardrail_reason={FINANCIAL_CALCULATION_TRACE_MISSING_GUARDRAIL_REASON}\n"
         f"calculation_trace_reason={reason}"
+        f"{pack}"
     )
 
 
@@ -789,6 +827,7 @@ def enforce_financial_evidence_contract(
     deps: FinancialEvidenceContractDependencies,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
     trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
+    deterministic_calculation_pack: str | None = None,
 ) -> str:
     """Do not let financial fact answers enter history without structured evidence."""
     if deps.is_runtime_status_reply(reply):
@@ -851,8 +890,14 @@ def enforce_financial_evidence_contract(
             missing_reason = "reconciliation_trace_missing" if needs_reconciliation_trace else "calculator_trace_missing"
             diagnostic = build_missing_calculation_trace_guardrail_reply(message, reply, missing_reason)
         else:
-            diagnostic = build_invalid_calculation_trace_guardrail_reply(calculation_trace.reason)
-        if financial_guardrail_mode() == "warn":
+            diagnostic = build_invalid_calculation_trace_guardrail_reply(
+                calculation_trace.reason,
+                calculation_trace.failures,
+                deterministic_calculation_pack,
+            )
+        if financial_guardrail_mode() == "warn" and _may_observe_calculation_failure(
+            calculation_trace.reason
+        ):
             return _observation_reply(reply, diagnostic)
         return diagnostic
     # A successful trusted receipt or backend evidence recomputation is the
@@ -880,8 +925,8 @@ def enforce_financial_evidence_contract(
         )
         if not claim_verification.allowed:
             diagnostic = build_financial_claim_mismatch_guardrail_reply(claim_verification)
-            if financial_guardrail_mode() == "warn":
-                return _observation_reply(reply, diagnostic)
+            # A deterministic evidence mismatch is known-bad financial data,
+            # so observation mode must not deliver or persist the model text.
             return diagnostic
         return reply
     fallback = build_financial_evidence_fallback_reply(message, context, deps=deps)

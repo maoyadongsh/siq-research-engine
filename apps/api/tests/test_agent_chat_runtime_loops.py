@@ -760,6 +760,209 @@ def test_midea_evidence_recompute_accepts_visible_fact_rows_without_model_tool_c
     assert "guardrail_status=" not in guarded
 
 
+def test_midea_warn_mode_blocks_proven_wrong_allowance_change_unit_conversion(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
+    reply = (
+        "## 结论\n"
+        "- 商誉账面价值 342.57 亿元（34,256,859 千元）。\n"
+        "- 减值准备余额由 569,005 千元降至 556,411 千元，减少 12.59 亿元。\n\n"
+        "## 计算器校验\n"
+        "- 减值准备变动额换算为 12.59 亿元；后端变动重算为 12,594 千元。\n\n"
+        "- KUKA 集团占比：23,435,302 / 34,813,270 = 67.32%。\n\n"
+        "## 勾稽校验\n"
+        "- 商誉原值 34,813,270 千元 - 减值准备 556,411 千元 = "
+        "主表净额 34,256,859 千元。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=132, table_index=89, md_line=2497。\n"
+        "[D2] source_type=wiki_document_links, task_id=f4dead73-e0de-42b4-b1b7-d8cf217214ee, "
+        "pdf_page=206, table_index=163, md_line=4325。"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析美的集团的商誉", None, reply)
+
+    assert "减少 12.59 亿元" not in guarded
+    assert "## 计算校验无效" in guarded
+    assert "calculation_trace_reason=trace_claim_result_mismatch" in guarded
+    assert "operation=normalize_amount" in guarded
+    assert "claimed_value=12.59" in guarded
+    assert "expected_normalized_value=12594000.0" in guarded
+    assert "evidence_value=12594.0" in guarded
+    assert "guardrail_status=blocked" in guarded
+
+
+def test_display_normalization_removes_leaked_process_preamble():
+    reply = (
+        "当前公司一致，无需重新路由。先验证文献，再用终端补充。\n\n"
+        "x一顿乱投（又不是工具调用，只是打输一个表情）\n\n"
+        "## 结论\n- 正式答案。"
+    )
+
+    displayed = runtime.normalize_evidence_trace_for_display(reply)
+
+    assert displayed == "## 结论\n- 正式答案。"
+
+
+def test_financial_repair_prompt_contains_exact_failures_and_forbids_process_text():
+    prompt = runtime._financial_repair_run_input(
+        message="分析上汽集团商誉",
+        draft="## 结论\n- 商誉减少 20.91 亿元。",
+        validation_failure=(
+            "## 计算校验无效\n"
+            "- failure_1: operation=normalize_amount claimed_value=20.91 "
+            "expected_normalized_value=20913146\n"
+            "guardrail_status=blocked"
+        ),
+    )
+
+    assert "唯一一次校验修复" in prompt
+    assert "不得重新路由" in prompt
+    assert "failure_1: operation=normalize_amount" in prompt
+    assert "expected_normalized_value=20913146" in prompt
+    assert "第一轮草稿" in prompt
+
+
+def test_second_financial_validation_failure_keeps_draft_and_appends_failures():
+    reply = runtime._reply_with_financial_validation_failures(
+        "## 结论\n- 第二轮正文仍正常输出。",
+        "## 计算校验无效\n- failure_1: metric=goodwill_net\n"
+        "guardrail_status=blocked\ncalculation_trace_reason=trace_claim_result_mismatch",
+    )
+
+    assert reply.startswith("## 结论\n- 第二轮正文仍正常输出。")
+    assert "## 校验失败详情" in reply
+    assert "失败明细：metric=goodwill_net" in reply
+    assert "`trace_claim_result_mismatch`" in reply
+    assert "guardrail_status=blocked" not in reply
+
+
+def test_second_financial_validation_failure_removes_blocking_language():
+    reply = runtime._reply_with_financial_validation_failures(
+        "## 结论\n- 有证据支持的事实和分析。",
+        "## 计算校验无效\n"
+        "- 工具名、章节标题和手写 operation/result 文本不构成可信 trace；原始模型回答已被阻断。\n\n"
+        "guardrail_status=blocked\n"
+        "calculation_trace_reason=reconciliation_trace_missing",
+    )
+
+    assert "有证据支持的事实和分析" in reply
+    assert "原始模型回答已被阻断" not in reply
+    assert "勾稽校验运行记录缺失" in reply
+    assert "`reconciliation_trace_missing`" in reply
+    assert "后端确定性财务结果包" not in reply
+
+
+def test_second_financial_validation_failure_hides_verbose_model_traces_and_backend_pack():
+    reply = runtime._reply_with_financial_validation_failures(
+        "## 结论\n- 正文。\n\n"
+        "## 计算器校验\ntrace_id=calc:1\ninputs: many\nstatus: ok\n\n"
+        "## 勾稽校验\ntrace_id=recon:1\ninputs: many\nstatus: ok\n\n"
+        "## 引用来源\n[D1] source_type=wiki_metrics",
+        "## 计算校验无效\ncalculation_trace_reason=reconciliation_trace_missing\n\n"
+        "## 后端确定性财务结果包\n| calculation_id | metric |\n| huge | table |",
+    )
+
+    assert "## 结论\n- 正文。" in reply
+    assert "## 引用来源\n[D1]" in reply
+    assert "trace_id=calc:1" not in reply
+    assert "trace_id=recon:1" not in reply
+    assert "后端确定性财务结果包" not in reply
+    assert reply.count("## 校验失败详情") == 1
+
+
+def test_single_financial_repair_creates_exactly_one_run(monkeypatch):
+    calls = []
+
+    async def fake_create(run_input, history, **kwargs):
+        calls.append((run_input, history, kwargs))
+        return "repair-run", kwargs.get("route")
+
+    async def fake_collect(run_id, **kwargs):
+        assert run_id == "repair-run"
+        return "## 结论\n- 已修复。"
+
+    monkeypatch.setattr(runtime, "_create_routed_run", fake_create)
+    monkeypatch.setattr(runtime, "_collect_routed_run_result", fake_collect)
+
+    async def run_repair():
+        return await runtime._run_single_financial_repair(
+            profile="siq_assistant",
+            session_id="session-1",
+            route=None,
+            message="分析商誉",
+            draft="错误草稿",
+            validation_failure="guardrail_status=blocked",
+        )
+
+    repaired, _ = anyio.run(run_repair)
+
+    assert repaired == "## 结论\n- 已修复。"
+    assert len(calls) == 1
+    assert calls[0][1] == []
+
+
+def test_missing_cross_page_calculation_locator_is_added_once():
+    reply = (
+        "## 结论\n- 商誉占归母权益 15.35%。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics, task_id=task-1, pdf_page=132, table_index=89, md_line=2497."
+    )
+    evidence = (
+        {"task_id": "task-1", "pdf_page": 132, "table_index": 89, "md_line": 2497},
+        {"task_id": "task-1", "pdf_page": 133, "table_index": 90, "md_line": 2508},
+        {"task_id": "task-1", "pdf_page": 133, "table_index": 90, "md_line": 2508},
+    )
+
+    completed = runtime._append_missing_calculation_evidence_locators(reply, evidence)
+
+    assert completed.count("pdf_page=132") == 1
+    assert completed.count("pdf_page=133") == 1
+    assert completed.count("table_index=90") == 1
+
+
+def test_inline_financial_evidence_labels_are_hidden_after_validation():
+    displayed = runtime._strip_inline_financial_evidence_labels_for_display(
+        "商誉增加 46.76 亿元 [calc:change-1]；占比 15.35% "
+        "（[calc:net-1] / [calc:equity-1]）。引用见 [1]。"
+    )
+
+    assert displayed == "商誉增加 46.76 亿元；占比 15.35%。引用见 [1]。"
+
+
+def test_saic_wrong_change_conversions_are_blocked_and_replaced_by_deterministic_pack(monkeypatch):
+    monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "block")
+    reply = (
+        "## 结论\n"
+        "- 本期商誉原值减少 20.91 亿元，减值准备减少 5.83 亿元。\n"
+        "- 上海机动车回收服务中心转出 1,508.78 万元。\n\n"
+        "## 计算器校验\n"
+        "- 商誉 1,183,122,320.47 元约为 11.83 亿元。\n\n"
+        "## 勾稽校验\n"
+        "- 原值 1,282,085,915.36 元 - 减值准备 98,963,594.89 元 = "
+        "净额 1,183,122,320.47 元。\n\n"
+        "## 引用来源\n"
+        "[D1] source_type=wiki_metrics task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0 "
+        "pdf_page=65 table_index=84 md_line=1840\n"
+        "[D2] source_type=wiki_document_links task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0 "
+        "pdf_page=137 table_index=165 md_line=4186\n"
+        "[D3] source_type=wiki_document_links task_id=7dbc35a7-7626-4e81-810e-5dbb764434e0 "
+        "pdf_page=137 table_index=166 md_line=4196"
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract("分析上汽集团的商誉", None, reply)
+
+    assert "本期商誉原值减少 20.91 亿元" not in guarded
+    assert "减值准备减少 5.83 亿元" not in guarded
+    assert "guardrail_status=blocked" in guarded
+    assert "## 后端确定性财务结果包" in guarded
+    assert "goodwill_gross_absolute_change" in guarded
+    assert "2091.3146 万元" in guarded
+    assert "0.20913146 亿元" in guarded
+    assert "goodwill_impairment_allowance_absolute_change" in guarded
+    assert "582.535 万元" in guarded
+    assert "0.0582535 亿元" in guarded
+
+
 def test_midea_evidence_recompute_rejects_unbound_model_authored_ratio(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     reply = (
@@ -846,7 +1049,7 @@ def test_saic_attachment_unicode_reconciliation_is_recognized_but_wrong_ratios_s
     guarded = runtime.enforce_financial_evidence_contract("分析一下上汽集团的商誉", None, reply)
 
     assert guarded.count("## 计算校验无效") == 1
-    assert "guardrail_status=warning" in guarded
+    assert "guardrail_status=blocked" in guarded
     assert "calculation_trace_reason=reconciliation_trace_missing" not in guarded
 
 
@@ -964,6 +1167,17 @@ def test_goodwill_mixed_query_injects_main_statement_and_note_contexts():
     assert "semantic/document_links.json" in prompt
     assert "table_index=165" in prompt
     assert "table_index=166" in prompt
+    assert "## 后端确定性财务结果包" in prompt
+    assert "goodwill_gross_absolute_change" in prompt
+    assert "2091.3146 万元" in prompt
+    assert "0.20913146 亿元" in prompt
+    assert "goodwill_impairment_allowance_absolute_change" in prompt
+    assert "582.535 万元" in prompt
+    assert "0.0582535 亿元" in prompt
+    assert "goodwill_net_absolute_change" in prompt
+    assert "1508.7796 万元" in prompt
+    assert "0.15087796 亿元" in prompt
+    assert "所有金额换算、变动额及其项目归属只能逐字采用结果包" in prompt
 
 
 def test_goodwill_mixed_query_guard_adds_missing_main_statement_source(monkeypatch):

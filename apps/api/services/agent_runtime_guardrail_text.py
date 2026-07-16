@@ -15,6 +15,8 @@ GUARDRAIL_DIAGNOSTIC_TITLES = frozenset(
         "工具状态纠正",
         "财务证据身份不一致",
         "财务数值证据不一致",
+        "校验失败详情",
+        "后端确定性财务结果包",
     }
 )
 

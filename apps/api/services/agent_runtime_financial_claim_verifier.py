@@ -55,6 +55,13 @@ CANONICAL_METRIC_ALIASES = {
     "total_assets": ("总资产", "资产总计", "total assets"),
     "total_liabilities": ("总负债", "负债合计", "total liabilities"),
     "shareholders_equity": ("股东权益", "所有者权益", "shareholders' equity"),
+    "parent_shareholders_equity": (
+        "归母权益",
+        "归母净资产",
+        "母公司权益",
+        "归属于母公司股东权益",
+        "归属于母公司所有者权益",
+    ),
     "cash_and_cash_equivalents": ("货币资金", "现金及现金等价物", "cash and cash equivalents"),
     "goodwill": ("商誉", "goodwill"),
 }
@@ -343,6 +350,7 @@ class CalculationTraceValidation:
     allowed: bool
     reason: str = ""
     runs: tuple[Mapping[str, Any], ...] = ()
+    failures: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -587,6 +595,8 @@ def _trace_identity_reason(payload: Mapping[str, Any], expected: Mapping[str, st
 
 def _trace_reference_aliases(reference: Mapping[str, Any]) -> set[str]:
     aliases = {str(reference.get(key) or "").strip().lower() for key in ("metric", "metric_name", "canonical_name")}
+    canonical = str(reference.get("canonical_name") or reference.get("metric") or "").strip().lower()
+    aliases.update(str(alias).strip().lower() for alias in CANONICAL_METRIC_ALIASES.get(canonical, ()))
     extra_aliases = reference.get("aliases")
     if isinstance(extra_aliases, Sequence) and not isinstance(extra_aliases, (str, bytes)):
         aliases.update(str(alias or "").strip().lower() for alias in extra_aliases)
@@ -595,7 +605,7 @@ def _trace_reference_aliases(reference: Mapping[str, Any]) -> set[str]:
 
 def _normalized_locator_value(value: Any) -> str:
     text = str(value or "").strip()
-    match = re.match(r"^(?P<number>\d+)(?=$|[\s,，;；。)）\]】])", text)
+    match = re.match(r"^(?P<number>\d+)(?=$|[.\s,，;；。)）\]】])", text)
     return match.group("number") if match else text
 
 
@@ -818,9 +828,8 @@ def _trace_evidence_reason(
             if role in references_by_role
         )
         if set(reconciliation_roles).issubset(trusted_reference_roles):
-            if len(reconciliation_references) != 3 or not _same_financial_scope(
-                reconciliation_references,
-                require_known=True,
+            if len(reconciliation_references) != 3 or not _reconciliation_scope_compatible(
+                reconciliation_references
             ):
                 return "trace_input_scope_mismatch"
     return None
@@ -1280,6 +1289,12 @@ def _ratio_scope_compatible(references: Sequence[Mapping[str, Any]]) -> bool:
     )
 
 
+def _reconciliation_scope_compatible(references: Sequence[Mapping[str, Any]]) -> bool:
+    """Allow legacy all-unknown scope, but never mix or conflict known scopes."""
+
+    return _same_financial_scope(references, require_known=False)
+
+
 def _trusted_evidence_value(reference: Mapping[str, Any]) -> Decimal | None:
     value = reference.get("value", reference.get("raw_value"))
     number = _trace_decimal(("" if value is None else str(value)).replace("(", "-").replace(")", ""))
@@ -1512,7 +1527,13 @@ def _ratio_semantic_pair_bound(
     ratio_marker = prefix.rfind("占")
     if ratio_marker < 0:
         return False
-    denominator_context = prefix[ratio_marker + 1 :]
+    against_marker = prefix.rfind("对", 0, ratio_marker)
+    possessive_ratio = against_marker >= 0 and re.search(r"的(?:占比|比例|比率)\s*$", prefix[against_marker:])
+    denominator_context = (
+        prefix[against_marker + 1 : ratio_marker]
+        if possessive_ratio
+        else prefix[ratio_marker + 1 :]
+    )
     if not _line_mentions_reference(denominator_context, secondary):
         return False
 
@@ -1520,7 +1541,7 @@ def _ratio_semantic_pair_bound(
         (prefix.rfind(marker, 0, ratio_marker) for marker in ("，", ",", "；", ";", "。", "：", ":", "）", ")")),
         default=-1,
     )
-    subject_context = prefix[subject_boundary + 1 : ratio_marker]
+    subject_context = prefix[subject_boundary + 1 : (against_marker if possessive_ratio else ratio_marker)]
     source_ids = primary.get("derived_from_evidence_ids")
     if isinstance(source_ids, Sequence) and not isinstance(source_ids, (str, bytes)):
         if len(source_ids) < 2 or "合计" not in subject_context:
@@ -1547,10 +1568,11 @@ def _ratio_semantic_pair_bound(
     else:
         if not _line_mentions_reference(subject_context, primary):
             compact_subject = _compact_semantic_text(subject_context)
-            antecedent_context = prefix[: subject_boundary + 1]
-            if not compact_subject.startswith(("其", "该")) or not _line_mentions_reference(
-                antecedent_context,
-                primary,
+            antecedent_context = prefix[: (against_marker if possessive_ratio else subject_boundary + 1)]
+            has_bound_antecedent = _line_mentions_reference(antecedent_context, primary)
+            if not has_bound_antecedent and not (
+                compact_subject.startswith(("其", "该"))
+                and _line_mentions_reference(prefix[: subject_boundary + 1], primary)
             ):
                 return False
         operand_references = (primary, secondary)
@@ -1683,6 +1705,20 @@ def _matching_percent_occurrences(
         primary_value_bound = direct_primary_value_bound or derived_sum_formula_bound
         secondary_value_bound = _line_contains_trusted_value(line, secondary)
         direct_operand_pair_bound = primary_value_bound and secondary_value_bound
+        primary_metric = _trusted_evidence_metric(primary).lower()
+        absolute_change_pair_bound = False
+        if operation in {"yoy", "yoy_growth"} and secondary_value_bound:
+            change_metric = f"{primary_metric}_absolute_change"
+            absolute_change_pair_bound = any(
+                _trusted_evidence_metric(reference).lower() == change_metric
+                and _trusted_evidence_period(reference) == _trusted_evidence_period(primary)
+                and _same_financial_scope((primary, secondary, reference), require_known=False)
+                and _line_contains_trusted_value(
+                    normalize_financial_minus_signs(line).replace("-", ""),
+                    reference,
+                )
+                for reference in all_references
+            )
         if operation in {"yoy", "yoy_growth"} and direct_operand_pair_bound:
             primary_spans = _trusted_value_occurrences(line, primary)
             secondary_spans = _trusted_value_occurrences(line, secondary)
@@ -1702,7 +1738,6 @@ def _matching_percent_occurrences(
         )
         if not _occurrence_period_matches(occurrence, period_references):
             continue
-        primary_metric = _trusted_evidence_metric(primary).lower()
         semantic_metrics = _occurrence_nearest_metrics(occurrence, all_references) | _occurrence_subject_metrics(
             occurrence,
             all_references,
@@ -1719,6 +1754,7 @@ def _matching_percent_occurrences(
             )
             if not (
                 direct_operand_pair_bound
+                or absolute_change_pair_bound
                 or ((semantic_bound or heading_semantic_bound) and yoy_context)
             ):
                 continue
@@ -2160,6 +2196,47 @@ def _reconciliation_fact_block_line(
     return None
 
 
+def _reconciliation_statement_line(
+    reply: str,
+    gross: Mapping[str, Any],
+    allowance: Mapping[str, Any],
+    net: Mapping[str, Any],
+) -> int | None:
+    """Find a visible goodwill reconciliation statement even when display values are rounded."""
+
+    for line_number, line in enumerate((reply or "").splitlines(), start=1):
+        if "source_type=" in line:
+            continue
+        expression = re.sub(r"^\s*(?:[-*+]|\d+[.)、])\s+", "", line)
+        compact = _compact_semantic_text(expression)
+        gross_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["gross"][:3]]
+        allowance_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["allowance"][:2]]
+        net_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["net"][:5]]
+        gross_position = min((position for position in gross_positions if position >= 0), default=-1)
+        allowance_position = min((position for position in allowance_positions if position >= 0), default=-1)
+        net_position = min((position for position in net_positions if position >= 0), default=-1)
+        if min(gross_position, allowance_position, net_position) < 0:
+            continue
+        if re.search(r"[+*/×÷]", expression):
+            continue
+        if len(re.findall(r"[=＝]", expression)) not in {1, 2}:
+            continue
+        if len(re.findall(rf"[{FINANCIAL_MINUS_SIGN_CLASS}]", expression)) != 1:
+            continue
+        if not (
+            net_position < gross_position < allowance_position
+            or gross_position < allowance_position < net_position
+        ):
+            continue
+        if not all(
+            _trusted_value_occurrences(expression, reference, allow_opposite_sign=role == "allowance")
+            for role, reference in (("gross", gross), ("allowance", allowance), ("net", net))
+        ):
+            continue
+        return line_number
+    return None
+
+
 def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, Any]) -> bool:
     if str(numerator.get("evidence_id") or "") == str(denominator.get("evidence_id") or ""):
         return False
@@ -2399,11 +2476,13 @@ def materialize_evidence_bound_calculation_runs(
             for allowance in allowance_records:
                 for net in net_records:
                     periods = {_trusted_evidence_period(item) for item in (gross, allowance, net)}
-                    if not _same_financial_scope((gross, allowance, net), require_known=True):
+                    if not _reconciliation_scope_compatible((gross, allowance, net)):
                         continue
                     display_line = _reconciliation_equation_line(reply, gross, allowance, net)
                     if display_line is None:
                         display_line = _reconciliation_fact_block_line(reply, gross, allowance, net)
+                    if display_line is None:
+                        display_line = _reconciliation_statement_line(reply, gross, allowance, net)
                     if len(periods) != 1 or display_line is None:
                         continue
                     inputs = {
@@ -2558,9 +2637,11 @@ def validate_calculation_traces(
                 for run, result in evidence_bound_results
                 if _trace_run_context_matches_percentage_claim(run, occurrence, trusted_evidence)
             ]
-            candidate_results = directly_bound_results + [
-                result for result in contextual_results if result not in directly_bound_results
-            ]
+            # Exact display coordinates are authoritative. Context matching is
+            # only a fallback for repeated prose claims without direct binding;
+            # mixing both lets another ratio on the same line contaminate the
+            # correctly bound percentage.
+            candidate_results = directly_bound_results or contextual_results
         else:
             candidate_results = calculator_results
         direct_match = any(_percent_occurrence_matches_expected(occurrence, result) for result in candidate_results)
@@ -2579,7 +2660,30 @@ def validate_calculation_traces(
             for right in difference_candidates
         )
         if not (direct_match or difference_match):
-            return CalculationTraceValidation(True, False, "trace_claim_result_mismatch", runs)
+            related_runs = [
+                run
+                for run, _result in evidence_bound_results
+                if int(run.get("display_line_number") or 0) == occurrence.line_number
+            ]
+            return CalculationTraceValidation(
+                True,
+                False,
+                "trace_claim_result_mismatch",
+                runs,
+                ({
+                    "line_number": occurrence.line_number,
+                    "operation": ",".join(
+                        dict.fromkeys(str(run.get("operation") or "") for run in related_runs)
+                    ) or "percentage",
+                    "metric": ",".join(
+                        dict.fromkeys(str(run.get("metric") or "") for run in related_runs)
+                    ),
+                    "claimed_value": occurrence.value_text,
+                    "claimed_unit": "百分点" if occurrence.is_percentage_point else "%",
+                    "expected_results": [str(result * Decimal("100")) for result in candidate_results],
+                    "line": occurrence.line,
+                },),
+            )
     normalization_runs = [run for run in runs if str(run.get("operation") or "").lower() == "normalize_amount"]
     if normalization_runs:
         for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, trusted_evidence):
@@ -2597,7 +2701,28 @@ def validate_calculation_traces(
                 expected is not None and _claim_fact_value_distance(claimed, expected, fact.metric) <= tolerance
                 for expected in expected_values
             ):
-                return CalculationTraceValidation(True, False, "trace_claim_result_mismatch", runs)
+                return CalculationTraceValidation(
+                    True,
+                    False,
+                    "trace_claim_result_mismatch",
+                    runs,
+                    ({
+                        "line_number": claim.line_number,
+                        "operation": "normalize_amount",
+                        "metric": fact.metric,
+                        "claimed_value": claim.value_text,
+                        "claimed_unit": claim.unit,
+                        "claimed_normalized_value": str(claimed),
+                        "expected_normalized_values": [
+                            str(expected) for expected in expected_values if expected is not None
+                        ],
+                        "expected_normalized_value": str(fact.normalized_value),
+                        "evidence_id": evidence_id,
+                        "evidence_value": str(fact.value),
+                        "evidence_unit": fact.unit,
+                        "line": claim.line,
+                    },),
+                )
     return CalculationTraceValidation(True, True, runs=runs)
 
 
@@ -3504,6 +3629,81 @@ def _parallel_fact_assignments(
     return tuple(ordered_facts)
 
 
+def _reconciliation_role_list_assignments(
+    clause: str,
+    matches: list[re.Match[str]],
+    facts: tuple[EvidenceFact, ...],
+) -> tuple[EvidenceFact, ...] | None:
+    """Bind `原值、减值准备、账面价值：A-B=C` by its declared role order."""
+
+    if len(matches) != 3 or not _strict_reconciliation_operator_shape(clause, matches, 2):
+        return None
+    prefix = clause[: matches[0].start()]
+    role_positions = [prefix.rfind(term) for term in ("原值", "减值准备", "账面价值")]
+    if min(role_positions) < 0 or role_positions != sorted(role_positions) or "勾稽" not in prefix:
+        return None
+    metrics = ("goodwill_gross", "goodwill_impairment_allowance", "goodwill_net")
+    candidates_by_metric = [
+        [fact for fact in facts if fact.metric == metric]
+        for metric in metrics
+    ]
+    candidates = [
+        (gross, allowance, net)
+        for gross in candidates_by_metric[0]
+        for allowance in candidates_by_metric[1]
+        for net in candidates_by_metric[2]
+        if _reconciliation_fact_context(gross) is not None
+        and _reconciliation_fact_context(gross) == _reconciliation_fact_context(allowance)
+        and _reconciliation_fact_context(gross) == _reconciliation_fact_context(net)
+    ]
+    if not candidates:
+        return None
+
+    def distance(candidate: tuple[EvidenceFact, ...]) -> float:
+        total = 0.0
+        for fact, match in zip(candidate, matches, strict=True):
+            normalized = _normalized_amount(match.group("value"), match.group("unit"))
+            if normalized is None or normalized[1] != fact.value_category:
+                return float("inf")
+            total += _claim_fact_value_distance(normalized[0], fact.normalized_value, fact.metric)
+        return total
+
+    selected = min(candidates, key=lambda candidate: (distance(candidate), candidate[0].period))
+    return selected if math.isfinite(distance(selected)) else None
+
+
+def _declared_reconciliation_rhs_fact(
+    clause: str,
+    match: re.Match[str],
+    category: str,
+    normalized_value: float,
+    facts: tuple[EvidenceFact, ...],
+) -> EvidenceFact | None:
+    """Bind the only unit-bearing value in `原值、准备、净值：A-B=C 元`."""
+
+    prefix = clause[: match.start()]
+    role_positions = [prefix.rfind(term) for term in ("原值", "减值准备", "账面价值")]
+    if min(role_positions) < 0 or role_positions != sorted(role_positions) or "勾稽" not in prefix:
+        return None
+    number = r"[+\-−–—﹣－]?\d[\d,，]*(?:\.\d+)?"
+    if re.search(rf"{number}\s*[{FINANCIAL_MINUS_SIGN_CLASS}]\s*{number}\s*[=＝]\s*$", prefix) is None:
+        return None
+    candidates = [
+        fact
+        for fact in facts
+        if fact.metric == "goodwill_net" and fact.value_category == category
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda fact: (
+            _claim_fact_value_distance(normalized_value, fact.normalized_value, fact.metric),
+            fact.evidence_id,
+        ),
+    )
+
+
 def _is_same_metric_unit_restatement(
     clause: str,
     previous_match: re.Match[str],
@@ -3546,7 +3746,10 @@ def _balance_transition_fact(
     if previous_fact is None or previous_fact.metric.endswith("_absolute_change"):
         return False, None
     prefix = clause[: previous_match.start()]
-    if not any(term in prefix for term in ("余额", "期初", "年初", "上年末")):
+    if not any(term in prefix for term in ("余额", "期初", "年初", "上年末")) and not re.search(
+        r"由\s*$",
+        prefix,
+    ):
         return False, None
     connector = re.sub(
         r"[\s*`_'\"“”‘’]+",
@@ -3875,7 +4078,9 @@ def _extract_claims(
             continue
         for clause in _claim_clauses(line):
             matches = list(NUMBER_WITH_UNIT_RE.finditer(clause))
-            parallel_facts = _parallel_fact_assignments(clause, matches, facts)
+            parallel_facts = _reconciliation_role_list_assignments(clause, matches, facts)
+            if parallel_facts is None:
+                parallel_facts = _parallel_fact_assignments(clause, matches, facts)
             resolved_facts: list[EvidenceFact | None] = [None] * len(matches)
             for match_index, match in enumerate(matches):
                 clause_period_tokens = _amount_period_tokens(clause, match.start())
@@ -3887,6 +4092,14 @@ def _extract_claims(
                     continue
                 normalized_value, category = normalized
                 fact = parallel_facts[match_index] if parallel_facts is not None else None
+                if fact is None and len(matches) == 1:
+                    fact = _declared_reconciliation_rhs_fact(
+                        clause,
+                        match,
+                        category,
+                        normalized_value,
+                        facts,
+                    )
                 if fact is None:
                     local_start = matches[match_index - 1].end() if match_index else 0
                     local_end = matches[match_index + 1].start() if match_index + 1 < len(matches) else len(clause)
@@ -4022,6 +4235,37 @@ def _extract_claims(
                         change_fact.metric,
                     ) <= _display_amount_tolerance(match.group("value"), unit, change_fact.normalized_value):
                         fact = change_fact
+                explicit_value = normalize_financial_minus_signs(match.group("value")).strip()
+                if (
+                    fact is not None
+                    and not fact.metric.endswith("_absolute_change")
+                    and explicit_value.startswith(("+", "-"))
+                ):
+                    signed_change_metric = f"{fact.metric}_absolute_change"
+                    signed_change_facts = tuple(
+                        item
+                        for item in facts
+                        if item.metric == signed_change_metric and item.value_category == category
+                    )
+                    if signed_change_facts:
+                        signed_change_fact = min(
+                            signed_change_facts,
+                            key=lambda item: _claim_fact_value_distance(
+                                normalized_value,
+                                item.normalized_value,
+                                item.metric,
+                            ),
+                        )
+                        if _claim_fact_value_distance(
+                            normalized_value,
+                            signed_change_fact.normalized_value,
+                            signed_change_fact.metric,
+                        ) <= _display_amount_tolerance(
+                            match.group("value"),
+                            unit,
+                            signed_change_fact.normalized_value,
+                        ):
+                            fact = signed_change_fact
                 resolved_facts[match_index] = fact
                 if fact is None:
                     continue

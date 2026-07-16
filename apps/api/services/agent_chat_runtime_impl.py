@@ -7,7 +7,7 @@ import os
 import re
 import sys
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -62,6 +62,7 @@ from services.agent_runtime_fallback_contexts import (
     _postgres_row_unit,
     _postgres_row_value,
 )
+from services.agent_runtime_guardrail_text import strip_guardrail_diagnostics
 from services.agent_runtime_loop_guard import (
     CONSECUTIVE_TOOL_ERROR_LIMIT,
     IDLE_TIMEOUT_MESSAGE,
@@ -108,11 +109,15 @@ from services.agent_runtime_streaming import (
 from services.agent_runtime_tool_output import normalize_tool_output as _normalize_tool_output
 from services.hermes_client import (
     HermesProfile,
+    HermesRunRoute,
     RunTerminalAccumulator,
     RunTerminalError,
     RunTerminalResult,
     collect_run_result,
     create_run,
+    normalize_runtime_target,
+    resolve_run_route,
+    route_session_id,
     stop_run,
     stream_run,
 )
@@ -254,7 +259,11 @@ async def _active_run_lease_heartbeat(state: ActiveRunState) -> None:
                 state.stop_requested = True
                 state.error = "active_run_lease_lost"
                 try:
-                    await stop_run(state.run_id, profile=state.profile)
+                    await _stop_routed_run(
+                        state.run_id,
+                        profile=state.profile,
+                        route=state.run_route,
+                    )
                 except Exception:
                     logger.debug("failed to stop Hermes run after lease loss", exc_info=True)
                 return
@@ -466,6 +475,9 @@ FINANCIAL_CALCULATION_RUNTIME_CONTRACT = (
     "- 上期值为 0 或负数时，普通同比/增长率默认 `not_applicable`，应描述扭亏/亏损扩大/亏损收窄和绝对变动，不能硬写普通增长百分比。\n"
     "- `(1,016)`、`（1,016）` 这类括号金额按负数处理；`HKD`、`HK$` 是港元币种，不是 `K=千` 单位。\n"
     "- `fx_required`、`division_by_zero`、`not_applicable` 是受控业务状态，不等于工具失败；必须解释状态和缺口，不能改写成确定数值。\n"
+    "- 若输入中存在 `## 后端确定性财务结果包`，该结果包优先级高于模型心算和工具摘要。"
+    "所有金额换算、变动额及其项目归属只能逐字采用结果包，并标注 `[calc:...]`；"
+    "禁止自行补零、移动小数点、把万元/百万元写成亿元，或把某一被投资单位的变动归给另一单位。\n"
 )
 GENERAL_ASSISTANT_CONTEXT = (
     "当前用户是在询问智能体自身简介、能力范围、使用方式或提问示例。"
@@ -1546,7 +1558,6 @@ def _sync_attachment_owner_config() -> None:
     agent_runtime_attachments.IMAGE_MODEL_ENABLED = IMAGE_MODEL_ENABLED
     agent_runtime_attachments.IMAGE_MODEL_TIMEOUT_SECONDS = IMAGE_MODEL_TIMEOUT_SECONDS
     agent_runtime_attachments.MAX_DOCUMENT_CONTEXT_CHARS = MAX_DOCUMENT_CONTEXT_CHARS
-    agent_runtime_attachments._CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY = _CHAT_MESSAGE_ATTACHMENTS_COLUMN_READY
     agent_runtime_attachments._IMAGE_MODEL_NAME_CACHE = _IMAGE_MODEL_NAME_CACHE
 
 
@@ -2001,6 +2012,93 @@ def _session_id_matches_profile(profile: HermesProfile, session_id: str) -> bool
 
 def hermes_runs_session_id(profile: HermesProfile, session_id: str) -> str:
     return f"siq:{profile}:{session_id}"
+
+
+def _requested_run_route(
+    profile: HermesProfile,
+    runtime_target: str | None,
+    session_id: str,
+) -> HermesRunRoute | None:
+    target = normalize_runtime_target(profile, runtime_target, session_id=session_id)
+    if target == "host":
+        return None
+    return resolve_run_route(profile, target, session_id=session_id)
+
+
+def _routed_hermes_session_id(
+    profile: HermesProfile,
+    session_id: str,
+    route: HermesRunRoute | None,
+) -> str:
+    if route is None:
+        return hermes_runs_session_id(profile, session_id)
+    return route_session_id(route, profile, session_id)
+
+
+async def _create_routed_run(
+    run_input: str | list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    *,
+    profile: HermesProfile,
+    session_id: str,
+    route: HermesRunRoute | None,
+) -> tuple[str, HermesRunRoute | None]:
+    routed_session_id = _routed_hermes_session_id(profile, session_id, route)
+    if route is None:
+        run_id = await create_run(
+            run_input,
+            history,
+            profile=profile,
+            session_id=routed_session_id,
+        )
+    else:
+        # Never replay an OpenShell request on Host. Even a pre-connect failure
+        # must remain visible so policy/runtime faults cannot be masked by an
+        # unsandboxed execution. Operators roll back explicitly with
+        # SIQ_HERMES_RUNTIME=host or a per-request host target.
+        run_id = await create_run(
+            run_input,
+            history,
+            profile=profile,
+            session_id=routed_session_id,
+            route=route,
+        )
+    return run_id, route
+
+
+async def _collect_routed_run_result(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    timeout: float | httpx.Timeout | None,
+    route: HermesRunRoute | None,
+) -> str:
+    if route is None:
+        return await collect_run_result(run_id, profile=profile, timeout=timeout)
+    return await collect_run_result(run_id, profile=profile, timeout=timeout, route=route)
+
+
+def _stream_routed_run(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    timeout: float | httpx.Timeout | None,
+    route: HermesRunRoute | None,
+) -> AsyncGenerator[Any, None]:
+    if route is None:
+        return stream_run(run_id, profile=profile, timeout=timeout)
+    return stream_run(run_id, profile=profile, timeout=timeout, route=route)
+
+
+async def _stop_routed_run(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    route: HermesRunRoute | None,
+) -> dict[str, Any]:
+    if route is None:
+        return await stop_run(run_id, profile=profile)
+    return await stop_run(run_id, profile=profile, route=route)
 
 
 def _strip_local_memory_blocks(text: str) -> str:
@@ -5340,7 +5438,10 @@ def enforce_financial_evidence_contract(
     context: Any | None,
     reply: str,
 ) -> str:
+    reply = strip_guardrail_diagnostics(reply)
     resolved_context = _resolved_research_context(message, context)
+    trusted_evidence = _trusted_financial_calculation_evidence(message, resolved_context)
+    reply = _append_missing_calculation_evidence_locators(reply, trusted_evidence)
     baseline_events = list(resolved_context.get("_audit_fallback_events") or [])
     guarded_reply = agent_runtime_financial_guard.enforce_financial_evidence_contract(
         message,
@@ -5348,8 +5449,12 @@ def enforce_financial_evidence_contract(
         reply,
         deps=_financial_evidence_contract_dependencies(),
         trusted_calculation_runs=agent_runtime_financial_trace.current_trusted_runs(),
-        trusted_calculation_evidence=_trusted_financial_calculation_evidence(message, resolved_context),
+        trusted_calculation_evidence=trusted_evidence,
+        deterministic_calculation_pack=agent_runtime_financial_evidence.render_deterministic_calculation_pack(
+            trusted_evidence
+        ),
     )
+    guarded_reply = _strip_inline_financial_evidence_labels_for_display(guarded_reply)
     if isinstance(context, dict):
         resolved_events = list(resolved_context.get("_audit_fallback_events") or [])
         new_events = resolved_events[len(baseline_events) :]
@@ -5359,6 +5464,176 @@ def enforce_financial_evidence_contract(
                 if event not in target_events:
                     target_events.append(event)
     return guarded_reply
+
+
+_INLINE_FINANCIAL_EVIDENCE_LABEL_RE = re.compile(r"\[(?:calc|recon|trusted):[^\]\n]+\]", re.IGNORECASE)
+_INLINE_FINANCIAL_EVIDENCE_EXPRESSION_RE = re.compile(
+    r"[（(]\s*"
+    r"\[(?:calc|recon|trusted):[^\]\n]+\]"
+    r"(?:\s*[/÷+\-]\s*\[(?:calc|recon|trusted):[^\]\n]+\])*"
+    r"\s*[)）]",
+    re.IGNORECASE,
+)
+
+
+def _strip_inline_financial_evidence_labels_for_display(reply: str) -> str:
+    text = _INLINE_FINANCIAL_EVIDENCE_EXPRESSION_RE.sub("", reply or "")
+    text = _INLINE_FINANCIAL_EVIDENCE_LABEL_RE.sub("", text)
+    text = re.sub(r"[ \t]+(?=[，。；;：:,])", "", text)
+    return text
+
+
+def _append_missing_calculation_evidence_locators(
+    reply: str,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+) -> str:
+    """Expose each calculation source table once so cross-page operands remain auditable."""
+
+    missing_refs: list[str] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for item in trusted_evidence:
+        task_id = str(item.get("task_id") or item.get("parse_run_id") or "").strip()
+        pdf_page = str(item.get("pdf_page") or item.get("pdf_page_number") or "").strip()
+        table_index = str(item.get("table_index") or "").strip()
+        md_line = str(item.get("md_line") or "").strip()
+        key = (task_id, pdf_page, table_index, md_line)
+        if not task_id or not any(key[1:]) or key in seen:
+            continue
+        seen.add(key)
+        locator_tokens = [
+            token
+            for token in (
+                f"pdf_page={pdf_page}" if pdf_page else "",
+                f"table_index={table_index}" if table_index else "",
+                f"md_line={md_line}" if md_line else "",
+            )
+            if token
+        ]
+        if any(
+            "source_type=" in line
+            and f"task_id={task_id}" in line
+            and any(token in line for token in locator_tokens)
+            for line in reply.splitlines()
+        ):
+            continue
+        label = f"C{len(missing_refs) + 1}"
+        missing_refs.append(
+            f"[{label}] source_type=wiki_metrics, task_id={task_id}, "
+            + ", ".join(locator_tokens)
+        )
+    if not missing_refs:
+        return reply
+    return _merge_refs_into_reference_section(reply, missing_refs)
+
+
+_FINANCIAL_VALIDATION_BLOCK_MARKER = "guardrail_status=blocked"
+_FINANCIAL_VALIDATION_FAILURE_HEADING = "## 校验失败详情"
+
+
+def _financial_validation_failed(guarded_reply: str) -> bool:
+    return _FINANCIAL_VALIDATION_BLOCK_MARKER in (guarded_reply or "")
+
+
+def _financial_repair_run_input(
+    *,
+    message: str,
+    draft: str,
+    validation_failure: str,
+) -> str:
+    """Build the single bounded repair turn from machine-produced failures."""
+
+    return (
+        "你正在执行财务回答的唯一一次校验修复。不得重新路由、重新选公司或输出思考过程。\n"
+        "请直接输出一份完整的最终回答，保留有证据支持的内容，只修正下面校验失败项。\n"
+        "所有金额换算、变动额、比例、勾稽关系必须采用校验器给出的期望值或后端确定性结果包；"
+        "不要手写工具调用记录，不要声称调用了未实际调用的工具。\n\n"
+        f"## 原始问题\n{message}\n\n"
+        f"## 第一轮草稿\n{draft}\n\n"
+        f"## 第一轮校验失败项\n{validation_failure}"
+    )
+
+
+def _strip_verbose_financial_validation_sections(draft: str) -> str:
+    """Remove model-authored machine traces while keeping analysis and sources."""
+
+    content = draft or ""
+    content = re.sub(
+        r"(?ms)^## (?:计算器校验|勾稽校验)\s*\n.*?(?=^## (?!计算器校验|勾稽校验)|\Z)",
+        "",
+        content,
+    )
+    return re.sub(r"\n{3,}", "\n\n", content).strip()
+
+
+def _compact_financial_validation_failure(validation_failure: str) -> str:
+    diagnostic = validation_failure or ""
+    reason_match = re.search(r"(?m)^calculation_trace_reason=(\S+)\s*$", diagnostic)
+    reason = reason_match.group(1) if reason_match else "unknown_validation_failure"
+    failure_lines = re.findall(r"(?m)^- failure_\d+:\s*(.+)$", diagnostic)
+    labels = {
+        "calculator_trace_missing": "计算器运行记录缺失",
+        "reconciliation_trace_missing": "勾稽校验运行记录缺失",
+        "trace_unstructured": "计算记录不是可信结构化 trace",
+        "trace_claim_result_mismatch": "正文计算结果与后端重算不一致",
+        "trace_evidence_mismatch": "计算输入与证据绑定不一致",
+    }
+    lines = [f"- 失败项目：{labels.get(reason, '财务计算自动校验未通过')}。"]
+    lines.extend(f"- 失败明细：{detail}" for detail in failure_lines[:3])
+    lines.extend(
+        (
+            "- 影响范围：正文中的派生计算或勾稽声明暂未通过自动验证；原始披露数据、引用和文字分析仍保留。",
+            f"- 原因代码：`{reason}`",
+        )
+    )
+    return "\n".join(lines)
+
+
+def _reply_with_financial_validation_failures(draft: str, validation_failure: str) -> str:
+    """Second failure is non-blocking, but must remain explicit and inspectable."""
+
+    cleaned_draft = _strip_verbose_financial_validation_sections(
+        normalize_evidence_trace_for_display(draft)
+    )
+    cleaned_draft = _strip_inline_financial_evidence_labels_for_display(cleaned_draft)
+    failure = _compact_financial_validation_failure(validation_failure)
+    return (
+        f"{cleaned_draft}\n\n{_FINANCIAL_VALIDATION_FAILURE_HEADING}\n"
+        "- 第二轮修复后仍有项目未通过；正文已保留，仅下列项目不应视为已验证事实。\n"
+        f"{failure}"
+    ).strip()
+
+
+async def _run_single_financial_repair(
+    *,
+    profile: HermesProfile,
+    session_id: str,
+    route: HermesRunRoute | None,
+    message: str,
+    draft: str,
+    validation_failure: str,
+) -> tuple[str, HermesRunRoute | None]:
+    repair_input = _financial_repair_run_input(
+        message=message,
+        draft=draft,
+        validation_failure=validation_failure,
+    )
+    repair_run_id, repair_route = await _create_routed_run(
+        repair_input,
+        [],
+        profile=profile,
+        session_id=session_id,
+        route=route,
+    )
+    repaired = await asyncio.wait_for(
+        _collect_routed_run_result(
+            repair_run_id,
+            profile=profile,
+            timeout=hermes_timeout(),
+            route=repair_route,
+        ),
+        timeout=STREAM_TIMEOUT_SECONDS,
+    )
+    return repaired, repair_route
 
 
 def _trusted_financial_receipts(profile: HermesProfile, session_id: str) -> tuple[Mapping[str, Any], ...]:
@@ -5451,7 +5726,7 @@ def build_session_contextual_input(
             context=context,
             local_memory_context=local_memory_context,
         )
-    return agent_runtime_context.build_session_contextual_input(
+    contextual_input = agent_runtime_context.build_session_contextual_input(
         message,
         profile=profile,
         profile_label=PROFILE_LABELS.get(profile, profile),
@@ -5477,6 +5752,15 @@ def build_session_contextual_input(
         chat_output_contract=CHAT_OUTPUT_CONTRACT,
         financial_calculation_runtime_contract=FINANCIAL_CALCULATION_RUNTIME_CONTRACT,
     )
+    calculation_pack = agent_runtime_financial_evidence.render_deterministic_calculation_pack(
+        _trusted_financial_calculation_evidence(message, context)
+    )
+    if calculation_pack:
+        contextual_input = contextual_input.replace(
+            f"用户问题：{message}",
+            f"{calculation_pack}\n\n用户问题：{message}",
+        )
+    return contextual_input
 
 
 def build_hermes_run_input(
@@ -5684,6 +5968,7 @@ async def _collect_chat_reply_impl(
     history_limit: int = HISTORY_LIMIT,
     enforce_evidence_contract: bool = True,
     answer_audit_callback: AnswerAuditCallback | None = None,
+    runtime_target: str | None = None,
 ) -> str:
     primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
@@ -5788,28 +6073,31 @@ async def _collect_chat_reply_impl(
         image_analysis_context=image_analysis_context,
         use_hermes_image_fallback=not image_model_succeeded,
     )
+    run_route = _requested_run_route(profile, runtime_target, session_id)
     owner_id = _RUNTIME_OWNER_ID
     provisional_run_id = f"claim-{uuid.uuid4().hex}"
     if not await _claim_durable_active_run(profile, session_id, provisional_run_id, owner_id):
         return _ACTIVE_RUN_CONFLICT_MESSAGE
     try:
-        run_id = await create_run(
+        run_id, run_route = await _create_routed_run(
             run_input,
             preflight_context.history,
             profile=profile,
-            session_id=hermes_runs_session_id(profile, session_id),
+            session_id=session_id,
+            route=run_route,
         )
     except Exception:
         await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
         raise
     if not await _bind_durable_active_run(profile, session_id, provisional_run_id, run_id, owner_id):
         try:
-            await stop_run(run_id, profile=profile)
+            await _stop_routed_run(run_id, profile=profile, route=run_route)
         except Exception:
             logger.debug("failed to stop unclaimed Hermes run", exc_info=True)
         await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
         return _ACTIVE_RUN_CONFLICT_MESSAGE
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
+    state.run_route = run_route
     state.owner_id = owner_id
     state.lease_heartbeat_task = asyncio.create_task(_active_run_lease_heartbeat(state))
     state.message_hash = message_hash
@@ -5826,7 +6114,12 @@ async def _collect_chat_reply_impl(
         owner_task.add_done_callback(_cleanup_nonstream_after_task_done)
     try:
         reply = await asyncio.wait_for(
-            collect_run_result(run_id, profile=profile, timeout=hermes_timeout()),
+            _collect_routed_run_result(
+                run_id,
+                profile=profile,
+                timeout=hermes_timeout(),
+                route=run_route,
+            ),
             timeout=STREAM_TIMEOUT_SECONDS,
         )
         state.terminal_result = RunTerminalResult(
@@ -5842,7 +6135,7 @@ async def _collect_chat_reply_impl(
         return _terminal_user_message(exc.result)
     except (asyncio.TimeoutError, httpx.TimeoutException):
         try:
-            await stop_run(run_id, profile=profile)
+            await _stop_routed_run(run_id, profile=profile, route=run_route)
         except Exception:
             pass
         state.terminal_result = RunTerminalResult(
@@ -5880,7 +6173,38 @@ async def _collect_chat_reply_impl(
             reply = deterministic_pdf_market_reply(message, audit_context) or recovered_reply or reply
             reply = normalize_evidence_trace_for_display(reply)
             if enforce_evidence_contract:
-                reply = enforce_financial_evidence_contract(message, audit_context, reply)
+                first_draft = reply
+                first_validation = enforce_financial_evidence_contract(message, audit_context, first_draft)
+                if _financial_validation_failed(first_validation):
+                    try:
+                        repaired_draft, _ = await _run_single_financial_repair(
+                            profile=profile,
+                            session_id=session_id,
+                            route=run_route,
+                            message=message,
+                            draft=first_draft,
+                            validation_failure=first_validation,
+                        )
+                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
+                        repaired_validation = enforce_financial_evidence_contract(
+                            message,
+                            audit_context,
+                            repaired_draft,
+                        )
+                        reply = (
+                            _reply_with_financial_validation_failures(repaired_draft, repaired_validation)
+                            if _financial_validation_failed(repaired_validation)
+                            else repaired_validation
+                        )
+                        raw_reply = repaired_draft
+                    except Exception as exc:
+                        logger.exception("single financial repair run failed")
+                        reply = _reply_with_financial_validation_failures(
+                            first_draft,
+                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
+                        )
+                else:
+                    reply = first_validation
             reply = normalize_evidence_trace_for_display(reply)
             audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(audit_context, reply)
             answer_audit_record = _record_answer_audit_trace_compat(
@@ -5940,6 +6264,7 @@ async def collect_chat_reply(
     history_limit: int = HISTORY_LIMIT,
     enforce_evidence_contract: bool = True,
     answer_audit_callback: AnswerAuditCallback | None = None,
+    runtime_target: str | None = None,
 ) -> str:
     with _profile_wiki_context(profile):
         return await _collect_chat_reply_impl(
@@ -5953,6 +6278,7 @@ async def collect_chat_reply(
             history_limit=history_limit,
             enforce_evidence_contract=enforce_evidence_contract,
             answer_audit_callback=answer_audit_callback,
+            runtime_target=runtime_target,
         )
 
 
@@ -5982,7 +6308,12 @@ async def _collect_stream_run(
             agent_runtime_progress.task_started_progress_payload(),
         )
         async with asyncio.timeout(STREAM_TIMEOUT_SECONDS):
-            event_stream = stream_run(state.run_id, profile=state.profile, timeout=hermes_timeout()).__aiter__()
+            event_stream = _stream_routed_run(
+                state.run_id,
+                profile=state.profile,
+                timeout=hermes_timeout(),
+                route=state.run_route,
+            ).__aiter__()
             while True:
                 try:
                     ev = await asyncio.wait_for(
@@ -6017,7 +6348,11 @@ async def _collect_stream_run(
                         )
                         state.stop_requested = True
                         try:
-                            await stop_run(state.run_id, profile=state.profile)
+                            await _stop_routed_run(
+                                state.run_id,
+                                profile=state.profile,
+                                route=state.run_route,
+                            )
                         except Exception:
                             pass
                         loop_delta = (
@@ -6067,7 +6402,11 @@ async def _collect_stream_run(
                         )
                         state.stop_requested = True
                         try:
-                            await stop_run(state.run_id, profile=state.profile)
+                            await _stop_routed_run(
+                                state.run_id,
+                                profile=state.profile,
+                                route=state.run_route,
+                            )
                         except Exception:
                             pass
                         repeated_delta = (
@@ -6122,7 +6461,11 @@ async def _collect_stream_run(
                         )
                         state.stop_requested = True
                         try:
-                            await stop_run(state.run_id, profile=state.profile)
+                            await _stop_routed_run(
+                                state.run_id,
+                                profile=state.profile,
+                                route=state.run_route,
+                            )
                         except Exception:
                             pass
                         failure_delta = (
@@ -6228,7 +6571,11 @@ async def _collect_stream_run(
             "Hermes stream idle timeout" if idle_timed_out else "Agent runtime deadline exceeded"
         )
         try:
-            await stop_run(state.run_id, profile=state.profile)
+            await _stop_routed_run(
+                state.run_id,
+                profile=state.profile,
+                route=state.run_route,
+            )
         except Exception:
             pass
         timeout_message = IDLE_TIMEOUT_MESSAGE if idle_timed_out else TIMEOUT_MESSAGE
@@ -6248,7 +6595,11 @@ async def _collect_stream_run(
         failed = True
         terminal_result = terminal_accumulator.timed_out("Hermes HTTP stream timeout")
         try:
-            await stop_run(state.run_id, profile=state.profile)
+            await _stop_routed_run(
+                state.run_id,
+                profile=state.profile,
+                route=state.run_route,
+            )
         except Exception:
             pass
         timeout_delta = f"\n\n{TIMEOUT_MESSAGE}" if full_reply else TIMEOUT_MESSAGE
@@ -6369,11 +6720,44 @@ async def _collect_stream_run(
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
                             if enforce_evidence_contract:
-                                reply = enforce_financial_evidence_contract(
+                                first_draft = reply
+                                first_validation = enforce_financial_evidence_contract(
                                     state.original_message or "",
                                     state.context,
-                                    reply,
+                                    first_draft,
                                 )
+                                if _financial_validation_failed(first_validation):
+                                    try:
+                                        repaired_draft, _ = await _run_single_financial_repair(
+                                            profile=state.profile,
+                                            session_id=state.session_id,
+                                            route=state.run_route,
+                                            message=state.original_message or "",
+                                            draft=first_draft,
+                                            validation_failure=first_validation,
+                                        )
+                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
+                                        repaired_validation = enforce_financial_evidence_contract(
+                                            state.original_message or "",
+                                            state.context,
+                                            repaired_draft,
+                                        )
+                                        reply = (
+                                            _reply_with_financial_validation_failures(
+                                                repaired_draft,
+                                                repaired_validation,
+                                            )
+                                            if _financial_validation_failed(repaired_validation)
+                                            else repaired_validation
+                                        )
+                                    except Exception as exc:
+                                        logger.exception("single streamed financial repair run failed")
+                                        reply = _reply_with_financial_validation_failures(
+                                            first_draft,
+                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
+                                        )
+                                else:
+                                    reply = first_validation
                         finally:
                             agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
                         reply = normalize_evidence_trace_for_display(reply)
@@ -6391,14 +6775,48 @@ async def _collect_stream_run(
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
                             if enforce_evidence_contract:
-                                reply = enforce_financial_evidence_contract(
+                                first_draft = reply
+                                first_validation = enforce_financial_evidence_contract(
                                     state.original_message or "",
                                     state.context,
-                                    reply,
+                                    first_draft,
                                 )
+                                if _financial_validation_failed(first_validation):
+                                    try:
+                                        repaired_draft, _ = await _run_single_financial_repair(
+                                            profile=state.profile,
+                                            session_id=state.session_id,
+                                            route=state.run_route,
+                                            message=state.original_message or "",
+                                            draft=first_draft,
+                                            validation_failure=first_validation,
+                                        )
+                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
+                                        repaired_validation = enforce_financial_evidence_contract(
+                                            state.original_message or "",
+                                            state.context,
+                                            repaired_draft,
+                                        )
+                                        reply = (
+                                            _reply_with_financial_validation_failures(
+                                                repaired_draft,
+                                                repaired_validation,
+                                            )
+                                            if _financial_validation_failed(repaired_validation)
+                                            else repaired_validation
+                                        )
+                                    except Exception as exc:
+                                        logger.exception("single streamed financial repair run failed")
+                                        reply = _reply_with_financial_validation_failures(
+                                            first_draft,
+                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
+                                        )
+                                else:
+                                    reply = first_validation
                         finally:
                             agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
                         reply = normalize_evidence_trace_for_display(reply)
+
                     audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(
                         state.context,
                         reply,
@@ -6486,8 +6904,10 @@ async def _start_streaming_chat_run(
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
     owner_id: str | None = None,
+    run_route: HermesRunRoute | None = None,
 ) -> ActiveRunState:
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
+    state.run_route = run_route
     state.message_hash = message_hash
     state.original_message = message
     state.context = context
@@ -6525,6 +6945,7 @@ async def _stream_chat_reply_impl(
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
+    runtime_target: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
@@ -6671,6 +7092,7 @@ async def _stream_chat_reply_impl(
         image_analysis_context=image_analysis_context,
         use_hermes_image_fallback=not image_model_succeeded,
     )
+    run_route = _requested_run_route(profile, runtime_target, session_id)
     owner_id = _RUNTIME_OWNER_ID
     provisional_run_id = f"claim-{uuid.uuid4().hex}"
     if not await _claim_durable_active_run(profile, session_id, provisional_run_id, owner_id):
@@ -6687,18 +7109,19 @@ async def _stream_chat_reply_impl(
         }
         return
     try:
-        run_id = await create_run(
+        run_id, run_route = await _create_routed_run(
             run_input,
             preflight_context.history,
             profile=profile,
-            session_id=hermes_runs_session_id(profile, session_id),
+            session_id=session_id,
+            route=run_route,
         )
     except Exception:
         await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
         raise
     if not await _bind_durable_active_run(profile, session_id, provisional_run_id, run_id, owner_id):
         try:
-            await stop_run(run_id, profile=profile)
+            await _stop_routed_run(run_id, profile=profile, route=run_route)
         except Exception:
             logger.debug("failed to stop unclaimed Hermes run", exc_info=True)
         await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
@@ -6732,6 +7155,7 @@ async def _stream_chat_reply_impl(
         enforce_evidence_contract=enforce_evidence_contract,
         emit_audit_trace_id=emit_audit_trace_id,
         owner_id=owner_id,
+        run_route=run_route,
     )
 
     async for event in stream_active_run_events(
@@ -6756,6 +7180,7 @@ async def stream_chat_reply(
     done_payload_factory: Callable[[str], Awaitable[dict]] | None = None,
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
+    runtime_target: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     with _profile_wiki_context(profile):
         async for event in _stream_chat_reply_impl(
@@ -6771,6 +7196,7 @@ async def stream_chat_reply(
             done_payload_factory=done_payload_factory,
             enforce_evidence_contract=enforce_evidence_contract,
             emit_audit_trace_id=emit_audit_trace_id,
+            runtime_target=runtime_target,
         ):
             yield event
 

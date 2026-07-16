@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { WorkflowStepGrid } from '@/components/research/WorkflowStepGrid'
 import { apiJson } from '@/shared/api/client'
 
 interface WikiCompany {
@@ -163,9 +164,9 @@ export default function Dashboard() {
           <div className="dashboard-hero-header grid items-center gap-3 sm:grid-cols-[1fr_auto] xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
             <div className="secondary-kicker w-fit justify-self-start">
               <LayoutDashboard className="h-3.5 w-3.5" />
-              Workspace
+              Admin Workspace
             </div>
-            <div className="secondary-step-row -mx-1 w-full justify-start overflow-x-auto px-1 sm:mx-0 sm:w-auto sm:justify-center sm:overflow-visible sm:px-0 sm:justify-self-end xl:w-full">
+            <div className="secondary-step-row dashboard-workflow-nav -mx-1 w-full overflow-x-auto px-1 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:justify-self-end xl:w-full">
               {workflowChips.map((chip) => (
                 <Link key={chip.to} to={chip.to} className="secondary-step-chip shrink-0">
                   {chip.label}
@@ -297,26 +298,7 @@ export default function Dashboard() {
       </section>
 
       {/* ── Workflow Steps ── */}
-      <section className="workflow-step-grid grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-6">
-        {steps.map((step, index) => (
-          <Link
-            key={step.to}
-            to={step.to}
-            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col overflow-hidden p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
-          >
-            <span className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary/40 via-primary/20 to-transparent sm:h-1.5" aria-hidden="true" />
-            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white font-mono text-[0.68rem] font-bold text-text-muted shadow-md ring-2 ring-card sm:-right-2 sm:-top-2 sm:h-7 sm:w-7 sm:text-xs">
-              {index + 1}
-            </div>
-            <div className="premium-icon h-9 w-9 rounded-xl transition-colors group-hover:text-primary-dark sm:mx-auto sm:h-12 sm:w-12 sm:rounded-2xl">
-              <step.icon className="h-5 w-5 sm:h-6 sm:w-6" />
-            </div>
-            <p className="mt-3 pr-6 text-sm font-bold leading-tight text-text sm:mt-4 sm:pr-0 sm:text-base">{step.label}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted sm:mt-1.5 sm:text-sm sm:leading-relaxed">{step.desc}</p>
-            <ArrowRight className="mt-auto h-5 w-5 pt-3 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100 sm:mx-auto sm:pt-4" />
-          </Link>
-        ))}
-      </section>
+      <WorkflowStepGrid steps={steps} />
 
       {/* ── Featured Companies ── */}
       {featuredCompanies.length > 0 && (

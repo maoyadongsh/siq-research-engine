@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { WorkflowStepGrid } from '@/components/research/WorkflowStepGrid'
 import { apiJson } from '@/shared/api/client'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../lib/authenticatedSourceLinks'
 
@@ -383,7 +384,7 @@ export default function MyWorkspace() {
       <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center">
         <AlertTriangle className="h-8 w-8 text-warning" />
         <p className="text-sm text-text-muted">工作平台加载失败：{loadError}</p>
-        <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-text" onClick={() => setRetryKey((value) => value + 1)}>
+        <button type="button" className="rounded-[4px] border border-[#0071e3] bg-transparent px-4 py-2 text-sm font-semibold text-text" onClick={() => setRetryKey((value) => value + 1)}>
           重试
         </button>
       </div>
@@ -400,7 +401,7 @@ export default function MyWorkspace() {
               <LayoutDashboard className="h-3.5 w-3.5" />
               Workspace
             </div>
-            <div className="secondary-step-row -mx-1 w-full justify-start overflow-x-auto px-1 sm:mx-0 sm:w-auto sm:justify-center sm:overflow-visible sm:px-0 sm:justify-self-end xl:w-full">
+            <div className="secondary-step-row dashboard-workflow-nav -mx-1 w-full overflow-x-auto px-1 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:justify-self-end xl:w-full">
               {workflowChips.map((chip) => (
                 <Link key={chip.to} to={chip.to} className="secondary-step-chip shrink-0">
                   {chip.label}
@@ -410,7 +411,6 @@ export default function MyWorkspace() {
           </div>
         </div>
         <div className="dashboard-hero-body grid gap-4 px-4 py-4 sm:gap-5 sm:px-6 sm:py-5 xl:grid-cols-[1fr_360px] 2xl:gap-6 2xl:grid-cols-[1fr_390px]">
-          {/* Left: Title + Stats */}
           <div className="dashboard-hero-main flex flex-col justify-between gap-5 2xl:gap-7">
             <div>
               <div className="page-title-tag"><h1 className="text-[1.45rem] font-bold leading-tight tracking-tight text-text sm:text-[1.75rem] md:text-[2.35rem]">
@@ -426,39 +426,19 @@ export default function MyWorkspace() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6 2xl:gap-4">
-              {statCards.map((stat) => {
-                const toneBg = {
-                  blue: 'bg-blue-50 text-blue-600',
-                  slate: 'bg-slate-100 text-slate-600',
-                  indigo: 'bg-indigo-50 text-indigo-600',
-                  cyan: 'bg-cyan-50 text-cyan-600',
-                  teal: 'bg-teal-50 text-teal-600',
-                  primary: 'bg-primary/10 text-primary',
-                }[stat.tone]
-                const Icon = stat.icon
-                return (
-                  <div
-                    key={stat.label}
-                    className="metric-tile p-3 sm:p-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-semibold text-text-muted sm:text-sm">{stat.label}</p>
-                      <span className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${toneBg}`}>
-                        <Icon className="h-4 w-4" />
-                      </span>
-                    </div>
-                    <p className="mt-2 font-mono text-[1.45rem] font-bold tabular-nums text-text sm:mt-2.5 sm:text-[1.8rem] md:text-[2rem]">
-                      {stat.value}
-                      <span className="ml-1 text-sm font-normal text-text-muted sm:ml-1.5 sm:text-base">{stat.unit}</span>
-                    </p>
-                  </div>
-                )
-              })}
+            <div className="workspace-close-metric-grid grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6 2xl:gap-4">
+              {statCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="metric-tile workspace-close-metric"
+                >
+                  <span className="workspace-close-metric-label">{stat.label}</span>
+                  <span className="workspace-close-metric-value">{stat.value}</span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Right: Active Project */}
           <aside className="premium-card dashboard-active-card relative flex flex-col overflow-hidden p-4 sm:p-5">
             <div
               className="pointer-events-none absolute right-0 top-0 h-40 w-40 opacity-10 sm:h-48 sm:w-48"
@@ -472,8 +452,7 @@ export default function MyWorkspace() {
             </div>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-text-muted">当前优先研究对象</p>
-                <h2 className="mt-2 truncate text-[1.75rem] font-bold tracking-tight text-text">
+                <h2 className="truncate text-[1.75rem] font-bold tracking-tight text-text">
                   {projectName(activeProject)}
                 </h2>
                 <p className="mt-1 font-mono text-sm text-text-muted">
@@ -516,10 +495,9 @@ export default function MyWorkspace() {
             </div>
 
             <div className="mt-6">
-              <p className="text-sm leading-6 text-text-muted">{action.hint}</p>
               <Link
                 to={action.to}
-                className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-[14px] accent-gradient px-5 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(0,113,227,0.18)] transition-all hover:-translate-y-0.5 hover:brightness-110"
+                className="inline-flex h-11 w-full items-center justify-center rounded-[4px] border border-[#0071e3] bg-transparent px-4 text-sm font-semibold text-[#0f172a] transition-colors hover:bg-[#eff6ff]"
               >
                 {action.label}
                 <ArrowRight className="ml-2 h-5 w-5" />
@@ -530,34 +508,14 @@ export default function MyWorkspace() {
       </section>
 
       {/* ── Workflow Steps ── */}
-      <section className="workflow-step-grid grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-6">
-        {steps.map((step, index) => (
-          <Link
-            key={step.to}
-            to={step.to}
-            className="workflow-step-card premium-card group relative flex min-h-[118px] min-w-0 flex-col overflow-hidden p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 sm:min-h-[160px] sm:p-5 sm:text-center"
-          >
-            <span className="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-primary/40 via-primary/20 to-transparent sm:h-1.5" aria-hidden="true" />
-            <div className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white font-mono text-[0.68rem] font-bold text-text-muted shadow-md ring-2 ring-card sm:-right-2 sm:-top-2 sm:h-7 sm:w-7 sm:text-xs">
-              {index + 1}
-            </div>
-            <div className="premium-icon h-9 w-9 rounded-xl transition-colors group-hover:text-primary-dark sm:mx-auto sm:h-12 sm:w-12 sm:rounded-2xl">
-              <step.icon className="h-5 w-5 sm:h-6 sm:w-6" />
-            </div>
-            <p className="mt-3 pr-6 text-sm font-bold leading-tight text-text sm:mt-4 sm:pr-0 sm:text-base">{step.label}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-muted sm:mt-1.5 sm:text-sm sm:leading-relaxed">{step.desc}</p>
-            <ArrowRight className="mt-auto h-5 w-5 pt-3 text-text-muted opacity-0 transition-all group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100 sm:mx-auto sm:pt-4" />
-          </Link>
-        ))}
-      </section>
+      <WorkflowStepGrid steps={steps} />
 
-      {/* ── Featured Projects ── */}
+      {/* Featured Projects */}
       {featuredProjects.length > 0 && (
         <section className="premium-shell rounded-[var(--radius-panel)] p-4 sm:p-6">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">研究对象状态</h2>
-              <p className="mt-1.5 text-base text-text-muted">按个人项目最近更新时间排序，优先展示你处理过的研究对象。</p>
             </div>
             <Link
               to="/search"
@@ -588,7 +546,7 @@ export default function MyWorkspace() {
                     </div>
                     <Link
                       to={projectAction.to}
-                      className="shrink-0 rounded-xl bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/15"
+                      className="shrink-0 rounded-[4px] border border-[#0071e3] bg-transparent px-3 py-1.5 text-sm font-semibold text-[#005bb5] transition-colors hover:border-[#005bb5] hover:bg-[#eff6ff]"
                     >
                       {projectAction.label}
                     </Link>
@@ -628,7 +586,6 @@ export default function MyWorkspace() {
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-2xl font-bold tracking-tight text-text">近期任务列表</h2>
-              <p className="mt-1.5 text-base text-text-muted">你最近处理或复用的下载、解析和智能体产物。</p>
             </div>
             <span className="inline-flex h-8 items-center rounded-full bg-primary/10 px-4 text-sm font-bold text-primary">
               {recent.length} 条结果

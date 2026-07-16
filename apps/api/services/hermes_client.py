@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
 import socket
+import stat
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,6 +99,293 @@ HERMES_PROFILE_MODELS = {
     "siq_ic_legal_scanner": "siq_ic_legal_scanner",
     "siq_ic_risk_controller": "siq_ic_risk_controller",
 }
+
+HermesRuntimeTarget = Literal["host", "openshell"]
+OPENSHELL_ANALYSIS_RUNS_URL = "http://127.0.0.1:28651/v1/runs"
+OPENSHELL_CANARY_STATE_RELATIVE = Path("var/openshell/canary/siq-analysis")
+OPENSHELL_CANARY_ACTIVE_RELATIVE = OPENSHELL_CANARY_STATE_RELATIVE / "active.json"
+_CANARY_RUN_ID_RE = re.compile(r"canary-[0-9a-f]{12}\Z")
+_CANARY_API_KEY_RE = re.compile(r"[0-9a-f]{64}\Z")
+_CANARY_ACTIVE_SCHEMA = "siq.openshell.siq_analysis_canary_lifecycle.v1"
+_CANARY_ACTIVE_FIELDS = {
+    "schema_version",
+    "mode",
+    "readiness_effect",
+    "profile",
+    "run_id",
+    "market",
+    "company",
+    "run_state",
+    "manifest",
+    "manifest_sha256",
+    "api_key_sha256",
+}
+_CANARY_MANIFEST_FIELDS = {
+    "schema_version",
+    "mode",
+    "readiness_effect",
+    "phase",
+    "profile",
+    "run_id",
+    "market",
+    "company",
+    "analysis_relative_path",
+    "writable_relative_path",
+    "write_scope",
+    "normal_business_mutations",
+    "source_sha256",
+    "source_stock_code",
+    "sandbox_name",
+    "lifecycle_label",
+    "image_ref",
+    "image_id",
+    "runtime_snapshot",
+    "mount_plan",
+    "mount_plan_sha256",
+    "mount_count",
+    "policy",
+    "policy_sha256",
+    "providers",
+    "formal_blockers_not_overridden",
+    "broker_request_identity_required",
+    "api_key_sha256",
+    "run_nonce_sha256",
+    "host_hermes_receipt_sha256",
+    "sandbox_id",
+    "container_id",
+    "guard_process",
+    "forward_process",
+    "result_is_formal_evidence",
+}
+_CANARY_PROVIDERS = [
+    "siq-minimax-cn-pool",
+    "siq-stepfun",
+    "siq-kimi-coding",
+    "siq-tavily-search",
+]
+_CANARY_FORMAL_BLOCKERS = [
+    "siq-exa-search_not_configured",
+    "local_model_8004_not_required",
+    "local_model_8006_not_required",
+    "milvus_formal_proof_not_required",
+    "clash_fake_ip_egress_guard_compatibility_unresolved",
+]
+
+
+class HermesRuntimeSelectionError(RuntimeError):
+    """A secret-free failure to authorize or resolve a requested runtime."""
+
+
+@dataclass(frozen=True, repr=False)
+class HermesRunRoute:
+    """Immutable endpoint identity shared by create, stream, and stop."""
+
+    target: HermesRuntimeTarget
+    base: str
+    model: str
+    authorization: str
+    session_namespace: str
+    canary_run_id: str | None = None
+
+    def __repr__(self) -> str:
+        return (
+            "HermesRunRoute("
+            f"target={self.target!r}, base={self.base!r}, model={self.model!r}, "
+            f"session_namespace={self.session_namespace!r}, canary_run_id={self.canary_run_id!r}, "
+            "authorization='<redacted>')"
+        )
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_non_finite_json(_value: str) -> None:
+    raise ValueError("non-finite JSON")
+
+
+def _read_private_runtime_file(path: Path, *, max_bytes: int) -> bytes:
+    """Read one owner-only regular runtime file without following symlinks."""
+
+    project_root = _project_root()
+    expected_root = project_root / "var" / "openshell"
+    try:
+        relative = path.relative_to(expected_root)
+    except ValueError as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_state_path_invalid") from exc
+    if not relative.parts:
+        raise HermesRuntimeSelectionError("openshell_canary_state_path_invalid")
+
+    current = expected_root
+    try:
+        root_info = current.lstat()
+        if (
+            stat.S_ISLNK(root_info.st_mode)
+            or not stat.S_ISDIR(root_info.st_mode)
+            or root_info.st_uid != os.geteuid()
+            or stat.S_IMODE(root_info.st_mode) & 0o077
+        ):
+            raise HermesRuntimeSelectionError("openshell_canary_state_directory_invalid")
+        for part in relative.parts[:-1]:
+            current /= part
+            info = current.lstat()
+            if (
+                stat.S_ISLNK(info.st_mode)
+                or not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) & 0o077
+            ):
+                raise HermesRuntimeSelectionError("openshell_canary_state_directory_invalid")
+
+        path_info = path.lstat()
+        if (
+            stat.S_ISLNK(path_info.st_mode)
+            or not stat.S_ISREG(path_info.st_mode)
+            or path_info.st_uid != os.geteuid()
+            or path_info.st_nlink != 1
+            or stat.S_IMODE(path_info.st_mode) & 0o077
+        ):
+            raise HermesRuntimeSelectionError("openshell_canary_state_file_invalid")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) & 0o077
+                or (info.st_dev, info.st_ino) != (path_info.st_dev, path_info.st_ino)
+            ):
+                raise HermesRuntimeSelectionError("openshell_canary_state_file_invalid")
+            chunks: list[bytes] = []
+            remaining = max_bytes + 1
+            while remaining > 0:
+                chunk = os.read(descriptor, remaining)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            content = b"".join(chunks)
+        finally:
+            os.close(descriptor)
+    except HermesRuntimeSelectionError:
+        raise
+    except OSError as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_state_unavailable") from exc
+    if len(content) > max_bytes:
+        raise HermesRuntimeSelectionError("openshell_canary_state_file_invalid")
+    return content
+
+
+def _parse_private_runtime_json(content: bytes) -> dict[str, Any]:
+    try:
+        value = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_non_finite_json,
+        )
+    except (UnicodeError, ValueError, TypeError) as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_state_json_invalid") from exc
+    if not isinstance(value, dict):
+        raise HermesRuntimeSelectionError("openshell_canary_state_json_invalid")
+    return value
+
+
+def _read_private_runtime_json(path: Path, *, max_bytes: int) -> dict[str, Any]:
+    return _parse_private_runtime_json(_read_private_runtime_file(path, max_bytes=max_bytes))
+
+
+def _active_openshell_canary() -> tuple[str, str]:
+    active_path = _project_root() / OPENSHELL_CANARY_ACTIVE_RELATIVE
+    active = _read_private_runtime_json(active_path, max_bytes=4096)
+    if set(active) != _CANARY_ACTIVE_FIELDS:
+        raise HermesRuntimeSelectionError("openshell_canary_active_invalid")
+
+    run_id = active.get("run_id")
+    expected_run_state = OPENSHELL_CANARY_STATE_RELATIVE / "runs" / str(run_id or "")
+    expected_manifest = expected_run_state / "canary.json"
+    if (
+        active.get("schema_version") != _CANARY_ACTIVE_SCHEMA
+        or active.get("mode") != "NOT_PRODUCTION_CANARY"
+        or active.get("readiness_effect") != "none"
+        or active.get("profile") != "siq_analysis"
+        or not isinstance(run_id, str)
+        or _CANARY_RUN_ID_RE.fullmatch(run_id) is None
+        or active.get("run_state") != expected_run_state.as_posix()
+        or active.get("manifest") != expected_manifest.as_posix()
+        or not isinstance(active.get("manifest_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", active["manifest_sha256"]) is None
+        or not isinstance(active.get("api_key_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", active["api_key_sha256"]) is None
+        or not isinstance(active.get("market"), str)
+        or not isinstance(active.get("company"), str)
+    ):
+        raise HermesRuntimeSelectionError("openshell_canary_active_invalid")
+
+    market = str(active["market"])
+    company = str(active["company"])
+    if (
+        market not in {"cn", "eu", "hk", "jp", "kr", "us"}
+        or not company
+        or company in {".", ".."}
+        or Path(company).name != company
+    ):
+        raise HermesRuntimeSelectionError("openshell_canary_active_invalid")
+    market_root = Path("data/wiki/companies") if market == "cn" else Path(f"data/wiki/{market}/companies")
+    expected_analysis = (market_root / company / "analysis").as_posix()
+
+    manifest_path = _project_root() / expected_manifest
+    manifest_content = _read_private_runtime_file(manifest_path, max_bytes=64 * 1024)
+    if hashlib.sha256(manifest_content).hexdigest() != active["manifest_sha256"]:
+        raise HermesRuntimeSelectionError("openshell_canary_manifest_mismatch")
+    manifest = _parse_private_runtime_json(manifest_content)
+    if (
+        set(manifest) != _CANARY_MANIFEST_FIELDS
+        or manifest.get("schema_version") != _CANARY_ACTIVE_SCHEMA
+        or manifest.get("mode") != "NOT_PRODUCTION_CANARY"
+        or manifest.get("readiness_effect") != "none"
+        or manifest.get("phase") != "running"
+        or manifest.get("profile") != "siq_analysis"
+        or manifest.get("run_id") != run_id
+        or manifest.get("market") != market
+        or manifest.get("company") != company
+        or manifest.get("analysis_relative_path") != expected_analysis
+        or manifest.get("writable_relative_path") != expected_analysis
+        or manifest.get("write_scope") != "current_company_analysis_root"
+        or manifest.get("normal_business_mutations") != ["create", "modify", "rename", "delete"]
+        or manifest.get("lifecycle_label") != "siq-analysis-canary-not-production-v1"
+        or manifest.get("mount_count") != 7
+        or manifest.get("providers") != _CANARY_PROVIDERS
+        or manifest.get("formal_blockers_not_overridden") != _CANARY_FORMAL_BLOCKERS
+        or manifest.get("broker_request_identity_required") is not True
+        or manifest.get("result_is_formal_evidence") is not False
+        or not isinstance(manifest.get("api_key_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", manifest["api_key_sha256"]) is None
+        or manifest.get("api_key_sha256") != active.get("api_key_sha256")
+    ):
+        raise HermesRuntimeSelectionError("openshell_canary_manifest_invalid")
+
+    key_path = _project_root() / expected_run_state / "api.key"
+    try:
+        key = _read_private_runtime_file(key_path, max_bytes=256).decode("ascii").strip()
+    except HermesRuntimeSelectionError:
+        raise
+    except UnicodeError as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_api_key_invalid") from exc
+    if _CANARY_API_KEY_RE.fullmatch(key) is None:
+        raise HermesRuntimeSelectionError("openshell_canary_api_key_invalid")
+    if hashlib.sha256(key.encode("ascii")).hexdigest() != manifest["api_key_sha256"]:
+        raise HermesRuntimeSelectionError("openshell_canary_api_key_mismatch")
+    return run_id, key
 
 
 def _env_value(*names: str) -> str:
@@ -502,6 +791,84 @@ def _hermes_auth_header(profile: HermesProfile | str) -> str:
     return token if token.lower().startswith("bearer ") else f"Bearer {token}"
 
 
+def normalize_runtime_target(
+    profile: HermesProfile | str,
+    requested_target: str | None,
+    *,
+    session_id: str | None = None,
+) -> HermesRuntimeTarget:
+    """Authorize a request target, with Host remaining the rollback default."""
+
+    canonical = normalize_profile(profile)
+    configured_target = os.getenv("SIQ_HERMES_RUNTIME", "host")
+    target = str(requested_target if requested_target is not None else configured_target).strip().lower()
+    if target == "host":
+        return "host"
+    if target != "openshell":
+        raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
+    if canonical != "siq_analysis":
+        return "host"
+    if not _env_bool("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_ENABLED", False):
+        raise HermesRuntimeSelectionError("openshell_canary_not_enabled")
+
+    session_mode = os.getenv("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_SESSION_MODE", "allowlist").strip().lower()
+    if session_mode == "all":
+        return "openshell"
+    if session_mode != "allowlist":
+        raise HermesRuntimeSelectionError("openshell_canary_session_mode_invalid")
+
+    allowed_sessions = {
+        item.strip()
+        for item in os.getenv("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_SESSION_IDS", "").split(",")
+        if item.strip()
+    }
+    if not allowed_sessions or str(session_id or "") not in allowed_sessions:
+        raise HermesRuntimeSelectionError("openshell_canary_session_not_authorized")
+    return "openshell"
+
+
+def resolve_run_route(
+    profile: HermesProfile | str,
+    requested_target: str | None = None,
+    *,
+    session_id: str | None = None,
+) -> HermesRunRoute:
+    """Resolve an immutable, credential-bound route before creating a run."""
+
+    canonical = normalize_profile(profile)
+    target = normalize_runtime_target(canonical, requested_target, session_id=session_id)
+    if target == "host":
+        config = hermes_profile_config(canonical)
+        return HermesRunRoute(
+            target="host",
+            base=config["base"],
+            model=config["model"],
+            authorization=_hermes_auth_header(canonical),
+            session_namespace=f"siq:{canonical}",
+        )
+
+    run_id, key = _active_openshell_canary()
+    return HermesRunRoute(
+        target="openshell",
+        base=OPENSHELL_ANALYSIS_RUNS_URL,
+        model=_profile_model_name(canonical, HERMES_ENV_PREFIXES[canonical]),
+        authorization=f"Bearer {key}",
+        session_namespace=f"siq:openshell:{run_id}:{canonical}",
+        canary_run_id=run_id,
+    )
+
+
+def route_session_id(
+    route: HermesRunRoute,
+    profile: HermesProfile | str,
+    session_id: str,
+) -> str:
+    canonical = normalize_profile(profile)
+    if route.target == "host":
+        return f"siq:{canonical}:{session_id}"
+    return f"{route.session_namespace}:{session_id}"
+
+
 def _build_run_payload(
     model: str,
     input: str | list[dict[str, Any]],
@@ -530,11 +897,12 @@ async def create_run(
     profile: HermesProfile | str = "siq_assistant",
     session_id: str | None = None,
     instructions: str | None = None,
+    route: HermesRunRoute | None = None,
 ) -> str:
     """POST /v1/runs, return run_id."""
-    cfg = _get_profile(profile)
+    cfg = _get_profile(profile) if route is None else {"base": route.base, "model": route.model}
     headers = {
-        "Authorization": _hermes_auth_header(profile),
+        "Authorization": _hermes_auth_header(profile) if route is None else route.authorization,
         "Content-Type": "application/json",
     }
     payload = _build_run_payload(
@@ -557,10 +925,11 @@ async def stream_run(
     *,
     profile: HermesProfile | str = "siq_assistant",
     timeout: float | httpx.Timeout | None = None,
+    route: HermesRunRoute | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Subscribe to run SSE events, yield structured StreamEvent objects."""
-    cfg = _get_profile(profile)
-    headers = {"Authorization": _hermes_auth_header(profile)}
+    cfg = _get_profile(profile) if route is None else {"base": route.base}
+    headers = {"Authorization": _hermes_auth_header(profile) if route is None else route.authorization}
     url = f"{cfg['base']}/{run_id}/events"
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -637,10 +1006,11 @@ async def stop_run(
     run_id: str,
     *,
     profile: HermesProfile | str = "siq_assistant",
+    route: HermesRunRoute | None = None,
 ) -> dict:
     """POST /v1/runs/{run_id}/stop and return the Hermes response."""
-    cfg = _get_profile(profile)
-    headers = {"Authorization": _hermes_auth_header(profile)}
+    cfg = _get_profile(profile) if route is None else {"base": route.base}
+    headers = {"Authorization": _hermes_auth_header(profile) if route is None else route.authorization}
     url = f"{cfg['base']}/{run_id}/stop"
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -654,11 +1024,17 @@ async def collect_run_terminal_result(
     *,
     profile: HermesProfile | str = "siq_assistant",
     timeout: float | httpx.Timeout | None = None,
+    route: HermesRunRoute | None = None,
 ) -> RunTerminalResult:
     """Collect a Hermes stream into the canonical versioned terminal contract."""
     accumulator = RunTerminalAccumulator(run_id)
     try:
-        async for event in stream_run(run_id, profile=profile, timeout=timeout):
+        stream = (
+            stream_run(run_id, profile=profile, timeout=timeout)
+            if route is None
+            else stream_run(run_id, profile=profile, timeout=timeout, route=route)
+        )
+        async for event in stream:
             terminal = accumulator.accept(event)
             if terminal is not None:
                 return _remember_run_terminal(terminal)
@@ -672,9 +1048,13 @@ async def collect_run_result(
     *,
     profile: HermesProfile | str = "siq_assistant",
     timeout: float | httpx.Timeout | None = None,
+    route: HermesRunRoute | None = None,
 ) -> str:
     """Compatibility text API that only returns successful Hermes output."""
-    result = await collect_run_terminal_result(run_id, profile=profile, timeout=timeout)
+    if route is None:
+        result = await collect_run_terminal_result(run_id, profile=profile, timeout=timeout)
+    else:
+        result = await collect_run_terminal_result(run_id, profile=profile, timeout=timeout, route=route)
     if not result.succeeded:
         raise RunTerminalError(result)
     return result.received_text
