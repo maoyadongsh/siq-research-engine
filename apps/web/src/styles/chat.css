@@ -462,11 +462,33 @@
   line-height: 1.55;
 }
 .chat-audit-summary {
+  display: flex;
+  align-items: center;
+  gap: .38rem;
   cursor: pointer;
   padding: .52rem .66rem;
   color: #334155;
   font-size: .72rem;
   font-weight: 850;
+}
+.chat-audit-status-icon {
+  width: .9rem;
+  height: .9rem;
+  flex: none;
+}
+.chat-audit-block-success {
+  border-color: rgba(34, 197, 94, .28);
+  background: rgba(240, 253, 244, .7);
+}
+.chat-audit-block-success .chat-audit-summary {
+  color: #18794e;
+}
+.chat-audit-block-warning {
+  border-color: rgba(217, 119, 6, .34);
+  background: rgba(255, 251, 235, .76);
+}
+.chat-audit-block-warning .chat-audit-summary {
+  color: #9a6700;
 }
 .chat-audit-list {
   display: grid;

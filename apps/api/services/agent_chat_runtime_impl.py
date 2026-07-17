@@ -6204,38 +6204,7 @@ async def _collect_chat_reply_impl(
             reply = deterministic_pdf_market_reply(message, audit_context) or recovered_reply or reply
             reply = normalize_evidence_trace_for_display(reply)
             if enforce_evidence_contract:
-                first_draft = reply
-                first_validation = enforce_financial_evidence_contract(message, audit_context, first_draft)
-                if _financial_validation_failed(first_validation):
-                    try:
-                        repaired_draft, _ = await _run_single_financial_repair(
-                            profile=profile,
-                            session_id=session_id,
-                            route=run_route,
-                            message=message,
-                            draft=first_draft,
-                            validation_failure=first_validation,
-                        )
-                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                        repaired_validation = enforce_financial_evidence_contract(
-                            message,
-                            audit_context,
-                            repaired_draft,
-                        )
-                        reply = (
-                            _reply_with_financial_validation_failures(repaired_draft, repaired_validation)
-                            if _financial_validation_failed(repaired_validation)
-                            else repaired_validation
-                        )
-                        raw_reply = repaired_draft
-                    except Exception as exc:
-                        logger.exception("single financial repair run failed")
-                        reply = _reply_with_financial_validation_failures(
-                            first_draft,
-                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                        )
-                else:
-                    reply = first_validation
+                reply = enforce_financial_evidence_contract(message, audit_context, reply)
             reply = normalize_evidence_trace_for_display(reply)
             audit_context = agent_runtime_postgres_fallback.audit_context_for_final_reply(audit_context, reply)
             answer_audit_record = _record_answer_audit_trace_compat(
@@ -6753,44 +6722,11 @@ async def _collect_stream_run(
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
                             if enforce_evidence_contract:
-                                first_draft = reply
-                                first_validation = enforce_financial_evidence_contract(
+                                reply = enforce_financial_evidence_contract(
                                     state.original_message or "",
                                     state.context,
-                                    first_draft,
+                                    reply,
                                 )
-                                if _financial_validation_failed(first_validation):
-                                    try:
-                                        repaired_draft, _ = await _run_single_financial_repair(
-                                            profile=state.profile,
-                                            session_id=state.session_id,
-                                            route=state.run_route,
-                                            message=state.original_message or "",
-                                            draft=first_draft,
-                                            validation_failure=first_validation,
-                                        )
-                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                                        repaired_validation = enforce_financial_evidence_contract(
-                                            state.original_message or "",
-                                            state.context,
-                                            repaired_draft,
-                                        )
-                                        reply = (
-                                            _reply_with_financial_validation_failures(
-                                                repaired_draft,
-                                                repaired_validation,
-                                            )
-                                            if _financial_validation_failed(repaired_validation)
-                                            else repaired_validation
-                                        )
-                                    except Exception as exc:
-                                        logger.exception("single streamed financial repair run failed")
-                                        reply = _reply_with_financial_validation_failures(
-                                            first_draft,
-                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                                        )
-                                else:
-                                    reply = first_validation
                         finally:
                             agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
                         reply = normalize_evidence_trace_for_display(reply)
@@ -6808,44 +6744,11 @@ async def _collect_stream_run(
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
                             if enforce_evidence_contract:
-                                first_draft = reply
-                                first_validation = enforce_financial_evidence_contract(
+                                reply = enforce_financial_evidence_contract(
                                     state.original_message or "",
                                     state.context,
-                                    first_draft,
+                                    reply,
                                 )
-                                if _financial_validation_failed(first_validation):
-                                    try:
-                                        repaired_draft, _ = await _run_single_financial_repair(
-                                            profile=state.profile,
-                                            session_id=state.session_id,
-                                            route=state.run_route,
-                                            message=state.original_message or "",
-                                            draft=first_draft,
-                                            validation_failure=first_validation,
-                                        )
-                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                                        repaired_validation = enforce_financial_evidence_contract(
-                                            state.original_message or "",
-                                            state.context,
-                                            repaired_draft,
-                                        )
-                                        reply = (
-                                            _reply_with_financial_validation_failures(
-                                                repaired_draft,
-                                                repaired_validation,
-                                            )
-                                            if _financial_validation_failed(repaired_validation)
-                                            else repaired_validation
-                                        )
-                                    except Exception as exc:
-                                        logger.exception("single streamed financial repair run failed")
-                                        reply = _reply_with_financial_validation_failures(
-                                            first_draft,
-                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                                        )
-                                else:
-                                    reply = first_validation
                         finally:
                             agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
                         reply = normalize_evidence_trace_for_display(reply)

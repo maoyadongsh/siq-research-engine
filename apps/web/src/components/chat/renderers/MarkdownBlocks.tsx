@@ -6,6 +6,7 @@ import { CitationBlock } from './CitationBlock'
 import { AuditTraceBlock } from './AuditTraceBlock'
 import {
   collectHeadingSectionLines,
+  auditHeadingTitle,
   hasHtmlTable,
   isCitationHeading,
   isAuditHeading,
@@ -87,6 +88,7 @@ export function MarkdownBlocks({
           blockKey={`audit-${i}`}
           lines={auditLines}
           apiPrefix={auditTraceApiPrefix}
+          title={auditHeadingTitle(trimmed)}
         />,
       )
       continue

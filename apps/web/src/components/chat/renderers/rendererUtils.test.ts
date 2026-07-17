@@ -90,7 +90,7 @@ test('parseCitationActions removes bare source link helpers and dedupes generate
   ])
 })
 
-test('isAuditHeading recognizes compact audit detail headings only', () => {
+test('isAuditHeading recognizes audit and financial validation headings', () => {
   assert.equal(isAuditHeading('审计详情'), true)
   assert.equal(isAuditHeading('审计详情:'), true)
   assert.equal(isAuditHeading('## 审计详情'), true)
@@ -98,6 +98,12 @@ test('isAuditHeading recognizes compact audit detail headings only', () => {
   assert.equal(isAuditHeading('# 审计详情'), true)
   assert.equal(isAuditHeading('#### 审计详情：'), true)
   assert.equal(isAuditHeading('### 审计详情:'), true)
+  assert.equal(isAuditHeading('## 证据链审计详情'), true)
+  assert.equal(isAuditHeading('## 计算器校验'), true)
+  assert.equal(isAuditHeading('## 计算器校验(全部通过 financial_calculator.py)'), true)
+  assert.equal(isAuditHeading('## 勾稽校验（全部通过）'), true)
+  assert.equal(isAuditHeading('## 勾稽校验'), true)
+  assert.equal(isAuditHeading('## 校验失败详情'), true)
   assert.equal(isAuditHeading('##### 审计详情'), false)
   assert.equal(isAuditHeading('审计明细'), false)
   assert.equal(isAuditHeading('审计详情 extra'), false)

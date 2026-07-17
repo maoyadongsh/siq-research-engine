@@ -304,11 +304,10 @@ def test_enforce_financial_evidence_contract_blocks_equal_value_from_wrong_ident
         deps=_deps(),
     )
 
-    assert "## 财务证据身份不一致" in reply
-    assert "reason=company_id_mismatch" in reply
-    assert "guardrail_status=blocked" in reply
-    assert f"guardrail_reason={guard.FINANCIAL_EVIDENCE_IDENTITY_MISMATCH_GUARDRAIL_REASON}" in reply
-    assert raw_reply not in reply
+    assert "营业收入为 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "计算输入与引用证据不一致" in reply
+    assert "guardrail_status=blocked" not in reply
 
 
 def test_warn_mode_keeps_unbacked_financial_model_output(monkeypatch):
@@ -337,8 +336,9 @@ def test_warn_mode_keeps_derived_output_and_marks_missing_calculation(monkeypatc
     )
 
     assert "同比增长 2.0%" in reply
-    assert "## 计算校验缺失" in reply
-    assert "guardrail_status=warning" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "缺少可验证的计算运行记录" in reply
+    assert "guardrail_status=" not in reply
 
 
 def test_warn_mode_guard_application_is_idempotent(monkeypatch):
@@ -357,8 +357,8 @@ def test_warn_mode_guard_application_is_idempotent(monkeypatch):
         deps=_deps(),
     )
 
-    assert second.count("## 计算校验缺失") == 1
-    assert second.count("guardrail_status=warning") == 1
+    assert second.count("## 计算器校验（存在待核对项）") == 1
+    assert "guardrail_status=" not in second
 
 
 def test_warn_mode_keeps_identity_and_reference_diagnostics_but_blocks_proven_claim_mismatch(monkeypatch):
@@ -392,9 +392,10 @@ def test_warn_mode_keeps_identity_and_reference_diagnostics_but_blocks_proven_cl
     assert "guardrail_reason=financial_research_identity_incomplete" in identity_reply
     assert "模型原始引用回答。" in invalid_reference_reply
     assert "## 证据链无效" in invalid_reference_reply
-    assert "营业收入为 100 亿元" not in mismatch_reply
-    assert "guardrail_reason=financial_claim_mismatch" in mismatch_reply
-    assert "guardrail_status=blocked" in mismatch_reply
+    assert "营业收入为 100 亿元" in mismatch_reply
+    assert "## 计算器校验（存在待核对项）" in mismatch_reply
+    assert "计算输入与引用证据不一致" in mismatch_reply
+    assert "guardrail_status=blocked" not in mismatch_reply
     assert all("guardrail_status=warning" in reply for reply in (identity_reply, invalid_reference_reply))
 
 
@@ -472,12 +473,10 @@ def test_enforce_financial_evidence_contract_blocks_value_mismatch_with_valid_so
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "guardrail_status=blocked" in reply
-    assert f"guardrail_reason={guard.FINANCIAL_CLAIM_MISMATCH_GUARDRAIL_REASON}" in reply
-    assert "claim_verifier_status=failed" in reply
-    assert "metric=operating_revenue" in reply
-    assert "evidence=8382.7亿元" in reply
+    assert "营业收入为 6,351.26 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "指标：operating_revenue" in reply
+    assert "证据值：8382.7亿元" in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_period_mismatch_with_valid_source():
@@ -493,11 +492,9 @@ def test_enforce_financial_evidence_contract_blocks_period_mismatch_with_valid_s
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "guardrail_status=blocked" in reply
-    assert "reason=period_mismatch" in reply
-    assert "claimed_period=2024" in reply
-    assert "period=2025" in reply
+    assert "工商银行 2024 年营业收入" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "计算输入与引用证据不一致" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_value_matching_source():
@@ -582,10 +579,9 @@ def test_enforce_financial_evidence_contract_blocks_currency_mismatch():
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "reason=currency_mismatch" in reply
-    assert "claimed_currency=CNY" in reply
-    assert "evidence_currency=HKD" in reply
+    assert "人民币 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "计算输入与引用证据不一致" in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_matching_value_without_quote():
@@ -601,9 +597,8 @@ def test_enforce_financial_evidence_contract_blocks_matching_value_without_quote
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "reason=missing_quote" in reply
-    assert "claim_verifier_status=failed" in reply
+    assert "营业收入为 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_matching_value_with_reviewable_locator_without_quote():
@@ -637,9 +632,8 @@ def test_enforce_financial_evidence_contract_blocks_matching_value_without_evide
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "reason=missing_evidence_id" in reply
-    assert "claim_verifier_status=failed" in reply
+    assert "营业收入为 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_matching_value_without_company_id():
@@ -655,9 +649,8 @@ def test_enforce_financial_evidence_contract_blocks_matching_value_without_compa
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "reason=missing_company_id" in reply
-    assert "claim_verifier_status=failed" in reply
+    assert "营业收入为 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_matching_value_without_filing_id():
@@ -673,9 +666,8 @@ def test_enforce_financial_evidence_contract_blocks_matching_value_without_filin
         deps=_deps(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "reason=missing_filing_id" in reply
-    assert "claim_verifier_status=failed" in reply
+    assert "营业收入为 8,382.70 亿元" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
 
 
 def test_enforce_financial_evidence_contract_does_not_verify_source_line_only():
@@ -723,11 +715,9 @@ def test_enforce_financial_evidence_contract_blocks_derived_metric_without_calcu
         deps=_deps(),
     )
 
-    assert "## 计算校验缺失" in reply
-    assert "guardrail_status=blocked" in reply
-    assert f"guardrail_reason={guard.FINANCIAL_CALCULATION_TRACE_MISSING_GUARDRAIL_REASON}" in reply
-    assert "calculation_trace_reason=calculator_trace_missing" in reply
-    assert "同比增长 2.0%" not in reply
+    assert "同比增长 2.0%" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "缺少可验证的计算运行记录" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_derived_metric_with_calculator_trace():
@@ -759,7 +749,9 @@ def test_enforce_financial_evidence_contract_allows_derived_metric_with_calculat
 
     assert "## 计算校验缺失" not in reply
     assert "同比增长 2.0%" in reply
-    assert '"operation": "yoy"' in reply
+    assert "## 计算器校验（全部通过）" in reply
+    assert "状态：1/1 项通过" in reply
+    assert "2.00%" in reply
 
 
 def test_explicit_no_calculation_note_does_not_trigger_calculator_guard():
@@ -970,9 +962,9 @@ def test_enforce_financial_evidence_contract_blocks_forged_99_percent_yoy_marker
         deps=_deps(),
     )
 
-    assert "## 计算校验无效" in reply
-    assert "calculation_trace_reason=trace_unstructured" in reply
-    assert "同比增长 99.0%" not in reply
+    assert "同比增长 99.0%" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "计算记录无法绑定为结构化证据链" in reply
 
 
 @pytest.mark.parametrize(
@@ -1013,8 +1005,11 @@ def test_enforce_financial_evidence_contract_rejects_invalid_structured_yoy_trac
         deps=_deps(),
     )
 
-    assert "## 计算校验无效" in reply
-    assert f"calculation_trace_reason={reason}" in reply
+    assert "工商银行 2025 年营业收入同比增长 2.0%" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "至少 1 项待核对" in reply
+    assert "⚠️" in reply
+    assert "guardrail_status=blocked" not in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_ratio_trace_for_wrong_derived_metric():
@@ -1062,7 +1057,9 @@ def test_enforce_financial_evidence_contract_blocks_ratio_trace_for_wrong_derive
 
     # The prose-derived metric allowlist is intentionally relaxed, but the
     # trace still cannot label gross-profit/revenue inputs as debt/assets.
-    assert "calculation_trace_reason=trace_input_metric_mismatch" in reply
+    assert "2025 年毛利率为 40%" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "计算输入指标口径不匹配" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_recomputed_reconciliation_trace():
@@ -1106,10 +1103,10 @@ def test_guard_does_not_mask_wrong_reconciliation_rhs_with_valid_equation():
         trusted_calculation_evidence=_trusted_reconciliation_evidence(),
     )
 
-    assert "## 财务数值证据不一致" in reply
-    assert "metric=goodwill_net" in reply
-    assert "claimed=999" in reply
-    assert "evidence=1183" in reply
+    assert "999 RMB million" in reply
+    assert "## 勾稽校验（存在待核对项）" in reply
+    assert "指标：goodwill_net" in reply
+    assert "证据值：1183.0RMB million" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_compact_summary_with_trusted_tool_receipt():
@@ -1179,8 +1176,9 @@ def test_enforce_financial_evidence_contract_blocks_reconciliation_input_mismatc
         deps=_deps(),
     )
 
-    assert "## 计算校验无效" in reply
-    assert "calculation_trace_reason=trace_input_value_mismatch" in reply
+    assert "净额为 99 亿元" in reply
+    assert "## 勾稽校验（存在待核对项）" in reply
+    assert "计算输入值与证据不一致" in reply
 
 
 def test_enforce_financial_evidence_contract_blocks_failed_reconciliation_status():
@@ -1202,7 +1200,9 @@ def test_enforce_financial_evidence_contract_blocks_failed_reconciliation_status
         deps=_deps(),
     )
 
-    assert "calculation_trace_reason=trace_reconciliation_status_invalid" in reply
+    assert "净额为 11.83 亿元" in reply
+    assert "## 勾稽校验（存在待核对项）" in reply
+    assert "勾稽运行状态未通过" in reply
 
 
 def test_enforce_financial_evidence_contract_allows_reported_eps_without_calculator_trace():
@@ -1311,6 +1311,55 @@ def test_does_not_append_tool_availability_correction_without_script(monkeypatch
     reply = "注：financial_calculator.py 当前不可用。"
 
     assert guard.append_financial_tool_availability_correction_if_needed(reply) == reply
+
+
+def test_successful_validation_summary_is_inserted_before_references():
+    reply = "## 结论\n- 商誉占比较低。\n\n## 引用来源\n[1] source_type=wiki_metrics"
+    runs = (
+        {
+            "tool": "financial_calculator.py",
+            "operation": "ratio",
+        },
+        {
+            "tool": "financial_calculator.py",
+            "operation": "normalize_amount",
+        },
+        {
+            "tool": "financial_reconciliation_validator.py",
+            "operation": "goodwill_reconciliation",
+        },
+    )
+
+    displayed = guard.append_successful_calculation_validation_summary(reply, runs)
+
+    assert "## 计算器校验" in displayed
+    assert "状态：2/2 项通过" in displayed
+    assert "✅" in displayed
+    assert "## 勾稽校验" in displayed
+    assert "状态：1/1 项通过" in displayed
+    assert displayed.index("## 计算器校验") < displayed.index("## 引用来源")
+    assert "operation" not in displayed
+    assert "evidence_id" not in displayed
+
+
+def test_successful_validation_summary_does_not_duplicate_existing_sections():
+    reply = (
+        "## 计算器校验\n- 已有摘要。\n\n"
+        "## 勾稽校验\n- 已有勾稽。\n\n"
+        "## 引用来源\n[1] source_type=wiki_metrics"
+    )
+    runs = (
+        {"tool": "financial_calculator.py", "operation": "ratio"},
+        {"tool": "financial_reconciliation_validator.py", "operation": "goodwill_reconciliation"},
+    )
+
+    displayed = guard.append_successful_calculation_validation_summary(reply, runs)
+
+    assert displayed.count("## 计算器校验") == 1
+    assert displayed.count("## 勾稽校验") == 1
+    assert "已有摘要" not in displayed
+    assert "已有勾稽" not in displayed
+    assert "全部通过" in displayed
 
 
 def test_runtime_wrapper_uses_impl_financial_tool_paths(monkeypatch, tmp_path):

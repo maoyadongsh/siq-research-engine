@@ -835,6 +835,213 @@ def build_financial_claim_mismatch_guardrail_reply(verification: ClaimVerificati
     return "\n".join(lines)
 
 
+_CALCULATION_OPERATION_LABELS = {
+    "normalize_amount": "金额单位换算",
+    "yoy": "同比变动",
+    "yoy_growth": "同比增长",
+    "ratio": "比例计算",
+    "cagr": "复合增长率",
+    "per_capita": "人均计算",
+}
+
+
+def _display_trace_input(item: Any) -> str:
+    if not isinstance(item, Mapping):
+        return "?"
+    value = str(item.get("value") or "?").strip()
+    unit = str(item.get("unit") or "").strip()
+    return f"{value} {unit}".strip()
+
+
+def _display_trace_metric(item: Any, fallback: str) -> str:
+    if not isinstance(item, Mapping):
+        return fallback
+    return str(item.get("metric") or fallback).strip()
+
+
+def _display_percent(result: Any) -> str:
+    if not isinstance(result, Mapping) or result.get("percent") in (None, ""):
+        return "?"
+    try:
+        return f"{float(result['percent']):.2f}%"
+    except (TypeError, ValueError):
+        return f"{result['percent']}%"
+
+
+def _calculation_run_summary(run: Mapping[str, Any]) -> str:
+    operation = str(run.get("operation") or "").strip().lower()
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    result = run.get("result") if isinstance(run.get("result"), Mapping) else {}
+    metric = str(run.get("metric") or _CALCULATION_OPERATION_LABELS.get(operation, "派生计算"))
+    if operation in {"yoy", "yoy_growth"}:
+        current = inputs.get("current")
+        previous = inputs.get("previous")
+        return (
+            f"✅ {metric}：({_display_trace_input(current)} − {_display_trace_input(previous)}) "
+            f"÷ |{_display_trace_input(previous)}| = {_display_percent(result)}"
+        )
+    if operation == "ratio":
+        numerator = inputs.get("numerator")
+        denominator = inputs.get("denominator")
+        label = (
+            f"{_display_trace_metric(numerator, '分子')} / "
+            f"{_display_trace_metric(denominator, '分母')}"
+        )
+        return (
+            f"✅ {label}：{_display_trace_input(numerator)} ÷ "
+            f"{_display_trace_input(denominator)} = {_display_percent(result)}"
+        )
+    if operation == "normalize_amount":
+        amount = inputs.get("amount")
+        normalized = result.get("native_100m_value")
+        normalized_text = f"{normalized} 亿元" if normalized not in (None, "") else "换算结果已通过"
+        return f"✅ {_display_trace_metric(amount, metric)}：{_display_trace_input(amount)} = {normalized_text}"
+    if operation == "cagr":
+        return (
+            f"✅ {metric}：{_display_trace_input(inputs.get('start'))} → "
+            f"{_display_trace_input(inputs.get('end'))} = {_display_percent(result)}"
+        )
+    if operation == "per_capita":
+        value = result.get("native_per", result.get("value", "?"))
+        return (
+            f"✅ {metric}：{_display_trace_input(inputs.get('amount'))} ÷ "
+            f"{_display_trace_input(inputs.get('count'))} = {value}"
+        )
+    return f"✅ {_CALCULATION_OPERATION_LABELS.get(operation, '派生计算')}：确定性重算通过"
+
+
+def _reconciliation_run_summary(run: Mapping[str, Any]) -> str:
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    result = run.get("result") if isinstance(run.get("result"), Mapping) else {}
+    gross = inputs.get("gross")
+    allowance = inputs.get("allowance")
+    net = inputs.get("net")
+    expected = result.get("net", _display_trace_input(net))
+    return (
+        f"✅ {_display_trace_input(gross)} − {_display_trace_input(allowance)} = "
+        f"{expected}；与 {_display_trace_metric(net, '主表净额')} 一致"
+    )
+
+
+_VALIDATION_REASON_LABELS = {
+    "calculator_trace_missing": "缺少可验证的计算运行记录",
+    "reconciliation_trace_missing": "缺少可验证的勾稽运行记录",
+    "trace_unstructured": "计算记录无法绑定为结构化证据链",
+    "trace_operation_missing": "部分派生指标缺少对应计算操作",
+    "trace_claim_result_mismatch": "正文值与确定性重算结果不一致",
+    "trace_evidence_mismatch": "计算输入与引用证据不一致",
+    "trace_result_mismatch": "运行结果与后端重算不一致",
+    "trace_identity_company_id_mismatch": "计算记录绑定了错误的公司身份",
+    "trace_identity_market_mismatch": "计算记录绑定了错误的市场身份",
+    "trace_identity_filing_id_mismatch": "计算记录绑定了错误的报告身份",
+    "trace_identity_parse_run_id_mismatch": "计算记录绑定了错误的解析任务",
+    "trace_unknown_operation": "计算操作类型无法识别",
+    "trace_input_fields_missing": "计算输入字段不完整",
+    "trace_input_value_mismatch": "计算输入值与证据不一致",
+    "trace_input_currency_mismatch": "计算输入币种与证据不一致",
+    "trace_input_metric_mismatch": "计算输入指标口径不匹配",
+    "trace_reconciliation_status_invalid": "勾稽运行状态未通过",
+}
+
+
+def _failure_summary(reason: str, failure: Mapping[str, Any] | None = None) -> str:
+    failure = failure or {}
+    label = _VALIDATION_REASON_LABELS.get(reason, "该项暂时无法完成自动验证")
+    details = []
+    if failure.get("metric"):
+        details.append(f"指标：{failure['metric']}")
+    if failure.get("claimed_value") not in (None, ""):
+        details.append(f"正文值：{failure['claimed_value']}{failure.get('claimed_unit') or ''}")
+    expected = failure.get("expected_results") or failure.get("expected_normalized_values")
+    if expected:
+        details.append(f"后端重算：{expected}")
+    elif failure.get("expected_normalized_value") not in (None, ""):
+        details.append(f"后端重算：{failure['expected_normalized_value']}")
+    elif failure.get("evidence_value") not in (None, ""):
+        details.append(
+            f"证据值：{failure['evidence_value']}{failure.get('evidence_unit') or ''}"
+        )
+    suffix = f"；{'；'.join(details)}" if details else ""
+    return f"⚠️ {label}{suffix}。建议核对对应公式、输入口径和引用来源。"
+
+
+def append_financial_validation_report(
+    reply: str,
+    *,
+    runs: Sequence[Mapping[str, Any]],
+    allowed: bool,
+    reason: str = "",
+    failures: Sequence[Mapping[str, Any]] = (),
+) -> str:
+    """Append complete readable validation cards without changing the answer body."""
+
+    calculator_runs = [run for run in runs if str(run.get("tool") or "") == "financial_calculator.py"]
+    reconciliation_runs = [
+        run for run in runs if str(run.get("tool") or "") == "financial_reconciliation_validator.py"
+    ]
+    sections: list[str] = []
+    if calculator_runs or (not allowed and reason != "reconciliation_trace_missing"):
+        lines = [_calculation_run_summary(run) for run in calculator_runs]
+        if not allowed:
+            lines = [line.replace("✅ ", "🔎 已检测：", 1) for line in lines]
+        if not allowed:
+            lines.extend(_failure_summary(reason, failure) for failure in (failures or ({},)))
+        status = "全部通过" if allowed else "存在待核对项"
+        summary = (
+            f"- 状态：{len(calculator_runs)}/{len(calculator_runs)} 项通过。"
+            if allowed
+            else f"- 状态：{len(calculator_runs)} 项运行记录已检测，至少 1 项待核对。"
+        )
+        sections.append(
+            f"## 计算器校验（{status}）\n{summary}\n"
+            + "\n".join(f"- {line}" for line in lines)
+        )
+    if reconciliation_runs or reason == "reconciliation_trace_missing":
+        lines = [_reconciliation_run_summary(run) for run in reconciliation_runs]
+        if not allowed:
+            lines = [line.replace("✅ ", "🔎 已检测：", 1) for line in lines]
+        if not allowed:
+            lines.append(_failure_summary(reason, failures[0] if failures else None))
+        status = "全部通过" if allowed else "存在待核对项"
+        summary = (
+            f"- 状态：{len(reconciliation_runs)}/{len(reconciliation_runs)} 项通过。"
+            if allowed
+            else f"- 状态：{len(reconciliation_runs)} 项运行记录已检测，至少 1 项待核对。"
+        )
+        sections.append(
+            f"## 勾稽校验（{status}）\n{summary}\n"
+            + "\n".join(f"- {line}" for line in lines)
+        )
+    if not sections:
+        return reply
+    cleaned_reply = re.sub(
+        r"(?ms)^## (?:计算器校验|勾稽校验)(?:[（(][^\n）)]*[）)])?\s*\n"
+        r".*?(?=^## |\Z)",
+        "",
+        reply or "",
+    )
+    cleaned_reply = re.sub(r"\n{3,}", "\n\n", cleaned_reply).strip()
+    return _insert_before_reference_section(cleaned_reply, "\n\n".join(sections))
+
+
+def _insert_before_reference_section(reply: str, section: str) -> str:
+    reference_heading = re.search(r"(?m)^## 引用来源[:：]?\s*$", reply or "")
+    if not reference_heading:
+        return f"{reply.rstrip()}\n\n{section.strip()}".strip()
+    before = reply[: reference_heading.start()].rstrip()
+    after = reply[reference_heading.start() :].lstrip()
+    return f"{before}\n\n{section.strip()}\n\n{after}".strip()
+
+
+def append_successful_calculation_validation_summary(
+    reply: str,
+    runs: Sequence[Mapping[str, Any]],
+) -> str:
+    """Expose a compact success summary without leaking machine trace fields."""
+
+    return append_financial_validation_report(reply, runs=runs, allowed=True)
+
+
 def enforce_financial_evidence_contract(
     message: str,
     context: Any | None,
@@ -900,22 +1107,18 @@ def enforce_financial_evidence_contract(
         trusted_evidence=trusted_calculation_evidence,
     )
     if calculation_trace.checked and not calculation_trace.allowed:
-        if calculation_trace.reason in {"calculator_trace_missing", "reconciliation_trace_missing", "trace_unstructured"} and not (
+        reason = calculation_trace.reason
+        if reason in {"calculator_trace_missing", "reconciliation_trace_missing", "trace_unstructured"} and not (
             _reply_has_calculator_trace(reply) or _reply_has_reconciliation_trace(reply)
         ):
-            missing_reason = "reconciliation_trace_missing" if needs_reconciliation_trace else "calculator_trace_missing"
-            diagnostic = build_missing_calculation_trace_guardrail_reply(message, reply, missing_reason)
-        else:
-            diagnostic = build_invalid_calculation_trace_guardrail_reply(
-                calculation_trace.reason,
-                calculation_trace.failures,
-                deterministic_calculation_pack,
-            )
-        if financial_guardrail_mode() == "warn" and _may_observe_calculation_failure(
-            calculation_trace.reason
-        ):
-            return _observation_reply(reply, diagnostic)
-        return diagnostic
+            reason = "reconciliation_trace_missing" if needs_reconciliation_trace else "calculator_trace_missing"
+        return append_financial_validation_report(
+            reply,
+            runs=calculation_trace.runs,
+            allowed=False,
+            reason=reason,
+            failures=calculation_trace.failures,
+        )
     # A successful trusted receipt or backend evidence recomputation is the
     # calculation validation. Do not append the legacy text-only warning just
     # because the model omitted a tool heading from its visible summary.
@@ -940,11 +1143,24 @@ def enforce_financial_evidence_contract(
             ),
         )
         if not claim_verification.allowed:
-            diagnostic = build_financial_claim_mismatch_guardrail_reply(claim_verification)
-            # A deterministic evidence mismatch is known-bad financial data,
-            # so observation mode must not deliver or persist the model text.
-            return diagnostic
-        return reply
+            failures = tuple(
+                {
+                    "metric": violation.metric,
+                    "claimed_value": violation.claimed_value,
+                    "claimed_unit": violation.claimed_unit,
+                    "evidence_value": violation.evidence_value,
+                    "evidence_unit": violation.evidence_unit,
+                }
+                for violation in claim_verification.violations[:5]
+            )
+            return append_financial_validation_report(
+                reply,
+                runs=calculation_trace.runs,
+                allowed=False,
+                reason="trace_evidence_mismatch",
+                failures=failures,
+            )
+        return append_successful_calculation_validation_summary(reply, calculation_trace.runs)
     fallback = build_financial_evidence_fallback_reply(message, context, deps=deps)
     diagnostic = fallback or build_missing_financial_evidence_guardrail_reply(message, context)
     if financial_guardrail_mode() == "warn":
