@@ -1,0 +1,73 @@
+{
+  "agent_groups": [
+    "primary_market",
+    "secondary_market"
+  ],
+  "backends": {
+    "milvus": {
+      "captured_at_unix": 1784195237,
+      "completed_at_unix": 1784195297,
+      "operation_outcomes": {
+        "primary_market": {
+          "delete": true,
+          "get": true,
+          "post_delete_verify": true,
+          "residual_count": 0,
+          "search": true,
+          "upsert": true
+        },
+        "secondary_market": {
+          "delete": true,
+          "get": true,
+          "post_delete_verify": true,
+          "residual_count": 0,
+          "search": true,
+          "upsert": true
+        }
+      },
+      "probe_sha256": "10889cd2ff5f693c61d7894c5f301b76ba887e4d574112a079813b3a92702d23",
+      "receipt_sha256": "5b50302a2483e4dd8c542a5083a6ba10dd0fb9aa8ddc9d2bf8a4fe3c9246db9c",
+      "residual_count": 0,
+      "schema_preflight_passed": true
+    },
+    "postgresql": {
+      "captured_at_unix": 1784195237,
+      "completed_at_unix": 1784195297,
+      "operation_outcomes": {
+        "primary_market": {
+          "insert": true,
+          "post_rollback_verify": true,
+          "readback": true,
+          "residual_count": 0,
+          "rollback": true
+        },
+        "secondary_market": {
+          "insert": true,
+          "post_rollback_verify": true,
+          "readback": true,
+          "residual_count": 0,
+          "rollback": true
+        }
+      },
+      "probe_sha256": "04e3bd909f8e0642c640ad2b495dc207d73e37d374f938e0d7668fa00c36c0ba",
+      "receipt_sha256": "52dab168bfdbd5a84614688cfbd6a2d0150aa3296b91705fad8d06cc02ed847d",
+      "residual_count": 0
+    }
+  },
+  "contract_binding": {
+    "boundary_contract_sha256": "8b36e934a44c0285512da68e495d0d1c8752bbbae9a0bcf70ab321861171310d",
+    "evidence_schema_sha256": "8e825ce99110358e7ca7ad14ba7d2f362c9d6f80d9e00b2daecd48204e1d5cd0",
+    "executor": "host_fastapi_memory_service_only",
+    "logical_alias": "siq_agent_memory_active",
+    "physical_collection_sha256": "2a4e3e9be46e889d1147148f6ec9687e0e273ea0880f5536ec66f52f68cd74b8",
+    "required_schema_version": "siq_agent_memory_milvus_v2",
+    "sandbox_direct_milvus": false
+  },
+  "decision": "GO",
+  "evidence_window": {
+    "completed_at_unix": 1784195297,
+    "started_at_unix": 1784195237
+  },
+  "passed": true,
+  "schema_version": "siq.openshell.memory-write-evidence.v1"
+}

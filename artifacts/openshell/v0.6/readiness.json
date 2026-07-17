@@ -1,0 +1,106 @@
+{
+  "blockers": [
+    "formal_ab_evidence_missing",
+    "formal_ab_prerequisites_evidence_missing",
+    "formal_delete_guard_evidence_missing",
+    "formal_egress_sandbox_evidence_missing",
+    "formal_host_rollback_evidence_missing",
+    "formal_structured_audit_evidence_missing",
+    "published_evidence_index_scan_failed"
+  ],
+  "contracts": {
+    "api_and_output_paths_unchanged": false
+  },
+  "data_boundary": {
+    "host_memory_write_verified": true,
+    "milvus_mutation_route_exposed": false,
+    "milvus_sandbox_write_proof": true,
+    "postgres_readonly_verified": true
+  },
+  "decision": "NO_GO",
+  "decision_scope": "formal_hermes_traffic_cutover",
+  "default_runtime": "host",
+  "generated_at": "2026-07-16T14:43:51Z",
+  "lifecycle_safety": {
+    "broker_preflight": "evidence_bound",
+    "formal_runtime_provenance": "unverified",
+    "host_rollback_identity": "unverified",
+    "service_preflight": "evidence_bound"
+  },
+  "network_contract": {
+    "broker_ports": [
+      18792,
+      18793
+    ],
+    "internal_model_ports": [
+      8004,
+      8006,
+      8007,
+      8013
+    ],
+    "internal_model_reachability": {
+      "8004": "offline",
+      "8006": "offline",
+      "8007": "online",
+      "8013": "online"
+    }
+  },
+  "providers": {
+    "configured": [
+      "siq-kimi-coding",
+      "siq-minimax-cn-pool",
+      "siq-stepfun",
+      "siq-tavily-search"
+    ],
+    "required_missing": []
+  },
+  "runtime_state": {
+    "broker_preflight": "passed",
+    "formal_ab_completed": false,
+    "formal_business_sandbox_created": false,
+    "formal_image_smoke": "passed",
+    "host_brokers": "healthy",
+    "project_gateway": "healthy",
+    "provider_independent_probe": "passed",
+    "quality_validated": false,
+    "service_preflight": "GO"
+  },
+  "schema_version": "siq.openshell.readiness.v1",
+  "security_controls": {
+    "agent_control_files_readonly": false,
+    "finalized_ingested_paths_readonly": false,
+    "high_risk_delete_guard": false,
+    "project_code_readonly": false,
+    "runtime_session_and_memory_paths_writable": false,
+    "task_analysis_path_writable": false,
+    "unknown_file_upload_blocked": false
+  },
+  "verification": {
+    "baseline_evidence": "artifacts/openshell/v0.6/baseline.json",
+    "baseline_sha256": "f5ed8b09319ab086f6ec3deff14c978581b0602225b00e2fd90a62205c06a409",
+    "broker_status_evidence": "var/openshell/proofs/broker-status.json",
+    "broker_status_sha256": "24ae71a5f5432e39cc1696a400d312e5392eb0801ef384beae6124297c425bb5",
+    "formal_filesystem_boundary_evidence": "artifacts/openshell/v0.6/formal-filesystem-boundary.sanitized.json",
+    "formal_filesystem_boundary_sha256": "8a3aebfad8c1558f352b962f86c98667104adfbf93537e68d2d1340cb36bf85f",
+    "host_egress_component_evidence": "artifacts/openshell/v0.6/egress-boundary.sanitized.json",
+    "host_egress_component_sha256": "78ada43bcbaa0b737aca8705089a3601ba0b6ed6a8b1f592fd9a439ccd3791c2",
+    "memory_write_evidence": "artifacts/openshell/v0.6/memory-write-evidence.sanitized.json",
+    "memory_write_evidence_sha256": "b465621c07800a64432858dd22143b557814660f3c28ff401e74be4d3b4eaac1",
+    "openshell_docs_sha256": "191f81105b5b08b9c534b0a2b7682cc55e0eb8c413568926d59b0f50f23fc5a6",
+    "provider_independent_probe_evidence": "artifacts/openshell/v0.6/provider-independent-20260716/probe.sanitized.json",
+    "provider_independent_probe_sha256": "298060ed7a28f788260a25c3c2c61e5bd44ad2c30869389058cc60db3670f121",
+    "provider_inventory_evidence": "var/openshell/proofs/provider-inventory.json",
+    "provider_inventory_sha256": "53a5233be5b8f6dc49affeb543d0b1c54246756943c7ad03286a0afe367d082a",
+    "published_evidence_index_scan": "failed",
+    "sanitized_artifact_scan": "passed",
+    "service_preflight_evidence": "artifacts/openshell/v0.6/service-preflight.sanitized.json",
+    "service_preflight_sha256": "c66ad735e8ef3951d5b825236a0a0e966ed7edf5d40563f2d00fcba3cdeaad22",
+    "tracked_state_scan": "passed"
+  },
+  "versions": {
+    "hermes": "0.13.0",
+    "hermes_commit": "ddb8d8fa842283ef651a6e4514f8f561f736c72e",
+    "node": "22.22.2",
+    "openshell": "0.0.83"
+  }
+}

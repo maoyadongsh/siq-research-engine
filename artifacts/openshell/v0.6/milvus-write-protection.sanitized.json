@@ -1,0 +1,35 @@
+{
+  "captured_at_unix": 1784284679,
+  "checks": {
+    "active_policy_bound_to_verified_sandbox": true,
+    "broker_describe_allowed": true,
+    "broker_get_allowed": true,
+    "broker_mutation_routes_absent": true,
+    "broker_query_allowed": true,
+    "broker_search_allowed": true,
+    "business_rows_modified": 0,
+    "sandbox_direct_milvus_denied": true
+  },
+  "decision": "GO",
+  "environment_binding": {
+    "bridge_sha256": "90bb6aa40b6e20600f58c30032966c1256d948f1f2ac4d6d4a3055493dff2f6b",
+    "data_broker_sha256": "b06900ac6eacb47acb742b706654f91408691fef6b26d1774d096e3e367d530b",
+    "milvus_catalog_sha256": "52447fea918700f0f4123ea6d01f1186441e82af9bbcb0ae670910f5cb795205",
+    "milvus_database": "default",
+    "milvus_port": 19530,
+    "policy_contract_sha256": "82c08e6876f53db794a4df61994d1533442ecd63f11f655bab3d39f267d3d335",
+    "sandbox_probe_sha256": "c0aea43e0ce28586f45a3baaf7694035e89e4de91ba3401506949ebfc5b5519d"
+  },
+  "gateway": "siq-openshell-dev",
+  "passed": true,
+  "profile": "siq_analysis",
+  "sandbox_binding": {
+    "active_policy_sha256": "c567972cbd6bcfdefe4f9be84cb1eb43ebfd3851df9bbc22b5dc6fb9cbbf82ad",
+    "container_id_sha256": "e940670d184f141f106dc52cbd227f24b400f928485822d3672835779094ddd3",
+    "receipt_sha256": "b48774e0f850ee742e4d8f7d5e4f338cde46568149c60ce3df3263e3b15b9edf",
+    "run_id_sha256": "a28c73b35600b437c1da74f2e2730bb0cc21a4166ff1a529bdc98f531800ff9e",
+    "sandbox_id_sha256": "f68ef3d3c69478f1121e9184b8e6c28587de92c98b0eead23f11d467a1e110e9"
+  },
+  "schema_version": "siq.openshell.milvus-write-protection-proof.v1",
+  "valid_until_unix": 1784288279
+}

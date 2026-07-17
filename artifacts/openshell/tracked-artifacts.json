@@ -1,0 +1,179 @@
+{
+  "artifacts": [
+    {
+      "classification": "public_document",
+      "path": "artifacts/openshell/README.md",
+      "sha256": "7c3793fdbca41f014e0a67cd8fa043b22c915045ee19f02abded8bd4d71e77c7",
+      "size_bytes": 2523
+    },
+    {
+      "classification": "baseline",
+      "path": "artifacts/openshell/v0.6/baseline.json",
+      "sha256": "f5ed8b09319ab086f6ec3deff14c978581b0602225b00e2fd90a62205c06a409",
+      "size_bytes": 4955
+    },
+    {
+      "classification": "baseline",
+      "path": "artifacts/openshell/v0.6/baseline.md",
+      "sha256": "db5864ce6885aa8cb7dea21cfc4cb7b683ff832f6bd8675e4727a00afab6eaa1",
+      "size_bytes": 4363
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/egress-boundary.sanitized.json",
+      "sha256": "2b53f9f2c324eabd3cf6970ba04bff97fff25cc7782d496d916712feca03c85c",
+      "size_bytes": 3439
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/egress-boundary.sanitized.md",
+      "sha256": "7881707aba1924fa00025443419549326ffff82b1d8b6e6e72c577d2628c5a94",
+      "size_bytes": 1036
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/immutable-registry.sanitized.json",
+      "sha256": "261db2acb4e50db523fc9af85f811555e718cb2a02e93d209e7bd5a916243406",
+      "size_bytes": 735
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/immutable-registry.sanitized.md",
+      "sha256": "88c2df66767d5882c1e71c6edeaf807038e0ffc2831d00fdd025aae8bf6e372b",
+      "size_bytes": 524
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716-egress-proof/logs.sanitized.json",
+      "sha256": "7d52621ae28818051196e1e663e4a3e906527e47ce27363db0f492a0d7a6bed5",
+      "size_bytes": 3986
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716-egress-proof/logs.sanitized.md",
+      "sha256": "d6712671e08a710de85150b3243907e0d326f236ee34b85099967546978a8a18",
+      "size_bytes": 990
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716-final/logs.sanitized.json",
+      "sha256": "f6f4503e8516b00f5ae6989c46eb5771ab81f6e4bd539854a2989366605ee74b",
+      "size_bytes": 3990
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716-final/logs.sanitized.md",
+      "sha256": "2e9f9f763582e9ae7ba6c10f41926b32d0884e4bdea08971b582f5e78269f338",
+      "size_bytes": 992
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716/logs.sanitized.json",
+      "sha256": "664f106cfb630ab0e324cecc690ec4669f6bb758f9117d958ac4e9057b4dd256",
+      "size_bytes": 3827
+    },
+    {
+      "classification": "sanitized_log",
+      "path": "artifacts/openshell/v0.6/logs-20260716/logs.sanitized.md",
+      "sha256": "d929b287db8bffe9cc462eec5a7fb7490f593344846fb3e01fe9577fbc43a592",
+      "size_bytes": 988
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/memory-write-evidence.sanitized.json",
+      "sha256": "b465621c07800a64432858dd22143b557814660f3c28ff401e74be4d3b4eaac1",
+      "size_bytes": 2354
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/memory-write-evidence.sanitized.md",
+      "sha256": "09d2138ff28addf29a87372418d2e9bf805a14cc7cc05af5cf2b53e2f51db5e9",
+      "size_bytes": 656
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/milvus-write-protection.sanitized.json",
+      "sha256": "4739700219167152f1e2ca4ceb088c32b6a66e3c10020a2e301403d55809a536",
+      "size_bytes": 1624
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/milvus-write-protection.sanitized.md",
+      "sha256": "dedd8955c0e56e3320efbba535515e6fbb7b617819b0cc5611bcdc3851091b45",
+      "size_bytes": 394
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/provider-independent-20260716/probe.sanitized.json",
+      "sha256": "1e729ce4ed69ba2de1882294c60671dba439e8aac9a901732e70994dcdda2a5e",
+      "size_bytes": 2935
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/provider-independent-20260716/probe.sanitized.md",
+      "sha256": "ba7ed9f7eb1a7ef5cc90592f5764fea691c4c0f5e07f437e63e25b42547308ab",
+      "size_bytes": 400
+    },
+    {
+      "classification": "readiness",
+      "path": "artifacts/openshell/v0.6/readiness.json",
+      "sha256": "a505534ea2d49527df05b9baf6d3db3e410fa2e5b002aa78c1db6192da0b9b72",
+      "size_bytes": 4114
+    },
+    {
+      "classification": "readiness",
+      "path": "artifacts/openshell/v0.6/readiness.md",
+      "sha256": "b1f8d77370fd357f83b129d16d8d87f54746ef34ee072e20d20610b8a013bf22",
+      "size_bytes": 3501
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/service-preflight.sanitized.json",
+      "sha256": "685757c24d34d6c10207b83c70ef59ba54032b5c81f348addc455d020f6327c2",
+      "size_bytes": 6940
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/service-preflight.sanitized.md",
+      "sha256": "48b8429723030249444f8a76b5d169769703d9ade7052a9b073af3c538bc70fa",
+      "size_bytes": 904
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/siq-analysis-observe-20260716/feasibility.sanitized.json",
+      "sha256": "ec67191008df58094c3b95ea1c7c03b96f4723e68ec9bbb283ccc0811ac8d430",
+      "size_bytes": 2516
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/siq-analysis-observe-20260716/feasibility.sanitized.md",
+      "sha256": "978a715f42dd1a44f2e9b3435ab4a2438d0933cf89cfae9c458906850c6fd180",
+      "size_bytes": 1317
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/siq-analysis-wide-pilot-20260716/feasibility.sanitized.json",
+      "sha256": "b55a095884586b65ead0e4dd4f99e2f9bfcd121fec68d08e2bef98d575117b15",
+      "size_bytes": 3380
+    },
+    {
+      "classification": "sanitized_evidence",
+      "path": "artifacts/openshell/v0.6/siq-analysis-wide-pilot-20260716/feasibility.sanitized.md",
+      "sha256": "2034a03253016c2dc3333ec5a287e32225110658b0341b687dba64e748b66347",
+      "size_bytes": 1474
+    },
+    {
+      "classification": "public_document",
+      "path": "var/openshell/README.md",
+      "sha256": "dbb0ccc8bdfd857df00ffd35daa0ff3815f7cd36422b33685ad46d13e2f7aa24",
+      "size_bytes": 1944
+    },
+    {
+      "classification": "sanitized_manifest",
+      "path": "var/openshell/manifests/toolchain.sanitized.json",
+      "sha256": "7ab40973a83d2724764c9d0efa721c4351e6b6bf00787286bbe63c6bcec21f04",
+      "size_bytes": 3793
+    }
+  ],
+  "schema_version": "siq.openshell.tracked-artifacts.v1"
+}

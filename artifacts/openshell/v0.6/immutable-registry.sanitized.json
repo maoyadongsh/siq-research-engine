@@ -1,0 +1,30 @@
+{
+  "schema_version": "siq.openshell.immutable_registry_summary.v1",
+  "registry_schema_version": "siq.immutable_paths.v1",
+  "generated_at": null,
+  "source_digest": "56dc794f111dc585e64c60d86f390f85afa18c7209294c1c5f86169535819edf",
+  "wiki_root": "data/wiki",
+  "entry_count": 183,
+  "by_kind": {
+    "finalized_report": 183
+  },
+  "by_market": {
+    "CN": 12,
+    "EU": 46,
+    "HK": 50,
+    "JP": 30,
+    "KR": 29,
+    "US": 16
+  },
+  "by_owner": {
+    "ingestion": 183
+  },
+  "recursive_entry_count": 183,
+  "skipped_by_reason": {
+    "artifact_manifest_not_ready": 1,
+    "company_package_path_mismatch": 1,
+    "company_report_not_finalized": 165,
+    "market_package_not_finalized": 35,
+    "report_manifest_missing": 1
+  }
+}

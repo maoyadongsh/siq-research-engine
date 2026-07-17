@@ -1,0 +1,65 @@
+{
+  "cleanup": {
+    "gateway_connected_after": true,
+    "host_hermes_healthy_after": true,
+    "identity_state_removed": true,
+    "managed_container_absent": true,
+    "observe_port_released": true,
+    "sandbox_deleted": true,
+    "sandbox_inventory_empty": true
+  },
+  "contract": {
+    "health": "ok",
+    "missing_access_rejected": true,
+    "run_create_http_status": 202,
+    "sse_message_observed": true,
+    "stop_event_count": 3,
+    "stop_run": "cancelled",
+    "terminal_result_verified": true,
+    "tool_event_count": 18,
+    "tool_run": "completed"
+  },
+  "generated_at": "2026-07-16T09:43:38+08:00",
+  "isolation": {
+    "control_mount_count": 5,
+    "host_business_mount_count": 0,
+    "host_invariants_unchanged": true,
+    "immutable_entry_count": 183,
+    "immutable_metadata_sha256": "1ab36c10af870f3c9bfd74445bc57d3310bdae5355259b2dc067a033b33062e3",
+    "immutable_path_record_count": 8724,
+    "immutable_registry_sha256": "303c12bd0135cfc1df07805971ed3cc48ab1954c4d8123d486ee54e81aeae13a",
+    "project_write_rejected": true,
+    "profile_static_content_sha256": "bb4361b5772abbf9df33152b2ee525c01f4858cb7c1d610ec55535e347f63201",
+    "profile_static_file_count": 65,
+    "runtime_home_write_succeeded": true
+  },
+  "limitations": [
+    "not_formal_business_sandbox",
+    "not_quality_ab_evidence",
+    "no_host_business_data_mounted",
+    "no_database_or_search_validation",
+    "no_default_traffic_switch"
+  ],
+  "mode": "NOT_PRODUCTION_OBSERVE_ONLY",
+  "profile": "siq_analysis",
+  "readiness_effect": "none",
+  "result": "PASS",
+  "runtime": {
+    "architecture": "arm64",
+    "gateway": "siq-openshell-dev",
+    "image_id": "sha256:c29b88f9681605ae501a68f3d106006ab8094f87a73123393066f4ba18b14bba",
+    "image_ref": "siq/hermes-openshell-siq-analysis:7938eb02fe280a056ee3fe26",
+    "observe_port": 28651,
+    "openshell_version": "0.0.83",
+    "policy_sha256": "23b5c9d185ef46f50f65c461443c6ff1b6c746d203a74fde2aa6d2bcee6a7769",
+    "provider": "siq-minimax-cn-pool"
+  },
+  "schema_version": "siq.openshell.siq_analysis_observe_feasibility.v1",
+  "script_sha256": {
+    "contract": "2dd41c91658956a7a9a968b55a84cc982bdc4703b314b5b9f8e1c5fa069768a7",
+    "host_snapshot": "83ffde273dac6f57decfe40782cc3a8e4ac0e23a681fab016b05253233c8eec3",
+    "smoke": "ad50c5ec7d7d221178bf40b0283c8be4cbe5c7651c1f6a9d5f30e2ebb9cbe4d1",
+    "start": "f552a69c271f8920fe686b54add055c3756c8ed4b9762a66fd662115b3436811",
+    "stop": "48cfdd4aa99b65973c7862e4bdb63201b9e29d5b8ce8d7428c54a965426eeea8"
+  }
+}

@@ -1,0 +1,263 @@
+{
+  "blockers": [],
+  "decision": "GO",
+  "passed": true,
+  "probe_scope": {
+    "host_alias_configured": true,
+    "host_alias_kind": "loopback",
+    "http_method": "GET",
+    "protocol": "tcp_connect_plus_read_only_http_get",
+    "read_only": true,
+    "redirects_followed": false,
+    "request_body_sent": false,
+    "response_body_recorded": false,
+    "timeout_ms": 500
+  },
+  "schema_version": "siq.openshell.service_preflight.v2",
+  "security_checks": [
+    {
+      "blocking": true,
+      "check_id": "postgres_readonly_identity",
+      "error_code": "",
+      "label": "PostgreSQL sandbox identity is read-only",
+      "proof_present": true,
+      "proof_schema_version": "",
+      "proof_source": "proof_file",
+      "requirement": "required",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "check_id": "milvus_write_protection",
+      "error_code": "",
+      "label": "Milvus anonymous or sandbox mutation is blocked",
+      "proof_present": true,
+      "proof_schema_version": "siq.openshell.milvus-write-protection-proof.v1",
+      "proof_source": "proof_file",
+      "requirement": "required",
+      "status": "pass"
+    }
+  ],
+  "services": [
+    {
+      "blocking": false,
+      "category": "local_model",
+      "error_code": "connection_refused",
+      "label": "Qwen local fallback",
+      "latency_ms": 1,
+      "port": 8004,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": false,
+        "checked": false,
+        "contract": "openai_models_list_v1",
+        "error_code": "transport_unreachable",
+        "http_status": null,
+        "latency_ms": 0,
+        "method": "GET",
+        "path": "/v1/models",
+        "status": "not_run"
+      },
+      "reachable": false,
+      "requirement": "optional",
+      "service_id": "qwen_local",
+      "status": "warning"
+    },
+    {
+      "blocking": false,
+      "category": "local_model",
+      "error_code": "connection_refused",
+      "label": "Gemma local fallback",
+      "latency_ms": 1,
+      "port": 8006,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": false,
+        "checked": false,
+        "contract": "openai_models_list_v1",
+        "error_code": "transport_unreachable",
+        "http_status": null,
+        "latency_ms": 0,
+        "method": "GET",
+        "path": "/v1/models",
+        "status": "not_run"
+      },
+      "reachable": false,
+      "requirement": "optional",
+      "service_id": "gemma_local",
+      "status": "warning"
+    },
+    {
+      "blocking": false,
+      "category": "local_model",
+      "error_code": "",
+      "label": "Nemotron image model",
+      "latency_ms": 1,
+      "port": 8007,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": true,
+        "checked": true,
+        "contract": "openai_models_list_v1",
+        "error_code": "",
+        "http_status": 200,
+        "latency_ms": 1,
+        "method": "GET",
+        "path": "/v1/models",
+        "status": "pass"
+      },
+      "reachable": true,
+      "requirement": "optional",
+      "service_id": "nemotron_local",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "category": "embedding",
+      "error_code": "",
+      "label": "Embedding service",
+      "latency_ms": 1,
+      "port": 8013,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": true,
+        "checked": true,
+        "contract": "openai_models_list_v1",
+        "error_code": "",
+        "http_status": 200,
+        "latency_ms": 9,
+        "method": "GET",
+        "path": "/v1/models",
+        "status": "pass"
+      },
+      "reachable": true,
+      "requirement": "required",
+      "service_id": "embedding",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "category": "database",
+      "error_code": "",
+      "label": "PostgreSQL market facts",
+      "latency_ms": 0,
+      "port": 15432,
+      "probe": "tcp_connect",
+      "protocol_check": {
+        "available": null,
+        "checked": false,
+        "contract": "not_applicable",
+        "error_code": "",
+        "http_status": null,
+        "latency_ms": null,
+        "method": "",
+        "path": "",
+        "status": "not_applicable"
+      },
+      "reachable": true,
+      "requirement": "required",
+      "service_id": "postgres",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "category": "database",
+      "error_code": "",
+      "label": "Milvus knowledge store",
+      "latency_ms": 0,
+      "port": 19530,
+      "probe": "tcp_connect",
+      "protocol_check": {
+        "available": null,
+        "checked": false,
+        "contract": "not_applicable",
+        "error_code": "",
+        "http_status": null,
+        "latency_ms": null,
+        "method": "",
+        "path": "",
+        "status": "not_applicable"
+      },
+      "reachable": true,
+      "requirement": "required",
+      "service_id": "milvus",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "category": "application",
+      "error_code": "",
+      "label": "SIQ API",
+      "latency_ms": 0,
+      "port": 18081,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": true,
+        "checked": true,
+        "contract": "status_ok_json_v1",
+        "error_code": "",
+        "http_status": 200,
+        "latency_ms": 1,
+        "method": "GET",
+        "path": "/health",
+        "status": "pass"
+      },
+      "reachable": true,
+      "requirement": "required",
+      "service_id": "siq_api",
+      "status": "pass"
+    },
+    {
+      "blocking": true,
+      "category": "agent_runtime",
+      "error_code": "",
+      "label": "Hermes host rollback runtime",
+      "latency_ms": 0,
+      "port": 18651,
+      "probe": "tcp_connect+http_get",
+      "protocol_check": {
+        "available": true,
+        "checked": true,
+        "contract": "status_ok_json_v1",
+        "error_code": "",
+        "http_status": 200,
+        "latency_ms": 0,
+        "method": "GET",
+        "path": "/health",
+        "status": "pass"
+      },
+      "reachable": true,
+      "requirement": "required",
+      "service_id": "hermes_host",
+      "status": "pass"
+    }
+  ],
+  "summary": {
+    "blocking_count": 0,
+    "optional_protocol_available": 1,
+    "optional_protocol_total": 3,
+    "optional_reachable": 1,
+    "optional_total": 3,
+    "required_protocol_available": 3,
+    "required_protocol_total": 3,
+    "required_reachable": 5,
+    "required_total": 5,
+    "security_proofs_present": 2,
+    "security_proofs_required": 2,
+    "warning_count": 2
+  },
+  "warnings": [
+    {
+      "check_id": "service:qwen_local",
+      "error_code": "qwen_local_unreachable",
+      "kind": "optional_service_connectivity",
+      "port": 8004
+    },
+    {
+      "check_id": "service:gemma_local",
+      "error_code": "gemma_local_unreachable",
+      "kind": "optional_service_connectivity",
+      "port": 8006
+    }
+  ]
+}

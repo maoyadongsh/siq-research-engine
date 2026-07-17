@@ -1,0 +1,92 @@
+{
+  "checks": {
+    "check_count": 44,
+    "code_read_only": true,
+    "configuration_read_only": true,
+    "control_credentials_read_only": true,
+    "memory_path_writable": true,
+    "prompt_read_only": true,
+    "runtime_session_writable": true,
+    "runtime_state_directory_writable": true,
+    "sensitive_paths_hidden": true,
+    "source_data_read_only": true,
+    "task_analysis_writable": true,
+    "unknown_file_upload_denied": true,
+    "workflow_read_only": true
+  },
+  "cleanup": {
+    "host_runtime_unchanged": true,
+    "runtime_snapshot_removed": true,
+    "sandbox_deleted": true,
+    "sandbox_inventory_empty": true,
+    "sentinels_removed": true
+  },
+  "container_hardening": {
+    "bootstrap_capability_profile_exact": true,
+    "device_request_count": 0,
+    "host_device_count": 0,
+    "privileged": false,
+    "supervisor_bootstrap_user": "0"
+  },
+  "formal_business_sandbox": false,
+  "generated_at": "2026-07-16T14:54:12.686972+00:00",
+  "limitations": [
+    "provider_independent_deny_all_scope",
+    "no_hermes_business_process",
+    "no_provider_calls",
+    "not_quality_evidence",
+    "readiness_effect_none"
+  ],
+  "mode": "provider-independent",
+  "mounts": {
+    "business_mount_count": 7,
+    "control_mount_count": 5,
+    "strict_bind_contract": "7_plus_5",
+    "total_mount_count": 12
+  },
+  "network_isolation": {
+    "cloud_metadata": "denied",
+    "egress_broker": "denied",
+    "internal_model": "denied",
+    "public_https": "denied"
+  },
+  "process_hardening": {
+    "block_device_create_denied": true,
+    "capability_sets_clear": true,
+    "docker_socket_inaccessible": true,
+    "gid": 1000,
+    "mount_denied": true,
+    "no_new_privs": true,
+    "non_root_identity": true,
+    "raw_devices_absent": true,
+    "root_group_absent": true,
+    "setgid_root_denied": true,
+    "setns_denied": true,
+    "setuid_root_denied": true,
+    "su_denied": true,
+    "sudo_denied": true,
+    "uid": 1000,
+    "unshare_denied": true
+  },
+  "profile": "siq_analysis",
+  "provenance": {
+    "image_id": "sha256:46154395d36463c250cc1950a22f2f1bbf5c76b8e8c0a4e1fa57b4b7325c73ea",
+    "image_ref": "siq/hermes-openshell-siq-analysis:5605cc09e4f35ccb9d48bc7f",
+    "mount_plan_sha256": "26f733eb9250563a7a39c34bd919e1d4ff5c0464d7b99d128e1c77e2dfe561df",
+    "policy_sha256": "851f947dc75ab1560d90b862bfe1e7061df45f6ad20b595a830264d067c1038a",
+    "raw_receipt_sha256": "0af43e914e7a3901c581ede1e006542103d7e74ab9abde53443d4c4fa08a2130",
+    "task_policy_summary_sha256": "eb7a889796dd5d4271caa3be39a990046bb79b841c18f3f1551d0eed1c8d7ef6"
+  },
+  "provider_calls": 0,
+  "quality_validated": false,
+  "readiness_effect": "none",
+  "result": "PASS",
+  "runtime_isolation": {
+    "api_listener_count": 0,
+    "hermes_process_count": 0,
+    "provider_call_capable_processes": 0,
+    "provider_env_count": 0,
+    "provider_material_count": 0
+  },
+  "schema_version": "siq.openshell.provider_independent_sanitized.v1"
+}

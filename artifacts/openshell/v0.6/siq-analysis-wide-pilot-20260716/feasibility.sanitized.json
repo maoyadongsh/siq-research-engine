@@ -1,0 +1,85 @@
+{
+  "cleanup": {
+    "active_state_removed": true,
+    "deletion_snapshot_removed": true,
+    "ephemeral_identity_files_removed": true,
+    "host_runtime_unchanged": true,
+    "managed_sandbox_deleted": true,
+    "output_leaf_removed": true,
+    "runtime_snapshot_removed": true,
+    "sandbox_inventory_empty": true,
+    "service_forward_port_released": true
+  },
+  "contract": {
+    "analysis_write": true,
+    "event_count": 6,
+    "pilot_output_removed": true,
+    "protected_runs_auth": true,
+    "run_status": "completed",
+    "source_read": true,
+    "source_unchanged": true
+  },
+  "filesystem": {
+    "business_mount_count": 7,
+    "control_mount_count": 5,
+    "control_mounts_read_only": true,
+    "immutable_entry_count": 183,
+    "pilot_output_only": true,
+    "runtime_state_writable": true,
+    "source_read_only": true
+  },
+  "generated_at": "2026-07-16T15:20:38+08:00",
+  "limitations": [
+    "not_formal_ab_evidence",
+    "not_quality_equivalence_evidence",
+    "not_complete_provider_or_fallback_evidence",
+    "not_default_traffic_switch",
+    "single_company_single_run_scope"
+  ],
+  "mode": "NOT_PRODUCTION_WIDE_PILOT",
+  "network": {
+    "broker_identity_present": true,
+    "provider_subset_count": 4,
+    "providers": [
+      "siq-minimax-cn-pool",
+      "siq-stepfun",
+      "siq-kimi-coding",
+      "siq-tavily-search"
+    ],
+    "tavily_provider_status": "passed",
+    "tavily_result_count": 2
+  },
+  "profile": "siq_analysis",
+  "provenance": {
+    "immutable_registry_sha256": "303c12bd0135cfc1df07805971ed3cc48ab1954c4d8123d486ee54e81aeae13a",
+    "mount_plan_sha256": "d0360177d603a5fca5d595036a6df25df4c80fa25a0ecc61e3fd2db32bfcca69",
+    "policy_sha256": "ed0bf97436487269a1c7842bdd0fa38faca63b2e71f2105198a602b7691d7782",
+    "receipts": {
+      "contract_sha256": "150e6883dc92f818341b23dc63c945560bd6e2e39b1beeb2da2f2128124a0ddf",
+      "guard_outcome_sha256": "e0afcf7a2c1d710df5f84de1990ee113d436622d5b4a291041e4b6fcfc77aa8c",
+      "lifecycle_sha256": "a63c85bae9dfe295ca29a441f4bc299248854f32266e307a7b9d9f1344039cbd",
+      "probe_sha256": "7db25ee5318a2956c841298764763ef6cc1dbdba21c22f2a03ced47f4175ebfd",
+      "stop_sha256": "d0217793f35a27c2b4dbe31b4be56c4b40d15f511121172adaa6061565037985"
+    },
+    "runtime_attestation_sha256": "9d07ba5a19e896d4efda1ab84d2c11a5dcd6e387e979499a37199bca8e4f8c41",
+    "scripts": {
+      "contract_sha256": "7c257397b51594c1cb54b518c4e352ef189e253ab5a65c23754438faf1c1d028",
+      "lifecycle_sha256": "2caf712777645b1173e3799d2ca140cd407d5bd28ef24c912110c5a7c29ef911",
+      "policy_compiler_sha256": "dd7720466218a6d9b42ba0c06b549e1f7489b1465566aec6b39324cd0733a1aa",
+      "smoke_sha256": "5e1e0b14486a956d33cc397dd3ae9c827dd0c0115b7ddc7eae656de3a4abddd5",
+      "start_sha256": "5fd5c90f09f8f492f454497b1d2925d898259399c4ff3037ab3c1150e2807059",
+      "stop_sha256": "78f9f9dd2c664c823d55d4c3d2408e18ae6e7c70b8afaf8227f884b52b0afecf"
+    }
+  },
+  "readiness_effect": "none",
+  "result": "PASS",
+  "runtime": {
+    "architecture": "arm64",
+    "gateway": "siq-openshell-dev",
+    "image_id": "sha256:ebea4d28a67d6c1f5243dad848898aac9843027d608359523548dd2c980b8853",
+    "image_ref": "siq/hermes-openshell-siq-analysis:638ffbda3bf47167f7fabfdd",
+    "openshell_version": "0.0.83",
+    "service_forward_port": 28651
+  },
+  "schema_version": "siq.openshell.siq_analysis_wide_pilot_feasibility.v1"
+}

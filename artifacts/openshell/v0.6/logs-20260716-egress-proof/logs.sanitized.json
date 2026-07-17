@@ -1,0 +1,127 @@
+{
+  "generated_at": "2026-07-16T09:09:28Z",
+  "operational_logs": [
+    {
+      "byte_count": 1001,
+      "component": "data-broker",
+      "line_count": 7,
+      "severity_counts": {
+        "critical": 0,
+        "debug": 0,
+        "error": 0,
+        "info": 0,
+        "unclassified": 7,
+        "warning": 0
+      },
+      "sha256": "734e5d8ae8635158706299dd144697ab17143348ef53a252e5d6cbd6c239c38d"
+    },
+    {
+      "byte_count": 0,
+      "component": "egress-broker",
+      "line_count": 0,
+      "severity_counts": {
+        "critical": 0,
+        "debug": 0,
+        "error": 0,
+        "info": 0,
+        "unclassified": 0,
+        "warning": 0
+      },
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "byte_count": 337321,
+      "component": "gateway",
+      "line_count": 1174,
+      "severity_counts": {
+        "critical": 0,
+        "debug": 0,
+        "error": 5,
+        "info": 0,
+        "unclassified": 3,
+        "warning": 1166
+      },
+      "sha256": "59a66e18d0e022ca9cbd5ad3588e8e5886f99047d4647a418df3e552fff0dec5"
+    }
+  ],
+  "schema_version": "siq.openshell.sanitized-log-bundle.v1",
+  "source_contract": {
+    "audit_record_schema_version": "siq.openshell.audit.v1",
+    "audit_summary_schema_version": "siq.openshell.audit-summary.v1",
+    "operational_log_count": 3,
+    "raw_log_messages_included": false,
+    "raw_log_paths_included": false,
+    "source_file_names_included": false
+  },
+  "structured_audit": {
+    "decisions": {
+      "allow": 33,
+      "audit_only": 18,
+      "deny": 24
+    },
+    "deny_error_codes": {
+      "broker_method_denied": 4,
+      "broker_multipart_denied": 4,
+      "broker_octet_stream_denied": 4,
+      "formal_providers_missing": 1,
+      "gateway_version_or_connection_mismatch": 1,
+      "request_fields_not_allowed": 1,
+      "ssrf_non_public_ip": 8,
+      "statement_type_blocked": 1
+    },
+    "metrics": {
+      "audit_only_count": 18,
+      "external_upload_blocks": 8,
+      "gateway_overhead_ms": {
+        "p50": null,
+        "p95": null,
+        "sample_count": 0
+      },
+      "immutable_write_blocks": 0,
+      "policy_deny_count": 24,
+      "sandbox_start_failures": 0,
+      "tool_failure_count": 0,
+      "tool_failure_rate": 0.0,
+      "tool_operation_count": 0
+    },
+    "operation_classes": {
+      "database.query": 30,
+      "filesystem.delete": 0,
+      "filesystem.write": 0,
+      "immutable.write": 0,
+      "network.request": 43,
+      "publisher.index": 0,
+      "runtime.route": 0,
+      "sandbox.lifecycle": 2,
+      "service.preflight": 0
+    },
+    "period": {
+      "end": "2026-07-16T09:07:46.946Z",
+      "start": "2026-07-15T12:57:46.944Z"
+    },
+    "policy_digests": {
+      "0000000000000000000000000000000000000000000000000000000000000000": 2,
+      "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940": 1,
+      "2757bb56444cf447795e34bf6645ca6bc2359d8893012c7ab61388feae82dc7e": 4,
+      "3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b27693": 2,
+      "51e56edb896cba2ad1501aa992a58f716efc4c4a4d9175064ef68c2909039857": 9,
+      "5d904c9dea9848f1549c9e93bc76001e3ee4876166d662c90c731f269356c833": 26,
+      "6ee8d013470e3279eb8e7cf4215a8169d9e735bb6ab7ae41b23dd9d491f3416a": 2,
+      "7b68d4e1f50c7374072126ffbffab18439e322ff397ff5b936dfabbdfdcaa81f": 4,
+      "a683e626ecf69f02e51e9d85f8730824ddafb625ab02f970764e4b03ee6de219": 12,
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": 4,
+      "c8007bf50970bf2f155f0aac166cf3dd1cf15096b5fd008744dd17ae3d4bb9bc": 9
+    },
+    "profiles": {
+      "siq_analysis": 75
+    },
+    "record_count": 75,
+    "schema_version": "siq.openshell.audit-summary.v1",
+    "source_file_count": 2,
+    "source_schema_version": "siq.openshell.audit.v1",
+    "source_sha256": [
+      "19cdb292ef73ee6066d5d9a159d1a46f6c964684ff30e5b5d84e14286dc584ca",
+      "e4d25abedef63fadf90cfd17123a49da24fc84ad0d3ec665747f38d16688750b"
+    ]
+  }
+}

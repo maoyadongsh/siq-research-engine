@@ -1,0 +1,144 @@
+{
+  "schema_version": "siq.openshell.baseline.v0.6",
+  "generated_at": "2026-07-15T10:20:14Z",
+  "sanitization": {
+    "status": "passed",
+    "contains_secret_values": false,
+    "contains_user_content": false,
+    "contains_raw_logs": false
+  },
+  "source": {
+    "siq_head": "75c052546773be1a053ff0c62c93c5d5f2b853e3",
+    "worktree_at_refresh": "dirty_preserved",
+    "scope": "openshell_and_hermes_preintegration_only"
+  },
+  "host": {
+    "os": "Ubuntu 24.04",
+    "architecture": "aarch64",
+    "kernel": "6.17.0-1014-nvidia",
+    "glibc": "2.39",
+    "python": "3.13.12",
+    "node": "22.22.2",
+    "uv": "0.11.7",
+    "docker_client": "29.1.3",
+    "docker_server": "29.1.3",
+    "gpu": "NVIDIA GB10",
+    "gpu_driver": "580.126.09"
+  },
+  "hermes": {
+    "upgrade_status": "frozen",
+    "version": "0.13.0",
+    "release": "2026.5.7",
+    "python": "3.11.15",
+    "source_commit": "ddb8d8fa842283ef651a6e4514f8f561f736c72e",
+    "local_patch_sha256": "856d6e1820fe4f41669535a3e21c34a153e98318bcce90a607509c24d423d8c5",
+    "repository_bundle_sha256": "b4625289b6f7d09e59ac16ff9423faf34ce24b327d9f2f4409c4b886f3aaf6c5",
+    "rollback_proof": "passed",
+    "runtime_profile_drift": "all_source_and_runtime_configs_differ",
+    "poc_profile": "hermes-minimal"
+  },
+  "openshell": {
+    "installed_cli": "0.0.13",
+    "candidate_reviewed": "0.0.83",
+    "doctor_check": "passed",
+    "legacy_gateway": {
+      "name": "nemoclaw",
+      "status": "unusable_protocol_mismatch",
+      "action": "do_not_reuse_or_destroy"
+    },
+    "sandbox_list": {
+      "status": "failed",
+      "error_class": "InvalidContentType"
+    },
+    "planned_gateway": "siq-openshell-dev",
+    "planned_installation": "parallel_project_local",
+    "installed_supervisor": {
+      "version": "0.0.83",
+      "patch_sha256": "f38cdb0788a9c1f2a38c9aa23ab36b33c4cc6faea135bf6f04bf5eb7bbcdd12f",
+      "binary_sha256": "d88f7a288e82ce8243216883ba8389524f31ff501a22d8b3555962a67b68cc57",
+      "upstream_backup_sha256": "d94630658eb1e62090281160db7cdc542c8cf6667d0c11ff7d9084251f86cfd6"
+    },
+    "gateway_status": "connected",
+    "bare_hermes_poc": "passed_and_stopped"
+  },
+  "service_baseline": {
+    "rechecked_at": "2026-07-15T10:20:14Z",
+    "siq_api_health": "passed",
+    "hermes_gateway_health": {
+      "passed": 12,
+      "failed": 0,
+      "current_host_instances_rechecked": 3
+    },
+    "local_inference": {
+      "nemotron_8007": "not_listening",
+      "embedding_8013": "reachable",
+      "qwen_8004": "not_listening",
+      "gemma_8006": "not_listening"
+    }
+  },
+  "tests": [
+    {
+      "name": "siq_hermes_api_contract",
+      "status": "passed",
+      "passed": 63
+    },
+    {
+      "name": "hermes_local_patch_contract",
+      "status": "passed",
+      "passed": 145,
+      "warnings": 34,
+      "warning_class": "aiohttp.NotAppKeyWarning"
+    },
+    {
+      "name": "ic_r1_profile_dry_run",
+      "status": "passed",
+      "allowed": 6,
+      "blocked": 0,
+      "real_model_calls": 0
+    },
+    {
+      "name": "openshell_landlock_supervisor_tests",
+      "status": "passed",
+      "passed": 15,
+      "version": "0.0.83"
+    },
+    {
+      "name": "openshell_supervisor_restore_reinstall",
+      "status": "passed",
+      "transaction_hardening": "verified_after_failure_path_review",
+      "final_state": "patched"
+    },
+    {
+      "name": "openshell_project_tests",
+      "status": "passed",
+      "passed": 61
+    },
+    {
+      "name": "bare_hermes_openshell_poc",
+      "status": "passed",
+      "profile": "hermes-minimal",
+      "missing_bearer_key": "rejected_401",
+      "invalid_bearer_key": "rejected_401",
+      "normal": "completed",
+      "tool_call": "completed",
+      "stop": "cancelled",
+      "security_smoke": "passed",
+      "lifecycle_identity": "gateway_nonce_plus_docker_sandbox_id_name_namespace",
+      "evidence_sha256": {
+        "start_script": "b25532a42a1d7b47bc24ffee067bcfa3c5310aed217afd4a5606a3bba2913649",
+        "stop_script": "d3ed8fd49b21a292741ec40dcf5762081aa9c4c82c4ba642ab630f1c06de5953",
+        "smoke_script": "1ebae1907158b8a27dcc310a3ea7d477c2b31a321affb212fafd01ffcae19f9d",
+        "contract_test": "66bd5d7a7ed9c862d2fd03d063b69bae7bfac13eee12b2ddb238a49643c741d8",
+        "fixture": "8ac24ed3f0b55bb7559adb24cb2e01949d0359f526dfbb0f347c5fb559e581a8"
+      },
+      "sandbox_after_test": "none"
+    }
+  ],
+  "known_constraints": [
+    "Hermes source patches are required SIQ behavior and cannot be replaced by a vanilla upstream build.",
+    "The live siq_analysis process capability set differs from the current source tree.",
+    "A sandbox must preserve the current runtime profile rather than resyncing source config.",
+    "Sandbox loopback does not address host inference services and requires explicit routing; local model ports 8004, 8006 and 8007 were not listening at the final recheck.",
+    "The bare Hermes PoC was validated and removed; no SIQ traffic switch was performed."
+  ]
+}
