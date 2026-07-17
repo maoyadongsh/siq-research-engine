@@ -94,6 +94,16 @@ export function isLikelyTableStart(lines: string[], index: number) {
   return Boolean(lines[index]?.includes('|') && lines[index + 1]?.includes('|') && isTableSeparator(lines[index + 1]))
 }
 
+export function splitAlignedTableRow(line: string) {
+  return line.trim().split(/\s{2,}/).map((cell) => cell.trim())
+}
+
+export function isLikelyAlignedTableStart(lines: string[], index: number) {
+  const current = splitAlignedTableRow(lines[index] || '')
+  const next = splitAlignedTableRow(lines[index + 1] || '')
+  return current.length >= 2 && next.length >= 2 && current.length <= 8 && next.length <= 8
+}
+
 export function tableAlignment(value: string): 'left' | 'center' | 'right' {
   const cell = value.replace(/\s/g, '')
   if (cell.startsWith(':') && cell.endsWith(':')) return 'center'
@@ -265,6 +275,27 @@ export function parseMarkdownTable(lines: string[], startIndex: number): Markdow
   }
 
   return { header, alignments, rows, lineIndex: i }
+}
+
+export function parseAlignedTable(lines: string[], startIndex: number): MarkdownTableData | null {
+  const header = splitAlignedTableRow(lines[startIndex] || '')
+  if (header.length < 2) return null
+  const rows: string[][] = []
+  let i = startIndex + 1
+  while (i < lines.length && lines[i].trim()) {
+    const cells = splitAlignedTableRow(lines[i])
+    if (cells.length < 2 || cells.length > 8) break
+    rows.push(cells)
+    i += 1
+  }
+  if (!rows.length) return null
+  const width = Math.max(header.length, ...rows.map((row) => row.length))
+  return {
+    header: [...header, ...Array(Math.max(0, width - header.length)).fill('')],
+    alignments: Array.from({ length: width }, (_, column) => column === 0 ? 'left' : 'right'),
+    rows: rows.map((row) => [...row, ...Array(Math.max(0, width - row.length)).fill('')]),
+    lineIndex: i,
+  }
 }
 
 export function isCitationHeading(trimmed: string) {

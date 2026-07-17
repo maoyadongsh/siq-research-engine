@@ -11,11 +11,13 @@ import {
   isAuditHeading,
   headingTone,
   isLikelyTableStart,
+  isLikelyAlignedTableStart,
   matchBoldHeading,
   matchCjkHeading,
   isMarkdownBoundary,
   normalizeParagraph,
   parseMarkdownTable,
+  parseAlignedTable,
 } from './rendererUtils'
 
 export function MarkdownBlocks({
@@ -63,6 +65,18 @@ export function MarkdownBlocks({
       continue
     }
 
+    if (/^(?:\[[A-Z]?\d+\]\s*)?source_type=/.test(trimmed)) {
+      const citationLines: string[] = []
+      while (i < lines.length) {
+        const candidate = lines[i].trim()
+        if (!candidate || /^(#{1,6})\s+/.test(candidate)) break
+        citationLines.push(lines[i])
+        i += 1
+      }
+      elements.push(<CitationBlock key={`citation-auto-${i}`} blockKey={`citation-auto-${i}`} lines={citationLines} />)
+      continue
+    }
+
     if (isAuditHeading(trimmed)) {
       const section = collectHeadingSectionLines(lines, i, isAuditHeading)
       const auditLines = section.lines
@@ -83,6 +97,15 @@ export function MarkdownBlocks({
       if (tableData) {
         i = tableData.lineIndex
         elements.push(<MarkdownTableRenderer key={`table-${i}`} data={tableData} keyPrefix={`table-${i}`} />)
+        continue
+      }
+    }
+
+    if (isLikelyAlignedTableStart(lines, i) && !streaming) {
+      const tableData = parseAlignedTable(lines, i)
+      if (tableData) {
+        i = tableData.lineIndex
+        elements.push(<MarkdownTableRenderer key={`aligned-table-${i}`} data={tableData} keyPrefix={`aligned-table-${i}`} />)
         continue
       }
     }
@@ -206,6 +229,7 @@ export function MarkdownBlocks({
       i < lines.length &&
       lines[i].trim() &&
       !isLikelyTableStart(lines, i) &&
+      !isLikelyAlignedTableStart(lines, i) &&
       !/^(#{1,6})\s+/.test(lines[i].trim()) &&
       !/^[-*_]{3,}$/.test(lines[i].trim()) &&
       !/^>\s?/.test(lines[i].trim()) &&

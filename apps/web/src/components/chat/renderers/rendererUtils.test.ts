@@ -9,8 +9,30 @@ import {
   INLINE_URL_RE,
   isAuditHeading,
   matchBoldHeading,
+  isLikelyAlignedTableStart,
+  parseAlignedTable,
   parseCitationActions,
 } from './rendererUtils.ts'
+
+test('parses space-aligned financial tables returned by repair runs', () => {
+  const lines = [
+    '项目                    2024-12-31          2025-12-31          变动',
+    '主表商誉净额             11.98 亿元           11.83 亿元           -0.15 亿元',
+    '商誉账面原值             13.03 亿元           12.82 亿元           -0.21 亿元',
+    '',
+  ]
+
+  assert.equal(isLikelyAlignedTableStart(lines, 0), true)
+  assert.deepEqual(parseAlignedTable(lines, 0), {
+    header: ['项目', '2024-12-31', '2025-12-31', '变动'],
+    alignments: ['left', 'right', 'right', 'right'],
+    rows: [
+      ['主表商誉净额', '11.98 亿元', '11.83 亿元', '-0.15 亿元'],
+      ['商誉账面原值', '13.03 亿元', '12.82 亿元', '-0.21 亿元'],
+    ],
+    lineIndex: 3,
+  })
+})
 
 test('bare citation URL excludes trailing field punctuation', () => {
   const line = 'source_url=https://www.sec.gov/Archives/report.htm, source_anchor=f-152'
