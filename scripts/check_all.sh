@@ -18,6 +18,11 @@ run_step "Market report rules tests" bash -lc "cd '$ROOT_DIR/services/market-rep
 run_step "Market contracts tests" bash -lc "cd '$ROOT_DIR/packages/market-contracts' && uv sync --frozen --extra dev && uv run --frozen python -m pytest tests"
 run_step "Workflow security and artifact hygiene" python3 "$ROOT_DIR/scripts/maintenance/check_local_security_hygiene.py" --repo-root "$ROOT_DIR" --scope workflow
 run_step "Changed large-file gate" python3 "$ROOT_DIR/scripts/maintenance/check_large_file_changes.py" --repo-root "$ROOT_DIR"
+run_step "OpenShell tracked manifest and sanitizer gate" python3 "$ROOT_DIR/scripts/openshell/check_tracked_state.py" \
+    --repo-root "$ROOT_DIR" --require-allowlist
+run_step "OpenShell V0.6 completion audit" python3 "$ROOT_DIR/scripts/openshell/check_v06_completion.py" \
+    --project-root "$ROOT_DIR" --json
+run_step "OpenShell offline tests" bash -lc "cd '$ROOT_DIR' && python3 -m pytest -q scripts/openshell/tests"
 run_step "Touched Python quality gate" python3 "$ROOT_DIR/scripts/maintenance/check_python_quality_touched.py" --repo-root "$ROOT_DIR"
 run_step "Market document_full PostgreSQL contract gate" python3 "$ROOT_DIR/scripts/maintenance/run_market_document_full_postgres_gate.py" --mode contract --output-dir "$ROOT_DIR/artifacts/eval-runs/local-check-all"
 run_step "Large file observe report" python3 "$ROOT_DIR/scripts/maintenance/observe_large_files.py" --root "$ROOT_DIR" --limit 20

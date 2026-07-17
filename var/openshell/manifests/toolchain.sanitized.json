@@ -1,0 +1,73 @@
+{
+  "schema_version": "siq.openshell.toolchain.v1",
+  "status": "project_local_toolchain_with_patched_supervisor_and_bare_hermes_poc",
+  "installed_cli": {
+    "version": "0.0.13",
+    "management_scope": "legacy_only",
+    "must_not_manage": "siq-openshell-dev"
+  },
+  "candidate_toolchain": {
+    "version": "0.0.83",
+    "tag_commit": "e3d26dd3ae0dee247bbc5db368545832757ac493",
+    "platform": "aarch64-unknown-linux",
+    "cli_archive_sha256": "17e718f9820756b1e507176c7562d5b463a8e5108d55980fc933e731e6154db8",
+    "cli_binary_sha256": "04158e0e24a621a60bcc6b390672853d58cbc5ed7412ac5e0a15d4cffeee17b7",
+    "gateway_archive_sha256": "0df7c9fbf903d431fa0dabddf6540a345b5dafeb356a7fc51ef67e877849bdec",
+    "gateway_binary_sha256": "198591e1e13b9cee94f0b7eb5875c6db484a3bcc9b371225cebc528c6116a31e",
+    "sandbox_archive_sha256": "86220b15863d66aa4ff7c428798117cd673d59ecc3d99b672c267d1ef8b3a4f6",
+    "sandbox_binary_sha256": "d88f7a288e82ce8243216883ba8389524f31ff501a22d8b3555962a67b68cc57",
+    "upstream_sandbox_binary_sha256": "d94630658eb1e62090281160db7cdc542c8cf6667d0c11ff7d9084251f86cfd6",
+    "supervisor_patch": {
+      "version": "v0.0.83",
+      "path": "infra/openshell/patches/v0.0.83/0001-landlock-mask-file-access.patch",
+      "sha256": "f38cdb0788a9c1f2a38c9aa23ab36b33c4cc6faea135bf6f04bf5eb7bbcdd12f",
+      "builder_dockerfile_sha256": "3a31194c7b9cf7f94f265d88d79f5860354e51dfa28cce3ea937483740a16d2e",
+      "patched_binary_sha256": "d88f7a288e82ce8243216883ba8389524f31ff501a22d8b3555962a67b68cc57",
+      "upstream_backup_sha256": "d94630658eb1e62090281160db7cdc542c8cf6667d0c11ff7d9084251f86cfd6"
+    },
+    "installed_paths": [
+      "var/openshell/toolchains/v0.0.83/bin/openshell",
+      "var/openshell/toolchains/v0.0.83/bin/openshell-gateway",
+      "var/openshell/toolchains/v0.0.83/bin/openshell-sandbox"
+    ],
+    "verified_at": "2026-07-15T10:20:14Z"
+  },
+  "deployment_mode": "parallel_project_local",
+  "state_policy": {
+    "reuse_legacy_gateway": false,
+    "reuse_legacy_database": false,
+    "run_official_installer": false,
+    "require_isolated_xdg_roots": true
+  },
+  "bare_hermes_poc": {
+    "status": "passed_and_stopped",
+    "image_id": "sha256:4e2e4ffee0f1742d5b5a028976053169c3944e8f91031b56e381ef71c3911df7",
+    "fixture_sha256": "8ac24ed3f0b55bb7559adb24cb2e01949d0359f526dfbb0f347c5fb559e581a8",
+    "hermes_commit": "ddb8d8fa842283ef651a6e4514f8f561f736c72e",
+    "gateway": "siq-openshell-dev",
+    "forward_port": 28642,
+    "contract": {
+      "missing_bearer_key": "rejected_401",
+      "invalid_bearer_key": "rejected_401",
+      "normal": "completed",
+      "tool_call": "completed",
+      "stop": "cancelled",
+      "security_smoke": "passed"
+    },
+    "lifecycle_identity": "gateway_nonce_plus_docker_sandbox_id_name_namespace",
+    "evidence_sha256": {
+      "start_script": "b25532a42a1d7b47bc24ffee067bcfa3c5310aed217afd4a5606a3bba2913649",
+      "stop_script": "d3ed8fd49b21a292741ec40dcf5762081aa9c4c82c4ba642ab630f1c06de5953",
+      "smoke_script": "1ebae1907158b8a27dcc310a3ea7d477c2b31a321affb212fafd01ffcae19f9d",
+      "contract_test": "66bd5d7a7ed9c862d2fd03d063b69bae7bfac13eee12b2ddb238a49643c741d8",
+      "process_helpers": "9e0fc9a765addaff33fae353380832640baf062f977642a92156c40f39622bec"
+    },
+    "sandbox_after_test": "none",
+    "host_hermes_services_unchanged": true
+  },
+  "notes": [
+    "OpenShell 0.0.37 and later use gateway state incompatible with the installed 0.0.13 generation.",
+    "The candidate is for direct SIQ integration; NemoClaw is outside project scope.",
+    "The CLI, gateway and patched sandbox supervisor are installed under the ignored project runtime tree; the isolated v0.0.83 gateway is running, while the validated bare Hermes sandbox was stopped after testing."
+  ]
+}

@@ -141,3 +141,25 @@ artifacts/secondary-market-multi-market/**
 !artifacts/secondary-market-multi-market/README.md
 !artifacts/secondary-market-multi-market/*.sanitized.json
 !artifacts/secondary-market-multi-market/*.png
+# OpenShell: non-secret source/config/docs are tracked in their normal paths.
+# This mixed runtime tree remains ignored; publish its logs and evidence through
+# manifest-bound, content-scanned sanitized copies under artifacts/openshell.
+!var/openshell/
+var/openshell/**
+!var/openshell/README.md
+!var/openshell/manifests/
+!var/openshell/manifests/*.sanitized.json
+!var/openshell/manifests/*.sanitized.md
+
+!artifacts/openshell/
+artifacts/openshell/**
+!artifacts/openshell/README.md
+!artifacts/openshell/tracked-artifacts.json
+!artifacts/openshell/v0.6/
+!artifacts/openshell/v0.6/baseline.json
+!artifacts/openshell/v0.6/baseline.md
+!artifacts/openshell/v0.6/readiness.json
+!artifacts/openshell/v0.6/readiness.md
+!artifacts/openshell/**/
+!artifacts/openshell/**/*.sanitized.json
+!artifacts/openshell/**/*.sanitized.md

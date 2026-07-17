@@ -55,7 +55,12 @@ jobs:
             apps/pdf-parser/run.sh \
             apps/document-parser/run.sh \
             scripts/hermes/profile_dir.sh \
-            scripts/hermes/run_gateway.sh
+            scripts/hermes/run_gateway.sh \
+            scripts/openshell/run_hermes_gateway.sh \
+            scripts/openshell/stop_hermes_gateway.sh \
+            scripts/openshell/status_hermes_gateway.sh \
+            scripts/openshell/rollback_to_host.sh \
+            scripts/openshell/recover_hermes_gateway.sh
 
       - name: Secret scan
         run: |
@@ -130,7 +135,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install Python quality gates
-        run: python -m pip install --disable-pip-version-check ruff==0.14.10 mypy==1.14.1
+        run: python -m pip install --disable-pip-version-check ruff==0.14.10 mypy==1.14.1 'pytest>=8.0,<9'
 
       - name: Check shell entrypoints
         run: |
@@ -147,6 +152,17 @@ jobs:
           bash -n apps/document-parser/run.sh
           bash -n scripts/hermes/profile_dir.sh
           bash -n scripts/hermes/run_gateway.sh
+          bash -n scripts/openshell/env.sh
+          bash -n scripts/openshell/prepare_gateway.sh
+          bash -n scripts/openshell/run_cli.sh
+          bash -n scripts/openshell/start_gateway.sh
+          bash -n scripts/openshell/status_gateway.sh
+          bash -n scripts/openshell/stop_gateway.sh
+          bash -n scripts/openshell/run_hermes_gateway.sh
+          bash -n scripts/openshell/stop_hermes_gateway.sh
+          bash -n scripts/openshell/status_hermes_gateway.sh
+          bash -n scripts/openshell/rollback_to_host.sh
+          bash -n scripts/openshell/recover_hermes_gateway.sh
           python3 -m py_compile \
             scripts/scan_todo_fixme.py \
             scripts/ops/health_check.py \
@@ -167,6 +183,26 @@ jobs:
             scripts/maintenance/run_live_financial_qa_benchmark.py \
             scripts/maintenance/run_permission_negative_report.py \
             scripts/maintenance/write_release_artifact_manifest.py \
+            scripts/openshell/aggregate_security_audit.py \
+            scripts/openshell/build_tracked_artifact_manifest.py \
+            scripts/openshell/build_immutable_path_registry.py \
+            scripts/openshell/build_policy.py \
+            scripts/openshell/check_mount_safety.py \
+            scripts/openshell/check_sanitized_artifacts.py \
+            scripts/openshell/check_v06_completion.py \
+            scripts/openshell/check_siq_analysis_ab_prerequisites.py \
+            scripts/openshell/check_tracked_state.py \
+            scripts/openshell/export_provider_inventory.py \
+            scripts/openshell/export_sanitized_evidence.py \
+            scripts/openshell/export_sanitized_logs.py \
+            scripts/openshell/gateway_runtime_identity.py \
+            scripts/openshell/gateway_start_recovery.py \
+            scripts/openshell/render_gateway_config.py \
+            scripts/openshell/security_audit.py \
+            scripts/openshell/probe_siq_analysis_sandbox.py \
+            scripts/openshell/siq_analysis_guard_worker.py \
+            scripts/openshell/siq_analysis_lifecycle.py \
+            scripts/openshell/siq_analysis_transaction.py \
             scripts/ops/run_restore_matrix.py \
             scripts/maintenance/run_web_container_smoke.py \
             scripts/maintenance/tests/test_check_api_ci_test_coverage.py \
@@ -222,6 +258,12 @@ jobs:
       - name: Changed large-file gate
         if: github.event_name == 'pull_request'
         run: python3 scripts/maintenance/check_large_file_changes.py --base-ref "origin/${{ github.base_ref }}"
+
+      - name: OpenShell tracked manifest and sanitizer gate
+        run: python3 scripts/openshell/check_tracked_state.py --repo-root . --require-allowlist --json
+
+      - name: OpenShell offline tests
+        run: python3 -m pytest -q scripts/openshell/tests
 
       - name: Generate large-file observe report
         run: |
