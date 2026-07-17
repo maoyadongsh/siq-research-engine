@@ -1,16 +1,16 @@
-# SIQ IC Shared Skills
+# SIQ IC 共享技能
 
-These skills are migrated from the OpenClaw workspace for the SIQ IC profiles. They are shared by all executable `siq_ic_*` Hermes profiles and synchronized into each runtime profile by `scripts/hermes/run_gateway.sh`.
+这些技能从 OpenClaw 工作区迁移而来，供 SIQ IC profiles 共享。所有可执行 `siq_ic_*` Hermes profiles 都可以使用它们，并由 `scripts/hermes/run_gateway.sh` 同步到每个运行态 profile。
 
-## Current Role
+## 当前角色
 
-This directory is the reusable skill library for the SIQ primary-market Deal OS. The skills cover diligence, valuation, term sheets, market sizing, company research, portfolio monitoring, and IC memo production. They are not standalone products; they become valuable when constrained by `siq_ic_shared` contracts, project evidence, and API/Web workflow gates.
+本目录是 SIQ 一级市场 Deal OS 的可复用技能库。技能覆盖尽调、估值、term sheet、市场规模、公司研究、投后监控和 IC memo 生产。它们不是独立产品；只有在 `siq_ic_shared` 合同、项目 evidence 和 API/Web workflow 门禁约束下才产生业务价值。
 
-The commercial purpose is repeatability: SIQ can run similar diligence work across deals without rewriting prompts or rebuilding analyst checklists for every transaction.
+商业目的在于可复制性：SIQ 可以在不同 deal 中复用相似尽调工作，而不需要每个交易重新编写 prompt 或重建分析师 checklist。
 
-## Included Skills
+## 包含的技能
 
-### batch_1_core_ic
+### 批次 1：核心投委会能力
 
 - `ic-finance-auditor`
 - `ic-memo`
@@ -26,7 +26,7 @@ The commercial purpose is repeatability: SIQ can run similar diligence work acro
 - `dcf-model`
 - `3-statement-model`
 
-### batch_2_research_valuation_pipeline
+### 批次 2：研究与估值流水线
 
 - `market-intelligence-claw`
 - `competitive-analysis`
@@ -42,7 +42,7 @@ The commercial purpose is repeatability: SIQ can run similar diligence work acro
 - `risk-metrics-calculation`
 - `portfolio-monitoring`
 
-### batch_3_diligence_research_materials
+### 批次 3：尽调、研究与材料生产
 
 - `company-investment-research`
 - `dd-checklist`
@@ -59,8 +59,8 @@ The commercial purpose is repeatability: SIQ can run similar diligence work acro
 - `returns-analysis`
 - `return-rate-impact-calculator`
 
-## Migration Rules
+## 迁移规则
 
-- Runtime state, hidden metadata folders, credentials, caches, and project outputs are not copied.
-- OpenClaw-local scripts with credentials or old workspace paths are represented by SIQ services instead.
-- Agent IDs and collection names in text assets are normalized to `siq_ic_*` and `siq_deal_shared`.
+- 不复制运行态状态、隐藏 metadata 目录、凭据、缓存和项目输出。
+- 携带凭据或旧 workspace 路径的 OpenClaw 本地脚本由 SIQ 服务替代。
+- 文本资产中的 agent ID 和 collection 名统一规范为 `siq_ic_*` 与 `siq_deal_shared`。

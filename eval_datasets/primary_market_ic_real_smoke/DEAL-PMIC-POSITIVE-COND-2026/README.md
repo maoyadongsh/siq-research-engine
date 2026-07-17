@@ -1,22 +1,16 @@
 # DEAL-PMIC-POSITIVE-COND-2026
 
-SYNTHETIC EVALUATION ONLY. This package contains no real company, person, customer,
-supplier, legal opinion, market study, financial statement, or investment transaction.
-It must only be used for isolated primary-market IC workflow evaluation.
+仅用于合成评测。该 package 不包含真实公司、人员、客户、供应商、法律意见、市场研究、财务报表或投资交易。它只能用于隔离的一级市场 IC workflow 评测。
 
-The fixture contains 40 verified project Evidence items: 10 each for business, finance,
-legal, and risk. It is intended to support a truthful R0-R4 positive/conditional-support
-smoke while preserving one evidence-complete material capacity/valuation tension.
-There are no intentionally missing critical facts. Final R4 approval still requires the
-workflow's trusted human confirmation and must never be inferred from this fixture.
+该 fixture 包含 40 个已验证项目 Evidence 项：business、finance、legal 和 risk 各 10 个。它用于支持一个真实的 R0-R4 正向/条件化支持 smoke，同时保留一个证据完整但重要的产能/估值张力。这里没有故意缺失的关键事实。最终 R4 approval 仍要求 workflow 的可信人工确认，绝不能从该 fixture 自动推断。
 
-Regenerate with:
+重新生成：
 
 ```bash
 python eval_datasets/primary_market_ic_real_smoke/generate_evidence_complete_fixture.py
 ```
 
-Verify byte-for-byte determinism with:
+逐字节确定性校验：
 
 ```bash
 python eval_datasets/primary_market_ic_real_smoke/generate_evidence_complete_fixture.py --check

@@ -1,4 +1,4 @@
-# SIQ IC Shared Profile Assets
+# SIQ IC 共享 Profile 资产
 
 ## 目录定位
 

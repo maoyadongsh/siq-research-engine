@@ -1,4 +1,4 @@
-# SIQ IC Templates
+# SIQ IC 模板
 
 ## 目录定位
 

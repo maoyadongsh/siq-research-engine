@@ -4,6 +4,8 @@
 
 `var/` 是 SIQ 新增本地运行态的推荐根目录。与 `data/` 的历史兼容角色不同，`var/` 代表的是面向未来的、更清晰的运行态分层设计。
 
+OpenShell 是 `var/` 当前最重要的新增运行态之一：Gateway、provider、broker、pool registry、proof、audit 和 toolchain 私有状态集中在 `var/openshell/`，用于支撑 NVIDIA OpenShell + Hermes demo/canary control plane，但原件默认不提交。
+
 ## 主要内容
 
 推荐子目录包括：

@@ -1,54 +1,42 @@
-# OpenShell Audit Evidence Pipeline
+# OpenShell 审计证据流水线
 
-This directory documents the T8 audit aggregation and competition-evidence export
-workflow. It does not contain runtime audit records or exported evidence.
+本目录说明 T8 审计聚合和竞赛证据导出 workflow。这里不包含运行态审计记录或已导出证据。
 
-## Components
+## 组件
 
 ```text
 scripts/openshell/security_audit.py
-  writes the fixed siq.openshell.audit.v1 runtime record
+  写入固定 siq.openshell.audit.v1 运行态记录
 
 scripts/openshell/aggregate_security_audit.py
-  reads only explicitly named JSONL files and produces a safe aggregate JSON
+  只读取显式命名的 JSONL 文件，并生成安全聚合 JSON
 
 scripts/openshell/export_sanitized_evidence.py
-  reads only explicitly named JSON/Markdown files and writes paired
-  *.sanitized.json and *.sanitized.md files under an explicit output root
+  只读取显式命名的 JSON/Markdown 文件，并在显式 output root 下写入成对
+  *.sanitized.json 和 *.sanitized.md 文件
 
 scripts/openshell/check_sanitized_artifacts.py
-  validates every file produced by the exporter before the export succeeds
+  在导出成功前校验 exporter 产生的每个文件
 ```
 
-No script implicitly scans `var/openshell`, a user home, or a log directory. Shell
-globs and directories are not accepted as audit inputs. Callers must provide each
-regular input file with a separate `--input` argument. Symlinked inputs, output roots,
-or parent directories fail closed.
+没有脚本会隐式扫描 `var/openshell`、用户 home 或日志目录。审计输入不接受 shell glob 或目录。调用方必须为每个普通输入文件单独提供 `--input` 参数。symlink 输入、输出 root 或父目录都会失败关闭。
 
-## Aggregate metrics
+## 聚合指标
 
-The aggregate schema is `siq.openshell.audit-summary.v1`. It validates every source
-record against the exact field set and value constraints of
-`siq.openshell.audit.v1`, then emits:
+聚合 schema 是 `siq.openshell.audit-summary.v1`。它会按 `siq.openshell.audit.v1` 的精确字段集合和值约束校验每条 source record，然后输出：
 
-- policy deny count;
-- audit-only count;
-- sandbox start failures;
-- tool operation count, failure count, and failure rate;
-- external upload blocks;
-- immutable path write blocks;
-- P50/P95 duration for `runtime.route` gateway samples;
-- counts by decision, operation class, profile, policy digest, and deny error/rule ID.
+- policy deny 计数；
+- audit-only 计数；
+- sandbox start 失败；
+- tool operation 计数、失败计数和失败率；
+- external upload 阻断；
+- immutable path write 阻断；
+- `runtime.route` gateway 样本的 P50/P95 时长；
+- 按 decision、operation class、profile、policy digest 和 deny error/rule ID 的计数。
 
-Input filenames, input paths, sandbox IDs, run IDs, and session IDs are not copied to
-the summary. Source files are represented only by SHA-256 digests and file count.
-P50/P95 use linear interpolation over sorted millisecond samples. Tool operations are
-records whose projected target scope is `tool`/`tool.*` or whose error code starts
-with `tool_`. Upload blocks are denied `network.request` records with a fixed upload
-or transfer rule/error ID. Sandbox start failures are denied `sandbox.lifecycle`
-records with the fixed start scope/error convention.
+输入文件名、输入路径、sandbox ID、run ID 和 session ID 不复制到 summary。source 文件只以 SHA-256 digest 和文件数量表示。P50/P95 对排序后的毫秒样本做线性插值。Tool operation 是目标 scope 投影为 `tool`/`tool.*` 或错误码以 `tool_` 开头的记录。Upload 阻断是固定上传或传输 rule/error ID 拒绝的 `network.request` 记录。Sandbox start 失败是使用固定 start scope/error 约定的 `sandbox.lifecycle` 拒绝记录。
 
-Example using explicit paths:
+显式路径示例：
 
 ```bash
 python scripts/openshell/aggregate_security_audit.py \
@@ -57,32 +45,20 @@ python scripts/openshell/aggregate_security_audit.py \
   --output /explicit/review-work/audit-summary.json
 ```
 
-The example paths are placeholders. Do not point automated tests or CI at real
-runtime audit state.
+示例路径只是占位符。自动化测试或 CI 不应指向真实运行态审计状态。
 
-## Sanitized evidence export
+## 脱敏证据导出
 
-The exporter removes sensitive JSON keys and Markdown sections for API credentials,
-tokens, Authorization/cookie data, DSNs, user home data, Prompt/user-input bodies,
-request bodies, and attachment bodies. It also drops one-run runtime identity fields
-(sandbox/container/probe IDs, nonce digests, sentinel names, and run-specific policy
-or mount-plan paths); these fields are useful for local cleanup but add no review
-value to a committed aggregate. Credential URLs, private-key markers, bearer values,
-home references, and POSIX/Windows absolute machine paths embedded in text are
-redacted. It retains review-safe values such as profile, rule/error ID, decision,
-latency, success/failure metrics, quality score, version, and policy/mount digest.
+exporter 会移除 API 凭据、token、Authorization/cookie 数据、DSN、用户 home 数据、Prompt/用户输入正文、请求正文和附件正文等敏感 JSON key 和 Markdown section。它还会删除单次运行身份字段（sandbox/container/probe ID、nonce digest、sentinel name、run-specific policy 或 mount-plan path）；这些字段对本地清理有用，但对提交聚合证据没有评审价值。文本中的 credential URL、private-key marker、bearer 值、home 引用和 POSIX/Windows 绝对机器路径会被脱敏。它保留 profile、rule/error ID、decision、latency、success/failure metrics、quality score、version 和 policy/mount digest 等评审安全值。
 
-Each explicit input creates a pair:
+每个显式输入都会产生一对文件：
 
 ```text
 <name>.sanitized.json
 <name>.sanitized.md
 ```
 
-Existing outputs are never overwritten. Name collisions fail before writing. After
-all files are created, the exporter calls `check_sanitized_artifacts.scan_paths` with
-the exact output file list. Any finding removes all files created by that invocation
-and returns a non-zero status.
+已有输出永不覆盖。命名冲突会在写入前失败。所有文件创建后，exporter 会用精确输出文件列表调用 `check_sanitized_artifacts.scan_paths`。任何发现都会移除本次调用创建的所有文件并返回非零状态。
 
 ```bash
 python scripts/openshell/export_sanitized_evidence.py \
@@ -91,15 +67,11 @@ python scripts/openshell/export_sanitized_evidence.py \
   --output-root /explicit/review-work/sanitized
 ```
 
-The exporter does not modify Git ignore rules or the tracked artifact manifest. A reviewer
-must inspect the sanitized pair and run the tracked-state checks before it can be committed.
-Sanitized audit and operational log bundles are publishable competition evidence. Raw JSONL,
-unsanitized gateway logs, traces, prompts, attachments, and session databases must never be
-committed.
+exporter 不修改 Git ignore 规则或 tracked artifact manifest。提交前，reviewer 必须检查脱敏文件对并运行 tracked-state 检查。脱敏审计和 operational log bundle 可以作为可发布竞赛证据。原始 JSONL、未脱敏 gateway logs、traces、prompts、attachments 和 session databases 绝不能提交。
 
-## Unit tests
+## 单元测试
 
-All tests use generated temporary fixtures and never open a real runtime log:
+所有测试使用生成的临时 fixture，绝不打开真实运行日志：
 
 ```bash
 PYTHONPATH=. pytest -q scripts/openshell/tests/test_audit_evidence_pipeline.py

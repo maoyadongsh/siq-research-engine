@@ -1,127 +1,74 @@
-# SIQ Destructive-Action Guard
+# SIQ 破坏性操作守卫
 
-This directory documents the host-side deletion guard for the `siq_analysis`
-OpenShell runtime. The implementation is
-`scripts/openshell/destructive_action_guard.py`.
+本目录说明 `siq_analysis` OpenShell 运行面的宿主侧删除守卫。实现文件为 `scripts/openshell/destructive_action_guard.py`。
 
-The guard is connected to the formal `siq_analysis` lifecycle worker. A trigger
-is written durably before sandbox fencing; the worker then removes the
-forwarder, sandbox and one-time credentials, records the guard process as
-pending exit, and an independent lock-free watchdog performs idempotent
-lifecycle recovery after any non-clean guard exit. Long-running guard and
-forward processes never inherit the start operation's maintenance lock; a
-trigger or watchdog obtains a fresh bounded lock before changing lifecycle
-state. The default
-`start_all.sh` host runtime is still unchanged, and a real business-sandbox
-acceptance run remains required before cutover.
+该守卫接入正式 `siq_analysis` 生命周期 worker。触发事件会在 sandbox fencing 前持久写入；worker 随后移除 forwarder、sandbox 和一次性凭据，将守卫进程记录为 pending exit；独立无锁 watchdog 会在任何非干净退出后执行幂等生命周期恢复。长驻 guard 和 forward 进程不会继承 start 操作的维护锁；触发或 watchdog 会在改变生命周期状态前获取新的有界锁。默认 `start_all.sh` 的 Host 运行面仍未改变，切流前仍需要真实业务 sandbox 验收运行。
 
-## Fixed scope
+## 固定范围
 
-One guard instance owns exactly one task and one company's direct `analysis/`
-bind root. Accepted roots have one of these shapes:
+一个 guard 实例只拥有一个任务和一个公司的直接 `analysis/` bind root。可接受 root 形态：
 
 ```text
 data/wiki/companies/<company>/analysis
 data/wiki/{eu,hk,jp,kr,us}/companies/<company>/analysis
 ```
 
-The guard rejects a project root reached through a symlink, any broader Wiki
-root, nested analysis directory, or second company. Its recovery snapshot is
-always written below:
+守卫会拒绝通过 symlink 到达的项目根、更宽的 Wiki root、嵌套 analysis 目录或第二家公司。恢复快照始终写入：
 
 ```text
 var/openshell/siq-analysis/deletion-snapshots/<siq-run-id>/
 ```
 
-The state directory and lock are host-only, owner-controlled, and private. The
-sandbox must receive only the task's analysis bind, never this snapshot root.
+状态目录和锁只在宿主侧存在，由 owner 控制并保持私有。sandbox 只能接收该任务的 analysis bind，不能接收该 snapshot root。
 
-## Lifecycle contract
+## 生命周期合同
 
-The eventual runtime integration must use this order:
+最终运行集成必须按以下顺序执行：
 
-1. Construct a `SandboxTerminator` implementation with a fixed sandbox API.
-2. Construct the guard with a validated `SecurityRunContext` and exact analysis
-   root.
-3. Call `prepare()` before starting the sandbox. Do not start the sandbox unless
-   snapshot creation and recursive watch installation both succeed.
-4. Start only the sandbox named by the run context and keep `monitor()` active
-   for its task lifetime.
-5. Call `close()` after the task ends.
-6. On a trigger, persist `guard.trigger.json` before termination and leave the
-   transaction in `stopping` until the guard process has exited and recovery
-   finalizes it. The watchdog also treats a missing guard event as a fail-closed
-   guard failure and restores the verified baseline snapshot.
+1. 用固定 sandbox API 构造 `SandboxTerminator` 实现。
+2. 用已验证 `SecurityRunContext` 和精确 analysis root 构造 guard。
+3. 启动 sandbox 前调用 `prepare()`；只有 snapshot 创建和递归 watch 安装都成功时才能启动 sandbox。
+4. 只启动 run context 指定的 sandbox，并在任务生命周期内保持 `monitor()` 活跃。
+5. 任务结束后调用 `close()`。
+6. 触发时，在终止前持久化 `guard.trigger.json`，并让 transaction 保持 `stopping`，直到 guard 进程退出且恢复完成。watchdog 也会把缺失 guard event 视为失败关闭的 guard failure，并恢复已验证基线 snapshot。
 
-`SandboxTerminator.terminate()` has no command or script parameter. A production
-implementation must synchronously stop and fence the named sandbox before it
-returns. The guard restores files only after that call succeeds.
+`SandboxTerminator.terminate()` 没有 command 或 script 参数。生产实现必须在返回前同步停止并隔离指定 sandbox。guard 只在该调用成功后恢复文件。
 
-## Events and thresholds
+## 事件与阈值
 
-The implementation uses Linux inotify through the Python standard library and
-libc. It watches the complete tree, adds watches when directories appear, and
-handles `DELETE`, `MOVED_FROM`, `DELETE_SELF`, and `MOVE_SELF` events. It does
-not inspect shell command text, so shell, Python, Node, and direct syscall
-deletions share the same event path.
+实现使用 Python 标准库和 libc 的 Linux inotify。它监听完整树，在目录出现时新增 watch，并处理 `DELETE`、`MOVED_FROM`、`DELETE_SELF` 和 `MOVE_SELF` 事件。它不检查 shell 命令文本，因此 shell、Python、Node 和直接 syscall 删除共享同一事件路径。
 
-Only regular, persistent files present when `prepare()` runs count toward a
-threshold. Files created during the task do not count. Pre-task and newly
-created files below `.cache`, `.work`, `cache`, `tmp`, `temp`, or `__pycache__`
-are excluded as disposable task state.
+只有 `prepare()` 运行时已经存在的普通持久文件会计入阈值。任务期间创建的文件不计入。任务前和新建的 `.cache`、`.work`、`cache`、`tmp`、`temp`、`__pycache__` 下文件作为可丢弃任务状态排除。
 
-The first matching condition terminates the sandbox:
+第一个满足条件的事件会终止 sandbox：
 
-| Condition | Result code |
+| 条件 | 结果代码 |
 | --- | --- |
-| More than 500 baseline files deleted or moved | `deletion_count_gt_500` |
-| At least 20 baseline files and at least 50% of the baseline deleted or moved | `deletion_ratio_threshold` |
-| Guarded analysis root deleted or moved | `analysis_root_self_deleted` |
-| inotify queue overflow | `inotify_queue_overflow` |
-| inotify monitor failure | `inotify_monitor_failure` |
+| 超过 500 个基线文件被删除或移动 | `deletion_count_gt_500` |
+| 至少 20 个基线文件且至少 50% 基线被删除或移动 | `deletion_ratio_threshold` |
+| 受保护 analysis root 被删除或移动 | `analysis_root_self_deleted` |
+| inotify 队列溢出 | `inotify_queue_overflow` |
+| inotify 监控失败 | `inotify_monitor_failure` |
 
-Small normal deletions remain in place and do not terminate the sandbox.
+小规模正常删除会保留原状，不会终止 sandbox。
 
-## Snapshot and recovery safety
+## 快照与恢复安全
 
-Snapshot publication uses a private staging directory followed by an atomic
-rename while an exclusive per-analysis-root lock is held. Snapshot files are
-`0600`; internal directories are `0700`. Every persistent file is recorded with
-size, mode, and SHA-256 digest.
+快照发布使用私有 staging 目录，并在持有每个 analysis root 独占锁时原子 rename。快照文件权限为 `0600`，内部目录为 `0700`。每个持久文件都会记录 size、mode 和 SHA-256 digest。
 
-Preparation fails closed if the analysis tree contains symlinks, hard links,
-special files, set-ID files, credential-like names, private-key material,
-bearer credentials, or credential-bearing URLs. Ephemeral directories are not
-copied, but are still scanned for unsafe entry types and names.
+如果 analysis 树包含 symlink、hard link、特殊文件、set-ID 文件、类似凭据的名称、私钥材料、bearer 凭据或携带凭据的 URL，准备阶段会失败关闭。临时目录不会复制，但仍会扫描不安全 entry 类型和名称。
 
-On a trigger, recovery is limited to the same analysis root. It recreates
-missing baseline directories and atomically replaces each missing, moved, or
-changed replacement at an observed baseline path from a digest-verified
-snapshot. Existing symlink, hard-link, or special-file targets cause recovery
-to fail closed. The guard does not alter Hermes sessions, host code, another
-company, a move destination, or any path outside the guarded analysis root.
+触发后，恢复仅限于同一 analysis root。它会重建缺失基线目录，并用 digest 验证过的 snapshot 原子替换每个缺失、移动或变化的基线路径。现有 symlink、hard-link 或特殊文件目标会导致恢复失败关闭。guard 不会改变 Hermes sessions、宿主代码、其他公司、移动目的地或受保护 analysis root 外的任何路径。
 
-Recovery writes one minimal `filesystem.delete` denial through
-`scripts/openshell/security_audit.py`. Targets are projected rather than stored
-as paths, and file contents are never written to the audit record.
+恢复会通过 `scripts/openshell/security_audit.py` 写入一条最小 `filesystem.delete` 拒绝记录。目标会投影而不是保存为路径，文件内容永远不会写入审计记录。
 
-## Operating boundary
+## 运行边界
 
-- Linux inotify and sufficient `max_user_watches` capacity are prerequisites.
-- Detection occurs after filesystem events. Some files can disappear before
-  the sandbox is terminated; qualifying baseline files are then restored.
-- Recovery is atomic per file, not as a whole-tree transaction. The snapshot is
-  retained if the host exits partway through recovery.
-- A concurrent operator stop or rollback keeps its already-durable terminal
-  action, but honors a previously persisted guard trigger and restores the
-  snapshot before finalization.
-- A move destination is intentionally not removed. Recovery restores the
-  baseline source path without touching an unapproved destination.
-- Small deletions below both thresholds are intentionally allowed and are not
-  restored.
-- File modification without a delete or move event is outside T6.1.
-- Runtime snapshots remain ignored by Git. Retain each deletion snapshot until
-  the transaction is terminal, its sanitized acceptance evidence has been
-  reviewed, and the corresponding analysis artifact is backed up. Garbage
-  collection must run under the maintenance lock and must never remove the
-  active run or any non-terminal transaction snapshot.
+- 需要 Linux inotify 和足够的 `max_user_watches` 容量。
+- 检测发生在文件系统事件之后。部分文件可能在 sandbox 终止前消失，符合条件的基线文件随后会恢复。
+- 恢复是逐文件原子，不是整树事务。若宿主在恢复中途退出，snapshot 会保留。
+- 并发 operator stop 或 rollback 会保留其已经持久化的终态动作，但会尊重此前持久化的 guard trigger，并在 finalization 前恢复 snapshot。
+- 移动目的地有意不删除。恢复只还原基线源路径，不触碰未批准目的地。
+- 低于两个阈值的小规模删除有意允许，且不会恢复。
+- 未伴随 delete 或 move 事件的文件修改不属于 T6.1 范围。
+- 运行态 snapshot 仍被 Git 忽略。每个 deletion snapshot 应保留到 transaction 终态、脱敏验收证据已评审且对应 analysis artifact 已备份。垃圾回收必须在维护锁下运行，且绝不能删除 active run 或任何非终态 transaction snapshot。

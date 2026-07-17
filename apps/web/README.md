@@ -6,6 +6,18 @@
 
 在使用者视角里，Web 工作台的价值不只是“能看数据”，而是让完整研究链路在一个界面里连续发生。
 
+## 产品归属与信息架构
+
+Web 工作台把 SIQ 的三条产品面落成可操作页面，而不是把后端能力平铺成工具清单。
+
+| 产品面 | 主要页面 | 关键体验 |
+| --- | --- | --- |
+| 二级市场投研分析智能体集群 | `/search`、`/parse*`、`/analysis`、`/verify`、`/tracking`、`/legal`、`/chat` | 官方披露搜索下载、财报解析、evidence package、分析/核查/跟踪/法务智能体、source 回跳 |
+| 一级市场投研决策智能体集群 | `/primary-market`、`/deals/:dealId/*` | Deal OS、材料中心、数据室、证据、专家角色、争议、R0-R4 工作流、决策确认和审计回放 |
+| 应用中心 | `/documents`、`/meetings/*`、`/vector-ingest`、`/settings` | 通用文档解析、会议转写、向量入库、模型/系统设置和运营治理 |
+
+OpenShell runtime provenance、Agent memory 注入结果、quality gates 和 source access 都通过 API 控制面进入 Web；前端负责把这些治理信息呈现给研究员，而不是在浏览器端绕过控制面。
+
 ## 在系统中的位置
 
 ```text

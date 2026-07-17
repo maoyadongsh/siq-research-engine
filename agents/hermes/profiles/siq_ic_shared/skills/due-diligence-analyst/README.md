@@ -1,309 +1,139 @@
-# Due Diligence Analyst
+# Due Diligence Analyst（尽调分析 Skill）
 
-**AI-Powered Due Diligence Analysis for SIQ Hermes**
+`Due Diligence Analyst` 是 SIQ Hermes 一级市场投研决策智能体集群的共享 skill，用于把尽调中的重复性核查、风险识别、结构化分析和报告生成步骤沉淀为可复用能力。它服务 Deal OS 与投委会工作流，消费项目 evidence、data room 材料、结构化假设和 `siq_ic_shared` 合同，不替代法务、财务、行业、风控、主席等专门 profile。
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=flat-square)](./CHANGELOG.md)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
-[![SIQ Hermes](https://img.shields.io/badge/SIQ Hermes-Skill-orange?style=flat-square)](https://openclaw.com)
+## SIQ 定位
 
----
+- 所属产品：一级市场投研决策智能体集群。
+- 使用边界：作为专家 profile 的工具化例程，不能绕过投委会 workflow。
+- 证据要求：正式结论必须引用项目 Evidence ID；背景知识只能提供分析框架、行业参照和风险假设。
+- 记忆关系：可利用 Hermes 记忆、项目级全量记忆、本地临时记忆和 Milvus 语义召回，但“记忆提供连续性，证据决定事实”。
 
-## SIQ Context
+## 核心能力
 
-Within SIQ, this skill supports the primary-market Deal OS and IC workflow. It should consume project evidence, dataroom materials, structured assumptions, and `siq_ic_shared` contracts. It must not replace specialist IC profiles; instead, it provides reusable diligence routines that those profiles can apply consistently.
+### 公司画像核查
 
----
+- 工商与主体信息校验。
+- 股权结构、控制权和关联方映射。
+- 历史变更、重大事件和组织结构追踪。
 
-## Overview
+### 财务尽调
 
-Due Diligence Analyst is an intelligent SIQ Hermes skill that automates and streamlines the due diligence process for investors, M&A advisors, and corporate development teams. It provides comprehensive analysis across financial, legal, business, and team dimensions.
+- 财务报表解析与关键指标计算。
+- 盈利能力、现金流、营运资本和资本开支分析。
+- 异常波动、潜在粉饰迹象和同业 benchmark。
 
-### Key Benefits
+### 法务与合规
 
-- **70%+ Time Savings** - Automate routine DD tasks
-- **Standardized Process** - Ensure consistency and completeness
-- **Multi-Dimensional Analysis** - Financial, legal, business, team, market
-- **Risk Identification** - Proactive red flag detection
-- **Professional Reports** - Generate investor-grade DD reports
+- 诉讼、仲裁、行政处罚与合规事项扫描。
+- 知识产权、重大合同和监管许可核查。
+- 潜在红旗、整改路径和交割前条件建议。
 
----
+### 商业与市场
 
-## Core Features
+- 商业模式、收入质量、客户集中度和供应链韧性评估。
+- 市场空间、竞争格局、政策环境和技术趋势分析。
+- 与战略咨询类 skill 协同，形成可审计的投资假设。
 
-### 1. Company Profile Analysis
-- Corporate information verification
-- Shareholder structure mapping
-- Related party identification
-- Historical change tracking
+### 团队与风险
 
-### 2. Financial Due Diligence
-- Financial statement analysis
-- Key metrics calculation
-- Profitability assessment
-- Cash flow analysis
-- Fraud detection
-- Peer benchmarking
+- 创始人和核心管理层背景核查。
+- 多维风险识别、评级、量化和缓释建议。
+- 支持投委会红蓝对抗、主席裁决和最终 memo 装配。
 
-### 3. Legal & Compliance DD
-- Litigation and arbitration search
-- Administrative penalty check
-- Compliance review
-- IP verification
-- Material contract review
+## 典型工作流
 
-### 4. Business Analysis
-- Business model evaluation
-- Market position assessment
-- Competitive landscape
-- Customer concentration
-- Supply chain analysis
+1. API 编排器把 deal 材料、Evidence 索引和角色任务交给 Hermes profile。
+2. 专家 profile 调用本 skill 执行尽调子任务。
+3. skill 产出结构化发现、红旗列表、证据引用和待补材料清单。
+4. profile 将结果写回投委会任务产物，由 R1/R2/R3/R4 流程继续交叉验证。
 
-### 5. Team Background Check
-- Founder/executive background
-- Education and work history verification
-- Credit record check
-- Related investment inquiry
+## 架构
 
-### 6. Market & Industry Analysis
-- Industry trend analysis
-- Market sizing
-- Competitor benchmarking
-- Policy environment
-- Technology trends
-
-### 7. Risk Assessment
-- Multi-dimensional risk identification
-- Risk rating and quantification
-- Mitigation recommendations
-- Red flag alerts
-
-### 8. Report Generation
-- Standardized report templates
-- Modular content organization
-- Visualization charts
-- Multiple export formats (PDF, Word, Excel, PPT)
-
----
-
-## Quick Start
-
-### Installation
-
-```bash
-# Navigate to SIQ IC shared skills directory
-cd /home/maoyd/siq-research-engine/agents/hermes/profiles/siq_ic_shared/skills
-
-# Clone the repository
-git clone https://github.com/yourusername/openclaw-due-diligence-analyst.git dd-analyst
-
-# Install dependencies
-cd dd-analyst
-pnpm install
-
-# Build the project
-pnpm build
-```
-
-### Enable in SIQ Hermes
-
-```bash
-# Enable the skill
-openclaw skill enable dd-analyst
-
-# Restart SIQ Hermes gateway
-openclaw gateway restart
-```
-
-### Usage
-
-Use the skill in any connected messaging channel (WhatsApp, Telegram, Slack, etc.):
-
-```
-"Analyze company: ByteDance"
-"Run due diligence on Tencent"
-"Financial analysis of Alibaba"
-"Legal risks for company XYZ"
-"Generate DD report for startup ABC"
-```
-
----
-
-## Architecture
-
-### Multi-Agent System
-
-```
+```text
 DueDiligenceAnalyst
-├── Company Profile Agent    - Corporate information
-├── Financial Agent         - Financial analysis
-├── Legal Agent            - Legal compliance
-├── Business Agent         - Business evaluation
-├── Team Agent             - Background checks
-├── Market Agent           - Market analysis
-├── Risk Agent             - Risk assessment
-└── Report Agent           - Report generation
+├── 公司画像 Agent           # 主体与股权画像
+├── 财务 Agent               # 财务质量与指标分析
+├── 法务 Agent               # 法务合规扫描
+├── 商业 Agent               # 商业模式与经营质量
+├── 团队 Agent               # 团队背景核查
+├── 市场 Agent               # 市场与行业分析
+├── 风险 Agent               # 风险分级与缓释建议
+└── 报告 Agent               # 尽调报告生成
 ```
 
-### Technology Stack
+## 技术栈
 
-- **Runtime**: Node.js >= 22
-- **Language**: TypeScript 5.3+
-- **Platform**: SIQ Hermes
-- **AI**: the Hermes agent (via SIQ Hermes)
-- **Data Processing**: Custom analytics engine
-- **Report Generation**: PDFKit, ExcelJS
+- Runtime：Node.js >= 22。
+- 语言：TypeScript 5.3+。
+- Agent 运行时：SIQ Hermes。
+- 数据处理：自研分析与校验逻辑。
+- 报告生成：PDFKit、ExcelJS，可与 SIQ 报告合同对齐。
 
----
+## 项目内使用
 
-## Documentation
-
-- [Architecture Design](./docs/DD_ARCHITECTURE.md) - System architecture and design
-- [CHANGELOG](./CHANGELOG.md) - Version history
-- [CONTRIBUTING](./CONTRIBUTING.md) - Contribution guidelines
-- [LICENSE](./LICENSE) - MIT License
-
----
-
-## Development
-
-### Prerequisites
-
-- Node.js >= 22
-- pnpm (recommended) or npm
-- SIQ Hermes >= 2026.0.0
-
-### Setup Development Environment
+本目录已经作为 `siq_ic_shared` 的共享 skill 纳入仓库。开发或验证时从本目录执行：
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Run in development mode
-pnpm dev
-
-# Run tests
+pnpm build
 pnpm test
-
-# Lint code
 pnpm lint
-
-# Format code
-pnpm format
 ```
 
-### Project Structure
+Hermes profile 调用时应通过 `siq_ic_shared` 的 evidence、report 与 workflow contract 传入上下文。面向用户的自然语言触发示例可以是：
 
+```text
+对本项目做财务和法务尽调
+扫描当前 deal 的重大红旗
+生成投委会前的尽调问题清单
+更新标的公司的商业模式与客户集中度分析
 ```
+
+## 目录结构
+
+```text
 due-diligence-analyst/
 ├── src/
-│   ├── agents/              # Agent modules
-│   ├── tools/               # Tool functions
-│   │   ├── data-collectors/ # Data collection
-│   │   ├── analyzers/       # Analysis engines
-│   │   ├── generators/      # Report generators
-│   │   └── validators/      # Data validators
-│   ├── types/               # TypeScript types
-│   └── utils/               # Utility functions
+│   ├── agents/              # 子分析 agent
+│   ├── tools/               # 数据采集、分析、生成和校验工具
+│   ├── types/               # TypeScript 类型
+│   └── utils/               # 通用工具
 ├── data/
-│   ├── templates/           # Report templates
-│   ├── reference/           # Reference data
-│   └── cache/               # Data cache
-├── docs/                    # Documentation
-├── tests/                   # Test files
-└── scripts/                 # Build scripts
+│   ├── templates/           # 报告模板
+│   ├── reference/           # 参考数据
+│   └── cache/               # 本地缓存
+├── docs/                    # 设计文档
+├── tests/                   # 测试文件
+└── scripts/                 # 构建脚本
 ```
 
----
+## 路线图
 
-## Roadmap
+- Phase 1：公司画像、基础财务分析、简单风险评估和文本报告。
+- Phase 2：完整财务尽调、法务合规检查、商业分析和 PDF 报告导出。
+- Phase 3：团队背景核查、市场分析、多维风险评估和可视化 dashboard。
+- Phase 4：企业数据、财务数据、法律信息和持续监控能力接入。
 
-### Phase 1: MVP (Current)
-- [x] Architecture design
-- [ ] Company profile analysis
-- [ ] Basic financial analysis
-- [ ] Simple risk assessment
-- [ ] Text report generation
+## 商业价值
 
-### Phase 2: Core Features
-- [ ] Complete financial DD
-- [ ] Legal compliance checks
-- [ ] Business analysis
-- [ ] PDF report export
+| 维度 | 传统尽调 | SIQ skill 化尽调 | 价值 |
+| --- | --- | --- | --- |
+| 时间 | 4-8 周 | 2-24 小时形成初版 | 大幅压缩材料初筛周期 |
+| 成本 | 高度依赖人工顾问 | 自动化完成重复核查 | 降低早期项目筛查成本 |
+| 一致性 | 团队和项目差异大 | 模板、Evidence 与评分口径统一 | 便于投委会横向比较 |
+| 覆盖面 | 容易受时间限制 | 财务、法务、商业、团队、市场同步覆盖 | 提高红旗发现率 |
 
-### Phase 3: Advanced Features
-- [ ] Team background checks
-- [ ] Market analysis
-- [ ] Multi-dimensional risk assessment
-- [ ] Visualization dashboard
+## 合规与伦理
 
-### Phase 4: Data Integration
-- [ ] Corporate data API integration
-- [ ] Financial data sources
-- [ ] Legal information integration
-- [ ] Real-time monitoring
+- 只使用公开、授权或项目数据室中合法取得的数据。
+- 不输出未核验事实作为正式结论。
+- 工具辅助不能替代律师、审计师、财务顾问或投委会成员的专业判断。
+- 用户和项目负责人必须复核关键事实、来源和适用法律要求。
 
----
+## 相关文件
 
-## Use Cases
-
-### Investment Due Diligence
-Comprehensive analysis for VC/PE investment decisions
-
-### M&A Due Diligence
-Thorough evaluation for merger and acquisition transactions
-
-### Supplier/Partner Evaluation
-Background checks for business partnerships
-
-### Continuous Monitoring
-Ongoing risk monitoring for portfolio companies
-
----
-
-## Value Proposition
-
-### vs Traditional Due Diligence
-
-| Aspect | Traditional DD | DD Analyst | Improvement |
-|--------|---------------|------------|-------------|
-| **Time** | 4-8 weeks | 2-24 hours | 70-95% ↓ |
-| **Cost** | $50K-200K | $1K-5K | 95-98% ↓ |
-| **Standardization** | Varies | Consistent | High ↑ |
-| **Real-time** | Low | High | Instant ↑ |
-| **Coverage** | Limited | Comprehensive | Complete ↑ |
-
----
-
-## Compliance & Ethics
-
-- Uses only public and legally obtained data
-- Complies with data protection regulations
-- Provides tool assistance, not professional advice replacement
-- Users responsible for verifying critical information
-
----
-
-## Support
-
-- **Documentation**: [docs/](./docs/)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/openclaw-due-diligence-analyst/issues)
-- **Discord**: [SIQ Hermes Community](https://discord.gg/openclaw)
-- **Email**: support@example.com
-
----
-
-## License
-
-MIT License - see [LICENSE](./LICENSE) for details
-
----
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
----
-
-**Made with AI for Better Investment Decisions**
-
-*Due Diligence Analyst - Transforming the way due diligence is done*
+- [架构设计](./docs/DD_ARCHITECTURE.md)
+- [变更日志](./CHANGELOG.md)
+- [贡献指南](./CONTRIBUTING.md)
+- [许可证](./LICENSE)

@@ -1,14 +1,14 @@
-# Parser Financial Golden Dataset
+# 解析器财务 Golden 数据集
 
-This manifest keeps large, real financial report samples outside the Git checkout while versioning their hashes and expected parser outputs.
+本 manifest 用于把大型真实财报样本保留在 Git checkout 之外，同时版本化它们的 hash 和预期 parser 输出。
 
-PR contract check:
+PR 合同检查：
 
 ```bash
 python3 scripts/maintenance/run_parser_financial_golden_gate.py --mode contract
 ```
 
-Offline/self-hosted sample check:
+离线/自托管样本检查：
 
 ```bash
 python3 scripts/maintenance/run_parser_financial_golden_gate.py \
@@ -16,9 +16,9 @@ python3 scripts/maintenance/run_parser_financial_golden_gate.py \
   --sample-root /path/to/financial-markdown-samples
 ```
 
-`SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT` can supply the sample root. Reports are written under ignored `artifacts/eval-runs/parser-financial-golden/` by default.
+`SIQ_FINANCIAL_GOLDEN_SAMPLE_ROOT` 可以提供样本根目录。报告默认写入被忽略的 `artifacts/eval-runs/parser-financial-golden/`。
 
-Real PDF identity and parser/MinerU readiness preflight:
+真实 PDF 身份与 parser/MinerU 就绪预检查：
 
 ```bash
 python3 scripts/maintenance/run_parser_financial_pdf_release_gate.py \
@@ -26,7 +26,7 @@ python3 scripts/maintenance/run_parser_financial_pdf_release_gate.py \
   --pdf-root data/market-report-finder/downloads
 ```
 
-Self-hosted end-to-end release gate (the 408-page sample can take hours):
+自托管端到端发布门禁（408 页样本可能运行数小时）：
 
 ```bash
 python3 scripts/maintenance/run_parser_financial_pdf_release_gate.py \
@@ -36,14 +36,9 @@ python3 scripts/maintenance/run_parser_financial_pdf_release_gate.py \
   --deadline-seconds 10800
 ```
 
-`live-http` verifies the versioned source PDF hash and page count, requires the
-real parser to report MinerU readiness, uploads the PDF, waits for a completed
-task, fetches fresh Markdown, and runs the financial golden assertions. It
-records the fresh Markdown hash but does not require byte-for-byte equality
-with the baseline because MinerU output can change across runtime versions.
+`live-http` 会校验版本化源 PDF hash 和页数，要求真实 parser 报告 MinerU 就绪，上传 PDF，等待任务完成，获取新生成的 Markdown，并运行财务 golden 断言。它会记录新 Markdown hash，但不要求与基线逐字节相等，因为 MinerU 输出可能随运行版本变化。
 
-The self-hosted release wrapper defaults this outer gate to `off`. Enable it
-explicitly with:
+自托管发布包装器默认关闭该外层门禁。需要时显式启用：
 
 ```bash
 SIQ_PARSER_FINANCIAL_PDF_GATE_MODE=live-http \
@@ -53,7 +48,4 @@ SIQ_PDF_PARSER_URL=http://127.0.0.1:15000 \
 bash scripts/ops/run_market_postgres_release_gate.sh --mode offline-postgres
 ```
 
-Accepted modes are `off`, `preflight`, and `live-http`. A failed optional gate
-keeps its BLOCKED report without changing the wrapper exit code. With
-`SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED=1`, a missing explicit mode or any
-BLOCKED result fails the release wrapper.
+可接受模式是 `off`、`preflight` 和 `live-http`。可选门禁失败时会保留 BLOCKED 报告，但不改变包装器退出码。设置 `SIQ_PARSER_FINANCIAL_PDF_GATE_REQUIRED=1` 后，缺少显式模式或任何 BLOCKED 结果都会让发布包装器失败。

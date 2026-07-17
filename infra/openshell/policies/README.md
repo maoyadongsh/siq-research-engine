@@ -1,4 +1,4 @@
-# SIQ OpenShell Policy V0.6
+# SIQ OpenShell 策略 V0.6
 
 `base.yaml` 和 `profiles/siq-analysis.yaml` 使用 JSON 语法保存；JSON 是合法 YAML，因此可以由 OpenShell 直接读取，同时让 SIQ 编译器只依赖 Python 标准库。
 

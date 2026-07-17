@@ -4,6 +4,8 @@
 
 `knowledge_ingest` 是面向 Milvus 的轻量知识库入库 UI 和异步引擎，适合快速把法规、公司资料、行业资料和内部知识文档切块并写入指定 collection。
 
+它属于应用中心的轻量知识库工具，常用于法规库、行业库、一级市场项目背景库和 profile knowledge。对于 Hermes 记忆，Milvus 只承担语义索引职责；长期记忆的权威账本、scope、ACL、半衰期和按需全量召回由 API memory service 与 PostgreSQL 共同治理。
+
 ## 在系统中的位置
 
 ```text

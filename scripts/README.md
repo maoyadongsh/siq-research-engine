@@ -4,6 +4,8 @@
 
 `scripts/` 保存 SIQ 的运维、批处理、市场 evidence package 构建、Hermes 冒烟、向量入库和回归辅助脚本。这里放的是“可重复执行的工程脚本”，而不是应用主源码或运行态数据。
 
+脚本目录横跨三条产品面：二级市场的多市场 package 构建和评测、一级市场 IC workflow 冒烟和材料治理、应用中心的文档/会议/向量运维。同时，`scripts/openshell` 是自研 NVIDIA OpenShell + Hermes demo/canary control plane 的主要运维入口，负责 toolchain、policy、provider、broker、scope、pool、recovery、fallback 和 formal gate 证据。
+
 ## 在系统中的位置
 
 ```text
@@ -21,6 +23,7 @@
 | `scripts/ops` | 健康检查、备份、下载任务辅助和运行维护 |
 | `scripts/maintenance` | 数据集生成、评测运行、批量整理 |
 | `scripts/hermes` | Hermes gateway 启动、profile 定位与冒烟 |
+| `scripts/openshell` | NVIDIA OpenShell toolchain、Gateway、BYOC Hermes sandbox、provider/broker、pool、scope lifecycle、A/B 和 gate |
 | `scripts/vector-index` | 向量入库、Milvus 工具和知识库 UI |
 | `scripts/us-sec` | 美股 SEC evidence package 与批量处理 |
 | `scripts/hk` | 港股 evidence package 与批处理 |
@@ -65,7 +68,7 @@ bash -n start_all.sh
 find scripts -type f -name '*.sh' -print0 | xargs -0 -r bash -n
 ```
 
-### Hermes gateway 冒烟
+### Hermes 网关冒烟
 
 ```bash
 cd /home/maoyd/siq-research-engine

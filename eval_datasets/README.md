@@ -4,6 +4,8 @@
 
 `eval_datasets/` 保存 SIQ 早期或历史延续下来的评测语料和回归样本集合。它更像“历史评测资产层”，而不是新的版本化 fixture 首选目录。
 
+当前根 README 里的测试资产统计包含本目录中的历史回归样本。新样本优先进入 `datasets/`，但这里仍对 parser、agent memory、market ingestion 和 primary market IC 的历史兼容测试有价值。
+
 ## 主要内容
 
 | 目录 / 文件 | 用途 |

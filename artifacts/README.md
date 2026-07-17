@@ -4,6 +4,8 @@
 
 `artifacts/` 用于保存构建、测试、评测、批处理和一次性分析任务生成的输出。它是“生成产物层”，不是长期事实层，也不是版本化样本目录。
 
+这里也是 OpenShell 脱敏证据的发布目录。`var/openshell/` 中的原始 gateway、broker、audit 和 proof 只能在移除凭据、私有正文和机器敏感信息后导出到 `artifacts/openshell/**`，并由 tracked manifest 绑定摘要、大小和路径。
+
 ## 主要内容
 
 常见子目录包括：

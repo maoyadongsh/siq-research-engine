@@ -4,6 +4,8 @@
 
 `datasets/` 用于保存可以进入源码仓、并且适合长期维护的稳定数据集、fixtures 和小型样本。它是“可版本化样本层”，而不是运行态大文件目录。
 
+它支撑 README 中报告的测试和评测体系：二级市场 market ingestion、财务 QA、document parser cases、一级市场 IC golden cases 和 OpenShell A/B 前置样本都应尽量沉淀成小型、脱敏、可复现的数据集，而不是留在一次性 `artifacts/` 输出里。
+
 ## 主要内容
 
 推荐子类包括：

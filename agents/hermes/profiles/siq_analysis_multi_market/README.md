@@ -35,7 +35,7 @@ agents/hermes/profiles/siq_analysis_multi_market/scripts/run_analysis_report.py 
 ## 主要模块
 
 - `scripts/analysis_input_bundle.py`：构建和加载统一只读输入。
-- `scripts/input_adapters/`：PDF 与 SEC/iXBRL source-family adapter。
+- `scripts/input_adapters/`：PDF 与 SEC/iXBRL 来源家族 adapter。
 - `scripts/analysis_market_policy.py`：HK/US/EU/KR/JP 市场写作与数据规则。
 - `scripts/analysis_bundle_renderer.py`：中文结构化报告与 artifact sidecar 渲染。
 - `scripts/run_analysis_report.py`：bundle runner；同时保留复制时的旧函数仅供代码兼容，生产路由不会调用。

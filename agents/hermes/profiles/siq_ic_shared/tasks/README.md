@@ -1,23 +1,23 @@
-# SIQ IC Phase Task Templates
+# SIQ IC 阶段任务模板
 
-These templates define the production behavior expected from Hermes IC profiles. The API orchestrator owns task delivery, leases, durable handoffs, retries, and artifact writes. Profiles do not communicate directly with other gateways.
+这些模板定义 Hermes 一级市场投委会 profiles 在生产链路中的预期行为。API 编排器负责任务投递、lease、持久化交接、重试和产物写入；profile 本身不直接与其他 gateway 通信。
 
-## Source Classes
+## 来源类别
 
-- `project_evidence`: Deal-scoped facts from `siq_deal_shared` / `ic_collaboration_shared`, with Evidence IDs and source coordinates.
-- `background_knowledge`: role-specific methods, benchmarks, cases, and challenge hypotheses from the profile's private Milvus collection.
+- `project_evidence`：Deal 范围内的项目事实，来自 `siq_deal_shared` / `ic_collaboration_shared`，必须带 Evidence ID 和来源坐标。
+- `background_knowledge`：角色私有 Milvus collection 中的研究方法、行业 benchmark、历史案例和 challenge hypothesis。
 
-Background knowledge cannot verify a project fact. A formal claim about the issuer must cite project Evidence. Every task must report shared and private retrieval status separately.
+背景知识不能验证项目事实。关于标的公司的正式判断必须引用项目 Evidence。每个任务都要分别报告 shared retrieval 与 private retrieval 的状态，避免把知识库启发误写成项目证据。
 
-## Templates
+## 模板
 
-- `R0_COORDINATOR_READINESS.md`: identity, material, snapshot, retrieval, and scope gate.
-- `R1_INDEPENDENT_RESEARCH.md`: independent specialist analysis before cross-agent anchoring.
-- `R1_CROSS_VALIDATION.md`: risk stress test and chairman initial synthesis over R1A handoffs.
-- `R1_5_CHAIRMAN_RULING.md`: dispute ruling and evidence follow-up.
-- `R2_EXPERT_REVISION.md`: evidence-based viewpoint and score revision.
-- `R3_RED_BLUE_DEBATE.md`: red argument, blue answer, rebuttal, and chairman verdict.
-- `R4_CHAIRMAN_DECISION.md`: structured final decision and six-dimension scoring.
-- `DETERMINISTIC_FALLBACK.md`: mandatory identity for non-model recovery artifacts.
+- `R0_COORDINATOR_READINESS.md`：身份、材料、快照、召回和范围 gate。
+- `R1_INDEPENDENT_RESEARCH.md`：跨智能体锚定前的独立专家分析。
+- `R1_CROSS_VALIDATION.md`：R1A 交接后的风险压力测试与主席初步综合。
+- `R1_5_CHAIRMAN_RULING.md`：分歧裁决与证据补充要求。
+- `R2_EXPERT_REVISION.md`：基于证据的观点和评分修订。
+- `R3_RED_BLUE_DEBATE.md`：红方论证、蓝方回应、反驳和主席裁定。
+- `R4_CHAIRMAN_DECISION.md`：结构化最终决策与六维评分。
+- `DETERMINISTIC_FALLBACK.md`：非模型恢复产物的强制身份模板。
 
-`quality_accepted` is never inferred from template presence. Acceptance requires a named golden case, automated checks, and human methodology approval.
+`quality_accepted` 不能由模板存在自动推断。验收必须绑定具名 golden case、自动化检查和人工方法论审批。

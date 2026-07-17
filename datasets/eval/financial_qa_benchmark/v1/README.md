@@ -1,56 +1,29 @@
-# Financial QA Benchmark v1
+# 财务问答 Benchmark v1
 
-Deterministic benchmark for SIQ financial question answering.
+这是 SIQ 财务问答的确定性 benchmark。
 
-Default CI mode is `trace-offline`: it validates pre-recorded
-`answer_audit_trace` records against golden cases. It does not call an LLM, does
-not start Hermes, and does not connect to PostgreSQL.
+默认 CI 模式是 `trace-offline`：它用 golden cases 校验预记录的 `answer_audit_trace`。该模式不调用 LLM，不启动 Hermes，也不连接 PostgreSQL。
 
-`wiki-static` validates each real-company case against the package and SHA-256
-binding in `wiki_static_artifacts.json`. It verifies the authoritative package
-manifest identity separately from any legacy identity embedded in
-`document_full.json`, then checks facts. Reconstructed legacy packages must also
-bind the official download metadata and PDF, parser upload/metadata, artifact
-manifest, and exact table/page locator by SHA-256. Missing packages, identity
-drift, lineage drift, hash drift, and fact/evidence drift fail closed.
+`wiki-static` 会用 `wiki_static_artifacts.json` 中的 package 与 SHA-256 绑定校验每个真实公司 case。它会把权威 package manifest 身份和 `document_full.json` 中的 legacy 身份分开验证，然后检查事实。重建的 legacy package 还必须把官方下载 metadata 和 PDF、parser 上传/metadata、artifact manifest，以及精确表格/页面 locator 都绑定到 SHA-256。缺少 package、身份漂移、lineage 漂移、hash 漂移和事实/证据漂移都会失败关闭。
 
-`fixture-contract` is the separate synthetic lane. It validates the
-`*:FIXTURE:*` identities, content hashes, and facts declared by the authoritative
-`eval_datasets/market_document_full_postgres/cases.json` contract. Synthetic
-documents can never satisfy the real-company `wiki-static` gate.
+`fixture-contract` 是单独的合成通道。它校验权威 `eval_datasets/market_document_full_postgres/cases.json` 合同声明的 `*:FIXTURE:*` 身份、内容 hash 和事实。合成文档永远不能满足真实公司 `wiki-static` 门禁。
 
-Current P0 coverage:
+当前 P0 覆盖：
 
-- `trace-offline`: 12 cases, covering CN/HK/US/JP/KR/EU, 9 key facts, 1
-  calculator run, 1 evidence-missing refusal, 1 ICBC revenue
-  `financial_claim_mismatch` attack, and 1 equal-value cross-company
-  `financial_evidence_identity_mismatch` attack, plus 1 forged free-text
-  calculator-marker attack that must fail as `financial_calculation_trace_missing`.
-- `wiki-static`: 7 real `document_full` fact cases across CN/HK/US/JP/KR/EU.
-  All seven have complete authoritative bindings, including Vodafone FY2025.
-- Evidence checks validate required fields and exact values for table/page,
-  quote/html anchor, and other declared evidence fields.
+- `trace-offline`：12 个 case，覆盖 CN/HK/US/JP/KR/EU，9 个关键事实、1 次 calculator run、1 次 evidence-missing 拒答、1 次工商银行收入 `financial_claim_mismatch` 攻击、1 次等值跨公司 `financial_evidence_identity_mismatch` 攻击，以及 1 次伪造自由文本 calculator-marker 攻击，该攻击必须以 `financial_calculation_trace_missing` 失败。
+- `wiki-static`：7 个跨 CN/HK/US/JP/KR/EU 的真实 `document_full` fact case。全部七个都有完整权威绑定，包括 Vodafone FY2025。
+- 证据检查会校验 table/page、quote/html anchor 和其他声明证据字段的必需字段与精确值。
 
-The v1 CLI exposes `trace-offline`, `wiki-static`, and the isolated
-`fixture-contract` lane. PostgreSQL fallback evaluation is reserved for a later
-manual/nightly gate.
+v1 CLI 暴露 `trace-offline`、`wiki-static` 和隔离的 `fixture-contract` 通道。PostgreSQL fallback 评测保留给后续手工或 nightly 门禁。
 
-Case `modes` semantics:
+case `modes` 语义：
 
-- Suite-level defaults in `suite.json` assign the real-company `cases.jsonl`
-  rows to `trace-offline` and `wiki-static` only.
-- Missing `modes` in an ad-hoc case still means the case runs in every currently
-  implemented deterministic mode: `trace-offline`, `wiki-static`, and
-  `fixture-contract`. Production suites must set an explicit identity scope and
-  lane defaults.
-- Use an explicit list such as `["trace-offline"]` only when a case does not
-  have a stable `document_full.json` fixture or is meaningful only for answer
-  traces, such as calculator or refusal cases.
-- Reserved future modes such as `postgres-fallback` are intentionally rejected
-  by the v1 schema until their evaluator is implemented, so PR gates cannot
-  silently skip or misclassify cases.
+- `suite.json` 中的 suite 级默认值会把真实公司 `cases.jsonl` 行分配到 `trace-offline` 和 `wiki-static`。
+- ad-hoc case 缺少 `modes` 时，仍表示该 case 会在所有已实现确定性模式中运行：`trace-offline`、`wiki-static` 和 `fixture-contract`。生产 suites 必须设置显式身份范围和通道默认值。
+- 只有当 case 没有稳定 `document_full.json` fixture，或只对 answer trace 有意义时，才使用类似 `["trace-offline"]` 的显式列表，例如 calculator 或 refusal cases。
+- 未来保留模式例如 `postgres-fallback` 在 v1 schema 中会被有意拒绝，直到 evaluator 实现，避免 PR 门禁静默跳过或误分类 case。
 
-Run:
+运行：
 
 ```bash
 python3 scripts/maintenance/run_financial_qa_benchmark.py \
@@ -61,8 +34,4 @@ python3 scripts/maintenance/run_financial_qa_benchmark.py \
   --markdown artifacts/eval-runs/financial-qa/financial_qa_benchmark.md
 ```
 
-P0 requires exact value, period, unit/currency, source-policy, resolved
-identity, exact declared evidence, calculator trace compliance, and guardrail
-refusal compliance. Guarded claim-attack cases can additionally require the
-exact guardrail reason and selected claim-verifier violation fields, including
-claimed and evidence values.
+P0 要求精确值、期间、单位/币种、source-policy、解析身份、精确声明证据、calculator trace 合规和 guardrail 拒答合规。受保护 claim-attack case 还可以要求精确 guardrail reason 和选定 claim-verifier violation 字段，包括 claimed value 和 evidence value。

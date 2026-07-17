@@ -1,23 +1,18 @@
-# SIQ Analysis OpenShell Canary
+# SIQ 分析 OpenShell 灰度
 
-This directory documents the independent `NOT_PRODUCTION_CANARY` lifecycle.
-The implementation intentionally reuses the reviewed wide-pilot lifecycle
-mechanics instead of maintaining a second sandbox creation stack.
+本目录记录独立的 `NOT_PRODUCTION_CANARY` 生命周期。实现刻意复用已经审阅过的 wide-pilot 生命周期机制，避免维护第二套 sandbox 创建栈。
 
-Contract:
+## 合同
 
-- state: `var/openshell/canary/siq-analysis/`;
-- explicit acknowledgement: `--acknowledge-not-production-canary`;
-- run ID: `canary-<12hex>`;
-- endpoint: `127.0.0.1:28651`;
-- providers: MiniMax, StepFun, Kimi, Tavily;
-- mounts: seven business mounts plus five read-only OpenShell control mounts;
-- write scope: the existing selected-company `analysis/` root;
-- immutable scope: company facts/reports, other companies, code, configuration,
-  prompts, workflows and OpenShell control state;
-- normal create/modify/rename/delete is allowed inside `analysis/`; only root or
-  bulk destructive deletion crosses the deletion-guard threshold;
-- host runtime and formal readiness remain unchanged.
+- 状态目录：`var/openshell/canary/siq-analysis/`；
+- 显式确认参数：`--acknowledge-not-production-canary`；
+- run ID：`canary-<12hex>`；
+- endpoint：`127.0.0.1:28651`；
+- 服务提供方：MiniMax、StepFun、Kimi、Tavily；
+- mounts：七个业务 mount，加五个只读 OpenShell 控制 mount；
+- 写入范围：被选公司既有 `analysis/` 根目录；
+- 不可变范围：公司事实、报告、其他公司、代码、配置、prompt、workflow 与 OpenShell 控制状态；
+- `analysis/` 内允许正常 create、modify、rename、delete；只有根目录删除或批量破坏性删除会越过 deletion-guard 阈值；
+- 宿主 runtime 与正式 readiness 不变。
 
-Operational commands and failure recovery are defined in
-`docs/runbooks/openshell/siq-analysis-canary.md`.
+操作命令和失败恢复流程见 `docs/runbooks/openshell/siq-analysis-canary.md`。

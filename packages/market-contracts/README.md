@@ -1,10 +1,20 @@
-# SIQ Market Contracts
+# SIQ 市场合同包
 
 ## 模块定位
 
 `packages/market-contracts` 是 SIQ 多市场 evidence package 的共享 contract 包。它不负责下载、解析或数据库写入，而是负责定义和复用 market package 的稳定文件系统合同、读取器、校验器和摘要逻辑。
 
 这个包的价值在于：让 API、rules、importer、批处理工具和测试代码围绕同一份 package 语义协作，而不是各自靠约定俗成解析目录结构。
+
+## 产品归属与业务边界
+
+Market contracts 是二级市场投研分析智能体集群的共享合同层，也让应用中心的入库和向量化动作有稳定输入。
+
+| 产品面 | 作用 | 边界 |
+| --- | --- | --- |
+| 二级市场 | 定义多市场 evidence package 的目录、hash、summary/detail、source map 和 quality gate 语义 | 不承担市场抓取、解析、规则抽取或数据库副作用 |
+| 一级市场 | 可作为可比公司公开披露证据包的只读合同 | 不表达私有 deal evidence 或 IC 阶段状态 |
+| 应用中心 | 让 Web、API、db/imports、Milvus ingest 和评测共享同一 package 读法 | contract 漂移必须显式测试和版本治理 |
 
 ## 在系统中的位置
 

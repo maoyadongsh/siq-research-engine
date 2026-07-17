@@ -4,6 +4,18 @@
 
 `infra/model-services` 保存 SIQ 依赖的本地模型服务启动脚本和 systemd user units。这里维护的是“如何把模型服务拉起来”的工程脚本，而不是模型权重、缓存或运行日志。
 
+## 产品归属与 NVIDIA 技术栈
+
+本目录支撑 SIQ 的私有化 AI 基础设施，重点服务二级市场分析、一级市场投委会智能体和应用中心解析/会议/检索能力。
+
+| 能力 | 对接产品面 | 价值 |
+| --- | --- | --- |
+| vLLM / OpenAI-compatible 文本模型 | 二级市场、一级市场 | 支撑 Hermes 分析、核查、法务、风控、主席裁决和工具调用 |
+| Nemotron 3 Nano Omni / Qwen / Gemma 等本地模型 | 二级市场、一级市场、应用中心 | 提供本地 GPU 推理、低延迟私有化和模型可替换性 |
+| Embedding / reranker | 应用中心、智能体记忆、法律/知识检索 | 支撑 Milvus 召回、精排、半衰期记忆召回和 profile knowledge |
+| MinerU / VLM | 应用中心、二级市场 | 支撑财报和通用文档的版面解析、表格/图片理解 |
+| Meeting Speech | 应用中心、一级市场 | 支撑会议转写、说话人、术语、纪要和行动项 |
+
 ## 在系统中的位置
 
 ```text

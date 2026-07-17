@@ -4,6 +4,8 @@
 
 该模块尚未进入默认发布路径。默认 Web 方案仍是 `AudioWorklet + WebSocket + IndexedDB`；只有完成本文末尾的真机、隐私、安全和签名门禁后，才能启用 `SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED`。文档中的“已实现”指代码合同已存在，不代表 App Store、锁屏长时录音或生产设备矩阵已经验收。
 
+它属于应用中心的会议转写能力，同时服务一级市场投委会、专家访谈和内部复盘场景。采集层只负责安全、可靠、可校验地把音频批次交给会议 API；ASR、说话人、纪要、行动项、证据入库和智能体消费仍由后端控制面治理。
+
 ## 产品定位与商业价值
 
 投资访谈、投委会和内部会议的音频具有高保密、高价值、长时运行和弱网容错需求。原生采集层的商业意义是让会议资产不依赖 WebView 存活，并以可校验批次持续上传，最终与转写、说话人、纪要、行动项和证据回放形成闭环。
@@ -26,41 +28,41 @@
 - SIQ Meeting API：提供 batch upload、checkpoint、gap、rollover、seal、playback 与 cleanup 合同。
 
 ```text
-Web Meeting UI
-  -> typed Capacitor bridge
-  -> Swift recorder + protected store + ordered outbox
-  -> Meeting capture API / checkpoint / seal
-  -> ASR + speaker + minutes + export + evidence playback
+Web 会议界面
+  -> 强类型 Capacitor 桥
+  -> Swift 录音器 + 受保护存储 + 有序 outbox
+  -> 会议采集 API / checkpoint / seal
+  -> ASR + 说话人 + 纪要 + 导出 + 证据回放
 ```
 
-## Frozen boundary
+## 冻结边界
 
-- A user must explicitly call `prepare` and `start` while the app is in the foreground. The plugin never starts on launch, push, process recovery, or remote input.
-- `AVAudioSession` and `AVAudioEngine` are owned by Swift. Capture, file writes, manifest updates, and background uploads do not require a live WebView callback.
-- PCM S16LE, 16 kHz, mono batches use sample offsets as their timeline identity. Interruptions create explicit gaps; clock changes cannot move the sample timeline backwards.
-- Each batch is fsynced, SHA-256 sealed, paired with an atomic sidecar, and then committed to the atomic manifest. A continuous protected WAV is maintained for immediate local playback.
-- The store derives `siq.meeting.native_capture.manifest.v1` canonical entries and digest using the backend's sorted compact JSON contract. Stop queues the authenticated capture-token seal only after the ordered outbox is empty. A successful seal is followed by idempotent user-session gap declarations, so an interruption is not misreported as received audio.
-- The bridge returns only `capture-asset:<capture-id>`. It never returns an absolute sandbox path or a general `file://` URL.
-- Capture tokens and their bound installation IDs are stored together in Keychain with `AfterFirstUnlockThisDeviceOnly`. Tokens are sent only in `Authorization`; every capture-scoped request also sends `X-SIQ-Device-Installation-Id`. Neither value enters manifests, filenames, task descriptions, events, or error payloads.
-- Each capture uses its own background `URLSession`; restored task keys include capture ID, epoch, sequence, and SHA-256. Cold launch enumerates protected capture directories, reconstructs matching sessions, validates every restored request against the manifest, and resumes the ordered outbox without starting the microphone. A batch becomes locally ACKed only after a bounded JSON response exactly matches the local capture, coordinates, digest, and byte size. Redirects, empty 2xx responses, malformed ACKs, and server checkpoints that no longer prove a batch durable leave or return it to the pending outbox.
-- `getCheckpoints` performs an authenticated server read and combines four explicit authorities: the local capture manifest and the server ingest, realtime, and finalization checkpoints. It does not substitute local upload-task completion for server durability. Foreground rollover first reconciles and drains the old epoch, persists one replayable request boundary/key, uses the WebView user session for the control-plane call, and fences new local batches behind the new epoch until the server reply is validated.
-- An audio interruption first persists a pending gap. The local playback WAV receives deterministic silence so playback time stays continuous, while the upload manifest receives virtual, non-uploaded sequence entries. Rollover/seal freezes those entries and the server receives an explicit `system_interruption` gap only after final seal. The UI receives the exact sample and sequence range.
-- The playback bridge consumes only `capture-asset:<capture-id>`. `AVAudioPlayer` owns local playback; once an authenticated server Range URL is ready, `AVPlayer` prepares it, seeks to the current local position, and switches only if the latest generation is still current. A failed or stale switch preserves the local player.
-- Local deletion is fail-closed behind an authenticated cleanup receipt. The bridge boolean is only user intent; native code first refreshes the capture-token checkpoint, requires sealed ingest, ready server packaging/playback, an empty server missing range, and an exact local/server WAV SHA-256 and byte-size match. It atomically persists the receipt before cancelling uploads, removing the capture token, and deleting the protected directory. A cold-start recovery completes any staged cleanup before it creates an uploader.
-- `gap` and `rollover` are foreground, user-session APIs. Capture-token scope remains limited to batch upload, checkpoint read, and seal; it is not expanded to meeting control. Parent-domain session cookies are copied only for the configured trusted API host.
-- Foreground control calls support either the trusted WebView cookie session plus a matching CSRF header, or the current user bearer supplied by the shell. The bearer is memory-only: it is not written to Keychain, manifests, filenames, background tasks, events, or crash payloads. A cold recovery can resume capture-token uploads and seal, but waits for foreground reauthentication before any pending user-session gap call.
-- The checked-in bridge validates `SIQMeetingAPIOrigin` as an origin-only HTTPS URL and injects it at document start as an immutable `__SIQ_NATIVE_CONFIG__`. The shared Web API client accepts that override only from the `capacitor://localhost` shell; ordinary Web deployments retain their existing same-origin `/api` behavior.
+- 用户必须在应用处于前台时显式调用 `prepare` 和 `start`。插件不得在启动、推送、进程恢复或远程输入时自行开始录音。
+- `AVAudioSession` 和 `AVAudioEngine` 由 Swift 持有。采集、文件写入、manifest 更新和后台上传不依赖仍然存活的 WebView 回调。
+- PCM S16LE、16 kHz、单声道 batch 使用 sample offset 作为时间轴身份。音频中断会生成显式 gap，系统时钟变化不能让 sample 时间轴倒退。
+- 每个 batch 都会 fsync、SHA-256 seal、配对原子 sidecar，再提交到原子 manifest。客户端同时维护受保护的连续 WAV，用于即时本地回放。
+- 存储层使用后端排序紧凑 JSON 合同生成 `siq.meeting.native_capture.manifest.v1` 规范条目和摘要。只有有序 outbox 清空后，stop 才会排队执行带 capture token 的 seal。seal 成功后，再以幂等用户会话请求声明 gap，避免把中断误报成已接收音频。
+- 桥接层只返回 `capture-asset:<capture-id>`，绝不返回绝对沙箱路径或通用 `file://` URL。
+- capture token 与绑定的 installation ID 一起保存在 Keychain，并使用 `AfterFirstUnlockThisDeviceOnly`。token 只放在 `Authorization` 中发送；每个 capture 作用域请求也发送 `X-SIQ-Device-Installation-Id`。这两个值不得进入 manifest、文件名、任务描述、事件或错误 payload。
+- 每个 capture 使用独立后台 `URLSession`；恢复任务 key 包含 capture ID、epoch、sequence 和 SHA-256。冷启动会枚举受保护 capture 目录，重建匹配 session，按 manifest 校验每个恢复请求，并在不启动麦克风的情况下恢复有序 outbox。只有有界 JSON 响应精确匹配本地 capture、坐标、摘要和字节数后，batch 才能成为本地 ACK。重定向、空 2xx、畸形 ACK 或不再证明 batch 已持久化的服务端 checkpoint 都会让 batch 保留或回到 pending outbox。
+- `getCheckpoints` 执行认证服务端读取，并合并四类权威状态：本地 capture manifest、服务端 ingest checkpoint、实时 checkpoint 和 finalization checkpoint。它不会用本地上传任务完成状态替代服务端持久化证明。前台 rollover 会先 reconcile 并 drain 旧 epoch，持久化一个可重放请求边界/key，使用 WebView 用户会话调用控制面，并在服务端响应通过校验前隔离新本地 batch。
+- 音频中断会先持久化 pending gap。本地回放 WAV 写入确定性静音以保持回放时间连续，上传 manifest 写入虚拟且不上传的 sequence 条目。rollover/seal 会冻结这些条目，服务端只在最终 seal 后收到显式 `system_interruption` gap。UI 会收到精确 sample 和 sequence 范围。
+- 回放桥只消费 `capture-asset:<capture-id>`。`AVAudioPlayer` 持有本地回放；认证服务端 Range URL 准备好后，`AVPlayer` 会准备并跳转到当前本地位置，且只在最新 generation 仍有效时切换。切换失败或过期会保留本地播放器。
+- 本地删除在认证 cleanup receipt 后失败关闭。桥接布尔值只是用户意图；原生代码会先刷新 capture-token checkpoint，要求 sealed ingest、服务端 packaging/playback 已就绪、服务端 missing range 为空，并且本地/服务端 WAV 的 SHA-256 和字节数完全一致。它会先原子持久化 receipt，再取消上传、移除 capture token、删除受保护目录。冷启动恢复会在创建 uploader 前完成任何 staged cleanup。
+- `gap` 和 `rollover` 是前台用户会话 API。capture-token scope 只限于 batch upload、checkpoint read 和 seal，不扩展到会议控制。父域 session cookie 只复制给已配置的可信 API host。
+- 前台控制调用支持可信 WebView cookie 会话加匹配 CSRF header，或 shell 提供的当前用户 bearer。bearer 只存在内存中，不写入 Keychain、manifest、文件名、后台任务、事件或崩溃 payload。冷恢复可以恢复 capture-token 上传和 seal，但任何 pending 用户会话 gap 调用都必须等待前台重新认证。
+- 已提交的桥接代码会验证 `SIQMeetingAPIOrigin` 是仅含 origin 的 HTTPS URL，并在 document start 注入不可变 `__SIQ_NATIVE_CONFIG__`。共享 Web API client 只接受来自 `capacitor://localhost` shell 的覆盖；普通 Web 部署仍使用现有同源 `/api` 行为。
 
-## Source layout
+## 源码布局
 
-- `src/`: the typed Capacitor bridge consumed by the native shell.
-- `ios/Sources/MeetingCapturePlugin/`: recorder, durable store/outbox, Keychain, background uploader, controller, and Capacitor plugin.
-- `ios/App/App.xcodeproj`: a checked-in, standalone Capacitor SPM application target linked to the repository's local `SIQMeetingCapture` Swift package.
-- `ios/App/App/`: the native host, explicit plugin bridge registration, microphone/background declarations, privacy manifest, and background-session completion forwarding.
-- `ios/Tests/`: simulator/Xcode unit tests for persistence and opaque playback handles.
-- `scripts/contract.test.mjs`: Linux-safe static contract checks. These checks do not claim that iOS background recording works.
+- `src/`：原生 shell 消费的强类型 Capacitor 桥。
+- `ios/Sources/MeetingCapturePlugin/`：录音器、持久 store/outbox、Keychain、后台 uploader、controller 和 Capacitor 插件。
+- `ios/App/App.xcodeproj`：已提交的独立 Capacitor SPM 应用目标，链接仓库本地 `SIQMeetingCapture` Swift package。
+- `ios/App/App/`：原生宿主、显式插件桥注册、麦克风/后台声明、隐私 manifest 和后台 session completion 转发。
+- `ios/Tests/`：持久化和 opaque playback handle 的模拟器/Xcode 单元测试。
+- `scripts/contract.test.mjs`：可在 Linux 安全运行的静态合同检查。这些检查不声明 iOS 后台录音已经可用。
 
-## Local checks
+## 本地检查
 
 ```bash
 npm install --ignore-scripts
@@ -69,18 +71,18 @@ npm --prefix ../web run build
 npm run ios:sync
 ```
 
-`ios:sync` copies the current `apps/web/dist` bundle and refreshes Capacitor's generated runtime files; these generated files remain ignored. On macOS, open `ios/App/App.xcodeproj`, set the `SIQ_MEETING_API_ORIGIN` build setting to the exact trusted HTTPS origin, choose a signing team, and run the app plus Swift tests from Xcode. The app target already links the local Swift package, registers `MeetingCapturePlugin` explicitly, includes the privacy manifest, and declares background audio. The plugin rejects API URLs with another origin, user info, query, fragment, or path. The checked-in `capacitor.config.ts` freezes the application identity and web bundle location.
+`ios:sync` 会复制当前 `apps/web/dist` bundle，并刷新 Capacitor 生成的运行文件；这些生成文件仍然被 Git 忽略。在 macOS 上，打开 `ios/App/App.xcodeproj`，把 `SIQ_MEETING_API_ORIGIN` build setting 设置为精确可信 HTTPS origin，选择签名团队，然后在 Xcode 中运行 App 和 Swift 测试。App target 已链接本地 Swift package，显式注册 `MeetingCapturePlugin`，包含隐私 manifest，并声明后台音频。插件会拒绝带有其他 origin、user info、query、fragment 或 path 的 API URL。已提交的 `capacitor.config.ts` 冻结了应用身份和 Web bundle 位置。
 
-## Parameters requiring real-device freeze
+## 需要真机冻结的参数
 
-The current prototype uses `playAndRecord`, `spokenAudio`, a preferred 16 kHz sample rate, a 20 ms preferred I/O buffer, 5-second batches, and `completeUntilFirstUserAuthentication` file protection. These are provisional. MT-081 and MT-086 must freeze them only after supported-device tests confirm audio quality, Bluetooth behavior, locked-device writes, energy use, temperature, and the security tradeoff.
+当前原型使用 `playAndRecord`、`spokenAudio`、首选 16 kHz 采样率、首选 20 ms I/O buffer、5 秒 batch，以及 `completeUntilFirstUserAuthentication` 文件保护。这些都是临时参数。MT-081 和 MT-086 必须在支持设备测试确认音频质量、蓝牙行为、锁屏写入、能耗、温度和安全取舍后才能冻结这些参数。
 
-Pure Web, PWA, Simulator, and WKWebView-only results are not evidence for locked-screen capture. Force quit, device reboot, OS process termination, or revoked microphone permission stop capture; the product must not claim otherwise.
+纯 Web、PWA、Simulator 和仅 WKWebView 结果都不能作为锁屏采集证据。强制退出、设备重启、OS 进程终止或麦克风权限被撤销都会停止采集；产品不得宣称相反能力。
 
-## Release evidence still required
+## 仍需补齐的发布证据
 
-Before enabling `SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED`, retain per-device evidence for locked-screen runs at 1, 10, 30, and 60 minutes plus a 4-hour soak. Verify sample counts, batch hashes, gaps, duplicate suppression, Wi-Fi/cellular transitions, 30-minute offline recovery, calls and route changes, low-power and low-disk behavior, crash/upgrade recovery, local playback P95 under 2 seconds, energy, thermal state, storage, and upload traffic.
+启用 `SIQ_MEETING_IOS_NATIVE_CAPTURE_ENABLED` 前，必须为每类设备保留锁屏 1、10、30、60 分钟以及 4 小时 soak 的证据。需要验证 sample count、batch hash、gap、重复抑制、Wi-Fi/蜂窝切换、30 分钟离线恢复、来电和音频路由变化、低电量和低磁盘行为、崩溃/升级恢复、本地回放 P95 小于 2 秒、能耗、热状态、存储和上传流量。
 
-The privacy manifest and microphone/background-audio wording are review inputs, not App Store approval. Legal/privacy review, signing, provisioning, supported-device matrix, Xcode compilation, and physical-device results are mandatory release gates.
+隐私 manifest 和麦克风/后台音频文案只是审核输入，不等于 App Store 批准。法务/隐私审查、签名、provisioning、支持设备矩阵、Xcode 编译和真机结果都是强制发布门禁。
 
-This remains an isolated implementation candidate, not an M8 release claim. Linux checks cover the bridge contract and Swift source invariants; they do not type-check Apple frameworks. The checked-in XCTest suite covers idempotent stop, opaque playback handles, canonical digests, open-batch crash recovery, persistent rollover boundaries, bidirectional server checkpoint reconciliation, interruption-gap materialization, and staged cleanup recovery, but it still must run under Xcode. The cleanup receipt is an authenticated durability proof derived from the existing checkpoint contract; a separately signed server deletion endpoint is not currently part of the backend contract. Signing, provisioning, supported-device Xcode compilation, security/privacy review, App Store review, and the physical-device matrix below still block enabling the feature flag.
+该模块仍是隔离实现候选，不是 M8 发布声明。Linux 检查覆盖桥接合同和 Swift 源码不变量，但不会 type-check Apple frameworks。已提交 XCTest 覆盖幂等 stop、opaque playback handle、规范摘要、open-batch 崩溃恢复、持久 rollover 边界、双向服务端 checkpoint reconcile、中断 gap 物化和 staged cleanup 恢复，但仍必须在 Xcode 下运行。cleanup receipt 是从现有 checkpoint 合同派生的认证耐久性证明；单独签名的服务端删除接口目前不属于后端合同。签名、provisioning、支持设备 Xcode 编译、安全/隐私审查、App Store 审查和真机矩阵仍然阻止启用该 feature flag。

@@ -2,6 +2,8 @@
 
 `var/openshell/` 是 SIQ 管理的 OpenShell 本地状态根目录。目录本身位于项目内，但它同时包含凭据与非敏感运行态，因此除本 README 和 `manifests/*.sanitized.json|md` 外默认被 Git 忽略。这里的默认忽略不是禁止发布 OpenShell 资产；非敏感内容经脱敏导出到 `artifacts/openshell/**` 后即可提交。
 
+该目录服务于 SIQ 自研 NVIDIA OpenShell + Hermes 演示/灰度控制面。网关 TLS/数据库、Provider 清单、Broker 状态、资源池注册表、沙箱生命周期、toolchain 摘要、proof、audit 和临时运行记录都可能出现在这里；它们用于支撑公司范围自动创建、对话沙箱代际、租约/隔离/恢复、Host 回退和空闲 TTL 清理，但原件默认不进入 Git。
+
 ## 可提交
 
 - 本 README；

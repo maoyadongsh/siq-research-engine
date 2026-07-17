@@ -1,13 +1,10 @@
-# Market Ingestion Contract Fixture
+# 市场入库合同 Fixture
 
-This directory is the portable PR-CI fixture for
-`scripts/maintenance/run_market_ingestion_eval.py --strict`.
+本目录是 `scripts/maintenance/run_market_ingestion_eval.py --strict` 使用的可移植 PR-CI fixture。
 
-It intentionally contains one small, synthetic HK evidence package. The real
-multi-market cases remain in `datasets/market_ingestion/` and resolve packages
-from `data/wiki/` only in local, nightly, or release environments.
+它有意只包含一个小型合成 HK evidence package。真实多市场 cases 保留在 `datasets/market_ingestion/`，并且只在本地、nightly 或发布环境中从 `data/wiki/` 解析 package。
 
-Run the contract gate from the repository root:
+从仓库根目录运行合同门禁：
 
 ```bash
 python3 scripts/maintenance/run_market_ingestion_eval.py \

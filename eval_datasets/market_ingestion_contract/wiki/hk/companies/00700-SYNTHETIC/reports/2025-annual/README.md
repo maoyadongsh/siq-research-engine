@@ -1,1 +1,1 @@
-# Synthetic HK annual report fixture
+# 合成港股年报 fixture

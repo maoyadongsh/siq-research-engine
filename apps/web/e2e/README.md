@@ -4,6 +4,16 @@
 
 `apps/web/e2e` 负责验证 Web 工作台的关键用户路径没有被破坏。它不是覆盖所有业务细节的唯一测试层，而是回答一个更直接的问题：对于真实用户来说，系统最核心的操作路径现在还能不能用。
 
+这些 smoke tests 按产品面覆盖：
+
+| 产品面 | E2E 关注点 |
+| --- | --- |
+| 二级市场投研分析智能体集群 | 搜索下载、解析页、package quality gate、报告阅读、分析/核查/跟踪/法务/聊天入口 |
+| 一级市场投研决策智能体集群 | `/primary-market`、`/deals` 壳层、材料/证据/决策入口和空状态 |
+| 应用中心 | `/documents`、`/meetings`、`/vector-ingest`、设置与系统状态入口 |
+
+OpenShell runtime provenance、Agent memory 注入和真实模型输出属于 API/OpenShell 专项测试或 mock contract 验证范围；前端 E2E 主要确保这些状态能被页面稳定承载和展示。
+
 ## 覆盖范围
 
 | 场景 | 目标 |
@@ -73,7 +83,7 @@ SIQ_FRONTEND_PORT=15175 npm run e2e
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:15175 npm run e2e
 ```
 
-## mock 与真实链路边界
+## Mock 与真实链路边界
 
 当前多数 smoke tests 使用 `e2e/support/mockApi.ts` 或测试内 route mock，不强依赖完整后端、真实数据库或固定测试账号。这样做的价值是：
 

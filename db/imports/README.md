@@ -4,6 +4,16 @@
 
 `db/imports` 保存把 `document_full.json`、通用文档 package 和多市场 evidence package 写入 PostgreSQL 的导入工具，以及少量只读查询辅助入口。它负责把文件型证据层转换成结构化事实层，供 Agent、查询工具和回归分析复用。
 
+## 产品归属与业务边界
+
+PostgreSQL 入库层是三条产品面的结构化事实账本。
+
+| 产品面 | 作用 | 边界 |
+| --- | --- | --- |
+| 二级市场 | 将 market evidence package、financial_data、source map 和 document_full 入库，支撑 Agent 查询和报告复核 | 不绕过 package quality gate，不把低质量 artifact 静默固化 |
+| 一级市场 | 支撑 deal evidence、项目材料和 IC 阶段产物的结构化查询扩展 | 不替代 Wiki/data room 原始证据，也不替代人工签核 |
+| 应用中心 | 将通用文档、解析结果和批处理产物写入可查询 schema | 数据库是结构化索引和账本，原始事实仍需回到 package/artifact |
+
 多市场财报 evidence package 入库必须对齐 A 股公司级 Wiki 语义。A 股使用 `data/wiki/companies/<stock_code>-<company>/reports/<report_id>/`；日本市场使用 `data/wiki/jp/companies/<ticker>-<company>/reports/<report_id>/`。JP manifest 必须保留 `company_wiki_path`、`wiki_report_path`、`company_wiki_id` 和 `report_id`，PostgreSQL 的 JP importer 以 `wiki_report_path` 作为 parse run 的知识库定位入口。`data/wiki/jp_reports/` 只作历史兼容或迁移来源。
 
 ## 在系统中的位置

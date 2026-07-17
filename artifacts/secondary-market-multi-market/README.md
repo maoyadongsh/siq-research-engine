@@ -1,20 +1,13 @@
-# Secondary-Market Multi-Market Acceptance Evidence
+# 二级市场多市场验收证据
 
-This directory contains only sanitized release-gate evidence for the CN, HK,
-US, EU, KR, and JP analysis, fact-checking, and tracking rollout.
+本目录只保存 CN、HK、US、EU、KR、JP 分析、核查和跟踪链路的脱敏发布门禁证据。
 
-- `real-smoke.sanitized.json` records authoritative identity fields, adapter
-  family/version, terminal status, artifact IDs, content hashes, and immutable
-  fact-surface hashes. It excludes report bodies, prompts, credentials, and
-  local filesystem paths.
-- `ui-analysis-mobile-375.png` and `ui-analysis-desktop-1440.png` are mocked-API
-  UI acceptance screenshots used to check control order, text fit, and layout.
+- `real-smoke.sanitized.json` 记录权威 identity 字段、adapter family/version、终态状态、artifact ID、内容 hash 和不可变事实面 hash；不包含报告正文、prompt、凭据或本地文件系统路径。
+- `ui-analysis-mobile-375.png` 与 `ui-analysis-desktop-1440.png` 是 mocked-API UI 验收截图，用于检查控制顺序、文本适配和布局。
 
-The synthetic golden contract matrix is versioned separately at
-`apps/api/tests/golden/secondary_market_multi_market_sidecars.json`.
+合成 golden 合同矩阵单独版本化在 `apps/api/tests/golden/secondary_market_multi_market_sidecars.json`。
 
-Reproduce the real-Wiki gate from the repository root with deterministic
-parsed-ready sample selection:
+从仓库根目录复现实 Wiki gate，并使用确定性的 parsed-ready 样本选择：
 
 ```bash
 SIQ_MULTI_MARKET_RESEARCH_ENABLED=1 \
@@ -23,9 +16,4 @@ uv run --project apps/api python \
   scripts/maintenance/run_secondary_market_multi_market_real_smoke.py
 ```
 
-The runner treats CN as a read-only legacy golden regression and never invokes
-the new renderer for it. HK, US, EU, KR, and JP must each publish exact-identity
-analysis, factcheck, and tracking artifacts. The gate also requires every
-protected fact-surface digest to remain unchanged. Tracking runs with external
-search and sentiment disabled, so unavailable source coverage is recorded as
-degraded rather than simulated success.
+runner 将 CN 视为只读 legacy golden 回归，不会为它调用新 renderer。HK、US、EU、KR、JP 必须分别发布 exact-identity analysis、factcheck 和 tracking artifacts。门禁还要求所有受保护事实面 digest 保持不变。tracking 运行时关闭外部搜索和情绪分析，因此来源覆盖不可用会记录为 degraded，而不是模拟成功。

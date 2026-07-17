@@ -1,4 +1,4 @@
-# SIQ Host Broker Lifecycle
+# SIQ 宿主 Broker 生命周期
 
 本目录说明两个宿主 broker 的共同生命周期。实现位于：
 
@@ -82,7 +82,7 @@ var/openshell/brokers/bridge.json
 停止只发送 `SIGTERM`，不发送强制 kill。PID 复用、孤儿进程、端口被占、公开监听、
 network 重建或状态冲突都会失败关闭。
 
-## Sandbox 接线
+## 沙箱接线
 
 真实 sandbox 接线需要同时满足：
 

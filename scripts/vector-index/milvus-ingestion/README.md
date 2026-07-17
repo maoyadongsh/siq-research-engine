@@ -4,6 +4,16 @@
 
 `scripts/vector-index/milvus-ingestion` 负责把可检索材料切块、向量化并写入 Milvus collection。它是 SIQ 语义层和知识库层的重要工具目录，但不绑定某一条单一业务工作流。
 
+## 产品归属与业务边界
+
+Milvus 入库是应用中心的核心工具，也服务二级市场和一级市场智能体召回。
+
+| 产品面 | 作用 | 边界 |
+| --- | --- | --- |
+| 二级市场 | 将 Wiki package、财报 evidence、法规和报告片段转成可重建语义索引 | 不把 chunk 当事实真值，必须保留 source identity |
+| 一级市场 | 将 data room、访谈、投委会材料和专家报告转成 project-scoped 检索资产 | 必须保留 ACL、project scope 和材料来源 |
+| 应用中心 | `/vector-ingest`、Gradio UI、knowledge ingest 工具和 metadata schema | 负责索引治理，不负责最终投研判断 |
+
 ## 在系统中的位置
 
 ```text

@@ -6,6 +6,18 @@
 
 它的职责不是“替代底层服务”，而是把这些能力包装成带鉴权、带归属、带状态、带审计的统一研究接口。
 
+## 产品归属与业务边界
+
+`apps/api` 同时服务三条产品面，但自身定位始终是控制面，不直接替代 parser、rules、Hermes 或模型服务。
+
+| 产品面 | API 职责 | 关键价值 |
+| --- | --- | --- |
+| 二级市场投研分析智能体集群 | 统一暴露搜索下载、财报解析、market package、source access、分析/核查/跟踪/法务 Agent、PostgreSQL / Milvus 动作 | 让研究员从披露到报告复核的链路在同一鉴权和审计边界内发生 |
+| 一级市场投研决策智能体集群 | 承载 Deal OS、材料中心、证据对象、专家任务、R0-R4 工作流、争议、决策和审计 | 把投委会过程从散落文档转成可回放状态机 |
+| 应用中心 | 代理文档解析、会议转写、会议导入/导出、声纹/术语、向量入库和系统设置 | 让材料生产和知识沉淀能力被两大智能体集群复用 |
+
+OpenShell 相关代码也位于 API 控制面边界内。API 负责运行面选择、公司上下文验证、范围自动创建、对话沙箱代际、资源池租约、隔离、重启恢复、空闲 TTL 清理和 Host 回退语义，但不会把 `NO_GO` 的 OpenShell 灰度链路当成默认生产运行面。正式切流必须由 OpenShell 完成度门禁、质量 A/B、人工架构/安全评审和正式生产门禁共同放行。
+
 ## 在系统中的位置
 
 ```text
@@ -35,6 +47,8 @@ apps/web / external client
 | 会议智能化 | 会话、实时流、导入、说话人、术语/声纹、纪要、导出、回放与原生采集协议 |
 | Wiki / 报告访问 | 读取分析、核查、跟踪、法务及市场 package 产物 |
 | Agent 代理 | 对 Hermes 提供会话、附件、SSE 输出、停止与恢复能力 |
+| 拟人化记忆控制 | 串联 Hermes 原生会话记忆、本地临时任务记忆、PostgreSQL 权威长期记忆、Milvus 语义索引和 reranker |
+| OpenShell 运行面选择 | 对 `siq_analysis` 提供 Host / OpenShell 灰度路由、范围自动创建、对话代际、资源池租约/隔离/恢复、TTL 回收和失败关闭回退 |
 | Source 访问控制 | 为 PDF 页图、source map、artifact、下载文件提供安全访问入口 |
 | 工作流编排 | 驱动 Wiki、PostgreSQL、Milvus 等下游导入链路 |
 | 系统设置与健康面板 | 汇总模型配置、下游健康和基础系统状态 |
@@ -48,7 +62,8 @@ apps/web / external client
 | 质量门禁 | warning/fail package 未 force 时返回 409，并携带 `quality_gates` | 防止低质量解析静默污染 PostgreSQL 或语义索引 |
 | Source 安全 | 下载文件、artifact、PDF 页图、source map 通过受控 API 访问 | 保留证据回跳能力，同时避免裸露本机路径 |
 | Deal OS / IC 工作流 | `/api/deals/*`、会议室、agent runtime 与 readiness 接入 | 支撑一级市场 R1-R4 尽调、分歧和投委会决策链 |
-| 记忆系统 | PostgreSQL 权威记忆 + Milvus 语义索引 + profile / deal scope | 支撑用户私有记忆、项目共享记忆和系统共享知识的隔离召回 |
+| 记忆系统 | Hermes 原生会话记忆 + 本地临时任务记忆 + PostgreSQL 权威长期记忆 + Milvus 语义索引 + reranker | 支撑拟人化连续性、全量记忆、半衰期衰减、按需全量召回和用户/项目/系统隔离 |
+| OpenShell 控制面 | `openshell_pool_adapter`、`openshell_scope_lifecycle`、运行协调、资源池恢复与运行路由接入 | 支撑 NVIDIA OpenShell + Hermes 演示/灰度链路：按公司范围自动建沙箱、同对话代际复用/隔离、请求级租约、API 重启恢复和空闲 TTL 删除；正式生产门禁仍为 `NO_GO` |
 
 API 后端的商业价值在于把底层复杂能力包装成“可卖给研究组织的治理面”：权限、审计、质量阻断、任务状态、文件访问和智能体调用都在同一个控制面闭环中完成。
 
@@ -126,7 +141,7 @@ curl -s http://127.0.0.1:18081/api/system/status
 | --- | --- | --- |
 | `SIQ_BACKEND_PORT` | `18081` | API 监听端口 |
 | `SIQ_AUTH_SECRET_KEY` | 无 | 鉴权密钥，必须设置 |
-| `SIQ_SOURCE_TOKEN_SECRET` | fallback 到 `SIQ_AUTH_SECRET_KEY` | source access token 签名密钥 |
+| `SIQ_SOURCE_TOKEN_SECRET` | 回退到 `SIQ_AUTH_SECRET_KEY` | source access token 签名密钥 |
 | `SIQ_DATA_ROOT` | `$PROJECT_ROOT/data` | 历史兼容运行态根目录 |
 | `SIQ_RUNTIME_ROOT` | `$PROJECT_ROOT/var` | 新增运行态推荐根目录 |
 | `SIQ_WIKI_ROOT` | `$SIQ_DATA_ROOT/wiki` | 文件型事实层目录 |
@@ -140,6 +155,19 @@ curl -s http://127.0.0.1:18081/api/system/status
 | `SIQ_AUTH_ACCESS_COOKIE_NAME` | `siq_access_token` | access cookie 名称 |
 | `SIQ_AUTH_COOKIE_SAMESITE` | `lax` | cookie SameSite 策略 |
 | `SIQ_AUTH_COOKIE_SECURE` | `0` | HTTPS 公网部署应设为 `1` |
+
+## 基础环境与测试情况
+
+API 后端建议在 Python `>=3.11` 环境运行，当前工作机采样为 Python `3.13.12`、uv `0.11.7`、Docker `29.1.3`。API 自身依赖 FastAPI、SQLModel、SSE、Redis/PostgreSQL/Milvus 相关客户端和多个下游 HTTP 服务；跨机器部署时以根 README 的环境表、`infra/env/local.example` 和各下游 README 为准。
+
+| 测试面 | 命令 | 覆盖重点 |
+| --- | --- | --- |
+| API 单元/集成 | `uv run python -m pytest tests` | 鉴权、路由、Agent runtime、Deal OS、会议、market package、source access |
+| Shell 入口 | `bash -n start.sh` | 启动脚本语法和基础环境变量 |
+| FastAPI 导入 | `uv run python -c "import main; print(main.app.title)"` | 依赖解析、应用对象初始化 |
+| OpenShell 控制面专项 | 见 `docs/siq-openshell-hermes-integration-status.md` | 最新记录 `78 passed`，覆盖运行面选择、资源池绑定、租约、范围自动创建、对话代际、TTL、恢复和 Host 回退 |
+
+README 或文案变更通常只需要 Markdown 检查；如果改动 `services/openshell_*`、Agent stream、source access、Deal OS、会议或 package gate，应补跑对应测试并手动检查 `/health`、`/api/system/status` 和相关业务路由。
 
 ## 验证方式
 

@@ -1,10 +1,12 @@
-# Market Modules
+# 市场模块
 
 ## 目录职责
 
-`markets/` 保存 `services/market-report-rules` 的市场差异层。每个市场都以独立模块存在，负责描述本市场的 rule profile、storage profile、parser boundary 和可选的 market-specific extraction 逻辑。
+`markets/` 保存 `services/market-report-rules` 的市场差异层。每个市场都以独立模块存在，负责描述本市场的 rule profile、storage profile、parser boundary 和可选的市场专属 extraction 逻辑。
 
 这个目录存在的意义，是把“市场差异”留在市场模块里，而不是把所有特殊规则膨胀到共享层。
+
+它是二级市场投研分析智能体集群全球化能力的规则插件层：官方源、parser 和模型可以替换，但市场会计语义、证据坐标、入库 schema 和 quality gate 必须在这里逐市场显式沉淀。一级市场在做公开可比公司研究时也会复用这些市场事实，但不把它们当成私有项目尽调结论。
 
 ## 当前市场矩阵
 
@@ -33,7 +35,7 @@
 视市场复杂度，可选提供：
 
 - `rules.py`：该市场的财务标签、概念或映射规则。
-- `extractor.py`：market-specific extraction 实现。
+- `extractor.py`：市场专属 extraction 实现。
 - `adapter.py`：与 legacy service、外部 parser 或兼容层的桥接逻辑。
 
 是否需要这些文件，取决于市场差异是否已经大到不能由共享逻辑承接。
