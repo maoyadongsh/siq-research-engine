@@ -10,9 +10,11 @@ import stat
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Literal, Mapping
 
 import httpx
+
+from services import openshell_pool_adapter
 
 SIQ_HERMES_DEFAULT_PORTS = {
     "siq_assistant": 18642,
@@ -104,9 +106,19 @@ HermesRuntimeTarget = Literal["host", "openshell"]
 OPENSHELL_ANALYSIS_RUNS_URL = "http://127.0.0.1:28651/v1/runs"
 OPENSHELL_CANARY_STATE_RELATIVE = Path("var/openshell/canary/siq-analysis")
 OPENSHELL_CANARY_ACTIVE_RELATIVE = OPENSHELL_CANARY_STATE_RELATIVE / "active.json"
+OPENSHELL_RUNTIME_SELECTION_RELATIVE = Path("var/openshell/runtime-selection/siq-analysis.json")
+OPENSHELL_POOL_REGISTRY_RELATIVE = Path("var/openshell/canary/siq-analysis/pool/registry.json")
 _CANARY_RUN_ID_RE = re.compile(r"canary-[0-9a-f]{12}\Z")
 _CANARY_API_KEY_RE = re.compile(r"[0-9a-f]{64}\Z")
 _CANARY_ACTIVE_SCHEMA = "siq.openshell.siq_analysis_canary_lifecycle.v1"
+_RUNTIME_SELECTION_SCHEMA = "siq.openshell.runtime_selection.v1"
+_RUNTIME_SELECTION_FIELDS = {
+    "schema_version",
+    "profile",
+    "target",
+    "session_mode",
+    "unmatched_scope",
+}
 _CANARY_ACTIVE_FIELDS = {
     "schema_version",
     "mode",
@@ -170,10 +182,56 @@ _CANARY_FORMAL_BLOCKERS = [
     "milvus_formal_proof_not_required",
     "clash_fake_ip_egress_guard_compatibility_unresolved",
 ]
+_IMPLICIT_HOST_FALLBACK_RUNTIME_ERRORS = frozenset(
+    {
+        "openshell_canary_not_active",
+        "openshell_canary_company_context_required",
+        "openshell_canary_company_not_authorized",
+        "openshell_pool_context_ambiguous",
+        "openshell_pool_context_company_conflict",
+        "openshell_pool_context_directory_invalid",
+        "openshell_pool_context_market_conflict",
+        "openshell_pool_context_market_required",
+    }
+)
+_HOST_ROLLBACK_CONTEXT_ERRORS = frozenset(
+    {
+        "openshell_pool_context_ambiguous",
+        "openshell_pool_context_company_conflict",
+        "openshell_pool_context_directory_invalid",
+        "openshell_pool_context_market_conflict",
+        "openshell_pool_context_market_required",
+    }
+)
 
 
 class HermesRuntimeSelectionError(RuntimeError):
     """A secret-free failure to authorize or resolve a requested runtime."""
+
+
+@dataclass(frozen=True)
+class HermesRuntimeSelection:
+    target: HermesRuntimeTarget
+    canary_enabled: bool
+    session_mode: Literal["allowlist", "all"]
+    unmatched_scope: Literal["host"]
+    source: Literal["environment", "runtime_file"]
+
+
+@dataclass(frozen=True, repr=False)
+class OpenShellCanaryBinding:
+    run_id: str
+    api_key: str
+    market: str
+    company: str
+    analysis_relative_path: str
+
+    def __repr__(self) -> str:
+        return (
+            "OpenShellCanaryBinding("
+            f"run_id={self.run_id!r}, market={self.market!r}, company={self.company!r}, "
+            f"analysis_relative_path={self.analysis_relative_path!r}, api_key='<redacted>')"
+        )
 
 
 @dataclass(frozen=True, repr=False)
@@ -186,6 +244,17 @@ class HermesRunRoute:
     authorization: str
     session_namespace: str
     canary_run_id: str | None = None
+    pool_binding: Any | None = None
+    pool_lease_id: str | None = None
+    pool_owner_token: str | None = None
+    pool_owner_generation: int | None = None
+    pool_tenant_id: str | None = None
+    pool_user_id: str | None = None
+    pool_market: str | None = None
+    pool_company: str | None = None
+    # Advisory task-path metadata only. The current long-lived sandbox still
+    # mounts the complete company analysis root and does not enforce this leaf.
+    pool_write_relative_path: str | None = None
 
     def __repr__(self) -> str:
         return (
@@ -304,8 +373,65 @@ def _read_private_runtime_json(path: Path, *, max_bytes: int) -> dict[str, Any]:
     return _parse_private_runtime_json(_read_private_runtime_file(path, max_bytes=max_bytes))
 
 
-def _active_openshell_canary() -> tuple[str, str]:
+def _environment_runtime_selection() -> HermesRuntimeSelection:
+    configured_target = os.getenv("SIQ_HERMES_RUNTIME", "host").strip().lower()
+    if configured_target not in {"host", "openshell"}:
+        raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
+    session_mode = os.getenv(
+        "SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_SESSION_MODE",
+        "allowlist",
+    ).strip().lower()
+    if session_mode not in {"allowlist", "all"}:
+        raise HermesRuntimeSelectionError("openshell_canary_session_mode_invalid")
+    return HermesRuntimeSelection(
+        target=configured_target,
+        canary_enabled=_env_bool("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_ENABLED", False),
+        session_mode=session_mode,
+        unmatched_scope="host",
+        source="environment",
+    )
+
+
+def _runtime_selection() -> HermesRuntimeSelection:
+    runtime_file_enabled = os.getenv("SIQ_HERMES_RUNTIME_SELECTION_ENABLED", "0").strip().lower()
+    if runtime_file_enabled in {"0", "false", "no", "off"}:
+        return _environment_runtime_selection()
+    selection_path = _project_root() / OPENSHELL_RUNTIME_SELECTION_RELATIVE
+    try:
+        selection_path.lstat()
+    except FileNotFoundError:
+        return _environment_runtime_selection()
+    except OSError as exc:
+        raise HermesRuntimeSelectionError("openshell_runtime_selection_unavailable") from exc
+
+    selection = _read_private_runtime_json(selection_path, max_bytes=2048)
+    if (
+        set(selection) != _RUNTIME_SELECTION_FIELDS
+        or selection.get("schema_version") != _RUNTIME_SELECTION_SCHEMA
+        or selection.get("profile") != "siq_analysis"
+        or selection.get("target") not in {"host", "openshell"}
+        or selection.get("session_mode") not in {"allowlist", "all"}
+        or selection.get("unmatched_scope") != "host"
+    ):
+        raise HermesRuntimeSelectionError("openshell_runtime_selection_invalid")
+    target = str(selection["target"])
+    return HermesRuntimeSelection(
+        target=target,
+        canary_enabled=target == "openshell",
+        session_mode=str(selection["session_mode"]),
+        unmatched_scope="host",
+        source="runtime_file",
+    )
+
+
+def _active_openshell_canary() -> OpenShellCanaryBinding:
     active_path = _project_root() / OPENSHELL_CANARY_ACTIVE_RELATIVE
+    try:
+        active_path.lstat()
+    except FileNotFoundError as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_not_active") from exc
+    except OSError as exc:
+        raise HermesRuntimeSelectionError("openshell_canary_state_unavailable") from exc
     active = _read_private_runtime_json(active_path, max_bytes=4096)
     if set(active) != _CANARY_ACTIVE_FIELDS:
         raise HermesRuntimeSelectionError("openshell_canary_active_invalid")
@@ -385,7 +511,80 @@ def _active_openshell_canary() -> tuple[str, str]:
         raise HermesRuntimeSelectionError("openshell_canary_api_key_invalid")
     if hashlib.sha256(key.encode("ascii")).hexdigest() != manifest["api_key_sha256"]:
         raise HermesRuntimeSelectionError("openshell_canary_api_key_mismatch")
-    return run_id, key
+    return OpenShellCanaryBinding(
+        run_id=run_id,
+        api_key=key,
+        market=market,
+        company=company,
+        analysis_relative_path=expected_analysis,
+    )
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return value
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(exclude_none=True)
+        if isinstance(dumped, Mapping):
+            return dumped
+    return {}
+
+
+def _canary_matches_context(binding: OpenShellCanaryBinding, context: Any | None) -> bool:
+    raw = _mapping(context)
+    company = _mapping(raw.get("company"))
+    identity = _mapping(raw.get("research_identity"))
+    if not company and not identity:
+        return False
+
+    expected_company_root = _project_root() / Path(binding.analysis_relative_path).parent
+    market = str(
+        company.get("market")
+        or identity.get("market")
+        or raw.get("market")
+        or ""
+    ).strip().lower()
+    raw_dir = str(company.get("dir") or "").strip()
+    if raw_dir:
+        candidate = Path(raw_dir)
+        if ".." in candidate.parts:
+            return False
+        candidate_is_canonical = candidate.is_absolute()
+        if not candidate.is_absolute() and len(candidate.parts) == 1 and ":" not in raw_dir:
+            market_root = Path("companies") if market == "cn" else Path(market) / "companies"
+            candidate = _project_root() / "data/wiki" / market_root / candidate
+            candidate_is_canonical = market in {"cn", "eu", "hk", "jp", "kr", "us"}
+        elif not candidate.is_absolute():
+            if candidate.parts[:2] == ("data", "wiki"):
+                candidate = _project_root() / candidate
+                candidate_is_canonical = True
+            elif candidate.parts[0] == "companies" or (
+                len(candidate.parts) >= 2
+                and candidate.parts[0] in {"eu", "hk", "jp", "kr", "us"}
+                and candidate.parts[1] == "companies"
+            ):
+                candidate = _project_root() / "data/wiki" / candidate
+                candidate_is_canonical = True
+            else:
+                candidate_is_canonical = False
+        if candidate_is_canonical:
+            candidate = Path(os.path.normpath(os.fspath(candidate)))
+            try:
+                if candidate.exists() and candidate.resolve(strict=True) != expected_company_root.resolve(strict=True):
+                    return False
+            except OSError:
+                return False
+            return candidate == expected_company_root
+
+    if market != binding.market:
+        return False
+    expected_code, separator, expected_name = binding.company.partition("-")
+    code = str(company.get("code") or company.get("company_id") or identity.get("company_id") or "").strip()
+    name = str(company.get("name") or "").strip()
+    if code and code == expected_code:
+        return not name or not separator or name == expected_name
+    return bool(name and separator and name == expected_name)
 
 
 def _env_value(*names: str) -> str:
@@ -541,6 +740,15 @@ class StreamEvent:
 
 
 RunTerminalStatus = Literal["succeeded", "failed", "cancelled", "timed_out", "protocol_eof"]
+HermesRunLifecycleStatus = Literal[
+    "queued",
+    "running",
+    "waiting_for_approval",
+    "stopping",
+    "completed",
+    "failed",
+    "cancelled",
+]
 RUN_TERMINAL_SCHEMA_VERSION = "siq.hermes.run_terminal.v1"
 RUN_RUNTIME_SCHEMA_VERSION = "hermes.run_runtime.v1"
 _RUNTIME_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$")
@@ -572,6 +780,31 @@ class RunRuntimeMetadata:
             },
             "fallback": {"activated": self.fallback_activated},
         }
+
+
+@dataclass(frozen=True)
+class HermesRunStatus:
+    """Secret-free projection of ``GET /v1/runs/{run_id}``."""
+
+    run_id: str
+    status: HermesRunLifecycleStatus
+    quiesced: bool
+    updated_at: float | None = None
+    last_event: str | None = None
+    runtime: RunRuntimeMetadata | None = None
+
+    @property
+    def terminal(self) -> bool:
+        return self.status in {"completed", "failed", "cancelled"}
+
+    @property
+    def write_quiesced(self) -> bool:
+        # completed/failed are emitted only after the executor returns. A
+        # cancelled wrapper is safe only when Hermes explicitly attests that
+        # its executor thread has also stopped.
+        return self.status in {"completed", "failed"} or (
+            self.status == "cancelled" and self.quiesced
+        )
 
 
 def _runtime_label(value: Any) -> str | None:
@@ -800,22 +1033,31 @@ def normalize_runtime_target(
     """Authorize a request target, with Host remaining the rollback default."""
 
     canonical = normalize_profile(profile)
-    configured_target = os.getenv("SIQ_HERMES_RUNTIME", "host")
-    target = str(requested_target if requested_target is not None else configured_target).strip().lower()
+    explicit_target = str(requested_target).strip().lower() if requested_target is not None else None
+    if explicit_target not in {None, "host", "openshell"}:
+        raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
+    if explicit_target is not None and not _env_bool(
+        "SIQ_HERMES_REQUEST_RUNTIME_OVERRIDE_ENABLED",
+        False,
+    ):
+        raise HermesRuntimeSelectionError("hermes_runtime_request_override_forbidden")
+    if explicit_target == "host":
+        return "host"
+    if canonical != "siq_analysis":
+        return "host"
+
+    selection = _runtime_selection()
+    target = explicit_target or selection.target
     if target == "host":
         return "host"
     if target != "openshell":
         raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
-    if canonical != "siq_analysis":
-        return "host"
-    if not _env_bool("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_ENABLED", False):
+    if not selection.canary_enabled:
         raise HermesRuntimeSelectionError("openshell_canary_not_enabled")
 
-    session_mode = os.getenv("SIQ_HERMES_ANALYSIS_OPENSHELL_CANARY_SESSION_MODE", "allowlist").strip().lower()
+    session_mode = selection.session_mode
     if session_mode == "all":
         return "openshell"
-    if session_mode != "allowlist":
-        raise HermesRuntimeSelectionError("openshell_canary_session_mode_invalid")
 
     allowed_sessions = {
         item.strip()
@@ -832,12 +1074,21 @@ def resolve_run_route(
     requested_target: str | None = None,
     *,
     session_id: str | None = None,
+    context: Any | None = None,
+    _authorized_target: HermesRuntimeTarget | None = None,
 ) -> HermesRunRoute:
     """Resolve an immutable, credential-bound route before creating a run."""
 
     canonical = normalize_profile(profile)
-    target = normalize_runtime_target(canonical, requested_target, session_id=session_id)
+    target = (
+        _authorized_target
+        if _authorized_target is not None
+        else normalize_runtime_target(canonical, requested_target, session_id=session_id)
+    )
+    if target not in {"host", "openshell"}:
+        raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
     if target == "host":
+        _assert_pool_host_rollback_safe(canonical, context)
         config = hermes_profile_config(canonical)
         return HermesRunRoute(
             target="host",
@@ -847,15 +1098,109 @@ def resolve_run_route(
             session_namespace=f"siq:{canonical}",
         )
 
-    run_id, key = _active_openshell_canary()
+    pool_registry = _project_root() / OPENSHELL_POOL_REGISTRY_RELATIVE
+    try:
+        pool_registry.lstat()
+    except FileNotFoundError:
+        pool_binding = None
+    except OSError as exc:
+        raise HermesRuntimeSelectionError("openshell_pool_registry_unavailable") from exc
+    else:
+        try:
+            pool_binding = openshell_pool_adapter.OpenShellPoolAdapter(
+                project_root=_project_root(),
+            ).resolve_binding(context)
+        except openshell_pool_adapter.OpenShellPoolAdapterError as exc:
+            raise HermesRuntimeSelectionError(exc.code) from exc
+
+    if pool_binding is not None:
+        if pool_binding.target != "openshell":
+            if context is None or not _mapping(context):
+                raise HermesRuntimeSelectionError("openshell_canary_company_context_required")
+            raise HermesRuntimeSelectionError("openshell_canary_company_not_authorized")
+        return HermesRunRoute(
+            target="openshell",
+            base=pool_binding.base,
+            model=_profile_model_name(canonical, HERMES_ENV_PREFIXES[canonical]),
+            authorization=f"Bearer {pool_binding.api_key}",
+            session_namespace=pool_binding.session_namespace,
+            canary_run_id=pool_binding.run_id,
+            pool_binding=pool_binding,
+            pool_market=pool_binding.market,
+            pool_company=pool_binding.company,
+        )
+
+    binding = _active_openshell_canary()
+    if not _canary_matches_context(binding, context):
+        if context is None or not _mapping(context):
+            raise HermesRuntimeSelectionError("openshell_canary_company_context_required")
+        raise HermesRuntimeSelectionError("openshell_canary_company_not_authorized")
+    company_scope = hashlib.sha256(
+        f"{binding.market}\0{binding.company}".encode("utf-8")
+    ).hexdigest()[:16]
     return HermesRunRoute(
         target="openshell",
         base=OPENSHELL_ANALYSIS_RUNS_URL,
         model=_profile_model_name(canonical, HERMES_ENV_PREFIXES[canonical]),
-        authorization=f"Bearer {key}",
-        session_namespace=f"siq:openshell:{run_id}:{canonical}",
-        canary_run_id=run_id,
+        authorization=f"Bearer {binding.api_key}",
+        session_namespace=(
+            f"siq:openshell:{binding.run_id}:{canonical}:{binding.market}:{company_scope}"
+        ),
+        canary_run_id=binding.run_id,
+        pool_market=binding.market,
+        pool_company=binding.company,
     )
+
+
+def resolve_requested_run_route(
+    profile: HermesProfile | str,
+    requested_target: str | None,
+    *,
+    session_id: str,
+    context: Any | None = None,
+) -> HermesRunRoute | None:
+    """Resolve a request route, keeping unmatched implicit scopes on Host."""
+
+    target = normalize_runtime_target(profile, requested_target, session_id=session_id)
+    if target == "host":
+        _assert_pool_host_rollback_safe(normalize_profile(profile), context)
+        return None
+    try:
+        return resolve_run_route(
+            profile,
+            None,
+            session_id=session_id,
+            context=context,
+            _authorized_target=target,
+        )
+    except HermesRuntimeSelectionError as exc:
+        if requested_target is None and str(exc) in _IMPLICIT_HOST_FALLBACK_RUNTIME_ERRORS:
+            return None
+        raise
+
+
+def _assert_pool_host_rollback_safe(profile: str, context: Any | None) -> None:
+    """Require drain+unregister before a pooled company can execute on Host."""
+
+    if profile != "siq_analysis" or context is None or not _mapping(context):
+        return
+    registry_path = _project_root() / OPENSHELL_POOL_REGISTRY_RELATIVE
+    try:
+        registry_path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise HermesRuntimeSelectionError("openshell_pool_registry_unavailable") from exc
+    try:
+        binding = openshell_pool_adapter.OpenShellPoolAdapter(
+            project_root=_project_root(),
+        ).resolve_binding(context)
+    except openshell_pool_adapter.OpenShellPoolAdapterError as exc:
+        if exc.code in _HOST_ROLLBACK_CONTEXT_ERRORS:
+            return
+        raise HermesRuntimeSelectionError(exc.code) from exc
+    if binding.target == "openshell":
+        raise HermesRuntimeSelectionError("openshell_pool_host_rollback_requires_unregister")
 
 
 def route_session_id(
@@ -866,6 +1211,8 @@ def route_session_id(
     canonical = normalize_profile(profile)
     if route.target == "host":
         return f"siq:{canonical}:{session_id}"
+    if route.pool_lease_id:
+        return route.session_namespace
     return f"{route.session_namespace}:{session_id}"
 
 
@@ -1017,6 +1364,53 @@ async def stop_run(
         resp = await client.post(url, headers=headers)
         resp.raise_for_status()
         return resp.json()
+
+
+async def get_run_status(
+    run_id: str,
+    *,
+    profile: HermesProfile | str = "siq_assistant",
+    route: HermesRunRoute | None = None,
+) -> HermesRunStatus:
+    """GET one pinned Hermes run and return its strict lifecycle projection."""
+
+    cfg = _get_profile(profile) if route is None else {"base": route.base}
+    headers = {"Authorization": _hermes_auth_header(profile) if route is None else route.authorization}
+    url = f"{cfg['base']}/{run_id}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(url, headers=headers)
+        resp.raise_for_status()
+        payload = resp.json()
+    allowed_statuses = {
+        "queued",
+        "running",
+        "waiting_for_approval",
+        "stopping",
+        "completed",
+        "failed",
+        "cancelled",
+    }
+    if (
+        not isinstance(payload, dict)
+        or payload.get("object") != "hermes.run"
+        or payload.get("run_id") != run_id
+        or payload.get("status") not in allowed_statuses
+    ):
+        raise RuntimeError("hermes_run_status_invalid")
+    updated_at = payload.get("updated_at")
+    if isinstance(updated_at, bool) or not isinstance(updated_at, (int, float)):
+        updated_at = None
+    last_event = payload.get("last_event")
+    if not isinstance(last_event, str) or not _RUNTIME_LABEL_RE.fullmatch(last_event):
+        last_event = None
+    return HermesRunStatus(
+        run_id=run_id,
+        status=payload["status"],
+        quiesced=payload.get("quiesced") is True,
+        updated_at=float(updated_at) if updated_at is not None else None,
+        last_event=last_event,
+        runtime=normalize_run_runtime(payload.get("runtime")),
+    )
 
 
 async def collect_run_terminal_result(

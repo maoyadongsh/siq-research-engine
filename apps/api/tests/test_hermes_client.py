@@ -1,6 +1,84 @@
 import anyio
+import httpx
+import pytest
 
 from services import hermes_client
+
+
+def test_get_run_status_requires_strict_identity_and_quiescence(monkeypatch):
+    payloads = [
+        {
+            "object": "hermes.run",
+            "run_id": "run-status",
+            "status": "cancelled",
+            "quiesced": False,
+            "updated_at": 1.5,
+            "last_event": "run.cancelled",
+            "authorization": "must-not-escape",
+        },
+        {
+            "object": "hermes.run",
+            "run_id": "run-status",
+            "status": "cancelled",
+            "quiesced": True,
+            "updated_at": 2,
+            "last_event": "run.cancelled",
+        },
+    ]
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=payloads.pop(0), request=request)
+
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        hermes_client.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    monkeypatch.setenv("HERMES_API_KEY", "test-key")
+
+    async def run_case():
+        first = await hermes_client.get_run_status("run-status")
+        second = await hermes_client.get_run_status("run-status")
+        return first, second
+
+    first, second = anyio.run(run_case)
+
+    assert first.terminal is True
+    assert first.write_quiesced is False
+    assert second.write_quiesced is True
+    assert not hasattr(first, "authorization")
+    assert [request.url.path for request in requests] == [
+        "/v1/runs/run-status",
+        "/v1/runs/run-status",
+    ]
+
+
+def test_get_run_status_rejects_mismatched_run_identity(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"object": "hermes.run", "run_id": "other", "status": "completed"},
+            request=request,
+        )
+
+    real_client = httpx.AsyncClient
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        hermes_client.httpx,
+        "AsyncClient",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    monkeypatch.setenv("HERMES_API_KEY", "test-key")
+
+    async def run_case():
+        await hermes_client.get_run_status("run-status")
+
+    with pytest.raises(RuntimeError, match="hermes_run_status_invalid"):
+        anyio.run(run_case)
 
 
 def test_runs_url_does_not_fall_back_to_compat_port_by_default(monkeypatch):
