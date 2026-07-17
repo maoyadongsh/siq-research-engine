@@ -14,13 +14,12 @@ an enhancement source by callers, not by this resolver.
 
 from __future__ import annotations
 
-import json
-import re
 import argparse
+import json
 import os
+import re
 from pathlib import Path
 from typing import Any
-
 
 WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
 DEFAULT_SOURCE_TYPE = os.environ.get(
@@ -70,6 +69,31 @@ METRIC_ALIASES = {
         "扣非加权平均ROE",
         "deducted_weighted_avg_roe",
     },
+}
+PDF_MARKET_TABLE_ALIASES = {
+    "资产合计": {"资产合计", "total assets", "total_assets", "assets", "資産合計", "자산총계"},
+    "负债合计": {"负债合计", "total liabilities", "total_liabilities", "liabilities", "負債合計", "부채총계"},
+    "所有者权益合计": {
+        "所有者权益合计",
+        "股东权益合计",
+        "资本合计",
+        "total equity",
+        "total_equity",
+        "equity",
+        "資本合計",
+        "자본총계",
+    },
+    "归母权益": {
+        "归母权益",
+        "归母净资产",
+        "parent equity",
+        "parent_equity",
+        "equity attributable to shareholders",
+        "親会社の所有者に帰属する持分合計",
+        "지배기업 소유주지분",
+    },
+    "营业收入": {"营业收入", "revenue", "sales revenue", "operating revenue", "매출액", "売上収益"},
+    "净利润": {"净利润", "net income", "net profit", "profit for the year", "당기순이익", "当期利益"},
 }
 MAIN_STATEMENT_LABELS = {
     "balance_sheet": "资产负债表核心数据",
@@ -249,7 +273,7 @@ _COMPANY_ALIAS_CACHE: dict[str, list[Path]] = {}
 
 
 def _iter_company_dirs(wiki_base: Path = WIKI_BASE) -> list[Path]:
-    """Return both A-share and generic-subject company directories."""
+    """Return A-share, generic-subject, and PDF-market company directories."""
     seen: set[Path] = set()
     result: list[Path] = []
 
@@ -275,6 +299,12 @@ def _iter_company_dirs(wiki_base: Path = WIKI_BASE) -> list[Path]:
     companies_dir = wiki_base / "companies"
     if companies_dir.exists():
         for company_dir in companies_dir.iterdir():
+            add(company_dir)
+    for market in ("hk", "jp", "kr", "eu"):
+        market_companies_dir = wiki_base / market / "companies"
+        if not market_companies_dir.exists():
+            continue
+        for company_dir in market_companies_dir.iterdir():
             add(company_dir)
     return result
 
@@ -381,9 +411,54 @@ def _company_alias_index(wiki_base: Path = WIKI_BASE) -> dict[str, list[Path]]:
         add_alias(company.get("company_full_name"), company_dir)
         for alias in company.get("aliases") or []:
             add_alias(alias, company_dir)
+        for report in company.get("reports") or []:
+            if not isinstance(report, dict):
+                continue
+            add_alias(report.get("company_id"), company_dir)
+            add_alias(report.get("filing_id"), company_dir)
+            metadata = report.get("source_filename_metadata")
+            if not isinstance(metadata, dict):
+                continue
+            market = str(metadata.get("market") or "").strip().upper()
+            stock_code = str(metadata.get("stock_code") or metadata.get("raw_ticker") or "").strip()
+            add_alias(stock_code, company_dir)
+            add_alias(metadata.get("company_short_name"), company_dir)
+            if market and stock_code:
+                add_alias(f"{market}:{stock_code}", company_dir)
 
     _COMPANY_ALIAS_CACHE[cache_key] = result
     return result
+
+
+def _is_pdf_market_company_dir(company_dir: Path, wiki_base: Path = WIKI_BASE) -> bool:
+    try:
+        relative = company_dir.resolve().relative_to(wiki_base.resolve())
+    except (OSError, ValueError):
+        relative = company_dir
+    parts = tuple(part.lower() for part in relative.parts)
+    return any(
+        parts[index] in {"hk", "jp", "kr", "eu"} and parts[index + 1] == "companies"
+        for index in range(len(parts) - 1)
+    )
+
+
+def _explicit_company_dir_from_line(line: str, wiki_base: Path = WIKI_BASE) -> Path | None:
+    company_match = re.search(r"\bcompany_id=([^,，\n]+)", line or "")
+    market_match = re.search(r"\bmarket=([^,，\n]+)", line or "")
+    if not company_match or not market_match:
+        return None
+    market = market_match.group(1).strip().upper()
+    if market not in {"HK", "JP", "KR", "EU"}:
+        return None
+    identity = company_match.group(1).strip()
+    aliases = _company_alias_index(wiki_base)
+    candidates = aliases.get(_normalize(identity), [])
+    if not candidates:
+        ticker_match = re.search(r"(?:^|:)([0-9A-Z]{4,6})(?:-|$)", identity.upper())
+        if ticker_match:
+            candidates = aliases.get(_normalize(f"{market}:{ticker_match.group(1)}"), [])
+    market_candidates = [company_dir for company_dir in candidates if _is_pdf_market_company_dir(company_dir, wiki_base)]
+    return market_candidates[0] if len(market_candidates) == 1 else None
 
 
 def _split_metric_tokens(metric_text: str | None) -> list[str]:
@@ -420,9 +495,14 @@ def _company_task_index(wiki_base: Path = WIKI_BASE) -> dict[str, Path]:
     for company_dir in _iter_company_dirs(wiki_base):
         company = read_json(company_dir / "company.json", {}) or {}
         for report in company.get("reports") or []:
-            task_id = report.get("task_id")
-            if task_id:
-                result[str(task_id)] = company_dir
+            for task_id in (report.get("task_id"), report.get("parse_run_id")):
+                if task_id:
+                    result[str(task_id)] = company_dir
+            report_id = str(report.get("report_id") or "").strip()
+            manifest = read_json(company_dir / "reports" / report_id / "manifest.json", {}) if report_id else {}
+            for task_id in (manifest or {}).get("task_id"), (manifest or {}).get("parse_run_id"):
+                if task_id:
+                    result[str(task_id)] = company_dir
         task_id = company.get("task_id")
         if task_id:
             result[str(task_id)] = company_dir
@@ -443,13 +523,22 @@ def find_company_dir_from_text(text: str, wiki_base: Path = WIKI_BASE) -> Path |
         match = re.search(pattern, text)
         if not match:
             continue
-        candidate = wiki_base / "companies" / match.group(1)
-        if candidate.exists():
-            return candidate
+        relative_name = match.group(1)
+        candidates = [wiki_base / "companies" / relative_name]
+        candidates.extend(wiki_base / market / "companies" / relative_name for market in ("hk", "jp", "kr", "eu"))
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
 
-    stock_match = re.search(r"\b([0-9]{6})\b", text)
+    stock_match = re.search(r"\b([0-9]{4,6})\b", text)
     if stock_match:
-        matches = sorted((wiki_base / "companies").glob(f"{stock_match.group(1)}-*"))
+        roots = [wiki_base / "companies", *(wiki_base / market / "companies" for market in ("hk", "jp", "kr", "eu"))]
+        matches = sorted(
+            company_dir
+            for root in roots
+            if root.exists()
+            for company_dir in root.glob(f"{stock_match.group(1)}-*")
+        )
         if matches:
             return matches[0]
 
@@ -661,7 +750,12 @@ def _metric_matches(metric: dict[str, Any], token: str) -> bool:
     return bool(acceptable & metric_norms)
 
 
-def _record_matches_tokens(record: dict[str, Any], tokens: list[str]) -> bool:
+def _record_matches_tokens(
+    record: dict[str, Any],
+    tokens: list[str],
+    *,
+    include_pdf_market_aliases: bool = False,
+) -> bool:
     if not tokens:
         return True
 
@@ -681,12 +775,16 @@ def _record_matches_tokens(record: dict[str, Any], tokens: list[str]) -> bool:
     for token in tokens:
         token_norm = _normalize(token)
         acceptable = {token_norm}
-        for alias, values in METRIC_ALIASES.items():
-            alias_norm = _normalize(alias)
-            value_norms = {_normalize(value) for value in values}
-            if token_norm == alias_norm or token_norm in value_norms:
-                acceptable.add(alias_norm)
-                acceptable.update(value_norms)
+        alias_maps = [METRIC_ALIASES]
+        if include_pdf_market_aliases:
+            alias_maps.append(PDF_MARKET_TABLE_ALIASES)
+        for alias_map in alias_maps:
+            for alias, values in alias_map.items():
+                alias_norm = _normalize(alias)
+                value_norms = {_normalize(value) for value in values}
+                if token_norm == alias_norm or token_norm in value_norms:
+                    acceptable.add(alias_norm)
+                    acceptable.update(value_norms)
         if acceptable & candidate_norms:
             return True
         # Evidence indexes use richer names than key_metrics. A conservative
@@ -1023,6 +1121,14 @@ def _artifact_path(company_dir: Path, report_id: str | None, file_name: str) -> 
             candidates.extend([report_scoped, root_scoped])
         else:
             candidates.extend([root_scoped, report_scoped])
+        if rel.startswith("metrics/"):
+            metric_name = Path(rel).name
+            candidates.extend(
+                [
+                    company_dir / "metrics" / "reports" / resolved_report_id / metric_name,
+                    company_dir / "metrics" / "latest" / metric_name,
+                ]
+            )
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -1317,6 +1423,77 @@ def _report_table_records(company_dir: Path, report_id: str) -> list[dict[str, A
     return [table for table in tables if isinstance(table, dict)]
 
 
+def _metric_search_terms(metric_text: str | None) -> set[str]:
+    terms: set[str] = set()
+    for token in _split_metric_tokens(metric_text):
+        token_norm = _normalize(token)
+        if not token_norm:
+            continue
+        terms.add(token_norm)
+        for alias, values in METRIC_ALIASES.items():
+            alias_norm = _normalize(alias)
+            value_norms = {_normalize(value) for value in values}
+            if token_norm == alias_norm or token_norm in value_norms:
+                terms.add(alias_norm)
+                terms.update(value_norms)
+        for alias, values in PDF_MARKET_TABLE_ALIASES.items():
+            alias_norm = _normalize(alias)
+            value_norms = {_normalize(value) for value in values}
+            if token_norm == alias_norm or token_norm in value_norms:
+                terms.add(alias_norm)
+                terms.update(value_norms)
+    return {term for term in terms if len(term) >= 2}
+
+
+def resolve_report_table_metric_refs(
+    company_dir: Path,
+    metric_text: str | None,
+    period_text: str | None = None,
+    limit: int | None = 4,
+) -> list[dict[str, Any]]:
+    """Recover PDF locators from report tables when a structured metric lacks source metadata."""
+
+    terms = _metric_search_terms(metric_text)
+    if not terms:
+        return []
+    report = primary_report(company_dir)
+    document_records: list[dict[str, Any]] = []
+    document_full = read_json(report["document_full"], {}) or {}
+    _collect_line_table_records(document_full, document_records)
+    records = _merge_report_table_records(document_records, company_dir, report["report_id"])
+    years = set(re.findall(r"20\d{2}", str(period_text or "")))
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for record in records:
+        search_text = _normalize(_record_search_text(record))
+        if not search_text or not any(term in search_text for term in terms):
+            continue
+        title_text = _normalize(
+            " ".join(str(record.get(key) or "") for key in ("heading", "title", "name"))
+        )
+        score = 100 if any(term in title_text for term in terms) else 50
+        if years and any(year in str(record.get("preview") or record.get("title") or "") for year in years):
+            score += 20
+        candidates.append((score, record))
+    candidates.sort(
+        key=lambda item: (
+            -item[0],
+            _to_int(item[1].get("table_index")) or 10**9,
+            _record_line(item[1]) or 10**9,
+        )
+    )
+    refs: list[dict[str, Any]] = []
+    for _score, record in candidates:
+        ref = _ref_from_record(
+            company_dir,
+            record,
+            _local_source_type("report_table"),
+            f"reports/{report['report_id']}/report.json",
+        )
+        if ref:
+            refs.append(ref)
+    return _dedupe_refs(refs, limit)
+
+
 def _merge_report_table_records(
     records: list[dict[str, Any]],
     company_dir: Path,
@@ -1454,10 +1631,15 @@ def resolve_three_statement_refs(
     payload = read_json(metrics_path, {}) or {}
     records = _iter_records(payload.get("data") or payload)
     tokens = _split_metric_tokens(metric_text)
+    include_pdf_market_aliases = _is_pdf_market_company_dir(company_dir)
 
     candidates: list[dict[str, Any]] = []
     for record in records:
-        if tokens and not _record_matches_tokens(record, tokens):
+        if tokens and not _record_matches_tokens(
+            record,
+            tokens,
+            include_pdf_market_aliases=include_pdf_market_aliases,
+        ):
             continue
         if not _period_matches(record, period_text):
             continue
@@ -1507,7 +1689,12 @@ def resolve_main_statement_refs(
     matched_records = [
         record
         for record in records
-        if tokens and _record_matches_tokens(record, tokens)
+        if tokens
+        and _record_matches_tokens(
+            record,
+            tokens,
+            include_pdf_market_aliases=_is_pdf_market_company_dir(company_dir),
+        )
     ]
     if matched_records:
         records = matched_records
@@ -2403,7 +2590,14 @@ def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BA
         if borrowed_refs:
             return _apply_trace_refs_to_line(line, borrowed_refs)
 
-    company_dir = _company_task_index(wiki_base).get(task_id) if task_id else None
+    task_company_dir = _company_task_index(wiki_base).get(task_id) if task_id else None
+    explicit_company_dir = _explicit_company_dir_from_line(line, wiki_base)
+    company_dir = task_company_dir
+    if explicit_company_dir and (
+        company_dir is None or company_dir.resolve() != explicit_company_dir.resolve()
+    ):
+        company_dir = explicit_company_dir
+        task_id = ""
     if task_id and not company_dir:
         # An explicit task id is an identity boundary.  Never replace it with
         # another company inferred from surrounding multi-company context.
@@ -2466,6 +2660,8 @@ def enrich_citation_line(line: str, context_text: str, wiki_base: Path = WIKI_BA
         refs = resolve_table_refs(company_dir, table_text, task_id)
     if not refs and not main_statement_type and _question_prefers_detail(metric_text):
         refs = resolve_document_link_refs(company_dir, metric_text, period_text)
+    if not refs and _is_pdf_market_company_dir(company_dir, wiki_base):
+        refs = resolve_report_table_metric_refs(company_dir, metric_text, period_text)
 
     if not refs:
         report = primary_report(company_dir)

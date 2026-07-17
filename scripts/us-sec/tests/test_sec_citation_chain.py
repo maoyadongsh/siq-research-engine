@@ -5,7 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 US_SEC_DIR = REPO_ROOT / "scripts" / "us-sec"
 MILVUS_SCRIPT = REPO_ROOT / "scripts" / "vector-index" / "milvus-ingestion" / "ingest_sec_wiki_chunks.py"
