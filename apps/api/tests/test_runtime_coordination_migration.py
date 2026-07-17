@@ -47,6 +47,8 @@ def test_runtime_coordination_migration_covers_model_columns_and_forward_fix_pol
         assert _migration_columns(sql, model.__tablename__) == set(model.__table__.columns.keys())
 
     assert "ALTER TABLE quota_reservations ADD COLUMN IF NOT EXISTS expires_at" in sql
+    assert "ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_tenant_id" in sql
+    assert "ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_user_id" in sql
     assert "ck_quota_ledger_nonnegative" in sql
     assert "ck_quota_reservation_amount" in sql
     assert "ck_durable_background_job_attempt" in sql

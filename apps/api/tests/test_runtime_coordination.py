@@ -6,10 +6,13 @@ from datetime import timedelta
 import pytest
 from services.runtime_coordination import (
     ActiveRunLease,
+    attach_active_run_pool_lease,
     bind_active_run,
     claim_active_run,
+    list_recoverable_active_runs,
     release_active_run,
     renew_active_run,
+    takeover_active_run,
 )
 from services.usage_service import (
     QuotaLedger,
@@ -134,6 +137,85 @@ async def test_provisional_claim_blocks_second_start_then_binds_real_run(tmp_pat
             run_id="hermes-run-1",
             owner_id="stale-owner",
         ) is False
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pool_principal_is_complete_persisted_and_takeover_fenced(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'pool-principal.db'}")
+    async with engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.create_all)
+
+    async with AsyncSession(engine) as session:
+        assert await claim_active_run(
+            session,
+            profile="siq_analysis",
+            session_id="user-7-analysis-principal",
+            run_id="claim-principal",
+            owner_id="owner-before",
+        )
+        assert not await attach_active_run_pool_lease(
+            session,
+            profile="siq_analysis",
+            session_id="user-7-analysis-principal",
+            provisional_run_id="claim-principal",
+            owner_id="owner-before",
+            pool_lease_id="lease-" + "1" * 32,
+            pool_scope_id="2" * 24,
+            pool_binding_run_id="canary-123456789abc",
+            pool_owner_generation=3,
+            pool_tenant_id="tenant-a",
+        )
+        assert await attach_active_run_pool_lease(
+            session,
+            profile="siq_analysis",
+            session_id="user-7-analysis-principal",
+            provisional_run_id="claim-principal",
+            owner_id="owner-before",
+            pool_lease_id="lease-" + "1" * 32,
+            pool_scope_id="2" * 24,
+            pool_binding_run_id="canary-123456789abc",
+            pool_owner_generation=3,
+            pool_tenant_id="tenant-a",
+            pool_user_id="7",
+        )
+        snapshot = (await list_recoverable_active_runs(session, profile="siq_analysis"))[0]
+        assert (snapshot.pool_tenant_id, snapshot.pool_user_id) == ("tenant-a", "7")
+
+        base_takeover = {
+            "profile": "siq_analysis",
+            "session_id": "user-7-analysis-principal",
+            "run_id": "claim-principal",
+            "expected_owner_id": "owner-before",
+            "expected_pool_lease_id": "lease-" + "1" * 32,
+            "expected_pool_scope_id": "2" * 24,
+            "expected_pool_binding_run_id": "canary-123456789abc",
+            "expected_pool_owner_generation": 3,
+            "owner_id": "owner-after",
+            "pool_owner_generation": 4,
+        }
+        assert not await takeover_active_run(
+            session,
+            **base_takeover,
+            expected_pool_tenant_id="tenant-a",
+            expected_pool_user_id="8",
+        )
+        assert not await takeover_active_run(
+            session,
+            **base_takeover,
+            expected_pool_tenant_id="tenant-a",
+        )
+        assert await takeover_active_run(
+            session,
+            **base_takeover,
+            expected_pool_tenant_id="tenant-a",
+            expected_pool_user_id="7",
+        )
+        row = await session.get(ActiveRunLease, 1)
+        assert row is not None
+        assert (row.owner_id, row.pool_owner_generation) == ("owner-after", 4)
+        assert (row.pool_tenant_id, row.pool_user_id) == ("tenant-a", "7")
+
     await engine.dispose()
 
 

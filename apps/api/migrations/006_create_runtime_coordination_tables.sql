@@ -12,6 +12,12 @@ CREATE TABLE IF NOT EXISTS active_run_leases (
     run_id VARCHAR(255) NOT NULL,
     owner_id VARCHAR(255) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'running',
+    pool_lease_id VARCHAR(80),
+    pool_scope_id VARCHAR(32),
+    pool_binding_run_id VARCHAR(80),
+    pool_owner_generation INTEGER,
+    pool_tenant_id VARCHAR(512),
+    pool_user_id VARCHAR(512),
     lease_until TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
@@ -24,6 +30,14 @@ CREATE INDEX IF NOT EXISTS ix_active_run_leases_session_id ON active_run_leases(
 CREATE INDEX IF NOT EXISTS ix_active_run_leases_run_id ON active_run_leases(run_id);
 CREATE INDEX IF NOT EXISTS ix_active_run_leases_status ON active_run_leases(status);
 CREATE INDEX IF NOT EXISTS ix_active_run_leases_lease_until ON active_run_leases(lease_until);
+
+-- Forward-fix rows created before exact OpenShell pool recovery fencing.
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_lease_id VARCHAR(80);
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_scope_id VARCHAR(32);
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_binding_run_id VARCHAR(80);
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_owner_generation INTEGER;
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_tenant_id VARCHAR(512);
+ALTER TABLE active_run_leases ADD COLUMN IF NOT EXISTS pool_user_id VARCHAR(512);
 
 CREATE TABLE IF NOT EXISTS quota_ledgers (
     id SERIAL PRIMARY KEY,
