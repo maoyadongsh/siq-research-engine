@@ -3,9 +3,12 @@
 ```markdown
 # {{公司名称}}——{{事项标题}}法律意见
 
+**文书编号**：SIQ-LGL-{{YYYYMMDD}}-{{公司代码或简称}}
 **出具日期**：{{YYYY-MM-DD}}
 **事项主体**：{{公司全称}}（股票代码：{{代码}}）
 **意见类型**：{{合规审查 / 法务咨询 / 风险初筛 / 监管事项分析}}
+**审查资料**：{{年报/公告/合同/决议/用户事实/法规检索结果}}
+**管辖口径**：{{中国大陆 / 中国香港 / 美国 / 其他}}
 
 > 本意见基于本机 Milvus 法律库 `ic_legal_scanner` 检索结果与用户提供的事实陈述形成。**不构成最终法律意见，不替代执业律师判断。**
 
@@ -24,6 +27,7 @@
 - 交易/合规场景：
 - 用户提供的事实：
 - 已取得或已检索材料：
+- 审查依据与工作假设：
 - 尚待核实且可能影响结论的事项：
 
 请用一段话说明上述事实如何影响法律适用。事实不充分时，应明确写明"本意见以下判断以……为前提"。
@@ -85,12 +89,46 @@
 - 本意见为风险初筛与合规辅助，**不替代执业律师与监管机构的正式认定**。
 - 本意见不得用于诉讼、仲裁或行政程序的最终依据。
 - 用户在采取实际行动前应咨询具有相应执业资格的律师。
+
+---
+
+**页尾信息**：SIQ 法务合规智能体 · 文书编号 {{文书编号}} · 生成时间 {{YYYY-MM-DD HH:mm:ss}}
+**内部提示**：本文件为内部合规辅助工作底稿；对外提交、公告引用或诉讼/仲裁使用前，应由具备执业资格的律师结合完整事实材料复核。
 ```
 
 ## 文件命名
 
 ```
 legal_opinion_<事项简称>_<YYYYMMDD>_<HHMMSS>.html
+```
+
+## 页面视觉规范
+
+HTML 必须沿用 SIQ 当前项目的浅色报告风格：
+
+- 页面背景使用浅灰白底，主体内容为白色区块，不使用深色背景或渐变背景。
+- 正文使用深色字体，辅助文字使用克制灰色，保持适合长篇法律意见书阅读的对比度。
+- 区块使用浅色边框、适度留白和清晰标题层级；不要使用卡通化、营销化或暗黑风格。
+- 可参考以下 CSS 变量和基础结构：
+- 页头建议包含文书编号、出具日期、事项主体、意见类型、管辖口径、审查资料/报告身份；页尾建议包含出具主体、文书编号、生成时间和内部使用提示。
+- 如生成年度报告法律意见书，标题优先使用"关于{{公司全称}}{{年度报告}}之法律审查意见书"，并在页头写明 report_id、报告期末、事实覆盖和法规依据数量。
+
+```html
+<style>
+  :root { color-scheme: light; --ink: #243041; --muted: #607083; --line: #d7e0e8; --accent: #16697a; --soft: #eef7f6; --warn: #fff7e8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f4f7f9; color: var(--ink); font-family: Arial, "Microsoft YaHei", sans-serif; line-height: 1.72; }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 18px 56px; }
+  header, section { background: #fff; border: 1px solid var(--line); padding: 26px 32px; margin-bottom: 16px; }
+  header { border-top: 5px solid var(--accent); }
+  h1 { margin: 0 0 12px; color: #17364d; font-size: 26px; line-height: 1.4; }
+  h2 { margin: 0 0 16px; color: #17364d; font-size: 20px; }
+  h3 { margin: 22px 0 9px; color: #205c6c; font-size: 16px; }
+  p { margin: 8px 0 12px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }
+  th { background: #eef3f6; color: #17364d; }
+</style>
 ```
 
 ## 必须保留的章节顺序

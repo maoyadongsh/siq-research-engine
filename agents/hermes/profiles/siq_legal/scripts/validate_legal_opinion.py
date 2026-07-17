@@ -23,7 +23,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 REQUIRED_SECTIONS = [
     "摘要",
     "事实背景",
@@ -49,6 +48,17 @@ PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|TODO|待补充|<占位>")
 CITATION_LINE_RE = re.compile(
     r"\[\d+\][^\n]*?source\s*=[^\n]*?source_path\s*=[^\n]*?chunk_index\s*="
 )
+ANNUAL_REVIEW_RE = re.compile(r"(年报|年度报告|annual\s*report)", re.IGNORECASE)
+ANNUAL_REPORT_CITATION_RE = re.compile(r"source_type\s*=\s*annual_report(?:\s|,)")
+ANNUAL_REVIEW_DIMENSIONS = {
+    "定期报告与信息披露": ("定期报告", "年度报告", "信息披露"),
+    "公司治理": ("公司治理", "董事会", "审计委员会"),
+    "关联交易": ("关联交易",),
+    "担保与资金占用": ("担保", "资金占用"),
+    "内部控制与审计": ("内部控制", "内控审计", "内部控制审计"),
+    "诉讼与处罚": ("诉讼", "仲裁", "处罚", "监管措施"),
+    "财务报告": ("财务报告", "财务指标", "财务数据"),
+}
 DISCLAIMER_TERMS = ["不替代执业律师", "执业律师判断", "不构成最终法律意见"]
 MECHANICAL_TEMPLATE_PHRASES = [
     "同上结构",
@@ -121,6 +131,18 @@ def collect_failures(text: str, kind: str) -> tuple[list[str], list[str]]:
     if not any(term in text for term in DISCLAIMER_TERMS):
         failures.append("missing_disclaimer")
 
+    if ANNUAL_REVIEW_RE.search(text):
+        missing_dimensions = [
+            name
+            for name, aliases in ANNUAL_REVIEW_DIMENSIONS.items()
+            if not any(alias in text for alias in aliases)
+        ]
+        if missing_dimensions:
+            failures.append("missing_annual_review_dimensions:" + ",".join(missing_dimensions))
+        report_citations = ANNUAL_REPORT_CITATION_RE.findall(text)
+        if len(report_citations) < 4:
+            failures.append(f"too_few_annual_report_facts:{len(report_citations)}")
+
     if kind == "html":
         # Section balance.
         open_sections = len(re.findall(r"<section\b", text))
@@ -133,6 +155,10 @@ def collect_failures(text: str, kind: str) -> tuple[list[str], list[str]]:
         h2_count = text.count("<h2")
         if h2_count < len(REQUIRED_SECTIONS) - 1:
             warnings.append(f"weak_h2_structure:{h2_count}")
+        if ANNUAL_REVIEW_RE.search(text):
+            h3_count = text.count("<h3")
+            if h3_count < 8:
+                failures.append(f"weak_annual_review_structure:{h3_count}")
 
     # Quote quality: each citation should ideally include a quote field.
     quoted = len(re.findall(r"quote\s*=", text))
@@ -196,4 +222,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - guard final fallback
         print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False), file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from exc

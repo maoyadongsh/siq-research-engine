@@ -71,6 +71,12 @@ def test_publication_gate_treats_missing_factcheck_as_review(tmp_path):
     assert "factcheck_verdict_missing" in result["warnings"]
 
 
+def test_placeholder_detection_ignores_javascript_template_interpolation():
+    text = "`${formulas}` `${targetId}` {company_name}"
+
+    assert validate_report_quality.PLACEHOLDER_RE.findall(text) == ["{company_name}"]
+
+
 def test_visible_negative_ordinary_expense_mentions_flags_reader_facing_costs():
     text = "营业收入为 4564.52亿元，营业成本为 -3359.90亿元，销售费用：-428.91亿元。"
 

@@ -25,7 +25,9 @@ def template_section_ids() -> list[str]:
 
 SECTION_IDS = template_section_ids()
 
-PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+# Report placeholders use ``{name}``; JavaScript template interpolation uses
+# ``${name}`` and must remain intact in rendered chart assets.
+PLACEHOLDER_RE = re.compile(r"(?<!\$)\{[a-zA-Z_][a-zA-Z0-9_]*\}")
 TRACEABLE_MISSING_PAGE_RE = re.compile(r"pdf_page(?:_number)?=未返回(?:\([^)]*\))?.*?table_index=([0-9]+)")
 FINANCIAL_TABLE_CONTAMINATION_RE = re.compile(
     r"^\|\s*(营业收入|归母净利润|扣非归母净利润|经营现金流|总资产/净资产|总资产|总负债|毛利率)"

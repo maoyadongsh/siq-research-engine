@@ -105,6 +105,15 @@ def stable_id(*parts: Any) -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+def sec_source_target(source_url: Any, source_anchor: Any = None) -> str | None:
+    url = str(source_url or "").strip()
+    if not url:
+        return None
+    base_url = url.split("#", 1)[0]
+    anchor = str(source_anchor or "").strip().lstrip("#")
+    return f"{base_url}#{anchor}" if anchor else base_url
+
+
 def clean_text(value: str | None) -> str:
     text = html.unescape(value or "")
     text = re.sub(r"\s+", " ", text)
@@ -337,6 +346,7 @@ def build_sections(soup: BeautifulSoup, manifest: dict[str, Any]) -> tuple[list[
         for _, section_id, pattern in section_defs
     }
     markers: list[tuple[int, str, str, str]] = []
+    section_patterns = {section_id: pattern for _, section_id, pattern in section_defs}
     cursor = 500
     for index, (file_stem, section_id, _pattern) in enumerate(section_defs):
         next_section_id = section_defs[index + 1][1] if index + 1 < len(section_defs) else None
@@ -364,7 +374,7 @@ def build_sections(soup: BeautifulSoup, manifest: dict[str, Any]) -> tuple[list[
                 "file": f"{file_stem}.md",
                 "section_title": section_title,
                 "section_order": len(sections) + 1,
-                "html_anchor": section_id,
+                "html_anchor": _section_dom_anchor(soup, section_id, section_patterns[section_id]),
                 "xpath": None,
                 "char_start": start,
                 "char_end": end,
@@ -392,6 +402,20 @@ def build_sections(soup: BeautifulSoup, manifest: dict[str, Any]) -> tuple[list[
             )
             markdown["notes"] = _section_markdown(manifest, "notes", "Notes to Consolidated Financial Statements", notes)
     return sections, markdown
+
+
+def _section_dom_anchor(soup: BeautifulSoup, section_id: str, pattern: str) -> str | None:
+    exact = soup.find(id=section_id)
+    if exact is not None:
+        return section_id
+    match = soup.find(string=re.compile(pattern, flags=re.IGNORECASE))
+    current = match.parent if match is not None else None
+    while current is not None:
+        anchor = current.get("id") or current.get("name")
+        if anchor:
+            return str(anchor)
+        current = current.parent
+    return None
 
 
 def extract_tables(soup: BeautifulSoup, sections: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[ParsedTable]]:
@@ -1422,9 +1446,25 @@ def _normalized_row(manifest: dict[str, Any], parse_run_id: str | None, fact: An
         fact.local_name,
         raw_fact.get("fact_id") if raw_fact else derived_evidence_id,
     )
+    fact_raw = fact.raw if isinstance(fact.raw, dict) else {}
+    nested_raw = fact_raw.get("raw") if isinstance(fact_raw.get("raw"), dict) else {}
+    source_anchor = (
+        (raw_fact or {}).get("html_anchor")
+        or (raw_fact or {}).get("anchor")
+        or nested_raw.get("anchor")
+        or fact_raw.get("anchor")
+    )
+    source_url = manifest.get("source_url")
+    xbrl_tag = (raw_fact or {}).get("concept") or fact_raw.get("concept") or fact.local_name
+    report_id = manifest.get("report_id") or us_report_id(
+        manifest.get("fiscal_year"),
+        manifest.get("form"),
+        manifest.get("accession_number"),
+    )
     return {
         "metric_id": metric_id,
         "filing_id": manifest["filing_id"],
+        "report_id": report_id,
         "parse_run_id": parse_run_id,
         "ticker": manifest["ticker"],
         "statement_type": fact.statement_type.value,
@@ -1446,6 +1486,21 @@ def _normalized_row(manifest: dict[str, Any], parse_run_id: str | None, fact: An
         "confidence": str(fact.confidence),
         "evidence_id": stable_id(manifest["filing_id"], "fact", raw_fact.get("fact_id")) if raw_fact else derived_evidence_id,
         "raw_fact_id": raw_fact.get("fact_id") if raw_fact else None,
+        "source_type": "sec_xbrl_fact",
+        "source_family": "sec_ixbrl",
+        "source_url": source_url,
+        "source_anchor": source_anchor,
+        "source_target": sec_source_target(source_url, source_anchor),
+        "xbrl_tag": xbrl_tag,
+        "accession_number": manifest.get("accession_number"),
+        "citation_mode": "sec_html_ixbrl",
+        "research_identity": {
+            "market": "US",
+            "company_id": manifest.get("company_id"),
+            "filing_id": manifest.get("filing_id"),
+            "report_id": report_id,
+            "parse_run_id": parse_run_id,
+        },
         "raw": fact.raw,
     }
 

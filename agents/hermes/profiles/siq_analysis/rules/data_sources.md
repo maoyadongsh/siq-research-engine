@@ -81,7 +81,7 @@ HK PostgreSQL fallback 只读查询目标为同一 PostgreSQL 实例内的 `siq_
 推荐查询入口：
 
 ```bash
-/home/maoyd/.hermes/hermes-agent/venv/bin/python /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --profile-env /home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/.env --sql "<只读 SQL>"
+python3 /home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/pg_query.py --sql "<只读 SQL>" --schema pdf2md --limit 50 --timeout-ms 5000
 ```
 
 规则：

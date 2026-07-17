@@ -11,7 +11,10 @@ import re
 import sys
 from decimal import Decimal
 from pathlib import Path
+from typing import Mapping
+from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlsplit
+from urllib.request import Request, urlopen
 
 try:
     import sqlparse
@@ -43,6 +46,9 @@ DEFAULT_ROW_LIMIT = 50
 MAX_ROW_LIMIT = 500
 DEFAULT_TIMEOUT_MS = 5_000
 MAX_TIMEOUT_MS = 30_000
+DEFAULT_BROKER_PORT = 18_793
+MAX_BROKER_RESPONSE_BYTES = 4 * 1024 * 1024
+ALLOWED_BROKER_HOSTS = {"127.0.0.1", "::1", "host.openshell.internal", "localhost"}
 ALLOWED_SCHEMAS = {
     "pdf2md",
     "pdf2md_hk",
@@ -344,7 +350,119 @@ def connect_readonly(cfg: dict[str, str], *, timeout_ms: int):
     raise RuntimeError("Neither psycopg2 nor psycopg is installed.")
 
 
-def main() -> int:
+def normalize_broker_url(url: str) -> str:
+    try:
+        parsed = urlsplit(url.strip())
+        port = parsed.port or DEFAULT_BROKER_PORT
+    except ValueError as exc:
+        raise QueryPolicyError("broker_url_invalid", "The configured query broker URL is invalid.") from exc
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in ALLOWED_BROKER_HOSTS
+        or port != DEFAULT_BROKER_PORT
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise QueryPolicyError(
+            "broker_url_not_allowed",
+            "The query broker must use the fixed SIQ broker host and port.",
+        )
+    hostname = str(parsed.hostname)
+    rendered_host = f"[{hostname}]" if ":" in hostname else hostname
+    return f"http://{rendered_host}:{port}/v1/postgresql/query"
+
+
+BROKER_IDENTITY_TOKEN_ENV = "SIQ_OPENSHELL_DATA_IDENTITY_TOKEN"
+LEGACY_BROKER_IDENTITY_TOKEN_ENV = "SIQ_OPENSHELL_BROKER_IDENTITY_TOKEN"
+BROKER_IDENTITY_HEADER = "X-SIQ-OpenShell-Identity"
+BROKER_IDENTITY_TOKEN_RE = re.compile(r"v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\Z")
+MAX_BROKER_IDENTITY_TOKEN_BYTES = 4096
+
+
+def broker_identity_headers(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    source = os.environ if env is None else env
+    token = str(source.get(BROKER_IDENTITY_TOKEN_ENV) or source.get(LEGACY_BROKER_IDENTITY_TOKEN_ENV) or "").strip()
+    if not token:
+        return {}
+    if (
+        len(token.encode("ascii", errors="ignore")) > MAX_BROKER_IDENTITY_TOKEN_BYTES
+        or BROKER_IDENTITY_TOKEN_RE.fullmatch(token) is None
+    ):
+        raise QueryPolicyError("broker_identity_token_invalid", "The broker request identity token is invalid.")
+    return {BROKER_IDENTITY_HEADER: token}
+
+
+def broker_postgresql_query(
+    broker_url: str,
+    *,
+    sql: str,
+    schema: str,
+    row_limit: int,
+    timeout_ms: int,
+) -> dict[str, object]:
+    endpoint = normalize_broker_url(broker_url)
+    content = json.dumps(
+        {
+            "sql": sql,
+            "schema": schema,
+            "limit": row_limit,
+            "timeout_ms": timeout_ms,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers.update(broker_identity_headers())
+    request = Request(
+        endpoint,
+        data=content,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=max(2.0, timeout_ms / 1_000 + 2.0)) as response:
+            response_content = response.read(MAX_BROKER_RESPONSE_BYTES + 1)
+    except HTTPError as exc:
+        response_content = exc.read(MAX_BROKER_RESPONSE_BYTES + 1)
+        try:
+            error_payload = json.loads(response_content)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            error_payload = {}
+        error_code = str(error_payload.get("error_code") or "broker_request_rejected")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,95}", error_code):
+            error_code = "broker_request_rejected"
+        raise QueryPolicyError(error_code, "The read-only query broker rejected the request.") from exc
+    except (OSError, URLError) as exc:
+        raise RuntimeError("read_only_query_broker_unavailable") from exc
+    if len(response_content) > MAX_BROKER_RESPONSE_BYTES:
+        raise RuntimeError("read_only_query_broker_response_too_large")
+    try:
+        payload = json.loads(response_content)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("read_only_query_broker_response_invalid") from exc
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("ok") is not True
+        or payload.get("schema") != schema
+        or payload.get("row_limit") != row_limit
+        or not isinstance(rows, list)
+        or payload.get("row_count") != len(rows)
+    ):
+        raise RuntimeError("read_only_query_broker_response_invalid")
+    return {
+        "ok": True,
+        "schema": schema,
+        "row_limit": row_limit,
+        "row_count": len(rows),
+        "rows": rows,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run a read-only query against SIQ PostgreSQL.")
     parser.add_argument("--sql", required=True, help="SELECT/WITH/SHOW SQL to execute")
     parser.add_argument("--profile-env", help="Optional Hermes profile .env path")
@@ -356,7 +474,7 @@ def main() -> int:
         default=DEFAULT_TIMEOUT_MS,
         help="PostgreSQL statement and connection timeout in milliseconds",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     schema = validate_schema(args.schema)
     row_limit, timeout_ms = validate_query_limits(
@@ -364,6 +482,23 @@ def main() -> int:
         timeout_ms=args.timeout_ms,
     )
     sql = normalize_sql(args.sql, schema=schema)
+    broker_url = str(os.environ.get("SIQ_PG_QUERY_BROKER_URL") or "").strip()
+    if broker_url:
+        print(
+            json.dumps(
+                broker_postgresql_query(
+                    broker_url,
+                    sql=sql,
+                    schema=schema,
+                    row_limit=row_limit,
+                    timeout_ms=timeout_ms,
+                ),
+                ensure_ascii=False,
+                default=json_default,
+            )
+        )
+        return 0
+
     env_file = load_env_file(Path(args.profile_env)) if args.profile_env else {}
     cfg = project_pdf2md_config(env_file)
     if not cfg.get("password"):

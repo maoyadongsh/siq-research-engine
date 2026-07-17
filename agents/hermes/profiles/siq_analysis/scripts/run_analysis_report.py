@@ -10,6 +10,7 @@ return one machine-readable result.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -41,6 +42,17 @@ RECOVER_SCRIPT = SCRIPT_DIR / "recover_report_from_workdir.py"
 VALIDATE_SCRIPT = SCRIPT_DIR / "validate_report_quality.py"
 TEMPLATE_JSON = SCRIPT_DIR.parent / "templates" / "siq_analysis_report_v1.1.json"
 PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT", "/home/maoyd/siq-research-engine")).expanduser()
+COMPANY_INDEX_PUBLISHER = PROJECT_ROOT / "scripts/openshell/publish_company_index.py"
+PUBLISHER_TIMEOUT_SECONDS = 30
+MARKET_COMPANY_PREFIXES = {
+    ("companies",): "cn",
+    ("eu", "companies"): "eu",
+    ("hk", "companies"): "hk",
+    ("jp", "companies"): "jp",
+    ("kr", "companies"): "kr",
+    ("us", "companies"): "us",
+}
 
 
 def public_api_url(path: str) -> str:
@@ -220,6 +232,73 @@ def run_json(cmd: list[str]) -> dict[str, Any]:
         "json": payload,
         "ok": result.returncode == 0,
     }
+
+
+def publish_company_index_after_host_run(company_dir: Path) -> dict[str, Any]:
+    """Use the fixed host publisher; sandbox runs deliberately defer this write."""
+
+    if os.environ.get("SIQ_OPENSHELL_SANDBOX") == "1":
+        return {"ok": False, "deferred": True, "error_code": "sandbox_host_publish_required"}
+    try:
+        relative = company_dir.relative_to(PROJECT_ROOT / "data/wiki")
+        market = MARKET_COMPANY_PREFIXES[tuple(relative.parts[:-1])]
+        company_id = relative.parts[-1]
+    except (KeyError, ValueError, IndexError):
+        return {"ok": False, "deferred": True, "error_code": "company_index_identity_invalid"}
+    if not COMPANY_INDEX_PUBLISHER.is_file() or COMPANY_INDEX_PUBLISHER.is_symlink():
+        return {"ok": False, "deferred": True, "error_code": "publisher_script_missing"}
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(COMPANY_INDEX_PUBLISHER),
+                "--project-root",
+                str(PROJECT_ROOT),
+                "--market",
+                market,
+                "--company-id",
+                company_id,
+            ],
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=PUBLISHER_TIMEOUT_SECONDS,
+            check=False,
+            close_fds=True,
+            start_new_session=True,
+            env={
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "PATH": "/usr/bin:/bin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+            },
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "deferred": True, "error_code": "company_index_publish_timeout"}
+    except OSError:
+        return {"ok": False, "deferred": True, "error_code": "company_index_publish_failed"}
+    if completed.returncode != 0:
+        return {"ok": False, "deferred": True, "error_code": "company_index_publish_failed"}
+    try:
+        payload = json.loads(completed.stdout) if completed.stdout.strip() else {}
+    except json.JSONDecodeError:
+        payload = {}
+    expected_projection = hashlib.sha256(f"{market}:{company_id}".encode()).hexdigest()[:24]
+    if not (
+        isinstance(payload, dict)
+        and payload.get("schema_version") == "siq.openshell.company_index_publish.v1"
+        and payload.get("ok") is True
+        and payload.get("market") == market
+        and payload.get("company_projection") == expected_projection
+        and payload.get("index_schema_version") == 1
+    ):
+        return {"ok": False, "deferred": True, "error_code": "company_index_publish_invalid"}
+    return {"ok": True, "json": payload}
 
 
 def safe_json_summary(path: Path) -> dict[str, Any]:
@@ -1193,15 +1272,12 @@ def main() -> int:
     result["stage"] = "completed" if result["ok"] else payload.get("stage", "pipeline_failed")
     result["next_action"] = payload.get("next_action") if isinstance(payload, dict) else "查看 recover step stdout/stderr。"
 
-    # Refresh the company-level index so the frontend / cross-product tooling
-    # always sees the freshest pointer set. Best-effort: failures here do not
-    # invalidate the analysis pipeline result.
-    try:
-        index_script = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts/update_company_index.py")
-        if index_script.exists():
-            run_json([sys.executable, str(index_script), "--company-dir", str(company_dir)])
-    except Exception as exc:  # pragma: no cover - non-critical
-        result.setdefault("warnings", []).append(f"company_index_update_failed:{exc}")
+    # The sandbox cannot mutate the finalized company index. Host Hermes uses
+    # the fixed Publisher directly; OpenShell lifecycle publishes after stop.
+    index_update = publish_company_index_after_host_run(company_dir)
+    index_payload = index_update.get("json") if isinstance(index_update.get("json"), dict) else {}
+    if index_update.get("deferred") or not index_update.get("ok") or not index_payload.get("ok"):
+        result.setdefault("warnings", []).append("company_index_update_deferred_to_host_publisher")
 
     if args.write_json:
         dump_json(args.write_json, result)
