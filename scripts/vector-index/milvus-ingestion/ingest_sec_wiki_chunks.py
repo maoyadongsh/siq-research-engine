@@ -112,6 +112,21 @@ def _section_table_map(package_dir: Path) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _verified_section_anchor(package_dir: Path, anchor: Any) -> str | None:
+    candidate = str(anchor or "").strip().lstrip("#")
+    if not candidate:
+        return None
+    source_path = package_dir / "raw" / "filing.htm"
+    if not source_path.is_file():
+        return None
+    escaped = re.escape(candidate)
+    pattern = re.compile(rf"\b(?:id|name)\s*=\s*(['\"]){escaped}\1", flags=re.IGNORECASE)
+    try:
+        return candidate if pattern.search(source_path.read_text(encoding="utf-8", errors="ignore")) else None
+    except OSError:
+        return None
+
+
 def _section_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str, Any]]:
     sections_payload = read_json(package_dir / "sections.json")
     section_tables = _section_table_map(package_dir)
@@ -123,6 +138,9 @@ def _section_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[st
         section_id = section.get("section_id")
         table_info = section_tables.get(str(section_id), {})
         text = strip_frontmatter(path.read_text(encoding="utf-8"))
+        source_url = manifest.get("source_url")
+        source_anchor = _verified_section_anchor(package_dir, section.get("html_anchor"))
+        source_target = _sec_source_target(source_url, source_anchor)
         for index, chunk in enumerate(split_text(text), start=1):
             chunk_uid = stable_id(manifest["filing_id"], "section", section_id, index, chunk)
             metadata = {
@@ -136,6 +154,9 @@ def _section_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[st
                 "form": manifest.get("form"),
                 "accession_number": manifest.get("accession_number"),
                 "filing_id": manifest.get("filing_id"),
+                "report_id": _report_id(manifest),
+                "parse_run_id": manifest.get("parse_run_id"),
+                "research_identity": _research_identity(manifest),
                 "fiscal_year": manifest.get("fiscal_year"),
                 "fiscal_period": manifest.get("fiscal_period"),
                 "period_end": manifest.get("period_end"),
@@ -153,11 +174,18 @@ def _section_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[st
                 "financial_statement_table_count": table_info.get("financial_statement_table_count", 0),
                 "wiki_package_path": _repo_relative(package_dir),
                 "wiki_path": _repo_relative(path),
-                "source_url": manifest.get("source_url"),
-                "html_anchor": section.get("html_anchor"),
+                "source_type": "sec_html_section",
+                "source_family": "sec_filing_html",
+                "citation_mode": "sec_html_section",
+                "source_url": source_url,
+                "source_anchor": source_anchor,
+                "source_target": source_target,
+                "target": source_target,
+                "html_anchor": source_anchor,
                 "chunk_uid": chunk_uid,
                 "chunk_index": index,
                 "citation": f"{manifest.get('ticker')} {manifest.get('fiscal_year')} {manifest.get('form')}, {section.get('section_title')}",
+                "citation_url": source_target,
                 "text": chunk,
             }
             items.append({"chunk_uid": chunk_uid, "text": chunk, "metadata": metadata})
@@ -173,6 +201,8 @@ def _metric_value_text(metric: dict[str, Any]) -> str:
 
 
 def _metric_anchor(metric: dict[str, Any]) -> str | None:
+    if metric.get("source_anchor"):
+        return str(metric["source_anchor"])
     raw = metric.get("raw") if isinstance(metric.get("raw"), dict) else {}
     nested = raw.get("raw") if isinstance(raw.get("raw"), dict) else {}
     return nested.get("anchor") or raw.get("anchor")
@@ -182,6 +212,40 @@ def _metric_html_snippet(metric: dict[str, Any]) -> str | None:
     raw = metric.get("raw") if isinstance(metric.get("raw"), dict) else {}
     nested = raw.get("raw") if isinstance(raw.get("raw"), dict) else {}
     return nested.get("html_snippet") or raw.get("html_snippet")
+
+
+def _sec_source_target(source_url: Any, source_anchor: Any = None) -> str | None:
+    url = str(source_url or "").strip()
+    if not url:
+        return None
+    base_url = url.split("#", 1)[0]
+    anchor = str(source_anchor or "").strip().lstrip("#")
+    return f"{base_url}#{anchor}" if anchor else base_url
+
+
+def _report_id(manifest: dict[str, Any], metric: dict[str, Any] | None = None) -> str:
+    metric = metric or {}
+    existing = metric.get("report_id") or manifest.get("report_id")
+    if existing:
+        return str(existing)
+    return "-".join(
+        (
+            str(manifest.get("fiscal_year") or "unknown"),
+            str(manifest.get("form") or "filing").upper(),
+            str(manifest.get("accession_number") or "unknown"),
+        )
+    )
+
+
+def _research_identity(manifest: dict[str, Any], metric: dict[str, Any] | None = None) -> dict[str, Any]:
+    metric = metric or {}
+    return {
+        "market": "US",
+        "company_id": manifest.get("company_id"),
+        "filing_id": metric.get("filing_id") or manifest.get("filing_id"),
+        "report_id": _report_id(manifest, metric),
+        "parse_run_id": metric.get("parse_run_id") or manifest.get("parse_run_id"),
+    }
 
 
 def _metric_text(manifest: dict[str, Any], metric: dict[str, Any]) -> str:
@@ -211,6 +275,9 @@ def _metric_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str
         chunk_uid = stable_id(manifest["filing_id"], "metric", metric.get("metric_id"), text)
         canonical = metric.get("canonical_name") or metric.get("metric_name")
         dimensions = metric.get("dimensions") or {}
+        source_url = metric.get("source_url") or manifest.get("source_url")
+        source_anchor = _metric_anchor(metric)
+        source_target = metric.get("source_target") or _sec_source_target(source_url, source_anchor)
         metadata = {
             "schema_version": "siq_chunk_v1",
             "market": "US",
@@ -222,6 +289,9 @@ def _metric_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str
             "form": manifest.get("form"),
             "accession_number": manifest.get("accession_number"),
             "filing_id": manifest.get("filing_id"),
+            "report_id": _report_id(manifest, metric),
+            "parse_run_id": metric.get("parse_run_id") or manifest.get("parse_run_id"),
+            "research_identity": _research_identity(manifest, metric),
             "fiscal_year": manifest.get("fiscal_year"),
             "fiscal_period": manifest.get("fiscal_period"),
             "period_end": manifest.get("period_end"),
@@ -233,6 +303,7 @@ def _metric_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str
             "canonical_name": canonical,
             "metric_aliases": METRIC_ALIASES.get(str(canonical), []),
             "concept": metric.get("concept"),
+            "xbrl_tag": metric.get("xbrl_tag") or metric.get("concept"),
             "label": metric.get("label"),
             "value": metric.get("value"),
             "unit": metric.get("unit"),
@@ -250,12 +321,19 @@ def _metric_chunks(package_dir: Path, manifest: dict[str, Any]) -> list[dict[str
             "evidence_id": metric.get("evidence_id"),
             "raw_fact_id": metric.get("raw_fact_id"),
             "wiki_package_path": _repo_relative(package_dir),
-            "source_url": manifest.get("source_url"),
-            "html_anchor": _metric_anchor(metric),
+            "source_type": metric.get("source_type") or "sec_xbrl_fact",
+            "source_family": metric.get("source_family") or "sec_ixbrl",
+            "citation_mode": "sec_html_ixbrl",
+            "source_url": source_url,
+            "source_anchor": source_anchor,
+            "source_target": source_target,
+            "target": source_target,
+            "html_anchor": source_anchor,
             "html_snippet": _metric_html_snippet(metric),
             "chunk_uid": chunk_uid,
             "chunk_index": 1,
             "citation": f"{manifest.get('ticker')} {manifest.get('fiscal_year')} {manifest.get('form')}, {canonical} {metric.get('period_key')}",
+            "citation_url": source_target,
             "text": text,
         }
         items.append({"chunk_uid": chunk_uid, "text": text, "metadata": metadata})
