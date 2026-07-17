@@ -13,11 +13,11 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 from services.command_runner import run_command
 from services.path_config import PROJECT_ROOT, WIKI_ROOT
@@ -31,6 +31,8 @@ from services.specialist_artifact_contract import (
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("SIQ_LEGAL_WORKFLOW_TIMEOUT_SECONDS", "900"))
 MIN_CITATIONS = 3
 DEFAULT_TOP_K = 8
+MIN_ANNUAL_REPORT_FACTS = 4
+MAX_LEGAL_CITATIONS = 18
 
 LEGAL_ACTION_RE = re.compile(r"(生成|出具|保存|导出|固化|落盘|创建|形成|产出|做一份|出一份)")
 LEGAL_ARTIFACT_RE = re.compile(r"(HTML|html|网页|页面|文件|法律意见书|法律意见|意见书|合规审查报告|合规报告|法务报告)")
@@ -42,6 +44,160 @@ LEGAL_META_QUESTION_RE = re.compile(r"(为什么|为何|原因|怎么没有|没�
 OVERWRITE_RE = re.compile(r"(覆盖|替换现有|覆盖现有|写回默认|更新现有|改写现有)")
 STOCK_CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 SAFE_FILENAME_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._-]+")
+ANNUAL_REPORT_RE = re.compile(r"(年报|年度报告|annual\s*report)", re.IGNORECASE)
+REPORT_YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+
+ANNUAL_REPORT_FACT_SPECS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "audit_opinion",
+        "年度报告与财务报表审计意见",
+        (
+            r"出具.{0,80}(?:标准(?:的)?无保留意见|无保留意见).{0,30}审计报告",
+            r"审计报告意见类型.{0,20}(?:标准(?:的)?无保留意见|无保留意见)",
+        ),
+    ),
+    (
+        "information_disclosure",
+        "定期报告与信息披露",
+        (
+            r"(?:公司|本公司).{0,20}(?:全年|报告期内).{0,20}(?:完成|披露).{0,30}(?:定期报告|临时公告)",
+            r"信息披露.{0,80}(?:真实|准确|完整|及时|评价)",
+            r"(?:定期报告|临时公告).{0,80}(?:真实|准确|完整|及时|评价)",
+        ),
+    ),
+    (
+        "corporate_governance",
+        "公司治理、董事会与专门委员会",
+        (
+            r"董事会.{0,100}(?:由.{0,30}董事组成|召开.{0,20}次会议)",
+            r"董事会由.{0,60}董事组成",
+            r"独立董事.{0,80}(?:审计委员会|专门会议|履职)",
+        ),
+    ),
+    (
+        "related_party_transactions",
+        "关联交易及审议披露",
+        (
+            r"(?:股东大会|股东会).{0,80}(?:审议通过|批准).{0,40}(?:日常)?关联交易",
+            r"(?:日常)?关联交易.{0,100}(?:实际发生|预计金额|审议|披露)",
+        ),
+    ),
+    (
+        "fund_occupation",
+        "非经营性资金占用",
+        (r"非经营性.{0,20}(?:占用资金|资金占用)",),
+    ),
+    (
+        "external_guarantee",
+        "对外担保及违规担保",
+        (
+            r"违规担保",
+            r"对外担保.{0,100}(?:余额|总额|审议|披露|不存在|为\s*0)",
+            r"担保情况",
+        ),
+    ),
+    (
+        "internal_control",
+        "内部控制评价与审计",
+        (
+            r"内部控制.{0,100}(?:重大缺陷|重要缺陷|有效执行)",
+            r"(?:内控|内部控制)审计.{0,80}(?:标准(?:的)?无保留意见|无保留意见)",
+            r"内部控制审计报告意见类型",
+        ),
+    ),
+    (
+        "litigation",
+        "重大诉讼与仲裁",
+        (r"(?:有|无|不存在).{0,12}重大诉讼.{0,20}仲裁", r"重大诉讼、?仲裁事项"),
+    ),
+    (
+        "regulatory_penalty",
+        "违法违规、监管处罚及整改",
+        (r"涉嫌违法违规.{0,40}(?:处罚|整改)", r"受到处罚及整改情况"),
+    ),
+    (
+        "financial_reporting",
+        "主要财务数据",
+        (r"营业收入.{0,100}(?:同比|上年|增长|下降|亿元|万元)",),
+    ),
+)
+
+ANNUAL_RETRIEVAL_TOPICS: tuple[tuple[str, str], ...] = (
+    (
+        "定期报告与信息披露",
+        "《中华人民共和国证券法》第七十八条 《中华人民共和国证券法》第七十九条 《中华人民共和国证券法》第八十二条 年度报告 定期报告",
+    ),
+    (
+        "公司治理",
+        "《中华人民共和国公司法》第一百二十一条 《中华人民共和国公司法》第一百三十六条 《中华人民共和国公司法》第一百三十七条 审计委员会 独立董事",
+    ),
+    (
+        "关联交易",
+        "《中华人民共和国公司法》第一百三十九条 《中华人民共和国公司法》第一百八十二条 《中华人民共和国公司法》第一百八十五条 关联交易 回避表决",
+    ),
+    (
+        "对外担保与资金占用",
+        "《中华人民共和国公司法》第十五条 《中华人民共和国公司法》第一百三十五条 《中华人民共和国证券法》第八十条 对外担保 资金占用",
+    ),
+    (
+        "内部控制与审计",
+        "《中华人民共和国公司法》第一百三十七条 《中华人民共和国公司法》第二百零八条 《中华人民共和国公司法》第二百一十六条 内部控制 审计 财务报告",
+    ),
+    (
+        "诉讼与监管处罚",
+        "中华人民共和国证券法 涉及公司的重大诉讼、仲裁 公司涉嫌犯罪被依法立案调查",
+    ),
+)
+
+ANNUAL_LEGAL_NOISE_TERMS = (
+    "证券投资基金法",
+    "优化营商环境条例",
+    "不动产登记",
+    "港口法",
+)
+
+ANNUAL_LEGAL_RELEVANCE_TERMS = (
+    "年度报告",
+    "定期报告",
+    "信息披露",
+    "上市公司",
+    "董事",
+    "审计委员会",
+    "公司治理",
+    "关联交易",
+    "担保",
+    "资金占用",
+    "内部控制",
+    "诉讼",
+    "仲裁",
+    "行政处罚",
+    "监管措施",
+    "证券法",
+    "公司法",
+    "股票上市规则",
+)
+
+ANNUAL_LEGAL_SPECIALIZED_SOURCE_TERMS = (
+    "上市公司信息披露管理办法",
+    "上市公司治理准则",
+    "上市公司独立董事管理办法",
+    "上市公司章程指引",
+    "上市公司监管指引",
+    "证券交易所股票上市规则",
+    "证券交易所上市公司自律监管",
+    "公开发行证券的公司信息披露内容与格式准则",
+    "企业内部控制基本规范",
+    "企业内部控制配套指引",
+)
+
+ANNUAL_TOPIC_CONTENT_TERMS: dict[str, tuple[str, ...]] = {
+    "定期报告与信息披露": ("年度报告", "定期报告", "信息披露", "真实、准确、完整"),
+    "公司治理": ("董事会", "独立董事", "审计委员会", "公司治理"),
+    "关联交易": ("关联交易", "关联关系", "回避", "无关联关系董事"),
+    "对外担保与资金占用": ("担保", "资金占用", "公司资金", "股东会决议"),
+    "内部控制与审计": ("内部控制", "审计", "财务会计报告", "会计资料"),
+    "诉讼与监管处罚": ("诉讼", "仲裁", "行政处罚", "监管措施"),
+}
 
 
 @dataclass(frozen=True)
@@ -61,6 +217,17 @@ class LegalWorkflowResponse:
     handled: bool
     reply: str
     result: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AnnualReportBundle:
+    report_path: Path
+    report_id: str
+    report_year: int | None
+    period_end: str
+    task_id: str
+    facts: list[dict[str, Any]]
+    metrics: list[dict[str, Any]]
 
 
 def _context_dict(context: Any | None) -> dict[str, Any]:
@@ -117,18 +284,33 @@ def _report_path_from_context(context: Any | None) -> Path | None:
     filename = str(report.get("filename") or "").strip()
     company_dir = str(_context_company(context).get("dir") or "").strip()
     if value:
-        match = re.search(r"(?:/api/wiki)?/companies/([^/]+)/([^/]+)/([^?#\s]+)", value)
-        if match:
-            company, section, name = match.groups()
-            candidate = WIKI_ROOT / "companies" / company / section / name
-            if candidate.suffix.lower() in {".html", ".json"}:
+        decoded_path = unquote(urlsplit(value).path)
+        parts = [part for part in decoded_path.split("/") if part]
+        try:
+            company_index = parts.index("companies")
+            company = parts[company_index + 1]
+            section = parts[company_index + 2]
+            tail = parts[company_index + 3 :]
+        except (ValueError, IndexError):
+            tail = []
+        if tail and section in {"reports", "analysis", "legal"}:
+            candidate = WIKI_ROOT / "companies" / company / section / Path(*tail)
+            if candidate.is_dir():
+                candidate = candidate / "report.md"
+            if candidate.suffix.lower() in {".html", ".json"} and section != "legal":
                 md_candidate = candidate.with_suffix(".md")
-                if md_candidate.exists():
-                    return md_candidate
-            return candidate
+                if md_candidate.is_file():
+                    candidate = md_candidate
+            if candidate.is_file() and candidate.suffix.lower() in {".md", ".html", ".json"}:
+                return candidate
     if filename and company_dir:
-        section = str(report.get("type") or "analysis").strip() or "analysis"
-        return WIKI_ROOT / "companies" / company_dir / section / filename
+        raw_section = str(report.get("type") or "analysis").strip().lower() or "analysis"
+        section = "reports" if raw_section in {"report", "reports", "annual", "annual_report"} else raw_section
+        if section not in {"reports", "analysis", "legal"}:
+            return None
+        candidate = WIKI_ROOT / "companies" / company_dir / section / unquote(filename)
+        if candidate.is_file() and candidate.suffix.lower() in {".md", ".html", ".json"}:
+            return candidate
     return None
 
 
@@ -258,6 +440,323 @@ def _company_dir_name(company_dir: Path) -> str:
     return company_dir.name
 
 
+def _is_annual_report_request(request: LegalWorkflowRequest) -> bool:
+    return bool(ANNUAL_REPORT_RE.search(f"{request.topic} {request.prompt}"))
+
+
+def _requested_report_year(request: LegalWorkflowRequest) -> int | None:
+    match = REPORT_YEAR_RE.search(f"{request.topic} {request.prompt}")
+    return int(match.group(1)) if match else None
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _annual_report_metadata(report_dir: Path) -> tuple[int | None, str]:
+    payload = _read_json(report_dir / "report.json")
+    report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+    report_kind = str(report.get("report_kind") or "")
+    year_raw = report.get("report_year")
+    try:
+        report_year = int(year_raw) if year_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        report_year = None
+    if report_year is None:
+        match = REPORT_YEAR_RE.search(str(report.get("report_id") or report_dir.name))
+        report_year = int(match.group(1)) if match else None
+    return report_year, report_kind
+
+
+def _report_dir_from_path(path: Path, reports_root: Path) -> Path | None:
+    if not path.exists() or not _path_is_within(path, reports_root):
+        return None
+    candidate = path if path.is_dir() else path.parent
+    while candidate != reports_root and candidate.parent != candidate:
+        if candidate.parent == reports_root:
+            return candidate
+        candidate = candidate.parent
+    return None
+
+
+def _resolve_annual_report_path(company_dir: Path, request: LegalWorkflowRequest) -> Path | None:
+    reports_root = company_dir / "reports"
+    requested_year = _requested_report_year(request)
+
+    # Prefer the repository's manifest-first resolver when the company has a
+    # catalogued report package. Minimal/legacy fixtures fall back to the
+    # filesystem-compatible branch below.
+    try:
+        from services.research_report_package import enumerate_companies, enumerate_report_packages
+
+        resolved_company = next(
+            (
+                item
+                for item in enumerate_companies(wiki_root=WIKI_ROOT, markets=("CN",))
+                if item.company_dir.resolve() == company_dir.resolve()
+            ),
+            None,
+        )
+        if resolved_company is not None:
+            packages = []
+            for package in enumerate_report_packages(resolved_company, agent_type="legal"):
+                year_match = REPORT_YEAR_RE.search(package.report_id)
+                package_year = int(year_match.group(1)) if year_match else None
+                is_annual = "annual" in package.report_id.lower() or "年报" in str(package.manifest)
+                if not is_annual or (requested_year is not None and package_year != requested_year):
+                    continue
+                packages.append((package_year or 0, package))
+            if packages:
+                packages.sort(key=lambda item: (item[0], item[1].report_id), reverse=True)
+                package = packages[0][1]
+                report_md = next((path for path in package.fulltext_paths if path.name == "report.md"), None)
+                if report_md is not None and report_md.is_file():
+                    return report_md
+    except Exception:
+        pass
+
+    preferred_dir = _report_dir_from_path(request.report_path, reports_root) if request.report_path else None
+    if preferred_dir is not None:
+        report_year, report_kind = _annual_report_metadata(preferred_dir)
+        is_annual = report_kind == "annual_report" or "annual" in preferred_dir.name.lower()
+        if is_annual and (requested_year is None or report_year in {None, requested_year}):
+            preferred_md = preferred_dir / "report.md"
+            if preferred_md.is_file():
+                return preferred_md
+
+    candidates: list[tuple[int, Path]] = []
+    if reports_root.is_dir():
+        for report_dir in reports_root.iterdir():
+            if not report_dir.is_dir() or not (report_dir / "report.md").is_file():
+                continue
+            report_year, report_kind = _annual_report_metadata(report_dir)
+            if report_kind and report_kind != "annual_report" and "annual" not in report_dir.name.lower():
+                continue
+            if not report_kind and "annual" not in report_dir.name.lower():
+                continue
+            if requested_year is not None and report_year != requested_year:
+                continue
+            candidates.append((report_year or 0, report_dir / "report.md"))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1].parent.name), reverse=True)
+    return candidates[0][1]
+
+
+def _page_for_line(lines: list[str]) -> list[int | None]:
+    pages: list[int | None] = []
+    current_page: int | None = None
+    for line in lines:
+        match = re.search(r"\[PDF_PAGE:\s*(\d+)\]", line)
+        if match:
+            current_page = int(match.group(1))
+        pages.append(current_page)
+    return pages
+
+
+def _fact_excerpt(lines: list[str], index: int, limit: int = 620) -> str:
+    first = lines[index].strip()
+    selected = [first]
+    needs_context = first.startswith("#") or len(re.sub(r"[#*\s]", "", first)) < 18
+    if needs_context:
+        for next_line in lines[index + 1 : index + 6]:
+            clean = next_line.strip()
+            if not clean:
+                continue
+            if clean.startswith("#") and len(selected) > 1:
+                break
+            if re.fullmatch(r"\[PDF_PAGE:\s*\d+\]", clean):
+                continue
+            selected.append(clean)
+            if len(" ".join(selected)) >= limit:
+                break
+    joined = " ".join(selected)
+    joined = re.sub(r"</t[dh]>", " | ", joined, flags=re.IGNORECASE)
+    joined = re.sub(r"<[^>]+>", " ", joined)
+    joined = html.unescape(joined)
+    return _compact(joined, limit)
+
+
+def _extract_annual_report_facts(
+    report_path: Path,
+    *,
+    report_id: str,
+    report_year: int | None,
+    period_end: str,
+    task_id: str,
+) -> list[dict[str, Any]]:
+    try:
+        lines = report_path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return []
+    pages = _page_for_line(lines)
+    facts: list[dict[str, Any]] = []
+    prefer_last_match = {"fund_occupation", "external_guarantee", "regulatory_penalty"}
+    for fact_key, title, patterns in ANNUAL_REPORT_FACT_SPECS:
+        matched_index: int | None = None
+        for pattern in patterns:
+            matches = [
+                index
+                for index, line in enumerate(lines)
+                if re.search(pattern, line, re.IGNORECASE)
+            ]
+            if matches:
+                matched_index = matches[-1] if fact_key in prefer_last_match else matches[0]
+                break
+        if matched_index is None:
+            continue
+        line_number = matched_index + 1
+        quote_text = _fact_excerpt(lines, matched_index)
+        fact: dict[str, Any] = {
+            "rank": len(facts) + 1,
+            "fact_key": fact_key,
+            "title": title,
+            "source_type": "annual_report",
+            "source": f"{report_year or ''}年年度报告-{title}".lstrip("年"),
+            "source_path": str(report_path),
+            "report_id": report_id,
+            "period": period_end,
+            "chunk_index": str(line_number),
+            "md_line": line_number,
+            "quote": quote_text,
+            "relevance": f"用于核验{title}的公司特定事实",
+        }
+        if pages[matched_index] is not None:
+            fact["pdf_page"] = pages[matched_index]
+        if task_id:
+            fact["task_id"] = task_id
+        facts.append(fact)
+    return facts
+
+
+def _format_metric_value(value: float, unit: str) -> str:
+    if unit in {"元", "人民币元", "CNY"}:
+        return f"{value / 100_000_000:,.2f} 亿元"
+    return f"{value:,.4f} {unit}".rstrip()
+
+
+def _load_annual_metrics(
+    company_dir: Path,
+    *,
+    report_id: str,
+    report_year: int | None,
+    period_end: str,
+    task_id: str,
+) -> list[dict[str, Any]]:
+    if report_year is None:
+        return []
+    path = company_dir / "metrics" / "reports" / report_id / "key_metrics.json"
+    payload = _read_json(path)
+    rows = payload.get("data") if isinstance(payload.get("data"), list) else []
+    selected_names = {
+        "operating_revenue",
+        "parent_net_profit",
+        "operating_cash_flow_net",
+        "equity_attributable_parent",
+        "total_assets",
+    }
+    current_key = str(report_year)
+    prior_key = str(report_year - 1)
+    metrics: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping) or str(row.get("canonical_name") or "") not in selected_names:
+            continue
+        values = row.get("values") if isinstance(row.get("values"), Mapping) else {}
+        try:
+            current = float(values[current_key])
+            prior = float(values[prior_key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        unit = str(row.get("unit") or "")
+        yoy = None if prior <= 0 else (current - prior) / prior * 100
+        source_map = row.get("sources") if isinstance(row.get("sources"), Mapping) else {}
+        locator = source_map.get(current_key) if isinstance(source_map.get(current_key), Mapping) else {}
+        metric: dict[str, Any] = {
+            "rank": len(metrics) + 1,
+            "metric_key": str(row.get("canonical_name") or ""),
+            "name": str(row.get("name") or row.get("canonical_name") or ""),
+            "current_year": report_year,
+            "prior_year": report_year - 1,
+            "current_value": current,
+            "prior_value": prior,
+            "current_display": _format_metric_value(current, unit),
+            "prior_display": _format_metric_value(prior, unit),
+            "yoy": yoy,
+            "yoy_display": "不适用（上期非正数）" if yoy is None else f"{yoy:+.2f}%",
+            "source_type": "annual_report_metric",
+            "source": f"年度报告关键财务指标-{row.get('name') or row.get('canonical_name')}",
+            "source_path": str(path),
+            "report_id": report_id,
+            "period": period_end,
+            "quote": f"{current_key}={values.get(current_key)}; {prior_key}={values.get(prior_key)}; unit={unit}",
+            "relevance": "用于核验年度报告关键财务数据及变动幅度",
+        }
+        if locator.get("table_index") not in (None, ""):
+            metric["table_index"] = locator["table_index"]
+            metric["chunk_index"] = str(locator["table_index"])
+        if locator.get("line") not in (None, ""):
+            metric["md_line"] = locator["line"]
+            metric.setdefault("chunk_index", str(locator["line"]))
+        if task_id:
+            metric["task_id"] = task_id
+        metrics.append(metric)
+    return metrics
+
+
+def _load_annual_report_bundle(company_dir: Path, report_path: Path) -> AnnualReportBundle:
+    report_dir = report_path.parent
+    payload = _read_json(report_dir / "report.json")
+    report = payload.get("report") if isinstance(payload.get("report"), dict) else {}
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    report_id = str(report.get("report_id") or report_dir.name)
+    report_year_raw = report.get("report_year")
+    try:
+        report_year = int(report_year_raw) if report_year_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        report_year = None
+    if report_year is None:
+        match = REPORT_YEAR_RE.search(report_id)
+        report_year = int(match.group(1)) if match else None
+    filename_metadata = report.get("source_filename_metadata") if isinstance(report.get("source_filename_metadata"), dict) else {}
+    period_end = str(filename_metadata.get("report_end") or (f"{report_year}-12-31" if report_year else ""))
+    task_id = str(source.get("task_id") or "")
+    facts = _extract_annual_report_facts(
+        report_path,
+        report_id=report_id,
+        report_year=report_year,
+        period_end=period_end,
+        task_id=task_id,
+    )
+    metrics = _load_annual_metrics(
+        company_dir,
+        report_id=report_id,
+        report_year=report_year,
+        period_end=period_end,
+        task_id=task_id,
+    )
+    return AnnualReportBundle(
+        report_path=report_path,
+        report_id=report_id,
+        report_year=report_year,
+        period_end=period_end,
+        task_id=task_id,
+        facts=facts,
+        metrics=metrics,
+    )
+
+
 def _legal_milvus_script() -> Path:
     return PROJECT_ROOT / "agents" / "hermes" / "profiles" / "siq_legal" / "scripts" / "legal_milvus_cli.py"
 
@@ -287,6 +786,16 @@ def _retrieval_query(request: LegalWorkflowRequest, company: dict[str, str]) -> 
     return " ".join(part for part in [company_name, request.topic, request.jurisdiction, listed_hint] if part).strip()
 
 
+def _retrieval_queries(request: LegalWorkflowRequest, company: dict[str, str]) -> list[tuple[str, str]]:
+    if not _is_annual_report_request(request):
+        return [("事项综合审查", _retrieval_query(request, company))]
+    queries: list[tuple[str, str]] = []
+    for label, terms in ANNUAL_RETRIEVAL_TOPICS:
+        query = " ".join(part for part in (request.jurisdiction, label, terms) if part).strip()
+        queries.append((label, query))
+    return queries
+
+
 def _retrieve_legal_sources(
     query: str,
     *,
@@ -303,7 +812,6 @@ def _retrieve_legal_sources(
         query,
         "--top-k",
         str(max(MIN_CITATIONS, min(top_k, 20))),
-        "--no-rerank",
     ]
     completed = run_command(cmd, cwd=PROJECT_ROOT, timeout=timeout)
     payload = _load_stdout_json(completed)
@@ -328,22 +836,101 @@ def _citation_source(result: Mapping[str, Any]) -> str:
     return "法规检索片段"
 
 
-def _normalize_citations(results: list[Any]) -> list[dict[str, str]]:
-    citations: list[dict[str, str]] = []
+def _relevant_legal_quote(result: Mapping[str, Any], limit: int = 360) -> str:
+    text = re.sub(r"\s+", " ", str(result.get("text") or "")).strip()
+    if not text:
+        return ""
+    anchors: list[str] = []
+    exact_reason = str(result.get("exact_reason") or "")
+    article_match = re.search(r"第[一二三四五六七八九十百千万零〇两\d]+条(?:之一|之二|之三)?", exact_reason)
+    if article_match and (article_position := text.find(article_match.group(0))) >= 0:
+        start = max(0, article_position - 70)
+        return ("…" if start else "") + _compact(text[start:], limit)
+    topic = str(result.get("retrieval_topic") or "")
+    anchors.extend(ANNUAL_TOPIC_CONTENT_TERMS.get(topic, ()))
+    positions = [(text.find(anchor), anchor) for anchor in anchors if text.find(anchor) >= 0]
+    if not positions:
+        return _compact(text, limit)
+    position, _anchor = min(positions, key=lambda item: item[0])
+    start = max(0, position - 70)
+    return ("…" if start else "") + _compact(text[start:], limit)
+
+
+def _annual_legal_result_is_relevant(result: Mapping[str, Any]) -> bool:
+    source = str(result.get("source") or Path(str(result.get("source_path") or "")).name).strip()
+    source_name = Path(source).name
+    text = " ".join(str(result.get(key) or "") for key in ("text", "relevance"))
+    if any(term in f"{source_name} {text}" for term in ANNUAL_LEGAL_NOISE_TERMS):
+        return False
+    primary_source = bool(
+        re.fullmatch(r"中华人民共和国(?:公司法|证券法)(?:_\d{8})?(?:\.md)?", source_name)
+    )
+    specialized_source = any(term in source_name for term in ANNUAL_LEGAL_SPECIALIZED_SOURCE_TERMS)
+    if not primary_source and not specialized_source:
+        return False
+    if primary_source and "exact_reason" in result:
+        exact_reason = str(result.get("exact_reason") or "")
+        if not (
+            exact_reason.startswith("article:")
+            or exact_reason.startswith("neighbor:")
+            or exact_reason.startswith("source_focus:")
+        ):
+            return False
+        if exact_reason.startswith("article:"):
+            article_match = re.search(
+                r"第[一二三四五六七八九十百千万零〇两\d]+条(?:之一|之二|之三)?",
+                exact_reason,
+            )
+            raw_text = str(result.get("text") or "")
+            if article_match and not re.search(
+                rf"(?<!本法){re.escape(article_match.group(0))}[\s　]",
+                raw_text,
+            ):
+                return False
+    topic = str(result.get("retrieval_topic") or "")
+    content_terms = ANNUAL_TOPIC_CONTENT_TERMS.get(topic, ANNUAL_LEGAL_RELEVANCE_TERMS)
+    return any(term in text for term in content_terms)
+
+
+def _normalize_citations(results: list[Any], *, annual_report: bool = False) -> list[dict[str, Any]]:
+    citations: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for result in results:
+    per_source: dict[str, int] = {}
+    ordered_results = list(results)
+    if annual_report:
+        topic_order = [label for label, _query in ANNUAL_RETRIEVAL_TOPICS]
+        grouped: dict[str, list[Any]] = {topic: [] for topic in topic_order}
+        for result in results:
+            if isinstance(result, Mapping):
+                grouped.setdefault(str(result.get("retrieval_topic") or ""), []).append(result)
+        ordered_results = []
+        max_group_size = max((len(group) for group in grouped.values()), default=0)
+        for index in range(max_group_size):
+            for topic in topic_order:
+                group = grouped.get(topic) or []
+                if index < len(group):
+                    ordered_results.append(group[index])
+    source_limit = 8 if annual_report else 3
+    for result in ordered_results:
         if not isinstance(result, Mapping):
+            continue
+        if annual_report and not _annual_legal_result_is_relevant(result):
             continue
         source_path = str(result.get("source_path") or "").strip()
         chunk_index = str(result.get("chunk_index") or "").strip()
-        key = f"{source_path}#{chunk_index}"
+        topic_key = str(result.get("retrieval_topic") or "") if annual_report else ""
+        key = f"{source_path}#{chunk_index}#{topic_key}"
         if key in seen:
             continue
         seen.add(key)
         source = _citation_source(result)
-        text = _compact(str(result.get("text") or ""), 220)
+        source_key = source_path or source
+        if per_source.get(source_key, 0) >= source_limit:
+            continue
+        text = _relevant_legal_quote(result) if annual_report else _compact(str(result.get("text") or ""), 220)
         if not source_path and not text:
             continue
+        per_source[source_key] = per_source.get(source_key, 0) + 1
         citations.append(
             {
                 "rank": str(result.get("rank") or len(citations) + 1),
@@ -352,10 +939,73 @@ def _normalize_citations(results: list[Any]) -> list[dict[str, str]]:
                 "source_path": source_path or source,
                 "chunk_index": chunk_index or "N/A",
                 "quote": text or source,
-                "relevance": "作为本事项法律适用和风险判断的检索依据",
+                "relevance": str(
+                    result.get("relevance")
+                    or result.get("retrieval_topic")
+                    or "作为本事项法律适用和风险判断的检索依据"
+                ),
+                "retrieval_topic": str(result.get("retrieval_topic") or "事项综合审查"),
+                "exact_reason": str(result.get("exact_reason") or ""),
             }
         )
+        if len(citations) >= MAX_LEGAL_CITATIONS:
+            break
     return citations
+
+
+def _retrieve_legal_source_set(
+    request: LegalWorkflowRequest,
+    company: dict[str, str],
+    *,
+    timeout: int | float,
+) -> tuple[dict[str, Any], subprocess.CompletedProcess[str] | None]:
+    query_specs = _retrieval_queries(request, company)
+    query_timeout = max(60.0, float(timeout) / max(1, len(query_specs)))
+    query_records: list[dict[str, Any]] = []
+    combined_results: list[dict[str, Any]] = []
+    last_completed: subprocess.CompletedProcess[str] | None = None
+    successful_queries = 0
+    for label, query in query_specs:
+        try:
+            payload, completed = _retrieve_legal_sources(
+                query,
+                top_k=request.top_k,
+                timeout=query_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            query_records.append({"topic": label, "query": query, "ok": False, "error": str(exc)})
+            continue
+        if completed is not None:
+            last_completed = completed
+        results = payload.get("results") if isinstance(payload.get("results"), list) else []
+        query_records.append(
+            {
+                "topic": label,
+                "query": query,
+                "ok": bool(payload.get("ok")),
+                "result_count": len(results),
+                "stage": payload.get("stage"),
+            }
+        )
+        if not payload.get("ok"):
+            continue
+        successful_queries += 1
+        for raw in results:
+            if not isinstance(raw, Mapping):
+                continue
+            combined_results.append({**dict(raw), "retrieval_topic": label, "retrieval_query": query})
+    return (
+        {
+            "ok": successful_queries > 0,
+            "stage": "completed" if successful_queries > 0 else "legal_retrieval_failed",
+            "collection": "ic_legal_scanner",
+            "query": " | ".join(query for _label, query in query_specs),
+            "queries": query_records,
+            "successful_query_count": successful_queries,
+            "results": combined_results,
+        },
+        last_completed,
+    )
 
 
 def _relative(path: str | Path | None) -> str:
@@ -402,37 +1052,40 @@ def _h(value: object) -> str:
     return html.escape(str(value or ""), quote=True)
 
 
-def _build_citation_table_rows(citations: list[dict[str, str]]) -> str:
+def _build_citation_table_rows(citations: list[dict[str, Any]]) -> str:
     rows = []
     for index, citation in enumerate(citations, start=1):
         rows.append(
             "<tr>"
             f"<td>[{index}]</td>"
-            f"<td>{_h(citation['source'])}</td>"
-            f"<td>{_h(citation['source_path'])}</td>"
-            f"<td>{_h(citation['chunk_index'])}</td>"
-            f"<td>{_h(citation['relevance'])}</td>"
+            f"<td>{_h(citation.get('source'))}</td>"
+            f"<td>{_h(citation.get('source_path'))}</td>"
+            f"<td>{_h(citation.get('chunk_index') or citation.get('md_line') or citation.get('table_index'))}</td>"
+            f"<td>{_h(citation.get('relevance'))}</td>"
             "</tr>"
         )
     return "\n".join(rows)
 
 
-def _build_citation_lines(citations: list[dict[str, str]]) -> str:
+def _build_citation_lines(citations: list[dict[str, Any]]) -> str:
     lines = []
     for index, citation in enumerate(citations, start=1):
         lines.append(
             "<p>"
-            f"[{index}] source={_h(citation['source'])}, "
-            f"source_path={_h(citation['source_path'])}, "
-            f"chunk_index={_h(citation['chunk_index'])}, "
-            f"quote=&quot;{_h(citation['quote'])}&quot;, "
-            f"relevance={_h(citation['relevance'])}"
+            f"[{index}] source={_h(citation.get('source'))}, "
+            f"source_type={_h(citation.get('source_type'))}, "
+            f"source_path={_h(citation.get('source_path'))}, "
+            f"chunk_index={_h(citation.get('chunk_index') or citation.get('md_line') or citation.get('table_index'))}, "
+            f"md_line={_h(citation.get('md_line'))}, "
+            f"pdf_page={_h(citation.get('pdf_page'))}, "
+            f"quote=&quot;{_h(citation.get('quote'))}&quot;, "
+            f"relevance={_h(citation.get('relevance'))}"
             "</p>"
         )
     return "\n".join(lines)
 
 
-def _build_legal_opinion_html(
+def _build_generic_legal_opinion_html(
     *,
     company: dict[str, str],
     company_dir: Path,
@@ -575,6 +1228,279 @@ def _build_legal_opinion_html(
 """
 
 
+def _annual_fact_table_rows(facts: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for fact in facts:
+        locator_parts = []
+        if fact.get("pdf_page") not in (None, ""):
+            locator_parts.append(f"PDF 解析页 {fact['pdf_page']}")
+        if fact.get("md_line") not in (None, ""):
+            locator_parts.append(f"Markdown 第 {fact['md_line']} 行")
+        rows.append(
+            "<tr>"
+            f"<td>{_h(fact.get('title'))}</td>"
+            f"<td>{_h(fact.get('quote'))}</td>"
+            f"<td>{_h('；'.join(locator_parts) or '源文件行级定位')}</td>"
+            "<td><span class=\"status supported\">已定位</span></td>"
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
+def _annual_metric_table_rows(metrics: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for metric in metrics:
+        rows.append(
+            "<tr>"
+            f"<td>{_h(metric.get('name'))}</td>"
+            f"<td>{_h(metric.get('current_display'))}</td>"
+            f"<td>{_h(metric.get('prior_display'))}</td>"
+            f"<td>{_h(metric.get('yoy_display'))}</td>"
+            f"<td>{_h(metric.get('table_index') or metric.get('md_line') or '')}</td>"
+            "</tr>"
+        )
+    return "\n".join(rows)
+
+
+def _fact_text(fact_map: Mapping[str, dict[str, Any]], *keys: str) -> str:
+    values = [str(fact_map[key].get("quote") or "") for key in keys if key in fact_map]
+    if values:
+        return " ".join(values)
+    return "本次结构化抽取未在源年报中定位到该维度的明确披露，需由法务、董办结合完整章节和公告材料复核。"
+
+
+def _law_refs(citations: list[dict[str, Any]], *terms: str) -> str:
+    matches = []
+    for index, citation in enumerate(citations, start=1):
+        searchable = " ".join(
+            str(citation.get(key) or "")
+            for key in ("source", "quote", "relevance", "retrieval_topic")
+        )
+        if any(term in searchable for term in terms):
+            matches.append(f"[{index}]")
+    if not matches:
+        matches = [f"[{index}]" for index in range(1, min(3, len(citations)) + 1)]
+    return "".join(matches)
+
+
+def _build_legal_opinion_html(
+    *,
+    company: dict[str, str],
+    company_dir: Path,
+    request: LegalWorkflowRequest,
+    legal_citations: list[dict[str, Any]],
+    retrieval_query: str,
+    annual_bundle: AnnualReportBundle | None = None,
+) -> str:
+    if annual_bundle is None:
+        return _build_generic_legal_opinion_html(
+            company=company,
+            company_dir=company_dir,
+            request=request,
+            citations=legal_citations,
+            retrieval_query=retrieval_query,
+        )
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    stock_code = company.get("stock_code") or company.get("company_id") or ""
+    company_name = company.get("company_short_name") or company.get("company_full_name") or stock_code
+    full_name = company.get("company_full_name") or company_name
+    subject = f"{stock_code}-{company_name}" if stock_code and stock_code != company_name else company_name
+    report_label = f"{annual_bundle.report_year or ''} 年年度报告".strip()
+    fact_map = {str(item.get("fact_key") or ""): item for item in annual_bundle.facts}
+    report_citations = [*annual_bundle.facts, *annual_bundle.metrics]
+    all_citations = [*legal_citations, *report_citations]
+    legal_table_rows = _build_citation_table_rows(legal_citations)
+    fact_table_rows = _annual_fact_table_rows(annual_bundle.facts)
+    metric_table_rows = _annual_metric_table_rows(annual_bundle.metrics)
+    citation_lines = _build_citation_lines(all_citations)
+    covered_keys = set(fact_map)
+    missing_labels = [
+        title
+        for key, title, _patterns in ANNUAL_REPORT_FACT_SPECS[:9]
+        if key not in covered_keys
+    ]
+    missing_text = "、".join(missing_labels) if missing_labels else "无核心维度缺口"
+    metric_section = (
+        f"""<table>
+          <thead><tr><th>指标</th><th>{annual_bundle.report_year}</th><th>{(annual_bundle.report_year or 1) - 1}</th><th>同比变动</th><th>表/行定位</th></tr></thead>
+          <tbody>{metric_table_rows}</tbody>
+        </table>"""
+        if annual_bundle.metrics
+        else "<p class=\"gap\">未发现与该报告身份绑定的结构化关键指标文件；本意见不据此推导财务趋势，相关数字仅按源年报原文列示。</p>"
+    )
+    audit_refs = _law_refs(legal_citations, "年度报告", "定期报告", "信息披露")
+    governance_refs = _law_refs(legal_citations, "公司治理", "董事", "审计委员会")
+    related_refs = _law_refs(legal_citations, "关联交易")
+    guarantee_refs = _law_refs(legal_citations, "担保", "资金占用")
+    control_refs = _law_refs(legal_citations, "内部控制", "审计")
+    enforcement_refs = _law_refs(legal_citations, "诉讼", "仲裁", "处罚", "监管")
+
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{_h(subject)} - {_h(report_label)}法律审查意见</title>
+<style>
+  :root {{ color-scheme: light; --ink: #243041; --muted: #607083; --line: #d7e0e8; --accent: #16697a; --soft: #eef7f6; --warn: #fff7e8; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; background: #f4f7f9; color: var(--ink); font-family: Arial, "Microsoft YaHei", sans-serif; line-height: 1.72; }}
+  main {{ max-width: 1080px; margin: 0 auto; padding: 28px 18px 56px; }}
+  header, section {{ background: #fff; border: 1px solid var(--line); padding: 26px 32px; margin-bottom: 16px; }}
+  header {{ border-top: 5px solid var(--accent); }}
+  h1 {{ margin: 0 0 12px; color: #17364d; font-size: 26px; line-height: 1.4; }}
+  h2 {{ margin: 0 0 16px; color: #17364d; font-size: 20px; }}
+  h3 {{ margin: 22px 0 9px; color: #205c6c; font-size: 16px; }}
+  p {{ margin: 8px 0 12px; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }}
+  th, td {{ border: 1px solid var(--line); padding: 9px 10px; text-align: left; vertical-align: top; }}
+  th {{ background: #eef3f6; color: #17364d; }}
+  ul, ol {{ padding-left: 22px; }}
+  .meta {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 24px; color: var(--muted); font-size: 14px; }}
+  .notice {{ margin-top: 16px; padding: 12px 14px; background: var(--warn); border-left: 4px solid #a66413; }}
+  .summary {{ padding: 13px 15px; background: var(--soft); border-left: 4px solid #168071; }}
+  .fact {{ padding: 10px 12px; background: #f7fafb; border-left: 3px solid #7aa8b2; color: #344657; }}
+  .gap {{ padding: 10px 12px; background: var(--warn); border-left: 3px solid #c47a16; }}
+  .status {{ display: inline-block; padding: 1px 7px; border: 1px solid #9ac5bb; color: #176456; font-size: 12px; }}
+  .source-line p {{ margin: 0 0 10px; word-break: break-word; font-size: 12px; color: #526173; }}
+  footer {{ color: #697586; font-size: 12px; text-align: center; margin-top: 22px; }}
+  @media (max-width: 720px) {{ main {{ padding: 12px 8px 32px; }} header, section {{ padding: 19px 16px; }} .meta {{ grid-template-columns: 1fr; }} table {{ display: block; overflow-x: auto; }} }}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>{_h(subject)} - {_h(report_label)}法律审查意见</h1>
+  <div class="meta">
+    <span>出具时间：{_h(now)}</span>
+    <span>审查主体：{_h(full_name)}（{_h(stock_code)}）</span>
+    <span>报告身份：{_h(annual_bundle.report_id)}</span>
+    <span>报告期末：{_h(annual_bundle.period_end or "未载明")}</span>
+    <span>解析任务：{_h(annual_bundle.task_id or "旧版报告包")}</span>
+    <span>管辖口径：{_h(request.jurisdiction)}</span>
+  </div>
+  <div class="notice">本意见以公司权威年报包和本机法律库检索结果为基础，属于法务风险初筛，不构成最终法律意见，不替代执业律师判断。</div>
+</header>
+
+<section>
+  <h2>一、事项摘要</h2>
+  <p class="summary">本次审查已绑定 {_h(report_label)}（report_id={_h(annual_bundle.report_id)}），共定位 {_h(len(annual_bundle.facts))} 项公司特定事实、{_h(len(annual_bundle.metrics))} 项结构化财务指标，并保留 {_h(len(legal_citations))} 条经相关性过滤的法规依据。初步工作结论是：已披露项目可进入程序与一致性复核；未定位项目不得推定为“不存在”，应列入核查清单。</p>
+  <h3>1.1 审查目标</h3>
+  <p>审查年度报告在定期报告披露、公司治理、关联交易、担保与资金占用、内部控制、诉讼处罚及关键财务数据方面是否具备可追溯事实基础，并识别仍需公告、决议、合同或中介文件佐证的事项。</p>
+  <h3>1.2 初步结论边界</h3>
+  <p>本意见不以单一勾选项替代穿透核查，也不因年报未定位到某项披露即作出“完全合规”判断。最终结论需以公司章程、会议决议、关联方清单、担保台账、公告原文及监管最新口径复核结果为准。</p>
+</section>
+
+<section>
+  <h2>二、事实背景与审查范围</h2>
+  <table>
+    <tr><th>源报告</th><td>{_h(_relative(annual_bundle.report_path))}</td></tr>
+    <tr><th>用户事项</th><td>{_h(request.prompt or request.topic)}</td></tr>
+    <tr><th>事实覆盖</th><td>{_h(len(annual_bundle.facts))}/{_h(len(ANNUAL_REPORT_FACT_SPECS[:9]))} 个核心法律审查维度已定位</td></tr>
+    <tr><th>尚未定位</th><td>{_h(missing_text)}</td></tr>
+    <tr><th>审查限制</th><td>仅对源年报已披露事实作初步法律评价；未取得会议原件、合同、台账和监管沟通记录。</td></tr>
+  </table>
+  <h3>2.1 年报事实与定位</h3>
+  <table>
+    <thead><tr><th>审查维度</th><th>源年报披露摘要</th><th>定位</th><th>状态</th></tr></thead>
+    <tbody>{fact_table_rows}</tbody>
+  </table>
+  <h3>2.2 关键财务指标核验</h3>
+  {metric_section}
+</section>
+
+<section>
+  <h2>三、适用法规与检索路径</h2>
+  <p>法规检索按定期报告、治理、关联交易、担保与资金占用、内控审计、诉讼处罚六个主题分别执行，并过滤与上市公司年报审查无直接关系的基金法及异地营商环境规则。综合检索式：{_h(retrieval_query)}</p>
+  <table>
+    <thead><tr><th>序号</th><th>法规/规则</th><th>source_path</th><th>chunk</th><th>适用关联</th></tr></thead>
+    <tbody>{legal_table_rows}</tbody>
+  </table>
+</section>
+
+<section>
+  <h2>四、法律分析</h2>
+  <h3>4.1 年度报告、审计意见与责任声明</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'audit_opinion'))}</p>
+  <p>应进一步核对审计报告正文、关键审计事项、管理层责任声明与年报财务数据是否一致。标准无保留意见本身不等同于所有披露事项均无合规风险，定期报告仍须满足真实、准确、完整和及时要求。适用依据见 {audit_refs}。</p>
+  <h3>4.2 定期报告与信息披露</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'information_disclosure'))}</p>
+  <p>建议将年报重大事项与报告期内临时公告、交易所问询回复逐项交叉核验，重点识别更正、遗漏、口径变化和披露时点差异。历史信息披露评价可作为管理线索，但不能替代本年度逐项审查。适用依据见 {audit_refs}。</p>
+  <h3>4.3 公司治理、董事会与审计委员会</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'corporate_governance'))}</p>
+  <p>治理审查应覆盖董事会构成、独立董事比例、审计委员会履职、取消监事会后的监督职能承接，以及关联事项回避表决。需核对章程修订生效时间与会议记录，避免仅凭年报概述推定程序完备。适用依据见 {governance_refs}。</p>
+  <h3>4.4 关联交易及审议披露</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'related_party_transactions'))}</p>
+  <p>应将预计额度、实际发生额、定价原则、关联方识别和审议层级进行勾稽，并核对关联董事回避、独立董事或审计委员会前置审查及公告一致性。额度内交易仍需满足公允定价和持续披露要求。适用依据见 {related_refs}。</p>
+  <h3>4.5 非经营性资金占用与对外担保</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'fund_occupation', 'external_guarantee'))}</p>
+  <p>年报勾选“不适用”或披露余额为零时，仍建议以银行流水、往来科目、担保合同、董事会及股东会决议和对外担保台账作反向核验；对子公司担保、存续担保和报告期后事项需单独确认。适用依据见 {guarantee_refs}。</p>
+  <h3>4.6 内部控制评价与内部控制审计</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'internal_control'))}</p>
+  <p>内控意见应与年报披露的缺陷认定、整改情况和财务报表审计发现交叉核对。即使意见为标准无保留，仍需关注重大业务流程、信息系统、关联交易和资金管理是否存在一般缺陷或持续改进事项。适用依据见 {control_refs}。</p>
+  <h3>4.7 重大诉讼、仲裁、处罚及整改</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'litigation', 'regulatory_penalty'))}</p>
+  <p>建议与法院公开信息、监管处罚与纪律处分记录、子公司重大案件清单及期后事项进行复核。源年报未披露重大事项只能支持“按报告披露未见”，不能替代外部检索或完整法律函证。适用依据见 {enforcement_refs}。</p>
+  <h3>4.8 财务报告重点复核</h3>
+  <p class="fact">{_h(_fact_text(fact_map, 'financial_reporting'))}</p>
+  <p>结构化指标仅用于识别复核重点。营业收入、归母净利润、经营现金流、总资产和净资产的变动应与审计报告、会计政策、减值、非经常性损益及现金流附注相互印证；不得仅依据同比幅度作出违法违规判断。</p>
+</section>
+
+<section>
+  <h2>五、风险提示</h2>
+  <table>
+    <thead><tr><th>风险维度</th><th>当前证据状态</th><th>触发条件</th><th>建议控制动作</th></tr></thead>
+    <tbody>
+      <tr><td>定期报告披露</td><td>{_h('已定位' if 'information_disclosure' in fact_map else '需复核')}</td><td>年报与临时公告、审计报告或问询回复不一致</td><td>董办建立披露事项勾稽表并留存复核记录</td></tr>
+      <tr><td>治理程序</td><td>{_h('已定位' if 'corporate_governance' in fact_map else '需复核')}</td><td>委员会职责承接、回避表决或授权链条不完整</td><td>法务核验章程、议事规则及会议原件</td></tr>
+      <tr><td>关联交易</td><td>{_h('已定位' if 'related_party_transactions' in fact_map else '需复核')}</td><td>实际金额超预计、关联方遗漏或定价依据不足</td><td>财务与法务联合核对关联方及额度台账</td></tr>
+      <tr><td>担保与资金占用</td><td>{_h('已定位' if {'external_guarantee', 'fund_occupation'} & covered_keys else '需复核')}</td><td>账外担保、期后事项或往来科目异常</td><td>反向核验合同、流水、决议及函证</td></tr>
+      <tr><td>内控与审计</td><td>{_h('已定位' if 'internal_control' in fact_map else '需复核')}</td><td>内控评价与审计发现、整改记录不一致</td><td>审计委员会取得缺陷清单及整改闭环证据</td></tr>
+      <tr><td>诉讼与处罚</td><td>{_h('已定位' if {'litigation', 'regulatory_penalty'} & covered_keys else '需复核')}</td><td>子公司案件、外部公开记录或期后事项遗漏</td><td>开展外部检索并取得法律函证</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>六、结论与建议</h2>
+  <h3>6.1 初步结论</h3>
+  <p>基于现有事实，源年报已提供若干可追溯的治理、披露和财务审查线索，但本意见不据此作出“全面合规”的保证。已定位事实应进入程序、金额和跨文件一致性复核；尚未定位维度应作为证据缺口处理。</p>
+  <h3>6.2 立即复核清单</h3>
+  <ol>
+    <li>董办：核对年报、四期定期报告、临时公告和交易所问询回复的一致性。</li>
+    <li>法务：核对章程、董事会及股东会决议、回避表决、关联交易和担保审批程序。</li>
+    <li>财务：核对关联方清单、实际发生额、资金往来、担保台账及关键指标底稿。</li>
+    <li>审计委员会：取得内控缺陷、整改记录、内控审计报告和关键审计事项沟通材料。</li>
+    <li>外部律师：对重大、敏感或存在监管沟通的事项进行专项复核并更新结论。</li>
+  </ol>
+  <h3>6.3 持续跟踪</h3>
+  <p>建议将缺口项目、责任部门、证据文件、完成时间和复核人纳入闭环台账；出现监管问询、重大诉讼、担保变化或报告更正时，应重新执行本审查。</p>
+</section>
+
+<section>
+  <h2>七、引用来源</h2>
+  <p>以下来源分为法规依据和公司年报事实。法规用于判断适用规则，年报事实用于证明公司特定披露，两类证据不得相互替代。</p>
+  <div class="source-line">{citation_lines}</div>
+</section>
+
+<section>
+  <h2>八、免责声明</h2>
+  <ul>
+    <li>本意见基于出具时可获得的源年报、结构化指标与本机法律库检索结果，可能未覆盖最新法规修订、监管窗口指导及未公开事实。</li>
+    <li>本意见为风险初筛与合规辅助，不替代执业律师、会计师和监管机构的正式认定。</li>
+    <li>本意见不得直接作为诉讼、仲裁、行政程序或公开信息披露文件的最终依据。</li>
+    <li>公司采取实际行动前，应结合完整原始材料完成内部复核，并在必要时取得外部专业意见。</li>
+  </ul>
+</section>
+
+<footer>SIQ 法务合规智能体 · {_h(now)}</footer>
+</main>
+</body>
+</html>
+"""
+
+
 def _validate_legal_artifact(path: Path, validation_path: Path, *, timeout: int | float = 120) -> dict[str, Any]:
     script = _validator_script()
     if not script.is_file():
@@ -614,9 +1540,13 @@ def _write_manifest(
     company: dict[str, str],
     company_dir: Path,
     request: LegalWorkflowRequest,
-    citations: list[dict[str, str]],
+    citations: list[dict[str, Any]],
     validation: dict[str, Any],
+    annual_bundle: AnnualReportBundle | None = None,
 ) -> tuple[Path, Path]:
+    legal_citation_count = sum(1 for item in citations if item.get("source_type") == "legal_corpus")
+    report_fact_count = sum(1 for item in citations if item.get("source_type") == "annual_report")
+    metric_count = sum(1 for item in citations if item.get("source_type") == "annual_report_metric")
     manifest = {
         "artifact_type": "legal_opinion_html",
         "company_code": company.get("stock_code") or company.get("company_id") or "",
@@ -634,15 +1564,20 @@ def _write_manifest(
         "validation_path": str(validation_path),
         "validation": validation,
         "citation_count": len(citations),
-        "citations": [
+        "legal_citation_count": legal_citation_count,
+        "annual_report_fact_count": report_fact_count,
+        "annual_report_metric_count": metric_count,
+        "report_identity": (
             {
-                "source": item.get("source"),
-                "source_path": item.get("source_path"),
-                "chunk_index": item.get("chunk_index"),
-                "relevance": item.get("relevance"),
+                "report_id": annual_bundle.report_id,
+                "report_year": annual_bundle.report_year,
+                "period_end": annual_bundle.period_end,
+                "task_id": annual_bundle.task_id,
             }
-            for item in citations
-        ],
+            if annual_bundle is not None
+            else None
+        ),
+        "citations": [dict(item) for item in citations],
         "created_at": datetime.now().isoformat(),
     }
     manifest_path = html_path.with_suffix(".manifest.json")
@@ -672,6 +1607,10 @@ def format_legal_workflow_reply(result: dict[str, Any]) -> str:
         f"- 法规引用: `{result.get('citation_count') or 0}` 条",
         f"- 质量校验: `{validation_status}`",
     ]
+    if result.get("report_id"):
+        lines.append(f"- 源年报: `{result.get('report_id')}`")
+    if result.get("annual_report_fact_count"):
+        lines.append(f"- 年报事实: `{result.get('annual_report_fact_count')}` 项")
     if html_url:
         lines.append(f"- 打开意见书: [HTML 法律意见书]({html_url})")
     if html_path:
@@ -716,18 +1655,33 @@ def run_legal_workflow(
     company_dir = _company_dir(company)
     stock_code = company.get("stock_code") or company.get("company_id") or request.company_query
     company_name = company.get("company_short_name") or company.get("company_full_name") or stock_code
-    query = _retrieval_query(request, company)
+    annual_report = _is_annual_report_request(request)
+    annual_bundle: AnnualReportBundle | None = None
+    if annual_report:
+        report_path = _resolve_annual_report_path(company_dir, request)
+        if report_path is None:
+            return _failure_response(
+                "source_report_not_found",
+                request,
+                stock_code=stock_code,
+                company_name=company_name,
+                next_action="未找到与当前公司及请求年度匹配的已解析年报，已停止生成，避免把历史法律意见或其他报告误作源年报。",
+            )
+        request = replace(request, report_path=report_path)
+        annual_bundle = _load_annual_report_bundle(company_dir, report_path)
+        if len(annual_bundle.facts) < MIN_ANNUAL_REPORT_FACTS:
+            return _failure_response(
+                "insufficient_annual_report_facts",
+                request,
+                stock_code=stock_code,
+                company_name=company_name,
+                report_id=annual_bundle.report_id,
+                annual_report_fact_count=len(annual_bundle.facts),
+                next_action=f"源年报仅定位到 {len(annual_bundle.facts)} 个核心法律审查维度，未达到 {MIN_ANNUAL_REPORT_FACTS} 项发布门槛。请先检查年报解析完整性。",
+            )
 
-    try:
-        retrieval_payload, completed = _retrieve_legal_sources(query, top_k=request.top_k, timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        return _failure_response(
-            "timeout",
-            request,
-            stock_code=stock_code,
-            company_name=company_name,
-            next_action=f"法规检索超时: {exc}",
-        )
+    retrieval_payload, completed = _retrieve_legal_source_set(request, company, timeout=timeout)
+    query = str(retrieval_payload.get("query") or _retrieval_query(request, company))
 
     if not retrieval_payload.get("ok"):
         return _failure_response(
@@ -741,16 +1695,23 @@ def run_legal_workflow(
             next_action="请确认 Milvus 法律库、Docker/Attu 容器和 legal_milvus_cli.py 可用；普通问答仍可继续走对话模式。",
         )
 
-    citations = _normalize_citations(retrieval_payload.get("results") or [])
-    if len(citations) < MIN_CITATIONS:
+    legal_citations = _normalize_citations(
+        retrieval_payload.get("results") or [],
+        annual_report=annual_report,
+    )
+    if len(legal_citations) < MIN_CITATIONS:
         return _failure_response(
             "insufficient_legal_citations",
             request,
             stock_code=stock_code,
             company_name=company_name,
-            citation_count=len(citations),
-            next_action="检索到的可引用法规不足 3 条。请补充事项关键词，或先让法务助手检索法规依据后再生成 HTML 意见书。",
+            citation_count=len(legal_citations),
+            filtered_result_count=len(retrieval_payload.get("results") or []) - len(legal_citations),
+            next_action="经主题相关性过滤后，可引用法规不足 3 条。已停止发布，避免将基金法、异地条例等低相关材料写入法律意见。",
         )
+
+    report_citations = [*(annual_bundle.facts if annual_bundle else []), *(annual_bundle.metrics if annual_bundle else [])]
+    citations = [*legal_citations, *report_citations]
 
     html_path = _default_output_path(company_dir, request.topic, request.allow_overwrite)
     draft_dir = html_path.parent / "_drafts"
@@ -762,8 +1723,9 @@ def run_legal_workflow(
         company=company,
         company_dir=company_dir,
         request=request,
-        citations=citations,
+        legal_citations=legal_citations,
         retrieval_query=query,
+        annual_bundle=annual_bundle,
     )
     draft_path.write_text(html_text, encoding="utf-8")
     validation = _validate_legal_artifact(draft_path, validation_path)
@@ -776,7 +1738,8 @@ def run_legal_workflow(
             "stock_code": stock_code,
             "company_name": company_name,
             "topic": request.topic,
-            "citation_count": len(citations),
+            "citation_count": len(legal_citations),
+            "annual_report_fact_count": len(annual_bundle.facts) if annual_bundle else 0,
             "draft_path": str(draft_path),
             "validation_path": str(validation_path),
             "validation": validation,
@@ -784,12 +1747,48 @@ def run_legal_workflow(
         }
         return LegalWorkflowResponse(True, format_legal_workflow_reply(result), result)
 
+    expected_metric_path = (
+        company_dir / "metrics" / "reports" / annual_bundle.report_id / "key_metrics.json"
+        if annual_bundle is not None
+        else None
+    )
+    detailed_annual_terms = (
+        "定期报告与信息披露",
+        "公司治理、董事会与审计委员会",
+        "关联交易及审议披露",
+        "非经营性资金占用与对外担保",
+        "内部控制评价与内部控制审计",
+        "重大诉讼、仲裁、处罚及整改",
+        "财务报告重点复核",
+    )
+    annual_legal_topics = {str(item.get("retrieval_topic") or "") for item in legal_citations}
+    expected_annual_legal_topics = {label for label, _query in ANNUAL_RETRIEVAL_TOPICS}
     contract_checks = {
         "quality_validator_passed": validation.get("ok") is True,
         "html_present": draft_path.exists(),
-        "minimum_citations_met": len(citations) >= MIN_CITATIONS,
+        "minimum_citations_met": len(legal_citations) >= MIN_CITATIONS,
         "citations_traceable": bool(citations) and all(citation_has_locator(item) for item in citations),
         "conditional_language_present": "不替代执业律师" in html_text and "最终结论需" in html_text,
+        "annual_source_report_bound": not annual_report
+        or (
+            annual_bundle is not None
+            and annual_bundle.report_path.is_file()
+            and _path_is_within(annual_bundle.report_path, company_dir / "reports")
+        ),
+        "annual_report_identity_bound": not annual_report
+        or bool(annual_bundle and annual_bundle.report_id and annual_bundle.report_year),
+        "annual_report_fact_coverage": not annual_report
+        or bool(annual_bundle and len(annual_bundle.facts) >= MIN_ANNUAL_REPORT_FACTS),
+        "annual_report_facts_traceable": not annual_report
+        or bool(annual_bundle and all(citation_has_locator(item) for item in annual_bundle.facts)),
+        "annual_legal_topic_coverage": not annual_report
+        or expected_annual_legal_topics.issubset(annual_legal_topics),
+        "annual_metrics_verified": not annual_report
+        or expected_metric_path is None
+        or not expected_metric_path.is_file()
+        or bool(annual_bundle and len(annual_bundle.metrics) >= 3),
+        "detailed_annual_review_present": not annual_report
+        or all(term in html_text for term in detailed_annual_terms),
     }
     contract_failures = [name for name, passed in contract_checks.items() if not passed]
     contract_validation = SpecialistArtifactValidation(
@@ -798,6 +1797,39 @@ def run_legal_workflow(
         failures=contract_failures,
         warnings=list(validation.get("warnings") or []),
     )
+    report_identity = (
+        {
+            "market": "CN",
+            "company_id": company.get("company_id") or stock_code,
+            "filing_id": f"CN:{company.get('company_id') or stock_code}:{annual_bundle.report_id}",
+            "parse_run_id": annual_bundle.task_id,
+        }
+        if annual_bundle is not None
+        else None
+    )
+    resolved_period = (
+        {
+            "report_id": annual_bundle.report_id,
+            "fiscal_year": annual_bundle.report_year,
+            "period_end": annual_bundle.period_end,
+        }
+        if annual_bundle is not None
+        else None
+    )
+    artifact_metadata = {
+        "topic": request.topic,
+        "jurisdiction": request.jurisdiction,
+        "report_identity": report_identity,
+        "annual_report_fact_count": len(annual_bundle.facts) if annual_bundle else 0,
+        "annual_report_metric_count": len(annual_bundle.metrics) if annual_bundle else 0,
+        "legal_citation_count": len(legal_citations),
+    }
+    audit_facts = {
+        "resolved_period": resolved_period,
+        "research_identity": report_identity,
+        "wiki_facts": report_citations,
+        "legal_facts": legal_citations,
+    }
     if not contract_validation.ok:
         draft_retrieval_path = draft_path.with_suffix(".retrieval.json")
         _write_json(draft_retrieval_path, retrieval_payload)
@@ -812,8 +1844,8 @@ def run_legal_workflow(
             profile="siq_legal",
             message=request.prompt or request.topic,
             session_id=request.session_id,
-            metadata={"topic": request.topic, "jurisdiction": request.jurisdiction},
-            specialist_facts={"legal_facts": citations},
+            metadata=artifact_metadata,
+            specialist_facts=audit_facts,
         )
         artifact_manifest_path = draft_path.with_suffix(".artifact.json")
         write_specialist_artifact_manifest(artifact, artifact_manifest_path)
@@ -824,7 +1856,8 @@ def run_legal_workflow(
             "stock_code": stock_code,
             "company_name": company_name,
             "topic": request.topic,
-            "citation_count": len(citations),
+            "citation_count": len(legal_citations),
+            "annual_report_fact_count": len(annual_bundle.facts) if annual_bundle else 0,
             "draft_path": str(draft_path),
             "retrieval_path": str(draft_retrieval_path),
             "validation_path": str(validation_path),
@@ -852,6 +1885,7 @@ def run_legal_workflow(
         request=request,
         citations=citations,
         validation=validation,
+        annual_bundle=annual_bundle,
     )
 
     artifact = finalize_specialist_artifact(
@@ -865,8 +1899,8 @@ def run_legal_workflow(
         profile="siq_legal",
         message=request.prompt or request.topic,
         session_id=request.session_id,
-        metadata={"topic": request.topic, "jurisdiction": request.jurisdiction},
-        specialist_facts={"legal_facts": citations},
+        metadata=artifact_metadata,
+        specialist_facts=audit_facts,
     )
     artifact_manifest_path = html_path.with_suffix(".artifact.json")
     write_specialist_artifact_manifest(artifact, artifact_manifest_path)
@@ -880,7 +1914,12 @@ def run_legal_workflow(
         "company_path": str(company_dir),
         "topic": request.topic,
         "jurisdiction": request.jurisdiction,
-        "citation_count": len(citations),
+        "citation_count": len(legal_citations),
+        "annual_report_fact_count": len(annual_bundle.facts) if annual_bundle else 0,
+        "annual_report_metric_count": len(annual_bundle.metrics) if annual_bundle else 0,
+        "report_id": annual_bundle.report_id if annual_bundle else "",
+        "report_year": annual_bundle.report_year if annual_bundle else None,
+        "source_report_path": str(annual_bundle.report_path) if annual_bundle else str(request.report_path or ""),
         "html_path": str(html_path),
         "html_url": _wiki_legal_url(html_path),
         "manifest_path": str(manifest_path),

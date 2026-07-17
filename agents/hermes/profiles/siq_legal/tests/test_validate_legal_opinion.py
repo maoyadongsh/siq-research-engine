@@ -76,3 +76,19 @@ def test_validate_legal_opinion_rejects_casual_absolute_assurance(tmp_path):
 
     assert result["ok"] is False
     assert any(item.startswith("unprofessional_or_absolute_tone:") for item in result["failures"])
+
+
+def test_validate_annual_opinion_requires_company_report_facts_and_dimensions(tmp_path):
+    path = tmp_path / "sparse-annual-opinion.md"
+    path.write_text(
+        _legal_opinion_body(
+            "基于现有事实，对测试公司年度报告进行初步审查，倾向认为应进一步核实信息披露。"
+        ),
+        encoding="utf-8",
+    )
+
+    result = validator.validate(path)
+
+    assert result["ok"] is False
+    assert any(item.startswith("missing_annual_review_dimensions:") for item in result["failures"])
+    assert "too_few_annual_report_facts:0" in result["failures"]
