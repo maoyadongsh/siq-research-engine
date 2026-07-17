@@ -60,6 +60,13 @@ export default function ChatPage() {
   const assistantHasContent = messages.some((msg) => msg.role === 'assistant' && msg.streaming && msg.content)
   const hadError = messages.some((msg) => msg.role === 'assistant' && msg.content.startsWith('[错误]'))
   const fairyState: AgentFairyState = hadError ? 'error' : assistantHasContent ? 'replying' : assistantStreaming || sending ? 'thinking' : 'idle'
+  const activeAssistant = [...messages].reverse().find((msg) => msg.role === 'assistant' && msg.streaming)
+  const activeProgress = activeAssistant?.progress ?? ((sending || assistantStreaming) ? {
+    status: 'running' as const,
+    title: '正在执行任务',
+    detail: '正在连接智能体并处理当前问题',
+    source: 'runtime' as const,
+  } : undefined)
   useAutosizeTextarea(textareaRef, input)
 
   const scrollToBottom = useCallback(() => {
@@ -208,23 +215,29 @@ export default function ChatPage() {
         />
       }
       messages={
-        <ChatMessageList
-          messages={messages}
-          endRef={messagesEnd}
-          auditTraceApiPrefix="/api"
-          emptyAvatar={<AgentFairy state={fairyState} size="xl" className="mb-4" />}
-          emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。支持数据查询、趋势分析、对比研究等。"
-          quickQuestions={quickQuestions}
-          notice={historyNotice}
-          onCopyMessage={copyMessage}
-          renderStreamingAvatar={(msg) => (
-            <div className="pointer-events-none mr-3 mt-auto -mb-2 shrink-0 self-end">
-              <AgentFairy state={messageFairyState(msg)} size="xl" label="当前助手状态" />
+        <>
+          {activeProgress ? (
+            <div className="chat-page-active-progress mx-auto mb-3 w-full max-w-3xl" role="status" aria-label="智能体执行状态">
+              <AgentProgressCard progress={activeProgress} />
             </div>
-          )}
-          renderProgress={(msg) => msg.progress ? <AgentProgressCard progress={msg.progress} /> : null}
-          listClassName="chat-page-message-list mx-auto w-full"
-        />
+          ) : null}
+          <ChatMessageList
+            messages={messages}
+            endRef={messagesEnd}
+            auditTraceApiPrefix="/api"
+            emptyAvatar={<AgentFairy state={fairyState} size="xl" className="mb-4" />}
+            emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。支持数据查询、趋势分析、对比研究等。"
+            quickQuestions={quickQuestions}
+            notice={historyNotice}
+            onCopyMessage={copyMessage}
+            renderStreamingAvatar={(msg) => (
+              <div className="pointer-events-none mr-3 mt-auto -mb-2 shrink-0 self-end">
+                <AgentFairy state={messageFairyState(msg)} size="xl" label="当前助手状态" />
+              </div>
+            )}
+            listClassName="chat-page-message-list mx-auto w-full"
+          />
+        </>
       }
       messagesClassName="chat-page-messages flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
       composer={
