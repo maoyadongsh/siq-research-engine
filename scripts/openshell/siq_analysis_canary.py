@@ -138,6 +138,7 @@ class CanaryLifecycle(WidePilotLifecycle):
         pool_slot_id: str | None = None,
         local_port: int = 28651,
         reservation_token: str | None = None,
+        allow_pool_orphan_stop: bool = False,
     ) -> None:
         if pool_slot_id is None:
             if local_port != 28651 or reservation_token is not None:
@@ -159,6 +160,7 @@ class CanaryLifecycle(WidePilotLifecycle):
             )
         self.pool_slot_id = pool_slot_id
         self.reservation_token = reservation_token
+        self.allow_pool_orphan_stop = allow_pool_orphan_stop
         super().__init__(project_root=project_root, adapter=adapter, settings=settings)
 
     def _validate_start_scope(self, *, market: str, company: str, pilot_id: str) -> None:
@@ -246,7 +248,7 @@ class CanaryLifecycle(WidePilotLifecycle):
                 None,
             )
             if entry is None:
-                if manifest.get("phase") == "stopping":
+                if manifest.get("phase") == "stopping" or self.allow_pool_orphan_stop:
                     return
                 raise WidePilotError(self._code("pool_binding_missing"))
             if manifest.get("phase") == "stopping":

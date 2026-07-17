@@ -1036,17 +1036,23 @@ def normalize_runtime_target(
     explicit_target = str(requested_target).strip().lower() if requested_target is not None else None
     if explicit_target not in {None, "host", "openshell"}:
         raise HermesRuntimeSelectionError("hermes_runtime_target_invalid")
-    if explicit_target is not None and not _env_bool(
-        "SIQ_HERMES_REQUEST_RUNTIME_OVERRIDE_ENABLED",
-        False,
-    ):
-        raise HermesRuntimeSelectionError("hermes_runtime_request_override_forbidden")
-    if explicit_target == "host":
-        return "host"
     if canonical != "siq_analysis":
+        if explicit_target is not None and not _env_bool(
+            "SIQ_HERMES_REQUEST_RUNTIME_OVERRIDE_ENABLED",
+            False,
+        ):
+            raise HermesRuntimeSelectionError("hermes_runtime_request_override_forbidden")
+        return "host"
+
+    request_override_enabled = _env_bool("SIQ_HERMES_REQUEST_RUNTIME_OVERRIDE_ENABLED", False)
+    if explicit_target == "host":
+        if not request_override_enabled:
+            raise HermesRuntimeSelectionError("hermes_runtime_request_override_forbidden")
         return "host"
 
     selection = _runtime_selection()
+    if explicit_target is not None and explicit_target != selection.target and not request_override_enabled:
+        raise HermesRuntimeSelectionError("hermes_runtime_request_override_forbidden")
     target = explicit_target or selection.target
     if target == "host":
         return "host"

@@ -287,7 +287,7 @@ def get_active_run_snapshot(
         return snapshot
 
     return {
-        "running": state.status == "running",
+        "running": state.status in {"running", "postprocessing"},
         "status": state.status,
         "run_id": state.run_id,
         "session_id": state.session_id,
@@ -305,7 +305,7 @@ def get_active_run_snapshot(
 
 def has_active_run(profile: HermesProfile, session_id: str) -> bool:
     state = ACTIVE_RUNS.get(_active_key(profile, session_id))
-    return bool(state and state.status == "running")
+    return bool(state and state.status in {"running", "postprocessing"})
 
 
 def _clear_active_run(state: ActiveRunState, *, session_id: str | None = None) -> None:
@@ -432,7 +432,8 @@ async def stream_active_run_events(
 
         heartbeat: dict[str, str] | None = None
         async with state.condition:
-            if next_index >= len(state.events) and state.status == "running":
+            active_statuses = {"running", "postprocessing"}
+            if next_index >= len(state.events) and state.status in active_statuses:
                 try:
                     await asyncio.wait_for(
                         state.condition.wait(),
@@ -442,7 +443,7 @@ async def stream_active_run_events(
                     heartbeat = agent_runtime_progress.heartbeat_progress_payload()
 
             pending = state.events[next_index:]
-            is_terminal = state.status != "running"
+            is_terminal = state.status not in active_statuses
 
         if heartbeat and not pending:
             yield {

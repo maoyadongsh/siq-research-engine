@@ -3072,9 +3072,13 @@ def _resolve_company_dir(message: str, context: Any | None = None) -> Path | Non
                 if report.get("selection_status") == "identity_exact":
                     return candidate
         return None
+    company_hint = _context_company_hint(context)
+    if company_hint:
+        resolved = _resolve_company_dir_from_catalog(message, context)
+        if resolved is not None:
+            return resolved
     module = _load_local_citation_module()
     finder = getattr(module, "find_company_dir_from_text", None) if module else None
-    company_hint = _context_company_hint(context)
     if callable(finder):
         candidates = [message]
         if company_hint:
@@ -3551,6 +3555,46 @@ def _should_consider_wiki_fulltext_fallback(message: str, context: Any | None = 
     )
 
 
+def _is_runtime_connectivity_question(message: str) -> bool:
+    text = re.sub(r"\s+", "", str(message or "")).casefold()
+    if not text:
+        return False
+    runtime_terms = (
+        "openshell",
+        "hermes",
+        "链路",
+        "连接",
+        "连通",
+        "接入",
+        "在线",
+        "握手",
+        "烟测",
+        "端口",
+        "runtime",
+        "health",
+    )
+    if not any(term in text for term in runtime_terms):
+        return False
+    financial_terms = (
+        "营收",
+        "收入",
+        "利润",
+        "净利",
+        "现金流",
+        "资产",
+        "负债",
+        "商誉",
+        "roe",
+        "业绩",
+        "表现",
+        "风险",
+        "基本面",
+        "经营情况",
+        "财务分析",
+    )
+    return not any(term in text for term in financial_terms)
+
+
 def _wiki_fulltext_fallback_result(message: str, context: Any | None = None) -> dict[str, Any] | None:
     if _non_cn_financial_retrieval_blocked(message, context):
         return None
@@ -3795,6 +3839,8 @@ def _statement_record_to_row(record: dict[str, Any], report_id: str, metrics_fil
 def _question_needs_three_statement_context(message: str, context: Any | None = None) -> bool:
     text = re.sub(r"\s+", "", message or "")
     if not text or _is_general_assistant_request(text):
+        return False
+    if _is_runtime_connectivity_question(message):
         return False
     if _resolve_company_dir(message, context) is None:
         return False
@@ -7608,7 +7654,11 @@ async def _collect_stream_run(
                 )
             state.terminal_result = terminal_result
             if terminal_result is not None:
-                state.status = terminal_result.status
+                state.status = (
+                    "postprocessing"
+                    if terminal_result.succeeded and not state.user_stop_requested
+                    else terminal_result.status
+                )
 
             if full_reply and terminal_result is not None and terminal_result.succeeded:
                 trusted_runs: tuple[Mapping[str, Any], ...] = ()

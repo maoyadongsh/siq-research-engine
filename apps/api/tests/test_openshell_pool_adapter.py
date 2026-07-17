@@ -60,6 +60,35 @@ def test_resolve_binding_uniquely_matches_canonical_company_and_redacts_key(tmp_
     assert incomplete == adapter_module.ResolvedPoolBinding(target="host")
 
 
+def test_context_accepts_frontend_code_and_canonical_company_id_aliases(tmp_path: Path) -> None:
+    adapter = _adapter_with_binding(tmp_path)
+
+    binding = adapter.resolve_binding(
+        {
+            "market": "CN",
+            "company": {
+                "market": "CN",
+                "dir": "600104-上汽集团",
+                "code": "600104",
+                "company_id": "600104-上汽集团",
+                "name": "上汽集团",
+            },
+            "report": {
+                "market": "CN",
+                "company_id": "600104-上汽集团",
+            },
+            "research_identity": {
+                "market": "CN",
+                "company_id": "600104-上汽集团",
+            },
+        }
+    )
+
+    assert binding.target == "openshell"
+    assert binding.market == "cn"
+    assert binding.company == "600104-上汽集团"
+
+
 def test_context_conflicts_and_non_unique_code_fail_closed(tmp_path: Path) -> None:
     _company(tmp_path, "cn", "600104-甲")
     _company(tmp_path, "cn", "600104-乙")

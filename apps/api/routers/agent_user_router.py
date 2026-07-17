@@ -750,6 +750,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             display_message=req.display_message,
             attachments=req.attachments,
             answer_audit_callback=_capture_answer_audit,
+            runtime_target=req.runtime_target,
             tenant_id=DEFAULT_TENANT_ID,
             user_id=str(current_user_id),
         )
@@ -1029,6 +1030,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                 context=req.context,
                 display_message=req.display_message,
                 attachments=req.attachments,
+                runtime_target=req.runtime_target,
                 done_payload_factory=lambda reply: _record_agent_workspace_artifact_background(
                     current_user_id=current_user_id,
                     config=config,

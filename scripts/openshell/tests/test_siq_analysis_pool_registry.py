@@ -393,6 +393,60 @@ def test_duplicate_local_port_is_rejected_and_allocator_skips_reserved(tmp_path:
         pool.register_active(active=second_active, local_port=28652, project_root=tmp_path)
 
 
+def test_prune_unused_port_reservations_keeps_bound_and_busy_ports(tmp_path: Path) -> None:
+    _company(tmp_path, "cn", "600104-上汽集团")
+    active = _binding(
+        tmp_path,
+        market="cn",
+        company="600104-上汽集团",
+        run_id="canary-111111111111",
+        active_relative=Path(
+            pool.plan_slot(
+                market="cn",
+                company="600104-上汽集团",
+                run_id="canary-111111111111",
+                local_port=28652,
+                project_root=tmp_path,
+            ).active_relative
+        ),
+    )
+    _register(tmp_path, active=active, local_port=28652)
+    _write_json(
+        tmp_path / pool.PORT_RESERVATIONS_RELATIVE,
+        {
+            "schema_version": pool.PORT_RESERVATION_SCHEMA,
+            "reservations": [
+                {
+                    "local_port": 28652,
+                    "reservation_token": "reservation-" + "1" * 32,
+                    "expires_at": 200,
+                },
+                {
+                    "local_port": 28653,
+                    "reservation_token": "reservation-" + "2" * 32,
+                    "expires_at": 200,
+                },
+                {
+                    "local_port": 28654,
+                    "reservation_token": "reservation-" + "3" * 32,
+                    "expires_at": 200,
+                },
+            ],
+        },
+        root=tmp_path,
+    )
+
+    result = pool.prune_unused_port_reservations(
+        project_root=tmp_path,
+        now=100,
+        available=lambda _host, port: port != 28653,
+    )
+
+    assert result["ports"] == [28654]
+    state = json.loads((tmp_path / pool.PORT_RESERVATIONS_RELATIVE).read_text(encoding="utf-8"))
+    assert [item["local_port"] for item in state["reservations"]] == [28652, 28653]
+
+
 def test_concurrent_port_allocation_creates_unique_durable_reservations(tmp_path: Path) -> None:
     def reserve(_index: int) -> pool.PortReservation:
         return pool.allocate_local_port(

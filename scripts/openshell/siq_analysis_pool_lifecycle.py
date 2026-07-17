@@ -21,7 +21,11 @@ from scripts.openshell import (  # noqa: E402
 )
 from scripts.openshell.siq_analysis_canary import (  # noqa: E402
     ACKNOWLEDGEMENT,
+    ACTIVE_FIELDS as CANARY_ACTIVE_FIELDS,
     CanaryLifecycle,
+    MODE as CANARY_MODE,
+    RUN_ID_RE as CANARY_RUN_ID_RE,
+    SCHEMA_VERSION as CANARY_SCHEMA_VERSION,
 )
 from scripts.openshell.siq_analysis_wide_pilot import WidePilotError  # noqa: E402
 
@@ -209,6 +213,67 @@ class PoolLifecycleManager:
         if route.target != "host":
             raise PoolLifecycleError("openshell_pool_legacy_migration_new_start_host_restore_failed")
 
+    def _orphan_active_for_plan(self, plan: Any) -> dict[str, Any] | None:
+        active_relative = pool.SLOTS_RELATIVE / plan.scope_id / "active.json"
+        active_path = self.project_root / active_relative
+        if not active_path.exists() and not active_path.is_symlink():
+            return None
+        try:
+            active = pool._parse_private_json(self.project_root, active_relative, max_bytes=64 * 1024)
+        except pool.PoolRegistryError as exc:
+            raise PoolLifecycleError(exc.code) from exc
+        run_id = active.get("run_id")
+        expected_state = (
+            pool.SLOTS_RELATIVE / plan.scope_id / "runs" / str(run_id or "")
+        ).as_posix()
+        expected_manifest = f"{expected_state}/canary.json"
+        if (
+            set(active) != CANARY_ACTIVE_FIELDS
+            or active.get("schema_version") != CANARY_SCHEMA_VERSION
+            or active.get("mode") != CANARY_MODE
+            or active.get("profile") != pool.PROFILE
+            or active.get("market") != plan.market
+            or active.get("company") != plan.company
+            or not isinstance(run_id, str)
+            or CANARY_RUN_ID_RE.fullmatch(run_id) is None
+            or active.get("run_state") != expected_state
+            or active.get("manifest") != expected_manifest
+        ):
+            raise PoolLifecycleError("openshell_pool_orphan_active_invalid")
+        return active
+
+    def _recover_unregistered_orphan_if_present(self, plan: Any) -> None:
+        active = self._orphan_active_for_plan(plan)
+        if active is None:
+            return
+        run_id = str(active["run_id"])
+        try:
+            scheduler = concurrency.status(project_root=self.project_root)
+        except concurrency.PoolConcurrencyError as exc:
+            raise PoolLifecycleError(exc.code) from exc
+        if any(
+            int(scheduler.get(field, 0)) != 0
+            for field in ("active_leases", "orphaned_leases", "waiting_leases")
+        ):
+            raise PoolLifecycleError("openshell_pool_orphan_active_live_leases")
+        lifecycle = self.lifecycle_factory(
+            project_root=self.project_root,
+            pool_slot_id=plan.scope_id,
+            local_port=plan.local_port,
+            allow_pool_orphan_stop=True,
+        )
+        try:
+            stopped = lifecycle.stop(pilot_id=run_id)
+        except Exception as exc:
+            raise PoolLifecycleError("openshell_pool_orphan_active_stop_failed") from exc
+        if (
+            not isinstance(stopped, Mapping)
+            or stopped.get("ok") is not True
+            or stopped.get("status") != "stopped"
+            or stopped.get("run_id") != run_id
+        ):
+            raise PoolLifecycleError("openshell_pool_orphan_active_stop_failed")
+
     def _legacy_stop_retry_allowed(self, lifecycle: Any, *, plan: Any) -> bool:
         loader = getattr(lifecycle, "_load_active_spec", None)
         active_path = getattr(lifecycle, "active_path", None)
@@ -300,11 +365,22 @@ class PoolLifecycleManager:
             registry = pool.load_registry(project_root=self.project_root)
             if any(item.get("scope_id") == plan.scope_id for item in registry["bindings"]):
                 raise PoolLifecycleError("openshell_pool_scope_already_registered")
-            reservation = pool.allocate_local_port(
-                project_root=self.project_root,
-                first=local_port,
-                last=local_port,
-            )
+            self._recover_unregistered_orphan_if_present(plan)
+            try:
+                reservation = pool.allocate_local_port(
+                    project_root=self.project_root,
+                    first=local_port,
+                    last=local_port,
+                )
+            except pool.PoolRegistryError as exc:
+                if exc.code != "openshell_pool_no_port_available":
+                    raise
+                pool.prune_unused_port_reservations(project_root=self.project_root)
+                reservation = pool.allocate_local_port(
+                    project_root=self.project_root,
+                    first=local_port,
+                    last=local_port,
+                )
         except PoolLifecycleError:
             raise
         except pool.PoolRegistryError as exc:

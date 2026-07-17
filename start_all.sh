@@ -109,6 +109,14 @@ START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
 START_MINERU_SERVICES="$(printf '%s' "${SIQ_START_MINERU_SERVICES:-auto}" | tr '[:upper:]' '[:lower:]')"
 START_OPENSHELL_GATEWAY="${SIQ_START_OPENSHELL_GATEWAY:-1}"
 START_OPENSHELL_BROKERS="$(printf '%s' "${SIQ_START_OPENSHELL_BROKERS:-auto}" | tr '[:upper:]' '[:lower:]')"
+START_OPENSHELL_ANALYSIS="$(printf '%s' "${SIQ_START_OPENSHELL_ANALYSIS:-auto}" | tr '[:upper:]' '[:lower:]')"
+OPENSHELL_ANALYSIS_MARKET="${SIQ_OPENSHELL_ANALYSIS_MARKET:-cn}"
+OPENSHELL_ANALYSIS_COMPANY="${SIQ_OPENSHELL_ANALYSIS_COMPANY:-600104-上汽集团}"
+OPENSHELL_ANALYSIS_LOCAL_PORT="${SIQ_OPENSHELL_ANALYSIS_LOCAL_PORT:-28652}"
+OPENSHELL_ANALYSIS_STARTED_BY_START_ALL=0
+OPENSHELL_ANALYSIS_LIFECYCLE_STATE="disabled"
+OPENSHELL_ANALYSIS_RUN_ID=""
+OPENSHELL_ANALYSIS_ACTIVE_PORT=""
 HERMES_RUNTIME="$(printf '%s' "${SIQ_HERMES_RUNTIME:-host}" | tr '[:upper:]' '[:lower:]')"
 OPENSHELL_GATEWAY_ENDPOINT="https://127.0.0.1:17671"
 OPENSHELL_GATEWAY_VERSION="0.0.83"
@@ -233,6 +241,8 @@ export SIQ_AGENT_MEMORY_EMBEDDING_MODEL="${SIQ_AGENT_MEMORY_EMBEDDING_MODEL:-Qwe
 export SIQ_AGENT_MEMORY_EMBEDDING_DIM="${SIQ_AGENT_MEMORY_EMBEDDING_DIM:-1024}"
 export SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY="${SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY:-user_private}"
 export SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY="${SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY:-project_shared}"
+export SIQ_HERMES_RUNTIME_SELECTION_ENABLED="${SIQ_HERMES_RUNTIME_SELECTION_ENABLED:-1}"
+export SIQ_OPENSHELL_SCOPE_AUTO_PROVISION="${SIQ_OPENSHELL_SCOPE_AUTO_PROVISION:-1}"
 export SIQ_VECTOR_RETRIEVAL_ENABLED="${SIQ_VECTOR_RETRIEVAL_ENABLED:-1}"
 export SIQ_RERANK_ENABLED="${SIQ_RERANK_ENABLED:-1}"
 export SIQ_RERANK_BASE_URL="${SIQ_RERANK_BASE_URL:-http://127.0.0.1:8001}"
@@ -289,6 +299,7 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
     done
     wait 2>/dev/null
+    stop_owned_openshell_analysis
     stop_owned_openshell_brokers
     stop_owned_openshell_gateway
     log "已退出。"
@@ -740,6 +751,252 @@ PY
 }
 # ---------- OpenShell broker lifecycle (END) ----------
 
+# ---------- OpenShell siq_analysis pool lifecycle (BEGIN) ----------
+stop_owned_openshell_analysis() {
+    if [[ "$OPENSHELL_ANALYSIS_STARTED_BY_START_ALL" != "1" ]]; then
+        return 0
+    fi
+
+    OPENSHELL_ANALYSIS_STARTED_BY_START_ALL=0
+    if [[ -z "$OPENSHELL_ANALYSIS_RUN_ID" ]]; then
+        warn "本次启动的 OpenShell siq_analysis 绑定缺少 run_id；跳过自动停止。"
+        return 0
+    fi
+
+    log "停止本次启动的 OpenShell siq_analysis 绑定 ($OPENSHELL_ANALYSIS_COMPANY, run $OPENSHELL_ANALYSIS_RUN_ID)..."
+    if "$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" stop \
+        --market "$OPENSHELL_ANALYSIS_MARKET" \
+        --company "$OPENSHELL_ANALYSIS_COMPANY" \
+        --run-id "$OPENSHELL_ANALYSIS_RUN_ID" >/dev/null 2>&1; then
+        OPENSHELL_ANALYSIS_LIFECYCLE_STATE="stopped"
+        ok "本次启动的 OpenShell siq_analysis 绑定已停止"
+    else
+        warn "OpenShell siq_analysis 绑定未能自动停止；请运行 run_siq_analysis_pool_lifecycle.sh status/probe 检查。"
+    fi
+}
+
+validate_openshell_analysis_config() {
+    case "$START_OPENSHELL_ANALYSIS" in
+        0|1|auto) ;;
+        *) die "SIQ_START_OPENSHELL_ANALYSIS 仅支持 0、1 或 auto。" ;;
+    esac
+    case "$OPENSHELL_ANALYSIS_MARKET" in
+        cn|eu|hk|jp|kr|us) ;;
+        *) die "SIQ_OPENSHELL_ANALYSIS_MARKET 仅支持 cn、eu、hk、jp、kr、us。" ;;
+    esac
+    if ! [[ "$OPENSHELL_ANALYSIS_LOCAL_PORT" =~ ^[0-9]+$ ]] || \
+       (( OPENSHELL_ANALYSIS_LOCAL_PORT < 28652 || OPENSHELL_ANALYSIS_LOCAL_PORT > 28750 )); then
+        die "SIQ_OPENSHELL_ANALYSIS_LOCAL_PORT 必须位于 28652-28750。"
+    fi
+    [[ -x "$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" ]] || \
+        die "OpenShell siq_analysis pool lifecycle 脚本缺失或不可执行。"
+    [[ -x "$SIQ_PROJECT_ROOT/scripts/openshell/switch_siq_analysis_runtime.sh" ]] || \
+        die "OpenShell siq_analysis runtime selection 脚本缺失或不可执行。"
+    case "${SIQ_HERMES_RUNTIME_SELECTION_ENABLED:-0}" in
+        1|true|TRUE|yes|YES|on|ON) ;;
+        *) die "SIQ_HERMES_RUNTIME_SELECTION_ENABLED 必须启用，才能将 siq_analysis 切到 OpenShell。" ;;
+    esac
+}
+
+openshell_analysis_should_start() {
+    case "$START_OPENSHELL_ANALYSIS" in
+        0)
+            OPENSHELL_ANALYSIS_LIFECYCLE_STATE="disabled"
+            return 1
+            ;;
+        1|auto) ;;
+        *) die "SIQ_START_OPENSHELL_ANALYSIS 仅支持 0、1 或 auto。" ;;
+    esac
+    validate_openshell_analysis_config
+    case "$START_OPENSHELL_ANALYSIS" in
+        1)
+            if [[ "$START_OPENSHELL_GATEWAY" == "0" ]]; then
+                die "显式启动 OpenShell siq_analysis 时不能禁用项目 gateway。"
+            fi
+            if [[ "$IS_PRODUCTION" == "1" ]]; then
+                die "OpenShell siq_analysis 当前使用 NOT_PRODUCTION_CANARY 生命周期，生产环境请显式完成正式门禁后再接管。"
+            fi
+            return 0
+            ;;
+        auto)
+            if [[ "$START_OPENSHELL_GATEWAY" == "0" ]]; then
+                OPENSHELL_ANALYSIS_LIFECYCLE_STATE="skipped_gateway_disabled"
+                warn "已跳过 OpenShell siq_analysis 预热；项目 gateway 被禁用。"
+                return 1
+            fi
+            if [[ "$IS_PRODUCTION" == "1" ]]; then
+                OPENSHELL_ANALYSIS_LIFECYCLE_STATE="skipped_production"
+                warn "已跳过 OpenShell siq_analysis 预热；生产环境不自动启动 NOT_PRODUCTION_CANARY。"
+                return 1
+            fi
+            return 0
+            ;;
+    esac
+}
+
+parse_openshell_analysis_binding_json() {
+    local payload=$1
+    python3 - "$payload" <<'PY'
+import json
+import sys
+
+def last_json_line(text: str) -> dict:
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{") or not line.endswith("}"):
+            continue
+        return json.loads(line)
+    raise ValueError("no json payload")
+
+try:
+    payload = last_json_line(sys.argv[1])
+except (IndexError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+if payload.get("ok") is not True:
+    raise SystemExit(1)
+run_id = str(payload.get("run_id") or "")
+local_port = payload.get("local_port")
+status = str(payload.get("status") or "")
+if not run_id or not isinstance(local_port, int) or not status:
+    raise SystemExit(1)
+print(f"{run_id}\t{local_port}\t{status}")
+PY
+}
+
+openshell_analysis_error_code() {
+    local payload=$1
+    python3 - "$payload" <<'PY'
+import json
+import sys
+
+def last_json_line(text: str) -> dict:
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{") or not line.endswith("}"):
+            continue
+        return json.loads(line)
+    raise ValueError("no json payload")
+
+try:
+    payload = last_json_line(sys.argv[1])
+except (IndexError, ValueError, json.JSONDecodeError):
+    print("openshell_analysis_unparseable_error")
+    raise SystemExit(0)
+print(str(payload.get("error_code") or "openshell_analysis_unknown_error"))
+PY
+}
+
+set_openshell_analysis_binding_from_json() {
+    local payload=$1 parsed status
+    parsed="$(parse_openshell_analysis_binding_json "$payload")" || return 1
+    IFS=$'\t' read -r OPENSHELL_ANALYSIS_RUN_ID OPENSHELL_ANALYSIS_ACTIVE_PORT status <<<"$parsed"
+    [[ -n "$OPENSHELL_ANALYSIS_RUN_ID" && -n "$OPENSHELL_ANALYSIS_ACTIVE_PORT" ]]
+}
+
+probe_openshell_analysis_binding() {
+    local output
+    if output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" probe \
+        --market "$OPENSHELL_ANALYSIS_MARKET" \
+        --company "$OPENSHELL_ANALYSIS_COMPANY" 2>&1)"; then
+        set_openshell_analysis_binding_from_json "$output"
+        return 0
+    fi
+    printf '%s\n' "$output"
+    return 1
+}
+
+stop_registered_openshell_analysis_binding() {
+    local status_output error_code
+    if ! status_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" status \
+        --market "$OPENSHELL_ANALYSIS_MARKET" \
+        --company "$OPENSHELL_ANALYSIS_COMPANY" 2>&1)"; then
+        error_code="$(openshell_analysis_error_code "$status_output")"
+        die "OpenShell siq_analysis 绑定异常且无法读取状态 ($error_code)。"
+    fi
+    set_openshell_analysis_binding_from_json "$status_output" || \
+        die "OpenShell siq_analysis 绑定状态不可解析；拒绝盲目覆盖。"
+    warn "OpenShell siq_analysis 既有绑定未通过 probe，准备回收后重建 (run $OPENSHELL_ANALYSIS_RUN_ID)。"
+    "$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" stop \
+        --market "$OPENSHELL_ANALYSIS_MARKET" \
+        --company "$OPENSHELL_ANALYSIS_COMPANY" \
+        --run-id "$OPENSHELL_ANALYSIS_RUN_ID" >/dev/null || \
+        die "OpenShell siq_analysis 既有绑定回收失败；请确认没有活跃会话后重试。"
+    OPENSHELL_ANALYSIS_RUN_ID=""
+    OPENSHELL_ANALYSIS_ACTIVE_PORT=""
+}
+
+switch_siq_analysis_runtime_to_openshell() {
+    local switch_output
+    if ! switch_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/switch_siq_analysis_runtime.sh" openshell 2>&1)"; then
+        die "siq_analysis runtime selection 切换到 OpenShell 失败：$switch_output"
+    fi
+    python3 - "$switch_output" <<'PY' || die "siq_analysis runtime selection 未确认 OpenShell 目标。"
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+if payload.get("target") != "openshell" or payload.get("profile") != "siq_analysis":
+    raise SystemExit(1)
+PY
+}
+
+ensure_openshell_analysis_pool() {
+    local probe_output error_code run_id start_output verify_output attempt_port
+    if ! openshell_analysis_should_start; then
+        return 0
+    fi
+
+    if probe_output="$(probe_openshell_analysis_binding 2>&1)"; then
+        OPENSHELL_ANALYSIS_LIFECYCLE_STATE="preexisting"
+        ok "OpenShell siq_analysis 已就绪  -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)"
+        switch_siq_analysis_runtime_to_openshell
+        return 0
+    fi
+
+    error_code="$(openshell_analysis_error_code "$probe_output")"
+    if [[ "$error_code" != "openshell_pool_binding_not_registered" ]]; then
+        stop_registered_openshell_analysis_binding
+    fi
+
+    run_id="$(python3 - <<'PY'
+import secrets
+
+print(f"canary-{secrets.token_hex(6)}")
+PY
+)"
+    attempt_port="$OPENSHELL_ANALYSIS_LOCAL_PORT"
+    while true; do
+        log "启动 OpenShell siq_analysis 池绑定 ($OPENSHELL_ANALYSIS_MARKET/$OPENSHELL_ANALYSIS_COMPANY, 端口优先 $attempt_port)..."
+        if start_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" start \
+            --acknowledge-not-production-canary \
+            --market "$OPENSHELL_ANALYSIS_MARKET" \
+            --company "$OPENSHELL_ANALYSIS_COMPANY" \
+            --run-id "$run_id" \
+            --local-port "$attempt_port" 2>&1)"; then
+            break
+        fi
+        error_code="$(openshell_analysis_error_code "$start_output")"
+        if [[ "$error_code" == "openshell_pool_no_port_available" && "$START_OPENSHELL_ANALYSIS" == "auto" && "$attempt_port" -lt 28750 ]]; then
+            warn "OpenShell siq_analysis 端口 $attempt_port 暂不可用，自动尝试下一个池化端口。"
+            attempt_port=$((attempt_port + 1))
+            continue
+        fi
+        die "OpenShell siq_analysis 池绑定启动失败 ($error_code)。"
+    done
+    set_openshell_analysis_binding_from_json "$start_output" || \
+        die "OpenShell siq_analysis 启动结果不可解析；拒绝继续切流。"
+    OPENSHELL_ANALYSIS_STARTED_BY_START_ALL=1
+    OPENSHELL_ANALYSIS_LIFECYCLE_STATE="started_by_start_all"
+
+    if ! verify_output="$(probe_openshell_analysis_binding 2>&1)"; then
+        error_code="$(openshell_analysis_error_code "$verify_output")"
+        die "OpenShell siq_analysis 池绑定启动后 probe 失败 ($error_code)。"
+    fi
+    switch_siq_analysis_runtime_to_openshell
+    ok "OpenShell siq_analysis 已就绪  -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)"
+}
+# ---------- OpenShell siq_analysis pool lifecycle (END) ----------
+
 # ---------- 依赖检查 ----------
 for cmd in uv node npm; do
     command -v "$cmd" &>/dev/null || die "缺少命令: $cmd"
@@ -787,6 +1044,7 @@ fi
 
 ensure_openshell_gateway
 ensure_openshell_brokers
+ensure_openshell_analysis_pool
 ensure_local_mineru_services
 
 start_hermes_gateway() {
@@ -1046,6 +1304,14 @@ case "$OPENSHELL_BROKERS_LIFECYCLE_STATE" in
     skipped_gateway_disabled) echo "OpenShell brokers: skipped (gateway disabled)" ;;
     disabled) echo "OpenShell brokers: disabled (SIQ_START_OPENSHELL_BROKERS=0)" ;;
     *) echo "OpenShell brokers: $OPENSHELL_BROKERS_LIFECYCLE_STATE" ;;
+esac
+case "$OPENSHELL_ANALYSIS_LIFECYCLE_STATE" in
+    started_by_start_all) echo "OpenShell siq_analysis: running (started by start_all) -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)" ;;
+    preexisting) echo "OpenShell siq_analysis: running (pre-existing) -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)" ;;
+    skipped_gateway_disabled) echo "OpenShell siq_analysis: skipped (gateway disabled)" ;;
+    skipped_production) echo "OpenShell siq_analysis: skipped (production profile keeps canary disabled)" ;;
+    disabled) echo "OpenShell siq_analysis: disabled (SIQ_START_OPENSHELL_ANALYSIS=0)" ;;
+    *) echo "OpenShell siq_analysis: $OPENSHELL_ANALYSIS_LIFECYCLE_STATE" ;;
 esac
 echo "按 Ctrl+C 停止所有服务"
 echo ""

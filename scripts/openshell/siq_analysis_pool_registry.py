@@ -844,6 +844,55 @@ def allocate_local_port(
     raise PoolRegistryError("openshell_pool_no_port_available")
 
 
+def prune_unused_port_reservations(
+    *,
+    project_root: Path = REPO_ROOT,
+    now: int | None = None,
+    available: Callable[[str, int], bool] | None = None,
+) -> dict[str, Any]:
+    current_time = int(time.time()) if now is None else now
+    if not isinstance(current_time, int) or isinstance(current_time, bool) or current_time < 0:
+        raise PoolRegistryError("openshell_pool_clock_invalid")
+    root = _project_root(project_root)
+
+    def socket_available(host: str, port: int) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+                listener.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+    checker = available or socket_available
+    with _registry_lock(root):
+        registry = load_registry(project_root=root)
+        reservations, changed = _load_port_reservations(root, now=current_time)
+        bound_ports = {int(item["local_port"]) for item in registry["bindings"]}
+        retained = []
+        pruned_ports: list[int] = []
+        for item in reservations["reservations"]:
+            port = int(item["local_port"])
+            if port in bound_ports or not checker(FORWARD_HOST, port):
+                retained.append(item)
+                continue
+            pruned_ports.append(port)
+        if pruned_ports or changed:
+            _write_port_reservations(
+                root,
+                {
+                    "schema_version": PORT_RESERVATION_SCHEMA,
+                    "reservations": retained,
+                },
+            )
+        return {
+            "ok": True,
+            "schema_version": PORT_RESERVATION_SCHEMA,
+            "pruned": len(pruned_ports),
+            "ports": pruned_ports,
+        }
+
+
 def plan_slot(
     *,
     market: str,

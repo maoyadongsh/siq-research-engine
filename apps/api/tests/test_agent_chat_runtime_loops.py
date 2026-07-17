@@ -1763,6 +1763,85 @@ def test_company_catalog_resolution_falls_back_to_existing_wiki_root(tmp_path, m
     assert runtime._resolve_company_dirs("对比万华化学和巴斯夫的人效") == [company_dir]
 
 
+def test_context_company_hint_wins_over_openshell_legacy_alias_false_positive(tmp_path, monkeypatch):
+    wiki_root = tmp_path / "wiki"
+    cn_meta = wiki_root / "_meta"
+    cn_meta.mkdir(parents=True)
+    saic_dir = wiki_root / "companies" / "600104-上汽集团"
+    saic_dir.mkdir(parents=True)
+    (saic_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "market": "CN",
+                "company_id": "600104-上汽集团",
+                "stock_code": "600104",
+                "company_short_name": "上汽集团",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (cn_meta / "company_catalog.json").write_text(
+        json.dumps(
+            {
+                "market": "CN",
+                "companies": [
+                    {
+                        "market": "CN",
+                        "company_id": "600104-上汽集团",
+                        "stock_code": "600104",
+                        "company_short_name": "上汽集团",
+                        "company_path": "companies/600104-上汽集团",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    shell_dir = wiki_root / "eu" / "companies" / "SHELL-Shell-plc"
+    shell_dir.mkdir(parents=True)
+
+    class LegacyCitationStub:
+        @staticmethod
+        def find_company_dir_from_text(text, _wiki_root):
+            return shell_dir if "openshell" in str(text).lower() else None
+
+    monkeypatch.setattr(runtime, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "PROJECT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "ASSISTANT_WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(runtime, "WIKI_FALLBACK_ROOTS", ())
+    monkeypatch.setattr(runtime, "_load_local_citation_module", lambda: LegacyCitationStub())
+
+    context = {
+        "market": "cn",
+        "company_key": "600104-上汽集团",
+        "company": {
+            "market": "cn",
+            "dir": "600104-上汽集团",
+            "name": "上汽集团",
+            "code": "600104",
+            "company_key": "600104-上汽集团",
+        },
+    }
+
+    assert runtime._resolve_company_dir("请确认 OpenShell 上的上汽集团分析助手链路", context) == saic_dir.resolve()
+
+
+def test_openshell_connectivity_question_does_not_trigger_financial_evidence_contract(monkeypatch):
+    monkeypatch.setattr(runtime, "_resolve_company_dir", lambda *_args, **_kwargs: Path("/wiki/companies/600104-上汽集团"))
+    context = {"company": {"market": "cn", "name": "上汽集团", "code": "600104"}}
+
+    assert not runtime._needs_financial_evidence_contract(
+        "请确认 OpenShell 上汽集团分析助手链路在线",
+        context,
+    )
+    assert runtime._needs_financial_evidence_contract(
+        "请分析上汽集团的业绩表现",
+        context,
+    )
+
+
 def test_company_catalog_resolution_uses_market_specific_catalog(tmp_path, monkeypatch):
     wiki_root = tmp_path / "wiki"
     us_root = wiki_root / "us"

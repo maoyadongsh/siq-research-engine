@@ -222,6 +222,32 @@ def _normalize_code(value: Any, market: str) -> str:
     return raw
 
 
+def _company_hints(values: list[Any], market: str) -> list[str]:
+    seen: set[str] = set()
+    hints: list[str] = []
+    for value in values:
+        hint = _normalize_code(value, market)
+        if hint and hint not in seen:
+            seen.add(hint)
+            hints.append(hint)
+    return hints
+
+
+def _collapse_company_hints(values: list[Any], market: str, *, code: str) -> str:
+    hints = set(_company_hints(values, market))
+    if len(hints) <= 1:
+        return next(iter(hints), "")
+
+    canonical_hints = {hint for hint in hints if "-" in hint}
+    if len(canonical_hints) == 1:
+        canonical = next(iter(canonical_hints))
+        expected_code, _, _expected_name = canonical.partition("-")
+        if all(hint in {expected_code, canonical} for hint in hints):
+            return canonical
+
+    raise OpenShellPoolAdapterError(code)
+
+
 def _directory_scope(project_root: Path, raw_dir: str, market_hint: str) -> tuple[str, str] | None:
     if not raw_dir:
         return None
@@ -269,13 +295,23 @@ def _context_scope(
     )
     raw_dir = str(company.get("dir") or "").strip()
     directory_scope = _directory_scope(project_root, raw_dir, market_hint)
-    code_hint = _one_hint(
-        [
-            _normalize_code(company.get("code"), market_hint),
-            _normalize_code(company.get("company_id"), market_hint),
-            _normalize_code(identity.get("company_id"), market_hint),
-        ],
+    company_hint_values = [
+        company.get("code"),
+        company.get("company_id"),
+        identity.get("company_id"),
+    ]
+    code_hint = _collapse_company_hints(
+        company_hint_values,
+        market_hint,
         code="openshell_pool_context_company_conflict",
+    )
+    code_hints = _company_hints(
+        [
+            company.get("code"),
+            company.get("company_id"),
+            identity.get("company_id"),
+        ],
+        market_hint,
     )
     name_hint = str(company.get("name") or "").strip()
     if directory_scope is not None:
@@ -283,7 +319,7 @@ def _context_scope(
         if market_hint and market != market_hint:
             raise OpenShellPoolAdapterError("openshell_pool_context_market_conflict")
         expected_code, separator, expected_name = canonical_company.partition("-")
-        if code_hint and code_hint not in {expected_code, canonical_company}:
+        if any(hint not in {expected_code, canonical_company} for hint in code_hints):
             raise OpenShellPoolAdapterError("openshell_pool_context_company_conflict")
         if name_hint and separator and name_hint != expected_name:
             raise OpenShellPoolAdapterError("openshell_pool_context_company_conflict")

@@ -272,6 +272,149 @@ def test_manager_allocates_exact_port_and_never_exposes_reservation_token(tmp_pa
     assert token not in json.dumps(result, ensure_ascii=False)
 
 
+def test_manager_recovers_unregistered_orphan_before_start(tmp_path: Path, monkeypatch) -> None:
+    company = "600104-上汽集团"
+    orphan_run_id = "canary-111111111111"
+    new_run_id = "canary-222222222222"
+    _company(tmp_path, company)
+    scope_id = hashlib.sha256(f"cn\0{company}".encode()).hexdigest()[:24]
+    slot = tmp_path / pool.SLOTS_RELATIVE / scope_id
+    run_state = pool.SLOTS_RELATIVE / scope_id / "runs" / orphan_run_id
+    active = {
+        "schema_version": lifecycle_module.CANARY_SCHEMA_VERSION,
+        "mode": lifecycle_module.CANARY_MODE,
+        "readiness_effect": "none",
+        "profile": pool.PROFILE,
+        "run_id": orphan_run_id,
+        "market": "cn",
+        "company": company,
+        "run_state": run_state.as_posix(),
+        "manifest": f"{run_state.as_posix()}/canary.json",
+        "manifest_sha256": "1" * 64,
+        "api_key_sha256": "2" * 64,
+    }
+    slot.mkdir(parents=True)
+    active_path = slot / "active.json"
+    active_path.write_text(json.dumps(active), encoding="utf-8")
+    active_path.chmod(0o600)
+
+    state: dict[str, object] = {"bindings": []}
+    events: list[object] = []
+    token = "reservation-" + "a" * 32
+
+    monkeypatch.setattr(pool, "load_registry", lambda **_kwargs: {"bindings": list(state["bindings"])})
+    monkeypatch.setattr(
+        pool,
+        "allocate_local_port",
+        lambda **kwargs: pool.PortReservation(
+            local_port=kwargs["first"],
+            reservation_token=token,
+            expires_at=900,
+        ),
+    )
+    monkeypatch.setattr(
+        concurrency,
+        "status",
+        lambda **_kwargs: {"active_leases": 0, "orphaned_leases": 0, "waiting_leases": 0},
+    )
+    monkeypatch.setattr(
+        pool,
+        "resolve",
+        lambda **_kwargs: pool.PoolRoute(
+            target="openshell",
+            market="cn",
+            company=company,
+            base="http://127.0.0.1:28652/v1/runs",
+            run_id=new_run_id,
+        ),
+    )
+
+    class FakeLifecycle:
+        def __init__(self, **kwargs):
+            events.append(("init", dict(kwargs)))
+
+        def stop(self, *, pilot_id):
+            events.append(("stop", pilot_id))
+            return {"ok": True, "status": "stopped", "run_id": pilot_id}
+
+        def start(self, *, market, company, pilot_id):
+            events.append(("start", pilot_id))
+            state["bindings"] = [
+                _binding(scope_id=scope_id, company=company, run_id=pilot_id)
+            ]
+            return {"ok": True, "status": "running", "run_id": pilot_id}
+
+    result = lifecycle_module.PoolLifecycleManager(
+        project_root=tmp_path,
+        lifecycle_factory=FakeLifecycle,
+    ).start(market="cn", company=company, run_id=new_run_id, local_port=28652)
+
+    assert result["status"] == "running"
+    assert ("stop", orphan_run_id) in events
+    assert events.index(("stop", orphan_run_id)) < events.index(("start", new_run_id))
+    orphan_init = next(value for event, value in events if event == "init" and value.get("allow_pool_orphan_stop"))
+    assert orphan_init["pool_slot_id"] == scope_id
+    assert orphan_init["local_port"] == 28652
+
+
+def test_manager_prunes_unused_port_reservation_and_retries(tmp_path: Path, monkeypatch) -> None:
+    company = "600104-上汽集团"
+    run_id = "canary-123456789abc"
+    _company(tmp_path, company)
+    scope_id = hashlib.sha256(f"cn\0{company}".encode()).hexdigest()[:24]
+    state: dict[str, object] = {"bindings": []}
+    events: list[object] = []
+    token = "reservation-" + "a" * 32
+
+    monkeypatch.setattr(pool, "load_registry", lambda **_kwargs: {"bindings": list(state["bindings"])})
+
+    def allocate(**kwargs):
+        events.append(("allocate", kwargs["first"]))
+        if events.count(("allocate", kwargs["first"])) == 1:
+            raise pool.PoolRegistryError("openshell_pool_no_port_available")
+        return pool.PortReservation(
+            local_port=kwargs["first"],
+            reservation_token=token,
+            expires_at=900,
+        )
+
+    monkeypatch.setattr(pool, "allocate_local_port", allocate)
+    monkeypatch.setattr(
+        pool,
+        "prune_unused_port_reservations",
+        lambda **_kwargs: events.append(("prune", 28652)) or {"ok": True, "pruned": 1},
+    )
+    monkeypatch.setattr(
+        pool,
+        "resolve",
+        lambda **_kwargs: pool.PoolRoute(
+            target="openshell",
+            market="cn",
+            company=company,
+            base="http://127.0.0.1:28652/v1/runs",
+            run_id=run_id,
+        ),
+    )
+
+    class FakeLifecycle:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self, *, market, company, pilot_id):
+            state["bindings"] = [
+                _binding(scope_id=scope_id, company=company, run_id=pilot_id)
+            ]
+            return {"ok": True, "status": "running", "run_id": pilot_id}
+
+    result = lifecycle_module.PoolLifecycleManager(
+        project_root=tmp_path,
+        lifecycle_factory=FakeLifecycle,
+    ).start(market="cn", company=company, run_id=run_id, local_port=28652)
+
+    assert result["status"] == "running"
+    assert events == [("allocate", 28652), ("prune", 28652), ("allocate", 28652)]
+
+
 def test_status_and_stop_derive_exact_endpoint_from_registered_binding(tmp_path: Path, monkeypatch) -> None:
     company = "600519-贵州茅台"
     run_id = "canary-123456789abc"
