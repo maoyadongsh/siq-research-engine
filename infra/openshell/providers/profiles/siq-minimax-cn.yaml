@@ -1,0 +1,38 @@
+id: siq-minimax-cn
+display_name: SIQ MiniMax China credential pool
+description: Two OpenShell-managed credentials for the reviewed SIQ MiniMax China fallback pool.
+category: inference
+inference_capable: true
+credentials:
+  - name: primary_api_key
+    description: Primary MiniMax China credential used by the Hermes pool.
+    env_vars: [SIQ_MINIMAX_CN_PRIMARY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+  - name: backup_api_key
+    description: Backup MiniMax China credential used by the Hermes pool.
+    env_vars: [SIQ_MINIMAX_CN_BACKUP]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+endpoints:
+  - host: api.minimax.chat
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow:
+          method: GET
+          path: /v1/models
+      - allow:
+          method: POST
+          path: /v1/messages
+      - allow:
+          method: POST
+          path: /v1/v1/messages
+      - allow:
+          method: POST
+          path: /v1/chat/completions
+binaries:
+  - /opt/siq/hermes/venv/bin/python

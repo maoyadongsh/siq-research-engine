@@ -1,0 +1,20 @@
+{
+  "allowed_agent_groups": [
+    "primary_market",
+    "secondary_market"
+  ],
+  "allowed_logical_aliases": [
+    "siq_agent_memory_active"
+  ],
+  "allowed_operations": [
+    "delete_by_id",
+    "flush",
+    "search",
+    "upsert"
+  ],
+  "executor": "host_fastapi_memory_service_only",
+  "knowledge_collections_mutable": false,
+  "required_schema_version": "siq_agent_memory_milvus_v2",
+  "sandbox_direct_milvus": false,
+  "schema_version": "siq.openshell.memory-collection-boundary.v1"
+}

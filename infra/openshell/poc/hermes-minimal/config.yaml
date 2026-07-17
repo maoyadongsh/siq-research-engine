@@ -1,0 +1,91 @@
+model:
+  default: siq-poc-model
+  provider: custom:siq-poc
+  base_url: http://127.0.0.1:19000/v1
+  api_mode: chat_completions
+  context_length: 65536
+  temperature: 0
+providers: {}
+fallback_providers: []
+custom_providers:
+  - name: SIQ PoC
+    base_url: http://127.0.0.1:19000/v1
+    model: siq-poc-model
+    api_mode: chat_completions
+    context_length: 65536
+    temperature: 0
+platform_toolsets:
+  api_server:
+    - terminal
+    - file
+    - code_execution
+    - no_mcp
+agent:
+  max_turns: 4
+  gateway_timeout: 60
+  api_max_retries: 1
+  tool_use_enforcement: false
+  disabled_toolsets:
+    - browser
+    - skills
+    - memory
+    - session_search
+    - todo
+    - cronjob
+terminal:
+  backend: local
+  cwd: /workspace
+  timeout: 30
+  env_passthrough:
+    - PATH
+    - HOME
+    - USER
+    - LANG
+  shell_init_files: []
+  auto_source_bashrc: false
+  persistent_shell: false
+web:
+  backend: ""
+  search_backend: ""
+  extract_backend: ""
+checkpoints:
+  enabled: false
+compression:
+  enabled: false
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  auto_save: false
+skills:
+  creation_nudge_interval: 0
+security:
+  tirith_enabled: false
+  website_blocklist: []
+  redact_secrets: true
+  command_approval: off
+approvals:
+  mode: off
+delegation:
+  orchestrator_enabled: false
+curator:
+  enabled: false
+plugins: []
+gateway:
+  enabled: false
+  platforms: []
+  auto_restart: false
+logging:
+  level: info
+  file_enabled: true
+  console_enabled: true
+  max_file_size: 1048576
+  backup_count: 2
+platforms:
+  api_server:
+    enabled: true
+    cors_origins: ""
+    extra:
+      host: 127.0.0.1
+      port: 28642
+      model_name: siq-hermes-minimal-poc
+_config_version: 23

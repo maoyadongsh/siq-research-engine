@@ -1,0 +1,38 @@
+id: siq-exa-search
+display_name: SIQ Exa search
+description: Exa public-web search, content extraction, answer, context, and deep-research retrieval used by SIQ workflows.
+category: knowledge
+inference_capable: false
+credentials:
+  - name: api_key
+    description: Exa API credential.
+    env_vars: [EXA_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: api.exa.ai
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow:
+          method: POST
+          path: /search
+      - allow:
+          method: POST
+          path: /contents
+      - allow:
+          method: POST
+          path: /answer
+      - allow:
+          method: POST
+          path: /context
+      - allow:
+          method: POST
+          path: /agent/runs
+      - allow:
+          method: GET
+          path: /agent/runs/**
+binaries:
+  - /opt/siq/hermes/venv/bin/python

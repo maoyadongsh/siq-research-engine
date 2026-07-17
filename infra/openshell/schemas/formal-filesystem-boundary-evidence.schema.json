@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/formal-filesystem-boundary-evidence.schema.json",
+  "title": "SIQ OpenShell formal filesystem boundary evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "decision",
+    "profile",
+    "scope",
+    "formal_business_sandbox",
+    "business_inference_exercised",
+    "component_acceptance",
+    "overall_readiness_effect",
+    "host_runtime_unchanged",
+    "traffic_cutover_performed",
+    "transaction",
+    "stability",
+    "mount_contract",
+    "immutable_write_denials",
+    "sensitive_read_denials",
+    "allowed_writes",
+    "cleanup",
+    "provenance",
+    "not_claimed",
+    "sanitization"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.formal-filesystem-boundary-evidence.v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "GO"},
+    "profile": {"const": "siq_analysis"},
+    "scope": {"const": "formal_running_filesystem_boundary"},
+    "formal_business_sandbox": {"const": true},
+    "business_inference_exercised": {"const": false},
+    "component_acceptance": {"const": true},
+    "overall_readiness_effect": {"const": "component_evidence_only"},
+    "host_runtime_unchanged": {"const": true},
+    "traffic_cutover_performed": {"const": false},
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "generation",
+        "before_receipt_sha256",
+        "after_receipt_sha256",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "container_id_sha256",
+        "session_id_sha256",
+        "policy_sha256",
+        "resource_receipts_sha256"
+      ],
+      "properties": {
+        "contract": {"const": "active_transaction_v2_exact_receipts"},
+        "generation": {"type": "integer", "minimum": 1},
+        "before_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "after_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "container_id_sha256": {"$ref": "#/$defs/sha256"},
+        "session_id_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "resource_receipts_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "stability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_transaction_before",
+        "active_transaction_after",
+        "transaction_receipt_unchanged",
+        "manifest_receipt_unchanged",
+        "sandbox_binding_unchanged",
+        "host_receipt_unchanged",
+        "policy_receipt_unchanged",
+        "sandbox_healthy_after",
+        "guard_trigger_absent"
+      ],
+      "properties": {
+        "active_transaction_before": {"const": true},
+        "active_transaction_after": {"const": true},
+        "transaction_receipt_unchanged": {"const": true},
+        "manifest_receipt_unchanged": {"const": true},
+        "sandbox_binding_unchanged": {"const": true},
+        "host_receipt_unchanged": {"const": true},
+        "policy_receipt_unchanged": {"const": true},
+        "sandbox_healthy_after": {"const": true},
+        "guard_trigger_absent": {"const": true}
+      }
+    },
+    "mount_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "business_mount_count",
+        "control_mount_count",
+        "total_mount_count",
+        "mount_plan_sha256",
+        "mount_contract_sha256"
+      ],
+      "properties": {
+        "business_mount_count": {"const": 7},
+        "control_mount_count": {"const": 5},
+        "total_mount_count": {"const": 12},
+        "mount_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "immutable_write_denials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_data_read_only",
+        "code_read_only",
+        "configuration_read_only",
+        "prompt_read_only",
+        "workflow_read_only"
+      ],
+      "properties": {
+        "source_data_read_only": {"const": true},
+        "code_read_only": {"const": true},
+        "configuration_read_only": {"const": true},
+        "prompt_read_only": {"const": true},
+        "workflow_read_only": {"const": true}
+      }
+    },
+    "sensitive_read_denials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_credentials_read_only", "sensitive_paths_hidden"],
+      "properties": {
+        "control_credentials_read_only": {"const": true},
+        "sensitive_paths_hidden": {"const": true}
+      }
+    },
+    "allowed_writes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysis_bind_read_write",
+        "runtime_state_directory_bind_read_write",
+        "runtime_session_bind_read_write",
+        "runtime_memory_bind_read_write",
+        "tmp_scratch_write"
+      ],
+      "properties": {
+        "analysis_bind_read_write": {"const": true},
+        "runtime_state_directory_bind_read_write": {"const": true},
+        "runtime_session_bind_read_write": {"const": true},
+        "runtime_memory_bind_read_write": {"const": true},
+        "tmp_scratch_write": {"const": true}
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sentinel_cleanup_attempted",
+        "sentinel_cleanup_succeeded",
+        "residual_host_sentinel_count",
+        "sandbox_remained_running"
+      ],
+      "properties": {
+        "sentinel_cleanup_attempted": {"const": true},
+        "sentinel_cleanup_succeeded": {"const": true},
+        "residual_host_sentinel_count": {"const": 0},
+        "sandbox_remained_running": {"const": true}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hermes_commit",
+        "image_sha256",
+        "policy_sha256",
+        "mount_contract_sha256",
+        "runtime_config_sha256",
+        "filesystem_probe_sha256",
+        "probe_module_sha256",
+        "lifecycle_sha256",
+        "transaction_module_sha256",
+        "mount_contract_module_sha256",
+        "runner_sha256",
+        "evidence_schema_sha256",
+        "raw_receipt_sha256"
+      ],
+      "properties": {
+        "hermes_commit": {"const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_config_sha256": {"$ref": "#/$defs/sha256"},
+        "filesystem_probe_sha256": {"$ref": "#/$defs/sha256"},
+        "probe_module_sha256": {"$ref": "#/$defs/sha256"},
+        "lifecycle_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_module_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_module_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "not_claimed": {
+      "const": [
+        "business_inference_quality",
+        "api_output_contract",
+        "provider_route_availability",
+        "host_rollback",
+        "destructive_delete_threshold"
+      ]
+    },
+    "sanitization": {"$ref": "#/$defs/sanitization"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sanitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "contains_local_paths",
+        "contains_runtime_identifiers",
+        "exporter_ready"
+      ],
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_runtime_identifiers": {"const": false},
+        "exporter_ready": {"const": true}
+      }
+    }
+  }
+}

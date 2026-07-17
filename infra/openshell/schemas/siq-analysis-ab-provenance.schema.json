@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/siq-analysis-ab-provenance.schema.json",
+  "title": "SIQ analysis Host/OpenShell A/B provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evaluation_id",
+    "profile",
+    "dataset_sha256",
+    "arms",
+    "runtime_attestation",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "siq.openshell.siq-analysis-ab-provenance.v3"
+    },
+    "evaluation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "profile": {
+      "const": "siq_analysis"
+    },
+    "dataset_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "arms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "openshell"],
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/hostArm"
+        },
+        "openshell": {
+          "$ref": "#/$defs/openshellArm"
+        }
+      }
+    },
+    "runtime_attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "context_sha256",
+        "hermes_patch_sha256",
+        "source_config_sha256",
+        "compiled_config_sha256",
+        "primary_provider",
+        "primary_model",
+        "fallback_route_sha256",
+        "temperature_kind",
+        "request_temperature",
+        "host_runtime_metadata_v1",
+        "host_candidate_source_match",
+        "arms_match"
+      ],
+      "properties": {
+        "context_sha256": {"$ref": "#/$defs/sha256"},
+        "hermes_patch_sha256": {"$ref": "#/$defs/sha256"},
+        "source_config_sha256": {"$ref": "#/$defs/sha256"},
+        "compiled_config_sha256": {"$ref": "#/$defs/sha256"},
+        "primary_provider": {"$ref": "#/$defs/runtimeLabel"},
+        "primary_model": {"$ref": "#/$defs/runtimeLabel"},
+        "fallback_route_sha256": {"$ref": "#/$defs/sha256"},
+        "temperature_kind": {"enum": ["explicit", "provider_default"]},
+        "request_temperature": {"type": "number", "minimum": 0, "maximum": 2},
+        "host_runtime_metadata_v1": {"const": true},
+        "host_candidate_source_match": {"const": true},
+        "arms_match": {"const": true}
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_plan",
+        "immutable_registry",
+        "report",
+        "evidence_index",
+        "context_baseline",
+        "candidate_files_manifest",
+        "candidate_api_server",
+        "candidate_run_agent",
+        "runtime_config_summary",
+        "host_profile_config",
+        "host_key_receipt",
+        "host_runtime_receipt",
+        "openshell_run_manifest",
+        "openshell_policy",
+        "openshell_mount_plan"
+      ],
+      "properties": {
+        "case_plan": {"$ref": "#/$defs/sourceBinding"},
+        "immutable_registry": {"$ref": "#/$defs/sourceBinding"},
+        "report": {"$ref": "#/$defs/sourceBinding"},
+        "evidence_index": {"$ref": "#/$defs/sourceBinding"},
+        "context_baseline": {"$ref": "#/$defs/sourceBinding"},
+        "candidate_files_manifest": {"$ref": "#/$defs/sourceBinding"},
+        "candidate_api_server": {"$ref": "#/$defs/sourceBinding"},
+        "candidate_run_agent": {"$ref": "#/$defs/sourceBinding"},
+        "runtime_config_summary": {"$ref": "#/$defs/sourceBinding"},
+        "host_profile_config": {"$ref": "#/$defs/sourceBinding"},
+        "host_key_receipt": {"$ref": "#/$defs/sourceBinding"},
+        "host_runtime_receipt": {"$ref": "#/$defs/sourceBinding"},
+        "openshell_run_manifest": {"$ref": "#/$defs/sourceBinding"},
+        "openshell_policy": {"$ref": "#/$defs/sourceBinding"},
+        "openshell_mount_plan": {"$ref": "#/$defs/sourceBinding"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "runtimeLabel": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$"
+    },
+    "sourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "size_bytes", "device", "inode", "mode", "mtime_ns", "ctime_ns"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^/[^\\u0000]{1,4095}$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size_bytes": {"type": "integer", "minimum": 1},
+        "device": {"type": "integer", "minimum": 0},
+        "inode": {"type": "integer", "minimum": 1},
+        "mode": {"type": "integer", "minimum": 1, "maximum": 4095},
+        "mtime_ns": {"type": "integer", "minimum": 1},
+        "ctime_ns": {"type": "integer", "minimum": 1}
+      }
+    },
+    "hermesCommit": {
+      "const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"
+    },
+    "hostArm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "hermes_commit",
+        "profile_sha256",
+        "model_route_sha256",
+        "tools_sha256",
+        "data_snapshot_sha256",
+        "host_key_receipt_sha256",
+        "host_runtime_receipt_sha256",
+        "runtime_contract_sha256"
+      ],
+      "properties": {
+        "runtime": {
+          "const": "host"
+        },
+        "hermes_commit": {
+          "$ref": "#/$defs/hermesCommit"
+        },
+        "profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "model_route_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tools_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "data_snapshot_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "host_key_receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "host_runtime_receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "openshellArm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime",
+        "hermes_commit",
+        "profile_sha256",
+        "model_route_sha256",
+        "tools_sha256",
+        "data_snapshot_sha256",
+        "image_id",
+        "policy_sha256",
+        "mount_plan_sha256",
+        "mount_contract_sha256",
+        "runtime_config_sha256"
+      ],
+      "properties": {
+        "runtime": {
+          "const": "openshell"
+        },
+        "hermes_commit": {
+          "$ref": "#/$defs/hermesCommit"
+        },
+        "profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "model_route_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tools_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "data_snapshot_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "image_id": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mount_plan_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "mount_contract_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_config_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

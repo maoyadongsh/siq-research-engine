@@ -1,0 +1,44 @@
+[openshell]
+version = 1
+
+[openshell.gateway]
+bind_address = "127.0.0.1:17671"
+health_bind_address = "127.0.0.1:17672"
+log_level = "info"
+compute_drivers = ["docker"]
+sandbox_namespace = "siq-openshell-dev"
+server_sans = ["127.0.0.1", "host.openshell.internal"]
+enable_loopback_service_http = false
+
+[openshell.gateway.tls]
+cert_path = "${SIQ_OPENSHELL_TLS_ROOT}/server/tls.crt"
+key_path = "${SIQ_OPENSHELL_TLS_ROOT}/server/tls.key"
+client_ca_path = "${SIQ_OPENSHELL_TLS_ROOT}/ca.crt"
+require_client_auth = true
+
+[openshell.gateway.gateway_jwt]
+signing_key_path = "${SIQ_OPENSHELL_TLS_ROOT}/jwt/signing.pem"
+public_key_path = "${SIQ_OPENSHELL_TLS_ROOT}/jwt/public.pem"
+kid_path = "${SIQ_OPENSHELL_TLS_ROOT}/jwt/kid"
+gateway_id = "siq-openshell-dev"
+ttl_secs = 3600
+
+[openshell.gateway.auth]
+allow_unauthenticated_users = false
+
+[openshell.gateway.mtls_auth]
+enabled = true
+
+[openshell.drivers.docker]
+default_image = "ghcr.io/nvidia/openshell/sandbox:0.0.83"
+image_pull_policy = "IfNotPresent"
+sandbox_namespace = "siq-openshell-dev"
+grpc_endpoint = "https://host.openshell.internal:17671"
+supervisor_bin = "${SIQ_OPENSHELL_BIN_ROOT}/openshell-sandbox"
+guest_tls_ca = "${SIQ_OPENSHELL_TLS_ROOT}/ca.crt"
+guest_tls_cert = "${SIQ_OPENSHELL_TLS_ROOT}/client/tls.crt"
+guest_tls_key = "${SIQ_OPENSHELL_TLS_ROOT}/client/tls.key"
+network_name = "siq-openshell-dev"
+ssh_socket_path = "/run/openshell/ssh.sock"
+${SIQ_OPENSHELL_BIND_MOUNT_CONFIG}
+sandbox_pids_limit = 1024

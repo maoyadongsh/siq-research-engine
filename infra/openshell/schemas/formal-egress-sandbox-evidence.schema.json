@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/formal-egress-sandbox-evidence.schema.json",
+  "title": "SIQ OpenShell formal sandbox egress evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "decision",
+    "profile",
+    "scope",
+    "formal_business_run",
+    "eligible_for_completion",
+    "host_runtime_unchanged",
+    "cutover_performed",
+    "transaction",
+    "host_egress_component",
+    "sandbox_network_enforcement",
+    "direct_denial_contract",
+    "transfer_clients_tested",
+    "cases",
+    "provenance",
+    "sanitization"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.formal-egress-sandbox-evidence.v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "GO"},
+    "profile": {"const": "siq_analysis"},
+    "scope": {"const": "formal_business_sandbox"},
+    "formal_business_run": {"const": true},
+    "eligible_for_completion": {"const": true},
+    "host_runtime_unchanged": {"const": true},
+    "cutover_performed": {"const": false},
+    "transaction": {"$ref": "#/$defs/transaction"},
+    "host_egress_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "schema_version",
+        "scope",
+        "decision",
+        "passed",
+        "eligible_for_completion",
+        "captured_at_unix",
+        "valid_until_unix"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^artifacts/openshell/v0\\.6/[A-Za-z0-9._/-]+\\.sanitized\\.json$"
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "schema_version": {"const": "siq.openshell.egress-boundary-proof.v1"},
+        "scope": {"const": "host_egress_broker"},
+        "decision": {"const": "GO"},
+        "passed": {"const": true},
+        "eligible_for_completion": {"const": false},
+        "captured_at_unix": {"type": "integer", "minimum": 1},
+        "valid_until_unix": {"type": "integer", "minimum": 1}
+      }
+    },
+    "sandbox_network_enforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "egress_mode",
+        "direct_public_tcp_denied",
+        "direct_public_udp_denied",
+        "direct_public_websocket_denied",
+        "cloud_metadata_denied",
+        "broker_request_identity_required",
+        "unknown_raw_socket_route_present"
+      ],
+      "properties": {
+        "egress_mode": {"const": "broker_and_approved_providers_only"},
+        "direct_public_tcp_denied": {"const": true},
+        "direct_public_udp_denied": {"const": true},
+        "direct_public_websocket_denied": {"const": true},
+        "cloud_metadata_denied": {"const": true},
+        "broker_request_identity_required": {"const": true},
+        "unknown_raw_socket_route_present": {"const": false}
+      }
+    },
+    "direct_denial_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiver_binding",
+        "controlled_endpoint_permission_present",
+        "connection_observed",
+        "client_exit_status_only_accepted",
+        "protocol_or_auth_failure_accepted"
+      ],
+      "properties": {
+        "receiver_binding": {"const": "verified_bridge_gateway_ephemeral_tcp_udp"},
+        "controlled_endpoint_permission_present": {"const": false},
+        "connection_observed": {"const": false},
+        "client_exit_status_only_accepted": {"const": false},
+        "protocol_or_auth_failure_accepted": {"const": false}
+      }
+    },
+    "transfer_clients_tested": {
+      "const": ["curl_upload", "rclone", "rsync", "scp", "sftp"]
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "prefixItems": [
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "public_get"}, "decision": {"const": "allow"}, "enforcement_layer": {"const": "egress_broker"}, "reason_code": {"const": "unknown_safe_read"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "public_head"}, "decision": {"const": "allow"}, "enforcement_layer": {"const": "egress_broker"}, "reason_code": {"const": "unknown_safe_read"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "unknown_small_json"}, "decision": {"const": "audit_only"}, "enforcement_layer": {"const": "egress_broker"}, "reason_code": {"const": "unknown_json_post_audit"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "unknown_multipart"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "broker_multipart_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "unknown_octet_stream"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "broker_octet_stream_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "unknown_put"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "broker_method_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "oversized_unknown_body"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "json_body_too_large"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "presigned_object_upload"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "approved_destination_rule_mismatch"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "curl_upload"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "scp"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "sftp"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "rsync"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "rclone"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "cloud_metadata"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "egress_guard"}, "reason_code": {"const": "ssrf_non_public_ip"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "direct_public_tcp"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "direct_public_udp"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        },
+        {
+          "allOf": [
+            {"$ref": "#/$defs/case"},
+            {"properties": {"case_id": {"const": "direct_public_websocket"}, "decision": {"const": "deny"}, "enforcement_layer": {"const": "sandbox_network_policy"}, "reason_code": {"const": "direct_egress_denied"}}}
+          ]
+        }
+      ],
+      "items": false
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hermes_commit",
+        "image_sha256",
+        "policy_sha256",
+        "mount_contract_sha256",
+        "runtime_config_sha256",
+        "egress_guard_sha256",
+        "request_identity_contract_sha256",
+        "evidence_schema_sha256",
+        "exporter_sha256",
+        "transaction_receipt_sha256"
+      ],
+      "properties": {
+        "hermes_commit": {"const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "runtime_config_sha256": {"$ref": "#/$defs/sha256"},
+        "egress_guard_sha256": {"$ref": "#/$defs/sha256"},
+        "request_identity_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "exporter_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sanitization": {"$ref": "#/$defs/sanitization"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction_receipt_sha256",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "session_id_sha256",
+        "policy_sha256",
+        "audit_records_sha256"
+      ],
+      "properties": {
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "session_id_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "audit_records_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "decision", "enforcement_layer", "reason_code", "audit_record_sha256"],
+      "properties": {
+        "case_id": {
+          "enum": [
+            "public_get",
+            "public_head",
+            "unknown_small_json",
+            "unknown_multipart",
+            "unknown_octet_stream",
+            "unknown_put",
+            "oversized_unknown_body",
+            "presigned_object_upload",
+            "curl_upload",
+            "scp",
+            "sftp",
+            "rsync",
+            "rclone",
+            "cloud_metadata",
+            "direct_public_tcp",
+            "direct_public_udp",
+            "direct_public_websocket"
+          ]
+        },
+        "decision": {"enum": ["allow", "audit_only", "deny"]},
+        "enforcement_layer": {"enum": ["egress_broker", "egress_guard", "sandbox_network_policy"]},
+        "reason_code": {
+          "enum": [
+            "unknown_safe_read",
+            "unknown_json_post_audit",
+            "broker_method_denied",
+            "broker_multipart_denied",
+            "broker_octet_stream_denied",
+            "json_body_too_large",
+            "unknown_multipart_upload",
+            "unknown_octet_stream_upload",
+            "unknown_put_upload",
+            "unknown_body_too_large",
+            "approved_destination_rule_mismatch",
+            "ssrf_non_public_ip",
+            "direct_egress_denied"
+          ]
+        },
+        "audit_record_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sanitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "contains_local_paths",
+        "exporter_ready"
+      ],
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "contains_local_paths": {"const": false},
+        "exporter_ready": {"const": true}
+      }
+    }
+  }
+}

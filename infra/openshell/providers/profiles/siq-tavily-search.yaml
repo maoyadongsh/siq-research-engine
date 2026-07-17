@@ -1,0 +1,37 @@
+id: siq-tavily-search
+display_name: SIQ Tavily search
+description: Tavily public-web search, extraction, crawl, map, and research with request-body credential placeholder rewriting.
+category: knowledge
+inference_capable: false
+credentials:
+  - name: api_key
+    description: Tavily API credential carried in the JSON request body.
+    env_vars: [TAVILY_API_KEY]
+    required: true
+endpoints:
+  - host: api.tavily.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    request_body_credential_rewrite: true
+    rules:
+      - allow:
+          method: POST
+          path: /search
+      - allow:
+          method: POST
+          path: /extract
+      - allow:
+          method: POST
+          path: /crawl
+      - allow:
+          method: POST
+          path: /map
+      - allow:
+          method: POST
+          path: /research
+      - allow:
+          method: GET
+          path: /research/**
+binaries:
+  - /opt/siq/hermes/venv/bin/python

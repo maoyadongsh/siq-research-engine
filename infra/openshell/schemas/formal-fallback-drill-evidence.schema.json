@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/formal-fallback-drill-evidence.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "cleanup": {
+      "additionalProperties": false,
+      "properties": {
+        "container_removed": {"const": true},
+        "default_route_unchanged": {"const": true},
+        "forward_listener_removed": {"const": true},
+        "host_listener_identity_unchanged": {"const": true},
+        "production_gateway_untouched": {"const": true},
+        "residual_listener_count": {"const": 0},
+        "residual_process_count": {"const": 0},
+        "sandbox_removed": {"const": true},
+        "stub_listener_removed": {"const": true},
+        "temporary_secret_files_removed": {"const": true}
+      },
+      "required": [
+        "container_removed",
+        "default_route_unchanged",
+        "forward_listener_removed",
+        "host_listener_identity_unchanged",
+        "production_gateway_untouched",
+        "residual_listener_count",
+        "residual_process_count",
+        "sandbox_removed",
+        "stub_listener_removed",
+        "temporary_secret_files_removed"
+      ],
+      "type": "object"
+    },
+    "dataset_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "decision": {"const": "PASS"},
+    "evaluation_id": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+    "fault_injection": {
+      "additionalProperties": false,
+      "properties": {
+        "activated_for_sandbox_only": {"const": true},
+        "bind_port": {"const": 8004},
+        "bind_scope": {"const": "verified_docker_bridge_gateway_only"},
+        "credential_values_persisted": {"const": false},
+        "expected_status": {"const": 503},
+        "kind": {"const": "primary_http_503"},
+        "request_body_persisted": {"const": false},
+        "request_headers_persisted": {"const": false},
+        "response_body_persisted": {"const": false},
+        "stub_request_count": {"minimum": 3, "type": "integer"},
+        "target_url_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+      },
+      "required": [
+        "activated_for_sandbox_only",
+        "bind_port",
+        "bind_scope",
+        "credential_values_persisted",
+        "expected_status",
+        "kind",
+        "request_body_persisted",
+        "request_headers_persisted",
+        "response_body_persisted",
+        "stub_request_count",
+        "target_url_sha256"
+      ],
+      "type": "object"
+    },
+    "generated_at": {"format": "date-time", "type": "string"},
+    "normal_summary_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "prerequisites_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "profile": {"const": "siq_analysis"},
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "evidence_schema_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "fallback_route_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "lifecycle_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "primary_model": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+        "primary_provider": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+        "runner_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "validator_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+      },
+      "required": [
+        "evaluator_sha256",
+        "evidence_schema_sha256",
+        "fallback_route_sha256",
+        "lifecycle_sha256",
+        "primary_model",
+        "primary_provider",
+        "runner_sha256",
+        "validator_sha256"
+      ],
+      "type": "object"
+    },
+    "provenance_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "results": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_count": {"const": 3},
+        "configured_model": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+        "configured_provider": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+        "contract_failure_count": {"const": 0},
+        "effective_models": {
+          "items": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "effective_providers": {
+          "items": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "execution_count": {"const": 3},
+        "fallback_activated_count": {"const": 3},
+        "policy_denial_count": {"const": 0},
+        "silent_failure_count": {"const": 0},
+        "telemetry_count": {"const": 3},
+        "timeout_count": {"const": 0}
+      },
+      "required": [
+        "completed_count",
+        "configured_model",
+        "configured_provider",
+        "contract_failure_count",
+        "effective_models",
+        "effective_providers",
+        "execution_count",
+        "fallback_activated_count",
+        "policy_denial_count",
+        "silent_failure_count",
+        "telemetry_count",
+        "timeout_count"
+      ],
+      "type": "object"
+    },
+    "sanitization": {
+      "additionalProperties": false,
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "exporter_ready": {"const": true}
+      },
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_local_paths",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "exporter_ready"
+      ],
+      "type": "object"
+    },
+    "schema_version": {"const": "siq.openshell.formal-fallback-drill-evidence.v1"},
+    "transaction": {
+      "additionalProperties": false,
+      "properties": {
+        "api_runtime_receipt_after_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "api_runtime_receipt_before_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "container_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "fault_injection_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "gateway_receipt_after_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "gateway_receipt_before_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "host_receipt_after_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "host_receipt_before_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "image_id": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"},
+        "mount_contract_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "mount_plan_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "policy_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "run_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "runtime_config_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "sandbox_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "transaction_receipt_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+      },
+      "required": [
+        "api_runtime_receipt_after_sha256",
+        "api_runtime_receipt_before_sha256",
+        "container_id_sha256",
+        "fault_injection_sha256",
+        "gateway_receipt_after_sha256",
+        "gateway_receipt_before_sha256",
+        "host_receipt_after_sha256",
+        "host_receipt_before_sha256",
+        "image_id",
+        "mount_contract_sha256",
+        "mount_plan_sha256",
+        "policy_sha256",
+        "run_id_sha256",
+        "runtime_config_sha256",
+        "sandbox_id_sha256",
+        "transaction_receipt_sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "cleanup",
+    "dataset_sha256",
+    "decision",
+    "evaluation_id",
+    "fault_injection",
+    "generated_at",
+    "normal_summary_sha256",
+    "prerequisites_sha256",
+    "profile",
+    "provenance",
+    "provenance_sha256",
+    "results",
+    "sanitization",
+    "schema_version",
+    "transaction"
+  ],
+  "type": "object"
+}

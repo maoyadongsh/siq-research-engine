@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/formal-business-route-evidence.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "dataset_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "decision": {"const": "PASS"},
+    "evaluation_id": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+    "generated_at": {"format": "date-time", "type": "string"},
+    "normal_raw_results_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "normal_summary_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "prerequisites_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "profile": {"const": "siq_analysis"},
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluator_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "evidence_schema_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "lifecycle_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "preparer_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "producer_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "runtime_contract_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "validator_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+      },
+      "required": [
+        "evaluator_sha256",
+        "evidence_schema_sha256",
+        "lifecycle_sha256",
+        "preparer_sha256",
+        "producer_sha256",
+        "runtime_contract_sha256",
+        "validator_sha256"
+      ],
+      "type": "object"
+    },
+    "provenance_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "routes": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_crud": {"$ref": "#/$defs/workflow"},
+        "model_runtime": {
+          "additionalProperties": false,
+          "properties": {
+            "configured_model": {"$ref": "#/$defs/runtimeLabel"},
+            "configured_provider": {"$ref": "#/$defs/runtimeLabel"},
+            "effective_model": {"$ref": "#/$defs/runtimeLabel"},
+            "effective_provider": {"$ref": "#/$defs/runtimeLabel"},
+            "execution_count": {"minimum": 30, "type": "integer"},
+            "fallback_activated_count": {"const": 0},
+            "policy_denial_count": {"const": 0},
+            "task_success_count": {"minimum": 30, "type": "integer"},
+            "terminal_completed_count": {"minimum": 30, "type": "integer"}
+          },
+          "required": [
+            "configured_model",
+            "configured_provider",
+            "effective_model",
+            "effective_provider",
+            "execution_count",
+            "fallback_activated_count",
+            "policy_denial_count",
+            "task_success_count",
+            "terminal_completed_count"
+          ],
+          "type": "object"
+        },
+        "public_download_parse": {"$ref": "#/$defs/downloadWorkflow"},
+        "session_continuity": {"$ref": "#/$defs/workflow"},
+        "tavily_search": {"$ref": "#/$defs/tavilyWorkflow"}
+      },
+      "required": ["analysis_crud", "model_runtime", "public_download_parse", "session_continuity", "tavily_search"],
+      "type": "object"
+    },
+    "sanitization": {
+      "additionalProperties": false,
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "exporter_ready": {"const": true}
+      },
+      "required": ["contains_api_keys", "contains_headers", "contains_local_paths", "contains_prompt_or_input", "contains_raw_output", "exporter_ready"],
+      "type": "object"
+    },
+    "schema_version": {"const": "siq.openshell.formal-business-route-evidence.v1"},
+    "transaction": {
+      "additionalProperties": false,
+      "properties": {
+        "api_runtime_receipt_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "container_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "gateway_receipt_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "host_receipt_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "image_id": {"pattern": "^sha256:[0-9a-f]{64}$", "type": "string"},
+        "mount_contract_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "mount_plan_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "policy_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "run_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "runtime_config_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "sandbox_id_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+        "transaction_generation": {"minimum": 1, "type": "integer"},
+        "transaction_receipt_sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"}
+      },
+      "required": [
+        "api_runtime_receipt_sha256",
+        "container_id_sha256",
+        "gateway_receipt_sha256",
+        "host_receipt_sha256",
+        "image_id",
+        "mount_contract_sha256",
+        "mount_plan_sha256",
+        "policy_sha256",
+        "run_id_sha256",
+        "runtime_config_sha256",
+        "sandbox_id_sha256",
+        "transaction_generation",
+        "transaction_receipt_sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "dataset_sha256",
+    "decision",
+    "evaluation_id",
+    "generated_at",
+    "normal_raw_results_sha256",
+    "normal_summary_sha256",
+    "prerequisites_sha256",
+    "profile",
+    "provenance",
+    "provenance_sha256",
+    "routes",
+    "sanitization",
+    "schema_version",
+    "transaction"
+  ],
+  "type": "object",
+  "$defs": {
+    "runtimeLabel": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$", "type": "string"},
+    "workflow": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$", "type": "string"},
+        "execution_count": {"const": 3},
+        "policy_denial_count": {"const": 0},
+        "task_success_count": {"const": 3},
+        "terminal_completed_count": {"const": 3}
+      },
+      "required": ["case_id", "execution_count", "policy_denial_count", "task_success_count", "terminal_completed_count"],
+      "type": "object"
+    },
+    "downloadWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {"const": "workflow_public_download_parse"},
+        "contract": {"const": "siq-fetch_https_get_json_parse"},
+        "execution_count": {"const": 3},
+        "policy_denial_count": {"const": 0},
+        "required_tool": {"const": "terminal"},
+        "task_success_count": {"const": 3},
+        "terminal_completed_count": {"const": 3}
+      },
+      "required": ["case_id", "contract", "execution_count", "policy_denial_count", "required_tool", "task_success_count", "terminal_completed_count"],
+      "type": "object"
+    },
+    "tavilyWorkflow": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {"const": "workflow_tavily_search"},
+        "contract": {"const": "approved_search_success_nonempty_https"},
+        "execution_count": {"const": 3},
+        "policy_denial_count": {"const": 0},
+        "required_tool": {"const": "web_search"},
+        "search_backend": {"const": "tavily"},
+        "task_success_count": {"const": 3},
+        "terminal_completed_count": {"const": 3}
+      },
+      "required": ["case_id", "contract", "execution_count", "policy_denial_count", "required_tool", "search_backend", "task_success_count", "terminal_completed_count"],
+      "type": "object"
+    }
+  }
+}

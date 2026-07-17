@@ -1,0 +1,115 @@
+# syntax=docker/dockerfile:1
+
+# Reuse only the already-attested Rust distribution. The final build stage is
+# Ubuntu 24.04 because GCC/libstdc++ 13 provides the C++20 std::format support
+# required by the Z3 4.16 source pinned by z3-sys 0.10.9.
+ARG SIQ_VERIFIED_BUILDER=siq/openshell-supervisor-builder:v0.0.83-landlock-3a31194c7b9cf7f9
+ARG SIQ_UBUNTU_BASE=ubuntu@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+FROM ${SIQ_VERIFIED_BUILDER} AS rust-toolchain
+
+FROM ${SIQ_UBUNTU_BASE} AS gateway-builder
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG SIQ_GATEWAY_PATCH_SHA256=unset
+ARG SIQ_OPENSHELL_UPSTREAM_COMMIT=unset
+ARG SIQ_OPENSHELL_GATEWAY_BUILDER_DOCKERFILE_SHA256=unset
+ARG SIQ_OPENSHELL_VERIFIED_BUILDER_ID=unset
+ARG SIQ_SUPERVISOR_PATCH_SHA256=unset
+ARG SIQ_UBUNTU_MIRROR=http://mirrors.aliyun.com/ubuntu-ports
+LABEL ai.siq.openshell.gateway-patch-sha256="$SIQ_GATEWAY_PATCH_SHA256" \
+      ai.siq.openshell.upstream-commit="$SIQ_OPENSHELL_UPSTREAM_COMMIT" \
+      ai.siq.openshell.gateway-builder-dockerfile-sha256="$SIQ_OPENSHELL_GATEWAY_BUILDER_DOCKERFILE_SHA256" \
+      ai.siq.openshell.verified-builder-id="$SIQ_OPENSHELL_VERIFIED_BUILDER_ID" \
+      ai.siq.openshell.supervisor-patch-sha256="$SIQ_SUPERVISOR_PATCH_SHA256" \
+      ai.siq.openshell.gateway-builder-base="ubuntu-24.04-arm64@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90" \
+      ai.siq.openshell.gateway-builder-apt-mirror="$SIQ_UBUNTU_MIRROR" \
+      ai.siq.openshell.rust-dist-sha256="094c9c36531911c5cc7dd6ab2d3069ab8dcd744d6239b0bda1387b243dfc391e"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CARGO_TERM_COLOR=never \
+    RUST_BACKTRACE=1 \
+    CC=/usr/bin/gcc-13 \
+    CXX=/usr/bin/g++-13 \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=/usr/bin/gcc-13
+
+RUN test "$SIQ_UBUNTU_MIRROR" = http://mirrors.aliyun.com/ubuntu-ports \
+    && sed -i "s#http://ports.ubuntu.com/ubuntu-ports#${SIQ_UBUNTU_MIRROR}#g" \
+        /etc/apt/sources.list.d/ubuntu.sources \
+    && grep -Fx "URIs: ${SIQ_UBUNTU_MIRROR}/" /etc/apt/sources.list.d/ubuntu.sources \
+    && ! grep -F 'ports.ubuntu.com' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get -o Acquire::Retries=3 -o Acquire::ForceIPv4=true \
+        -o APT::Update::Error-Mode=any \
+        -o Acquire::AllowInsecureRepositories=false \
+        -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+    && apt-get -o Acquire::Retries=3 -o Acquire::ForceIPv4=true \
+        -o APT::Get::AllowUnauthenticated=false \
+        -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends \
+        binutils \
+        ca-certificates \
+        clang \
+        cmake \
+        g++-13 \
+        gcc-13 \
+        git \
+        libc6-dev \
+        libclang-dev \
+        libssl-dev \
+        make \
+        ninja-build \
+        pkg-config \
+        protobuf-compiler \
+        python3 \
+        xz-utils \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=rust-toolchain \
+    /usr/local/bin/cargo \
+    /usr/local/bin/cargo-clippy \
+    /usr/local/bin/cargo-fmt \
+    /usr/local/bin/clippy-driver \
+    /usr/local/bin/rust-analyzer \
+    /usr/local/bin/rust-gdb \
+    /usr/local/bin/rust-gdbgui \
+    /usr/local/bin/rust-lldb \
+    /usr/local/bin/rustc \
+    /usr/local/bin/rustdoc \
+    /usr/local/bin/rustfmt \
+    /usr/local/bin/
+COPY --from=rust-toolchain /usr/local/lib/rustlib /usr/local/lib/rustlib
+COPY --from=rust-toolchain \
+    /usr/local/lib/libLLVM-22-rust-1.95.0-stable.so \
+    /usr/local/lib/libLLVM.so.22.1-rust-1.95.0-stable \
+    /usr/local/lib/librustc_driver-59460654dd812010.so \
+    /usr/local/lib/
+COPY --from=rust-toolchain /usr/local/libexec /usr/local/libexec
+
+RUN set -eux; \
+    test "$(dpkg --print-architecture)" = arm64; \
+    test "$(uname -m)" = aarch64; \
+    rustc --version | grep -F 'rustc 1.95.0'; \
+    rustc -vV | grep -Fx 'host: aarch64-unknown-linux-gnu'; \
+    cargo --version | grep -F 'cargo 1.95.0'; \
+    ldd /usr/local/bin/rustc > /tmp/rustc.ldd; \
+    ! grep -F 'not found' /tmp/rustc.ldd; \
+    case "$("$CC" -dumpfullversion -dumpversion)" in 13|13.*) ;; *) exit 1 ;; esac; \
+    case "$("$CXX" -dumpfullversion -dumpversion)" in 13|13.*) ;; *) exit 1 ;; esac; \
+    printf '%s\n' 'fn main() { print!("rust-smoke"); }' > /tmp/rust-smoke.rs; \
+    rustc -C linker=/usr/bin/gcc-13 /tmp/rust-smoke.rs -o /tmp/rust-smoke; \
+    test "$(/tmp/rust-smoke)" = rust-smoke; \
+    printf '%s\n' \
+        '#include <format>' \
+        '#include <iostream>' \
+        'int main() {' \
+        '  std::cout << std::format("{} {}", "OpenShell", 83);' \
+        '}' \
+        > /tmp/format-smoke.cpp; \
+    "$CXX" -std=c++20 -Wall -Wextra -Werror /tmp/format-smoke.cpp -o /tmp/format-smoke; \
+    test "$(/tmp/format-smoke)" = 'OpenShell 83'; \
+    install -d -m 0755 /usr/local/share; \
+    dpkg-query -W -f='${binary:Package}=${Version}\n' \
+      | LC_ALL=C sort > /usr/local/share/siq-gateway-builder-packages.txt; \
+    rm -f /tmp/rustc.ldd /tmp/rust-smoke.rs /tmp/rust-smoke \
+      /tmp/format-smoke.cpp /tmp/format-smoke

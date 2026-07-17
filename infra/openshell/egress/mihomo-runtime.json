@@ -1,0 +1,6 @@
+{
+  "schema_version": "siq.openshell.mihomo-runtime.v1",
+  "mode": "auto_if_socket_present",
+  "control_socket": "/tmp/verge/verge-mihomo.sock",
+  "fake_ip_range": "198.18.0.0/16"
+}

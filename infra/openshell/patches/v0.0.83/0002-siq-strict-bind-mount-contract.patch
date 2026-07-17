@@ -1,0 +1,690 @@
+diff --git a/crates/openshell-driver-docker/src/lib.rs b/crates/openshell-driver-docker/src/lib.rs
+index 06d575a..be343cd 100644
+--- a/crates/openshell-driver-docker/src/lib.rs
++++ b/crates/openshell-driver-docker/src/lib.rs
+@@ -77,6 +77,8 @@ const SUPERVISOR_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ const HOST_OPENSHELL_INTERNAL: &str = "host.openshell.internal";
+ const HOST_DOCKER_INTERNAL: &str = "host.docker.internal";
+ const DOCKER_NETWORK_DRIVER: &str = "bridge";
++const SIQ_ANALYSIS_BIND_MOUNT_CONTRACT: &str = "siq_analysis_v2";
++const SIQ_ANALYSIS_MOUNT_COUNT: usize = 7;
+ 
+ /// Queried by the Docker driver to decide when a sandbox's supervisor
+ /// relay is live. Implementations return `true` once a sandbox has an
+@@ -140,6 +142,14 @@ pub struct DockerComputeConfig {
+     /// `template.driver_config`.
+     #[serde(default)]
+     pub enable_bind_mounts: bool,
++
++    /// Optional gateway-side contract that narrows enabled host bind mounts.
++    #[serde(default)]
++    pub bind_mount_contract: String,
++
++    /// Canonical SIQ repository root used by the strict bind-mount contract.
++    #[serde(default)]
++    pub bind_mount_project_root: Option<PathBuf>,
+ }
+ 
+ impl Default for DockerComputeConfig {
+@@ -159,10 +169,49 @@ impl Default for DockerComputeConfig {
+             ssh_socket_path: "/run/openshell/ssh.sock".to_string(),
+             sandbox_pids_limit: DEFAULT_SANDBOX_PIDS_LIMIT,
+             enable_bind_mounts: false,
++            bind_mount_contract: String::new(),
++            bind_mount_project_root: None,
+         }
+     }
+ }
+ 
++fn validated_bind_mount_project_root(config: &DockerComputeConfig) -> CoreResult<Option<PathBuf>> {
++    if !config.enable_bind_mounts {
++        if !config.bind_mount_contract.is_empty() || config.bind_mount_project_root.is_some() {
++            return Err(Error::config(
++                "bind_mount_contract and bind_mount_project_root require enable_bind_mounts = true",
++            ));
++        }
++        return Ok(None);
++    }
++    if config.bind_mount_contract != SIQ_ANALYSIS_BIND_MOUNT_CONTRACT {
++        return Err(Error::config(format!(
++            "enabled Docker bind mounts require bind_mount_contract = '{SIQ_ANALYSIS_BIND_MOUNT_CONTRACT}'",
++        )));
++    }
++    let root = config.bind_mount_project_root.as_deref().ok_or_else(|| {
++        Error::config("enabled Docker bind mounts require bind_mount_project_root")
++    })?;
++    if !root.is_absolute()
++        || root
++            .components()
++            .any(|component| matches!(component, std::path::Component::ParentDir))
++    {
++        return Err(Error::config(
++            "bind_mount_project_root must be an absolute normalized path",
++        ));
++    }
++    let canonical = root.canonicalize().map_err(|_| {
++        Error::config("bind_mount_project_root must exist and resolve to a directory")
++    })?;
++    if canonical != root || !canonical.is_dir() {
++        return Err(Error::config(
++            "bind_mount_project_root must be canonical, symlink-free, and a directory",
++        ));
++    }
++    Ok(Some(canonical))
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub(crate) struct DockerGuestTlsPaths {
+     pub(crate) ca: PathBuf,
+@@ -188,6 +237,8 @@ struct DockerDriverRuntimeConfig {
+     allow_all_default_gpu: bool,
+     sandbox_pids_limit: i64,
+     enable_bind_mounts: bool,
++    bind_mount_contract: String,
++    bind_mount_project_root: Option<PathBuf>,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Eq)]
+@@ -307,6 +358,7 @@ impl DockerComputeDriver {
+         docker_config: &DockerComputeConfig,
+         supervisor_readiness: Arc<dyn SupervisorReadiness>,
+     ) -> CoreResult<Self> {
++        let bind_mount_project_root = validated_bind_mount_project_root(docker_config)?;
+         let docker = Docker::connect_with_local_defaults()
+             .map_err(|err| Error::execution(format!("failed to create Docker client: {err}")))?;
+         let version = docker.version().await.map_err(|err| {
+@@ -371,6 +423,8 @@ impl DockerComputeDriver {
+                 allow_all_default_gpu,
+                 sandbox_pids_limit: docker_config.sandbox_pids_limit,
+                 enable_bind_mounts: docker_config.enable_bind_mounts,
++                bind_mount_contract: docker_config.bind_mount_contract.clone(),
++                bind_mount_project_root,
+             },
+             events: broadcast::channel(WATCH_BUFFER).0,
+             pending: Arc::new(Mutex::new(HashMap::new())),
+@@ -431,7 +485,12 @@ impl DockerComputeDriver {
+         let _ = docker_resource_limits(template)?;
+         let driver_config =
+             DockerSandboxDriverConfig::from_template(template).map_err(Status::invalid_argument)?;
+-        validate_docker_driver_mounts(&driver_config.mounts, config.enable_bind_mounts)?;
++        validate_docker_driver_mounts(
++            &driver_config.mounts,
++            config.enable_bind_mounts,
++            &config.bind_mount_contract,
++            config.bind_mount_project_root.as_deref(),
++        )?;
+         let gpu_requirements = driver_gpu_requirements(spec.resource_requirements.as_ref());
+         Self::validate_gpu_request(gpu_requirements, config.supports_gpu, &driver_config)?;
+         Ok(ValidatedDockerSandbox {
+@@ -1708,11 +1767,16 @@ fn attach_docker_progress_metadata(
+ #[cfg(test)]
+ fn docker_driver_config(
+     template: &DriverSandboxTemplate,
+-    enable_bind_mounts: bool,
++    runtime_config: &DockerDriverRuntimeConfig,
+ ) -> Result<DockerSandboxDriverConfig, Status> {
+     let config =
+         DockerSandboxDriverConfig::from_template(template).map_err(Status::invalid_argument)?;
+-    validate_docker_driver_mounts(&config.mounts, enable_bind_mounts)?;
++    validate_docker_driver_mounts(
++        &config.mounts,
++        runtime_config.enable_bind_mounts,
++        &runtime_config.bind_mount_contract,
++        runtime_config.bind_mount_project_root.as_deref(),
++    )?;
+     Ok(config)
+ }
+ 
+@@ -1841,9 +1905,221 @@ fn docker_mount_from_config(config: &DockerDriverMountConfig) -> Result<Option<M
+     }
+ }
+ 
++fn validate_siq_analysis_run_id(value: &str) -> bool {
++    !value.is_empty()
++        && value.len() <= 48
++        && value.as_bytes()[0].is_ascii_alphanumeric()
++        && value
++            .bytes()
++            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
++}
++
++fn validate_siq_company_segment(value: &str) -> bool {
++    let mut characters = value.chars();
++    let Some(first) = characters.next() else {
++        return false;
++    };
++    if !first.is_alphanumeric() || value.len() > 255 {
++        return false;
++    }
++    let mut count = 1usize;
++    for character in characters {
++        count += 1;
++        if count > 128
++            || !(character.is_alphanumeric()
++                || matches!(character, '-' | '_' | '.' | '(' | ')' | '（' | '）'))
++        {
++            return false;
++        }
++    }
++    true
++}
++
++fn is_siq_analysis_task_path(project_root: &Path, source: &Path) -> bool {
++    let Ok(relative) = source.strip_prefix(project_root) else {
++        return false;
++    };
++    let Some(value) = relative.to_str() else {
++        return false;
++    };
++    let parts = value.split('/').collect::<Vec<_>>();
++    (parts.len() == 5
++        && parts[0..3] == ["data", "wiki", "companies"]
++        && validate_siq_company_segment(parts[3])
++        && parts[4] == "analysis")
++        || (parts.len() == 6
++            && parts[0..2] == ["data", "wiki"]
++            && matches!(parts[2], "eu" | "hk" | "jp" | "kr" | "us")
++            && parts[3] == "companies"
++            && validate_siq_company_segment(parts[4])
++            && parts[5] == "analysis")
++}
++
++fn canonical_siq_bind_source(source: &str, project_root: &Path) -> Result<PathBuf, Status> {
++    let source_path = PathBuf::from(source);
++    if source_path.components().any(|component| {
++        matches!(
++            component,
++            std::path::Component::CurDir | std::path::Component::ParentDir
++        )
++    }) {
++        return Err(Status::failed_precondition(
++            "SIQ bind source must be normalized and must not contain '.' or '..'",
++        ));
++    }
++    let canonical = source_path
++        .canonicalize()
++        .map_err(|_| Status::failed_precondition("SIQ bind source must exist and be canonical"))?;
++    if canonical != source_path || !canonical.starts_with(project_root) {
++        return Err(Status::failed_precondition(
++            "SIQ bind source must be symlink-free and remain inside the configured project root",
++        ));
++    }
++    Ok(canonical)
++}
++
++fn validate_siq_analysis_bind_mounts(
++    mounts: &[DockerDriverMountConfig],
++    project_root: &Path,
++) -> Result<(), Status> {
++    if mounts.is_empty() {
++        return Ok(());
++    }
++    if mounts.len() != SIQ_ANALYSIS_MOUNT_COUNT {
++        return Err(Status::failed_precondition(
++            "SIQ analysis bind contract requires exactly 7 mounts",
++        ));
++    }
++
++    let wiki = project_root.join("data/wiki");
++    let runtime_root = project_root.join("var/openshell/siq-analysis/runtime-snapshots");
++    let hermes_root = project_root.join("data/hermes/home/profiles/siq_analysis");
++    let runtime_directories = [
++        "runtime-state",
++        "sessions",
++        "checkpoints",
++        "cron",
++        "memories",
++    ];
++    let required_runtime_names = runtime_directories.iter().copied().collect::<HashSet<_>>();
++    let mut observed_runtime_names = HashSet::new();
++    let mut observed_run_id: Option<String> = None;
++    let mut wiki_mounts = 0usize;
++    let mut analysis_mounts = 0usize;
++
++    for mount in mounts {
++        let DockerDriverMountConfig::Bind {
++            source,
++            target,
++            read_only,
++            selinux_label,
++        } = mount
++        else {
++            return Err(Status::failed_precondition(
++                "SIQ analysis bind contract permits bind mounts only",
++            ));
++        };
++        if selinux_label.is_some() {
++            return Err(Status::failed_precondition(
++                "SIQ analysis bind contract forbids SELinux relabelling",
++            ));
++        }
++        let canonical = canonical_siq_bind_source(source, project_root)?;
++        let target_path = Path::new(target);
++
++        if canonical == wiki {
++            if !read_only || target_path != wiki {
++                return Err(Status::failed_precondition(
++                    "SIQ wiki mount must preserve its path and remain read-only",
++                ));
++            }
++            if !canonical.is_dir() {
++                return Err(Status::failed_precondition(
++                    "SIQ wiki source must be a directory",
++                ));
++            }
++            wiki_mounts += 1;
++            continue;
++        }
++
++        if is_siq_analysis_task_path(project_root, &canonical) {
++            if *read_only || target_path != canonical {
++                return Err(Status::failed_precondition(
++                    "SIQ task analysis mount must preserve its path and be read-write",
++                ));
++            }
++            if !canonical.is_dir() {
++                return Err(Status::failed_precondition(
++                    "SIQ task analysis source must be a directory",
++                ));
++            }
++            analysis_mounts += 1;
++            continue;
++        }
++
++        let relative = canonical.strip_prefix(&runtime_root).map_err(|_| {
++            Status::failed_precondition("SIQ bind source is outside the fixed mount contract")
++        })?;
++        let components = relative
++            .components()
++            .map(|component| component.as_os_str().to_string_lossy().into_owned())
++            .collect::<Vec<_>>();
++        if components.len() != 2 || !validate_siq_analysis_run_id(&components[0]) {
++            return Err(Status::failed_precondition(
++                "SIQ runtime source must use one validated task snapshot",
++            ));
++        }
++        let run_id = &components[0];
++        let name = &components[1];
++        if observed_run_id
++            .as_ref()
++            .is_some_and(|value| value != run_id)
++        {
++            return Err(Status::failed_precondition(
++                "SIQ runtime mounts must share one task snapshot",
++            ));
++        }
++        observed_run_id.get_or_insert_with(|| run_id.clone());
++        let expected_target = if name == "runtime-state" {
++            PathBuf::from("/sandbox/siq-analysis-runtime-state")
++        } else {
++            hermes_root.join(name)
++        };
++        if !required_runtime_names.contains(name.as_str())
++            || !observed_runtime_names.insert(name.clone())
++            || *read_only
++            || target_path != expected_target
++        {
++            return Err(Status::failed_precondition(
++                "SIQ runtime mount name, mode, or target is outside the fixed contract",
++            ));
++        }
++        if !runtime_directories.contains(&name.as_str()) || !canonical.is_dir() {
++            return Err(Status::failed_precondition(
++                "SIQ runtime source type does not match the fixed contract",
++            ));
++        }
++    }
++
++    if wiki_mounts != 1
++        || analysis_mounts != 1
++        || observed_runtime_names.len() != required_runtime_names.len()
++        || !required_runtime_names
++            .iter()
++            .all(|name| observed_runtime_names.contains(*name))
++    {
++        return Err(Status::failed_precondition(
++            "SIQ analysis bind mount set is incomplete or duplicated",
++        ));
++    }
++    Ok(())
++}
++
+ fn validate_docker_driver_mounts(
+     mounts: &[DockerDriverMountConfig],
+     enable_bind_mounts: bool,
++    bind_mount_contract: &str,
++    bind_mount_project_root: Option<&Path>,
+ ) -> Result<(), Status> {
+     let mut targets = HashSet::new();
+     for mount in mounts {
+@@ -1906,6 +2182,12 @@ fn validate_docker_driver_mounts(
+             )));
+         }
+     }
++    if enable_bind_mounts && bind_mount_contract == SIQ_ANALYSIS_BIND_MOUNT_CONTRACT {
++        let project_root = bind_mount_project_root.ok_or_else(|| {
++            Status::failed_precondition("SIQ bind mount project root is not configured")
++        })?;
++        validate_siq_analysis_bind_mounts(mounts, project_root)?;
++    }
+     Ok(())
+ }
+ 
+@@ -2242,7 +2524,7 @@ fn build_container_create_body(
+         .as_ref()
+         .and_then(|spec| spec.template.as_ref())
+         .ok_or_else(|| Status::invalid_argument("sandbox.spec.template is required"))?;
+-    let driver_config = docker_driver_config(template, config.enable_bind_mounts)?;
++    let driver_config = docker_driver_config(template, config)?;
+     let gpu_requirements = sandbox
+         .spec
+         .as_ref()
+diff --git a/crates/openshell-driver-docker/src/tests.rs b/crates/openshell-driver-docker/src/tests.rs
+index 594308b..427faf4 100644
+--- a/crates/openshell-driver-docker/src/tests.rs
++++ b/crates/openshell-driver-docker/src/tests.rs
+@@ -114,9 +114,304 @@ fn runtime_config() -> DockerDriverRuntimeConfig {
+         allow_all_default_gpu: false,
+         sandbox_pids_limit: DEFAULT_SANDBOX_PIDS_LIMIT,
+         enable_bind_mounts: false,
++        bind_mount_contract: String::new(),
++        bind_mount_project_root: None,
+     }
+ }
+ 
++fn siq_analysis_mount_fixture() -> (TempDir, PathBuf, Vec<DockerDriverMountConfig>) {
++    let tempdir = TempDir::new().unwrap();
++    let project_root = tempdir.path().join("siq-research-engine");
++    let wiki = project_root.join("data/wiki");
++    let analysis = wiki.join("companies/600104-test/analysis");
++    let snapshot = project_root.join("var/openshell/siq-analysis/runtime-snapshots/security-probe");
++    let hermes = project_root.join("data/hermes/home/profiles/siq_analysis");
++    fs::create_dir_all(&analysis).unwrap();
++    fs::create_dir_all(&snapshot).unwrap();
++    fs::create_dir_all(&hermes).unwrap();
++
++    let mut mounts = vec![
++        DockerDriverMountConfig::Bind {
++            source: wiki.to_string_lossy().into_owned(),
++            target: wiki.to_string_lossy().into_owned(),
++            read_only: true,
++            selinux_label: None,
++        },
++        DockerDriverMountConfig::Bind {
++            source: analysis.to_string_lossy().into_owned(),
++            target: analysis.to_string_lossy().into_owned(),
++            read_only: false,
++            selinux_label: None,
++        },
++    ];
++    for name in [
++        "runtime-state",
++        "sessions",
++        "checkpoints",
++        "cron",
++        "memories",
++    ] {
++        let source = snapshot.join(name);
++        fs::create_dir(&source).unwrap();
++        mounts.push(DockerDriverMountConfig::Bind {
++            source: source.to_string_lossy().into_owned(),
++            target: if name == "runtime-state" {
++                "/sandbox/siq-analysis-runtime-state".to_string()
++            } else {
++                hermes.join(name).to_string_lossy().into_owned()
++            },
++            read_only: false,
++            selinux_label: None,
++        });
++    }
++    let canonical_root = project_root.canonicalize().unwrap();
++    (tempdir, canonical_root, mounts)
++}
++
++fn validate_siq_fixture(mounts: &[DockerDriverMountConfig], root: &Path) -> Result<(), Status> {
++    validate_docker_driver_mounts(mounts, true, SIQ_ANALYSIS_BIND_MOUNT_CONTRACT, Some(root))
++}
++
++fn siq_mounts_json(mounts: &[DockerDriverMountConfig]) -> Vec<serde_json::Value> {
++    mounts
++        .iter()
++        .map(|mount| match mount {
++            DockerDriverMountConfig::Bind {
++                source,
++                target,
++                read_only,
++                selinux_label,
++            } => {
++                assert!(selinux_label.is_none());
++                serde_json::json!({
++                    "type": "bind",
++                    "source": source,
++                    "target": target,
++                    "read_only": read_only,
++                })
++            }
++            _ => panic!("expected SIQ bind mount"),
++        })
++        .collect()
++}
++
++#[test]
++fn siq_analysis_bind_contract_accepts_exact_fixed_mount_set() {
++    let (_tempdir, root, mounts) = siq_analysis_mount_fixture();
++
++    validate_siq_fixture(&mounts, &root).unwrap();
++}
++
++#[test]
++fn siq_analysis_company_segment_matches_mount_plan_contract() {
++    for accepted in [
++        "600104-上汽集团",
++        "3382-Seven-i-Holdings-Co.-Ltd",
++        "AAPL-Apple-Inc",
++        "OR-LOreal-S.A",
++        "A（B）",
++    ] {
++        assert!(validate_siq_company_segment(accepted), "{accepted}");
++    }
++    for rejected in [
++        "",
++        ".git",
++        "-foo",
++        "a:b",
++        "a\nb",
++        "company😀",
++        &"a".repeat(129),
++    ] {
++        assert!(!validate_siq_company_segment(rejected), "{rejected:?}");
++    }
++}
++
++#[test]
++fn siq_analysis_bind_contract_materializes_exact_container_binds() {
++    let (_tempdir, root, mounts) = siq_analysis_mount_fixture();
++    let expected = mounts
++        .iter()
++        .map(|mount| match mount {
++            DockerDriverMountConfig::Bind {
++                source,
++                target,
++                read_only,
++                ..
++            } => {
++                if *read_only {
++                    format!("{source}:{target}:ro")
++                } else {
++                    format!("{source}:{target}")
++                }
++            }
++            _ => unreachable!(),
++        })
++        .collect::<Vec<_>>();
++    let mut sandbox = test_sandbox();
++    sandbox
++        .spec
++        .as_mut()
++        .unwrap()
++        .template
++        .as_mut()
++        .unwrap()
++        .driver_config = Some(json_struct(serde_json::json!({
++        "mounts": siq_mounts_json(&mounts),
++    })));
++    let mut config = runtime_config();
++    config.enable_bind_mounts = true;
++    config.bind_mount_contract = SIQ_ANALYSIS_BIND_MOUNT_CONTRACT.to_string();
++    config.bind_mount_project_root = Some(root);
++
++    let body = build_container_create_body(&sandbox, &config).unwrap();
++    let binds = body.host_config.unwrap().binds.unwrap();
++    let observed = binds
++        .into_iter()
++        .filter(|bind| expected.contains(bind))
++        .collect::<Vec<_>>();
++
++    assert_eq!(observed, expected);
++    assert_eq!(observed.len(), SIQ_ANALYSIS_MOUNT_COUNT);
++}
++
++#[test]
++fn siq_analysis_bind_contract_rejects_project_root_and_wiki_write_access() {
++    let (_tempdir, root, mut mounts) = siq_analysis_mount_fixture();
++    let DockerDriverMountConfig::Bind {
++        source,
++        target,
++        read_only,
++        ..
++    } = &mut mounts[0]
++    else {
++        panic!("expected bind mount")
++    };
++    *source = root.to_string_lossy().into_owned();
++    *target = source.clone();
++    *read_only = false;
++
++    let err = validate_siq_fixture(&mounts, &root).unwrap_err();
++    assert!(err.message().contains("outside the fixed mount contract"));
++}
++
++#[test]
++fn siq_analysis_bind_contract_rejects_symlink_and_parent_alias_sources() {
++    use std::os::unix::fs::symlink;
++
++    let (_tempdir, root, mut mounts) = siq_analysis_mount_fixture();
++    let alias = root.join("wiki-alias");
++    symlink(root.join("data/wiki"), &alias).unwrap();
++    {
++        let DockerDriverMountConfig::Bind { source, .. } = &mut mounts[0] else {
++            panic!("expected bind mount")
++        };
++        *source = alias.to_string_lossy().into_owned();
++    }
++    assert!(
++        validate_siq_fixture(&mounts, &root)
++            .unwrap_err()
++            .message()
++            .contains("symlink-free")
++    );
++
++    {
++        let DockerDriverMountConfig::Bind { source, .. } = &mut mounts[0] else {
++            panic!("expected bind mount")
++        };
++        *source = root
++            .join("data/wiki/../wiki")
++            .to_string_lossy()
++            .into_owned();
++    }
++    assert!(
++        validate_siq_fixture(&mounts, &root)
++            .unwrap_err()
++            .message()
++            .contains("must be normalized")
++    );
++}
++
++#[test]
++fn siq_analysis_bind_contract_rejects_outside_docker_and_tls_sources() {
++    let (_tempdir, root, mut mounts) = siq_analysis_mount_fixture();
++    let outside = TempDir::new().unwrap();
++    let outside_file = outside.path().join("docker.sock");
++    fs::write(&outside_file, b"").unwrap();
++    {
++        let DockerDriverMountConfig::Bind { source, target, .. } = &mut mounts[0] else {
++            panic!("expected bind mount")
++        };
++        *source = outside_file.to_string_lossy().into_owned();
++        *target = "/var/run/docker.sock".to_string();
++    }
++    assert!(
++        validate_siq_fixture(&mounts, &root)
++            .unwrap_err()
++            .message()
++            .contains("inside the configured project root")
++    );
++
++    let tls = root.join("var/openshell/gateway/siq-openshell-dev/tls/client");
++    fs::create_dir_all(&tls).unwrap();
++    {
++        let DockerDriverMountConfig::Bind { source, target, .. } = &mut mounts[0] else {
++            panic!("expected bind mount")
++        };
++        *source = tls.to_string_lossy().into_owned();
++        *target = "/etc".to_string();
++    }
++    assert!(validate_siq_fixture(&mounts, &root).is_err());
++}
++
++#[test]
++fn siq_analysis_bind_contract_rejects_mixed_runtime_snapshots_and_non_bind_mounts() {
++    let (_tempdir, root, mut mounts) = siq_analysis_mount_fixture();
++    let other = root.join("var/openshell/siq-analysis/runtime-snapshots/other-run/runtime-state");
++    fs::create_dir_all(other.parent().unwrap()).unwrap();
++    fs::create_dir(&other).unwrap();
++    let DockerDriverMountConfig::Bind { source, .. } = &mut mounts[2] else {
++        panic!("expected bind mount")
++    };
++    *source = other.to_string_lossy().into_owned();
++    assert!(
++        validate_siq_fixture(&mounts, &root)
++            .unwrap_err()
++            .message()
++            .contains("share one task snapshot")
++    );
++
++    mounts[2] = DockerDriverMountConfig::Volume {
++        source: "volume".to_string(),
++        target: "/sandbox/siq-analysis-runtime-state".to_string(),
++        read_only: false,
++        subpath: None,
++    };
++    assert!(
++        validate_siq_fixture(&mounts, &root)
++            .unwrap_err()
++            .message()
++            .contains("bind mounts only")
++    );
++}
++
++#[test]
++fn siq_analysis_bind_contract_configuration_fails_closed() {
++    let tempdir = TempDir::new().unwrap();
++    let root = tempdir.path().canonicalize().unwrap();
++    let mut config = DockerComputeConfig {
++        enable_bind_mounts: true,
++        ..DockerComputeConfig::default()
++    };
++    assert!(validated_bind_mount_project_root(&config).is_err());
++
++    config.bind_mount_contract = SIQ_ANALYSIS_BIND_MOUNT_CONTRACT.to_string();
++    config.bind_mount_project_root = Some(root.clone());
++    assert_eq!(
++        validated_bind_mount_project_root(&config).unwrap(),
++        Some(root)
++    );
++}
++
+ fn json_struct(value: serde_json::Value) -> prost_types::Struct {
+     match json_value(value).kind {
+         Some(prost_types::value::Kind::StructValue(value)) => value,

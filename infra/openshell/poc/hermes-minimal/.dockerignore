@@ -1,0 +1,12 @@
+**/.git
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/*.pyo
+**/*.log
+**/auth.json
+**/credentials.json
+**/node_modules
+**/.venv
+**/venv

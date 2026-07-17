@@ -1,0 +1,24 @@
+{
+  "schema_version": "siq.openshell.profile_policy.v1",
+  "profile": "siq_analysis",
+  "filesystem_policy": {
+    "read_write": [
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/cache",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/checkpoints",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/cron",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/logs",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/memories",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/sessions",
+      "${SIQ_PROJECT_ROOT}/data/hermes/home/profiles/siq_analysis/workspace"
+    ],
+    "required_files": [],
+    "dynamic_write_kinds": ["analysis"],
+    "require_task_write_path": true
+  },
+  "required_external_controls": [
+    "sandbox mount excludes env files, credentials, host OpenShell state and Docker socket",
+    "SIQ egress guard enforces destination, method, content type and request body size",
+    "PostgreSQL and Milvus use read-only sandbox identities",
+    "Hermes SQLite and gateway metadata use the dedicated /sandbox/siq-analysis-runtime-state directory mount"
+  ]
+}

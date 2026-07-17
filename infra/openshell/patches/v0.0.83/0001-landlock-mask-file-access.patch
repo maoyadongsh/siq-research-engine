@@ -1,0 +1,125 @@
+diff --git a/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs b/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
+index fb82cf0..00e00e4 100644
+--- a/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
++++ b/crates/openshell-supervisor-process/src/sandbox/linux/landlock.rs
+@@ -4,11 +4,12 @@
+ //! Landlock filesystem sandboxing.
+ 
+ use landlock::{
+-    ABI, Access, AccessFs, CompatLevel, Compatible, PathBeneath, PathFd, PathFdError, Ruleset,
+-    RulesetAttr, RulesetCreatedAttr,
++    ABI, Access, AccessFs, BitFlags, CompatLevel, Compatible, PathBeneath, PathFd, PathFdError,
++    Ruleset, RulesetAttr, RulesetCreatedAttr,
+ };
+ use miette::{IntoDiagnostic, Result};
+ use openshell_core::policy::{LandlockCompatibility, SandboxPolicy};
++use std::os::fd::{AsFd, AsRawFd};
+ use std::path::{Path, PathBuf};
+ use tracing::debug;
+ 
+@@ -217,8 +218,9 @@ fn prepare_with_path_open_mode(
+         for path in &read_only {
+             if let Some(path_fd) = try_open_path(path, compatibility, path_open_mode)? {
+                 debug!(path = %path.display(), "Landlock allow read-only");
++                let access = access_for_path_fd(&path_fd, path, access_read, abi)?;
+                 ruleset = ruleset
+-                    .add_rule(PathBeneath::new(path_fd, access_read))
++                    .add_rule(PathBeneath::new(path_fd, access))
+                     .into_diagnostic()?;
+                 rules_applied += 1;
+             }
+@@ -227,8 +229,9 @@ fn prepare_with_path_open_mode(
+         for path in &read_write {
+             if let Some(path_fd) = try_open_path(path, compatibility, path_open_mode)? {
+                 debug!(path = %path.display(), "Landlock allow read-write");
++                let access = access_for_path_fd(&path_fd, path, access_all, abi)?;
+                 ruleset = ruleset
+-                    .add_rule(PathBeneath::new(path_fd, access_all))
++                    .add_rule(PathBeneath::new(path_fd, access))
+                     .into_diagnostic()?;
+                 rules_applied += 1;
+             }
+@@ -291,6 +294,31 @@ fn prepare_with_path_open_mode(
+     }
+ }
+ 
++/// Restrict a rule's access mask to rights valid for the opened path type.
++///
++/// `AccessFs::from_read()` and `AccessFs::from_all()` both contain
++/// directory-only rights. Passing either mask unchanged for a regular file or
++/// device makes `PathBeneath` reject the rule before it reaches the kernel.
++/// Inspect the already-open `PathFd` to avoid a pathname TOCTOU window.
++fn access_for_path_fd(
++    path_fd: &PathFd,
++    path: &Path,
++    requested: BitFlags<AccessFs>,
++    abi: ABI,
++) -> Result<BitFlags<AccessFs>> {
++    let stat = nix::sys::stat::fstat(path_fd.as_fd().as_raw_fd()).map_err(|err| {
++        miette::miette!(
++            "failed to inspect Landlock path type {}: {err}",
++            path.display()
++        )
++    })?;
++    let file_type = nix::sys::stat::SFlag::from_bits_truncate(stat.st_mode);
++    if file_type.contains(nix::sys::stat::SFlag::S_IFDIR) {
++        return Ok(requested);
++    }
++    Ok(requested & AccessFs::from_file(abi))
++}
++
+ /// Phase 2: Enforce a prepared Landlock ruleset by calling `restrict_self()`.
+ ///
+ /// This runs **after** `drop_privileges()`. The `restrict_self()` syscall does
+@@ -522,6 +550,51 @@ mod tests {
+         assert!(result.unwrap().is_none());
+     }
+ 
++    #[test]
++    fn directory_access_keeps_directory_rights() {
++        let dir = tempfile::tempdir().unwrap();
++        let path_fd = PathFd::new(dir.path()).unwrap();
++        let requested = AccessFs::from_all(ABI::V2);
++
++        let actual = access_for_path_fd(&path_fd, dir.path(), requested, ABI::V2).unwrap();
++
++        assert_eq!(actual, requested);
++    }
++
++    #[test]
++    fn file_access_drops_directory_only_rights() {
++        let file = tempfile::NamedTempFile::new().unwrap();
++        let path_fd = PathFd::new(file.path()).unwrap();
++        let requested_read = AccessFs::from_read(ABI::V2);
++        let requested_write = AccessFs::from_all(ABI::V2);
++
++        let actual_read =
++            access_for_path_fd(&path_fd, file.path(), requested_read, ABI::V2).unwrap();
++        let actual_write =
++            access_for_path_fd(&path_fd, file.path(), requested_write, ABI::V2).unwrap();
++
++        assert_eq!(actual_read, requested_read & AccessFs::from_file(ABI::V2));
++        assert_eq!(actual_write, AccessFs::from_file(ABI::V2));
++    }
++
++    #[test]
++    fn device_file_access_drops_directory_only_rights() {
++        let null_path = Path::new("/dev/null");
++        let urandom_path = Path::new("/dev/urandom");
++        let null_fd = PathFd::new(null_path).unwrap();
++        let urandom_fd = PathFd::new(urandom_path).unwrap();
++        let requested_read = AccessFs::from_read(ABI::V2);
++        let requested_write = AccessFs::from_all(ABI::V2);
++
++        let actual_read =
++            access_for_path_fd(&urandom_fd, urandom_path, requested_read, ABI::V2).unwrap();
++        let actual_write =
++            access_for_path_fd(&null_fd, null_path, requested_write, ABI::V2).unwrap();
++
++        assert_eq!(actual_read, requested_read & AccessFs::from_file(ABI::V2));
++        assert_eq!(actual_write, AccessFs::from_file(ABI::V2));
++    }
++
+     #[test]
+     fn classify_not_found() {
+         let err = std::io::Error::from_raw_os_error(libc::ENOENT);

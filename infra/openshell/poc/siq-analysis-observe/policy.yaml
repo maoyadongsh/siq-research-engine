@@ -1,0 +1,57 @@
+version: 1
+filesystem_policy:
+  include_workdir: false
+  read_only:
+    - /dev/urandom
+    - /etc/alternatives
+    - /etc/ca-certificates
+    - /etc/ca-certificates.conf
+    - /etc/debian_version
+    - /etc/fonts
+    - /etc/gai.conf
+    - /etc/group
+    - /etc/host.conf
+    - /etc/hostname
+    - /etc/hosts
+    - /etc/inputrc
+    - /etc/ld.so.cache
+    - /etc/ld.so.conf
+    - /etc/ld.so.conf.d
+    - /etc/localtime
+    - /etc/netconfig
+    - /etc/networks
+    - /etc/nsswitch.conf
+    - /etc/os-release
+    - /etc/passwd
+    - /etc/profile
+    - /etc/protocols
+    - /etc/resolv.conf
+    - /etc/services
+    - /etc/ssl
+    - /etc/terminfo
+    - /home/maoyd/siq-research-engine
+    - /home/sandbox/.bashrc
+    - /home/sandbox/.profile
+    - /lib
+    - /opt/hermes-agent
+    - /opt/siq
+    - /proc
+    - /usr
+  read_write:
+    - /dev/null
+    - /sandbox
+    - /tmp
+    - /workspace
+landlock:
+  compatibility: hard_requirement
+process:
+  run_as_group: sandbox
+  run_as_user: sandbox
+network_policies:
+  siq_observe_nemotron_fallback:
+    name: siq-observe-nemotron-fallback
+    endpoints:
+      - host: host.openshell.internal
+        port: 8007
+    binaries:
+      - path: /opt/siq/hermes/venv/bin/python

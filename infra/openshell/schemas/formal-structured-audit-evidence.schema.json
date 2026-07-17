@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/formal-structured-audit-evidence.schema.json",
+  "title": "SIQ OpenShell formal structured audit evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "decision",
+    "profile",
+    "scope",
+    "formal_business_run",
+    "eligible_for_completion",
+    "host_runtime_unchanged",
+    "cutover_performed",
+    "transaction",
+    "source_contract",
+    "identity_coverage",
+    "decision_counts",
+    "operation_counts",
+    "event_classification",
+    "security_case_event_sha256",
+    "metrics",
+    "provenance",
+    "content_absence"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.formal-structured-audit-evidence.v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "GO"},
+    "profile": {"const": "siq_analysis"},
+    "scope": {"const": "formal_business_sandbox"},
+    "formal_business_run": {"const": true},
+    "eligible_for_completion": {"const": true},
+    "host_runtime_unchanged": {"const": true},
+    "cutover_performed": {"const": false},
+    "transaction": {"$ref": "#/$defs/transaction"},
+    "source_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_schema_version",
+        "aggregate_schema_version",
+        "source_file_count",
+        "record_count",
+        "audit_records_sha256",
+        "source_set_sha256",
+        "chronological_order_verified",
+        "strict_schema_validated",
+        "transaction_filtered",
+        "single_transaction",
+        "single_policy"
+      ],
+      "properties": {
+        "record_schema_version": {"const": "siq.openshell.audit.v1"},
+        "aggregate_schema_version": {"const": "siq.openshell.audit-summary.v1"},
+        "source_file_count": {"type": "integer", "minimum": 1, "maximum": 256},
+        "record_count": {"type": "integer", "minimum": 20},
+        "audit_records_sha256": {"$ref": "#/$defs/sha256"},
+        "source_set_sha256": {"$ref": "#/$defs/sha256"},
+        "chronological_order_verified": {"const": true},
+        "strict_schema_validated": {"const": true},
+        "transaction_filtered": {"const": true},
+        "single_transaction": {"const": true},
+        "single_policy": {"const": true}
+      }
+    },
+    "identity_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_present",
+        "sandbox_identity_projected",
+        "siq_run_identity_projected",
+        "session_identity_projected",
+        "operation_class_present",
+        "target_projected",
+        "decision_present",
+        "policy_digest_present",
+        "error_code_present",
+        "duration_present"
+      ],
+      "properties": {
+        "profile_present": {"const": true},
+        "sandbox_identity_projected": {"const": true},
+        "siq_run_identity_projected": {"const": true},
+        "session_identity_projected": {"const": true},
+        "operation_class_present": {"const": true},
+        "target_projected": {"const": true},
+        "decision_present": {"const": true},
+        "policy_digest_present": {"const": true},
+        "error_code_present": {"const": true},
+        "duration_present": {"const": true}
+      }
+    },
+    "decision_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow", "deny", "audit_only"],
+      "properties": {
+        "allow": {"type": "integer", "minimum": 2},
+        "deny": {"type": "integer", "minimum": 14},
+        "audit_only": {"type": "integer", "minimum": 1}
+      }
+    },
+    "operation_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "database.query",
+        "filesystem.delete",
+        "filesystem.write",
+        "immutable.write",
+        "network.request",
+        "publisher.index",
+        "runtime.route",
+        "sandbox.lifecycle",
+        "service.preflight"
+      ],
+      "properties": {
+        "database.query": {"type": "integer", "minimum": 0},
+        "filesystem.delete": {"type": "integer", "minimum": 0},
+        "filesystem.write": {"type": "integer", "minimum": 0},
+        "immutable.write": {"type": "integer", "minimum": 0},
+        "network.request": {"type": "integer", "minimum": 17},
+        "publisher.index": {"type": "integer", "minimum": 0},
+        "runtime.route": {"const": 0},
+        "sandbox.lifecycle": {"type": "integer", "minimum": 2},
+        "service.preflight": {"type": "integer", "minimum": 1}
+      }
+    },
+    "event_classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["formal_runner_observation_count", "security_probe_event_count", "unclassified_count"],
+      "properties": {
+        "formal_runner_observation_count": {"const": 3},
+        "security_probe_event_count": {"type": "integer", "minimum": 17},
+        "unclassified_count": {"const": 0}
+      }
+    },
+    "security_case_event_sha256": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_deny_count",
+        "audit_only_count",
+        "external_upload_blocks",
+        "immutable_write_blocks",
+        "sandbox_start_failures",
+        "gateway_overhead_ms"
+      ],
+      "properties": {
+        "policy_deny_count": {"type": "integer", "minimum": 14},
+        "audit_only_count": {"type": "integer", "minimum": 1},
+        "external_upload_blocks": {"type": "integer", "minimum": 10},
+        "immutable_write_blocks": {"type": "integer", "minimum": 0},
+        "sandbox_start_failures": {"const": 0},
+        "gateway_overhead_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sample_count", "p50", "p95"],
+          "properties": {
+            "sample_count": {"const": 0},
+            "p50": {"type": "null"},
+            "p95": {"type": "null"}
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "audit_contract_sha256",
+        "aggregator_sha256",
+        "evidence_schema_sha256",
+        "exporter_sha256",
+        "source_file_set_sha256",
+        "transaction_receipt_sha256"
+      ],
+      "properties": {
+        "audit_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "aggregator_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "exporter_sha256": {"$ref": "#/$defs/sha256"},
+        "source_file_set_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "content_absence": {"$ref": "#/$defs/contentAbsence"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction_receipt_sha256",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "session_id_sha256",
+        "policy_sha256",
+        "audit_records_sha256"
+      ],
+      "properties": {
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "session_id_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "audit_records_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "contentAbsence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "contains_local_paths",
+        "contains_request_or_response_content",
+        "contains_sql_or_vector_payload",
+        "contains_target_values",
+        "contains_unprojected_session_id",
+        "exporter_ready"
+      ],
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_request_or_response_content": {"const": false},
+        "contains_sql_or_vector_payload": {"const": false},
+        "contains_target_values": {"const": false},
+        "contains_unprojected_session_id": {"const": false},
+        "exporter_ready": {"const": true}
+      }
+    }
+  }
+}

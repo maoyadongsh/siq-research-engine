@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/architecture-security-review.schema.json",
+  "title": "SIQ OpenShell architecture and security review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "review_id",
+    "decision",
+    "reviewed_at",
+    "reviewer",
+    "scope",
+    "evidence",
+    "checklist",
+    "cutover_performed"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.architecture-security-review.v1"},
+    "review_id": {"type": "string", "minLength": 1, "maxLength": 96},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "organization"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "role": {"type": "string", "minLength": 1, "maxLength": 128},
+        "organization": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "openshell_version", "hermes_commit"],
+      "properties": {
+        "profile": {"const": "siq_analysis"},
+        "openshell_version": {"const": "0.0.83"},
+        "hermes_commit": {"const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "readiness_sha256",
+        "service_preflight_sha256",
+        "formal_ab_summary_sha256",
+        "formal_fallback_drill_sha256",
+        "formal_host_rollback_sha256",
+        "formal_delete_guard_sha256",
+        "formal_egress_sandbox_sha256",
+        "formal_structured_audit_sha256"
+      ],
+      "properties": {
+        "readiness_sha256": {"$ref": "#/$defs/sha256"},
+        "service_preflight_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_ab_summary_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_fallback_drill_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_host_rollback_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_delete_guard_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_egress_sandbox_sha256": {"$ref": "#/$defs/sha256"},
+        "formal_structured_audit_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "checklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "immutable_paths_protected",
+        "normal_writes_preserved",
+        "unknown_uploads_denied",
+        "delete_guard_recovery_verified",
+        "database_boundaries_verified",
+        "host_rollback_verified",
+        "quality_ab_approved",
+        "git_publication_safe"
+      ],
+      "properties": {
+        "immutable_paths_protected": {"type": "boolean"},
+        "normal_writes_preserved": {"type": "boolean"},
+        "unknown_uploads_denied": {"type": "boolean"},
+        "delete_guard_recovery_verified": {"type": "boolean"},
+        "database_boundaries_verified": {"type": "boolean"},
+        "host_rollback_verified": {"type": "boolean"},
+        "quality_ab_approved": {"type": "boolean"},
+        "git_publication_safe": {"type": "boolean"}
+      }
+    },
+    "cutover_performed": {"const": false}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "schema_version": "siq.openshell.provider_manifest.v1",
+  "openshell_version": "0.0.83",
+  "gateway": "siq-openshell-dev",
+  "gateway_endpoint": "https://127.0.0.1:17671",
+  "gateway_type": "local",
+  "gateway_auth": "mtls",
+  "providers_v2_required": true,
+  "request_body_credential_rewrite_max_bytes": 262144,
+  "hermes_auth_template": "hermes/minimax-cn-auth-pool.template.json",
+  "providers": [
+    {
+      "name": "siq-minimax-cn-pool",
+      "profile_id": "siq-minimax-cn",
+      "profile": "profiles/siq-minimax-cn.yaml",
+      "credential_keys": [
+        "SIQ_MINIMAX_CN_PRIMARY",
+        "SIQ_MINIMAX_CN_BACKUP"
+      ]
+    },
+    {
+      "name": "siq-stepfun",
+      "profile_id": "siq-stepfun",
+      "profile": "profiles/siq-stepfun.yaml",
+      "credential_keys": [
+        "SIQ_STEPFUN_LLM_API_KEY"
+      ]
+    },
+    {
+      "name": "siq-kimi-coding",
+      "profile_id": "siq-kimi-coding",
+      "profile": "profiles/siq-kimi-coding.yaml",
+      "credential_keys": [
+        "KIMI_API_KEY"
+      ]
+    },
+    {
+      "name": "siq-tavily-search",
+      "profile_id": "siq-tavily-search",
+      "profile": "profiles/siq-tavily-search.yaml",
+      "credential_keys": [
+        "TAVILY_API_KEY"
+      ]
+    },
+    {
+      "name": "siq-exa-search",
+      "profile_id": "siq-exa-search",
+      "profile": "profiles/siq-exa-search.yaml",
+      "credential_keys": [
+        "EXA_API_KEY"
+      ]
+    }
+  ]
+}

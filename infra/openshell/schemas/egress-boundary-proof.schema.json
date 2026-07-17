@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/egress-boundary-proof.schema.json",
+  "title": "SIQ OpenShell host egress broker boundary proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "passed",
+    "captured_at_unix",
+    "valid_until_unix",
+    "scope",
+    "formal_business_run",
+    "formal_business_sandbox_evidence",
+    "readiness_effect",
+    "eligible_for_completion",
+    "gateway",
+    "environment_binding",
+    "audit_binding",
+    "checks",
+    "cases",
+    "not_claimed"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.egress-boundary-proof.v1"},
+    "decision": {"const": "GO"},
+    "passed": {"const": true},
+    "captured_at_unix": {"type": "integer", "minimum": 1},
+    "valid_until_unix": {"type": "integer", "minimum": 1},
+    "scope": {"const": "host_egress_broker"},
+    "formal_business_run": {"const": false},
+    "formal_business_sandbox_evidence": {"const": false},
+    "readiness_effect": {"const": "none"},
+    "eligible_for_completion": {"const": false},
+    "gateway": {"const": "siq-openshell-dev"},
+    "environment_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowlist_sha256",
+        "allowlist_contract_sha256",
+        "audit_contract_sha256",
+        "broker_lifecycle_sha256",
+        "broker_identity_contract_sha256",
+        "egress_decision_sha256",
+        "egress_guard_sha256",
+        "evidence_schema_sha256",
+        "mihomo_runtime_config_sha256",
+        "proof_runner_sha256",
+        "request_identity_required",
+        "resolver_audit_rule",
+        "resolver_mode",
+        "runtime_source_bundle_sha256",
+        "siq_fetch_sha256",
+        "toolchain_manifest_sha256"
+      ],
+      "properties": {
+        "allowlist_sha256": {"$ref": "#/$defs/sha256"},
+        "allowlist_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "audit_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "broker_lifecycle_sha256": {"$ref": "#/$defs/sha256"},
+        "broker_identity_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "egress_decision_sha256": {"$ref": "#/$defs/sha256"},
+        "egress_guard_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "mihomo_runtime_config_sha256": {"$ref": "#/$defs/sha256"},
+        "proof_runner_sha256": {"$ref": "#/$defs/sha256"},
+        "request_identity_required": {"const": true},
+        "resolver_audit_rule": {"const": "mihomo_fake_ip_compat_resolved"},
+        "resolver_mode": {"const": "mihomo_fake_ip_verified"},
+        "runtime_source_bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "siq_fetch_sha256": {"$ref": "#/$defs/sha256"},
+        "toolchain_manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "audit_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["audit_record_count", "audit_records_sha256", "run_id_sha256"],
+      "properties": {
+        "audit_record_count": {"type": "integer", "minimum": 7, "maximum": 32},
+        "audit_records_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "public_get_allowed",
+        "public_head_allowed",
+        "missing_identity_denied",
+        "wrong_audience_denied",
+        "unknown_small_json_audit_only",
+        "unknown_multipart_denied",
+        "unknown_octet_stream_denied",
+        "unknown_put_denied",
+        "cloud_metadata_denied",
+        "audit_records_bound",
+        "target_values_stored",
+        "request_payloads_stored",
+        "response_payloads_stored",
+        "runtime_credentials_stored"
+      ],
+      "properties": {
+        "public_get_allowed": {"const": true},
+        "public_head_allowed": {"const": true},
+        "missing_identity_denied": {"const": true},
+        "wrong_audience_denied": {"const": true},
+        "unknown_small_json_audit_only": {"const": true},
+        "unknown_multipart_denied": {"const": true},
+        "unknown_octet_stream_denied": {"const": true},
+        "unknown_put_denied": {"const": true},
+        "cloud_metadata_denied": {"const": true},
+        "audit_records_bound": {"const": true},
+        "target_values_stored": {"const": false},
+        "request_payloads_stored": {"const": false},
+        "response_payloads_stored": {"const": false},
+        "runtime_credentials_stored": {"const": false}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "decision",
+          "outer_http_status",
+          "rule_id",
+          "upstream_http_status"
+        ],
+        "properties": {
+          "case_id": {
+            "enum": [
+              "public_get",
+              "public_head",
+              "unknown_small_json",
+              "unknown_multipart",
+              "unknown_octet_stream",
+              "unknown_put",
+              "cloud_metadata"
+            ]
+          },
+          "decision": {"enum": ["allow", "audit_only", "deny"]},
+          "outer_http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+          "rule_id": {
+            "enum": [
+              "unknown_safe_read",
+              "unknown_json_post_audit",
+              "broker_multipart_denied",
+              "broker_octet_stream_denied",
+              "broker_method_denied",
+              "ssrf_non_public_ip"
+            ]
+          },
+          "upstream_http_status": {
+            "oneOf": [
+              {"type": "integer", "minimum": 100, "maximum": 599},
+              {"type": "null"}
+            ]
+          }
+        }
+      }
+    },
+    "not_claimed": {
+      "const": [
+        "formal_business_sandbox",
+        "direct_transfer_client_execution",
+        "provider_route_availability",
+        "restart_persistence",
+        "semantic_dlp"
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

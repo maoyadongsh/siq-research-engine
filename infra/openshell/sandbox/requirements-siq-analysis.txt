@@ -1,0 +1,4 @@
+aiohttp==3.13.3
+exa-py==2.12.0
+jsonschema==4.26.0
+psycopg2-binary==2.9.12

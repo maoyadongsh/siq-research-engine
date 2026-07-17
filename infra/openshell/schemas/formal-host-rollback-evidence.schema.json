@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/formal-host-rollback-evidence.schema.json",
+  "title": "SIQ OpenShell formal host rollback evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "decision",
+    "profile",
+    "scope",
+    "formal_business_run",
+    "action",
+    "status",
+    "runtime",
+    "host_runtime_unchanged",
+    "cutover_performed",
+    "transaction",
+    "host_identity",
+    "cleanup",
+    "provenance",
+    "sanitization"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.formal-host-rollback-evidence.v2"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "GO"},
+    "profile": {"const": "siq_analysis"},
+    "scope": {"const": "formal_business_sandbox"},
+    "formal_business_run": {"const": true},
+    "action": {"const": "rollback_to_host"},
+    "status": {"const": "stopped"},
+    "runtime": {"const": "host"},
+    "host_runtime_unchanged": {"const": true},
+    "cutover_performed": {"const": false},
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "phase",
+        "terminal_action",
+        "generation",
+        "before_receipt_sha256",
+        "terminal_receipt_sha256",
+        "resource_receipts_sha256",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "container_id_sha256"
+      ],
+      "properties": {
+        "contract": {"const": "formal_transaction_v2_terminal_receipt"},
+        "phase": {"const": "stopped"},
+        "terminal_action": {"const": "rollback_to_host"},
+        "generation": {"type": "integer", "minimum": 2},
+        "before_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "terminal_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "resource_receipts_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "container_id_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "host_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "baseline_receipt_sha256",
+        "before_receipt_sha256",
+        "after_receipt_sha256"
+      ],
+      "properties": {
+        "contract": {"const": "exact_receipt_before_and_after"},
+        "baseline_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "before_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "after_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sandbox_deleted",
+        "forward_port_released",
+        "active_state_removed",
+        "ephemeral_identity_removed",
+        "transaction_finalized",
+        "publisher_index_published",
+        "publisher_receipt_sha256"
+      ],
+      "properties": {
+        "sandbox_deleted": {"const": true},
+        "forward_port_released": {"const": true},
+        "active_state_removed": {"const": true},
+        "ephemeral_identity_removed": {"const": true},
+        "transaction_finalized": {"const": true},
+        "publisher_index_published": {"const": true},
+        "publisher_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hermes_commit",
+        "image_sha256",
+        "policy_sha256",
+        "raw_mount_plan_sha256",
+        "mount_contract_sha256",
+        "lifecycle_sha256",
+        "transaction_module_sha256",
+        "mount_contract_module_sha256",
+        "runner_sha256",
+        "wrapper_sha256",
+        "evidence_schema_sha256",
+        "raw_receipt_sha256"
+      ],
+      "properties": {
+        "hermes_commit": {"const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_mount_plan_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "lifecycle_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_module_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_module_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "wrapper_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sanitization": {"$ref": "#/$defs/sanitization"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sanitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "contains_local_paths",
+        "contains_runtime_identifiers",
+        "exporter_ready"
+      ],
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_runtime_identifiers": {"const": false},
+        "exporter_ready": {"const": true}
+      }
+    }
+  }
+}

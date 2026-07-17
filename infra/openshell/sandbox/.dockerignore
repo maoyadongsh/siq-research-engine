@@ -1,0 +1,11 @@
+**/.env
+**/.env.*
+**/.git
+**/.pytest_cache
+**/__pycache__
+**/auth.json
+**/credentials*
+**/gateway.log
+**/logs
+**/sessions
+FILES.sha256

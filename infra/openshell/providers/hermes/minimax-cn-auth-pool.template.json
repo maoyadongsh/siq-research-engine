@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "providers": {},
+  "credential_pool": {
+    "minimax-cn": [
+      {
+        "id": "minimax_cn_primary_0",
+        "label": "MINIMAX_CN_API_KEY_PRIMARY",
+        "auth_type": "api_key",
+        "priority": 0,
+        "source": "openshell:provider",
+        "access_token": "openshell:resolve:env:SIQ_MINIMAX_CN_PRIMARY",
+        "last_status": null,
+        "last_status_at": null,
+        "last_error_code": null,
+        "last_error_reason": null,
+        "last_error_message": null,
+        "last_error_reset_at": null,
+        "base_url": "https://api.minimax.chat/v1",
+        "request_count": 0
+      },
+      {
+        "id": "minimax_cn_backup_10",
+        "label": "MINIMAX_CN_API_KEY_BACKUP",
+        "auth_type": "api_key",
+        "priority": 10,
+        "source": "openshell:provider",
+        "access_token": "openshell:resolve:env:SIQ_MINIMAX_CN_BACKUP",
+        "last_status": null,
+        "last_status_at": null,
+        "last_error_code": null,
+        "last_error_reason": null,
+        "last_error_message": null,
+        "last_error_reset_at": null,
+        "base_url": "https://api.minimax.chat/v1",
+        "request_count": 0
+      }
+    ]
+  }
+}

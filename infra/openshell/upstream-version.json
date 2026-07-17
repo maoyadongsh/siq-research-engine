@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq.openshell.upstream.v1",
+  "project": "NVIDIA/OpenShell",
+  "version": "v0.0.83",
+  "commit": "e3d26dd3ae0dee247bbc5db368545832757ac493",
+  "license": "Apache-2.0",
+  "source_url": "https://github.com/NVIDIA/OpenShell",
+  "release_url": "https://github.com/NVIDIA/OpenShell/releases/tag/v0.0.83",
+  "selection": "pinned_stable_release",
+  "local_patches": [
+    {
+      "path": "infra/openshell/patches/v0.0.83/0001-landlock-mask-file-access.patch",
+      "scope": "openshell-sandbox only",
+      "reason": "Preserve hard_requirement with exact non-directory Landlock rules",
+      "sha256": "f38cdb0788a9c1f2a38c9aa23ab36b33c4cc6faea135bf6f04bf5eb7bbcdd12f",
+      "upstream_source_sha256": "2c2305fabdd66a42a6c2c5969dc38a9054d42e8978f09d845f62a17264ac1aa0",
+      "upstream_binary_sha256": "d94630658eb1e62090281160db7cdc542c8cf6667d0c11ff7d9084251f86cfd6",
+      "patched_binary_sha256": "d88f7a288e82ce8243216883ba8389524f31ff501a22d8b3555962a67b68cc57"
+    }
+  ]
+}

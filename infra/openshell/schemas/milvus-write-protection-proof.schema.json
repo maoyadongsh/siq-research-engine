@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/milvus-write-protection-proof.schema.json",
+  "title": "SIQ OpenShell Milvus write protection proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "passed",
+    "captured_at_unix",
+    "valid_until_unix",
+    "profile",
+    "gateway",
+    "environment_binding",
+    "sandbox_binding",
+    "checks"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.milvus-write-protection-proof.v1"},
+    "decision": {"const": "GO"},
+    "passed": {"const": true},
+    "captured_at_unix": {"type": "integer", "minimum": 1},
+    "valid_until_unix": {"type": "integer", "minimum": 1},
+    "profile": {"const": "siq_analysis"},
+    "gateway": {"const": "siq-openshell-dev"},
+    "environment_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bridge_sha256",
+        "data_broker_sha256",
+        "milvus_catalog_sha256",
+        "milvus_database",
+        "milvus_port",
+        "milvus_server_version",
+        "policy_contract_sha256",
+        "sandbox_probe_sha256"
+      ],
+      "properties": {
+        "bridge_sha256": {"$ref": "#/$defs/sha256"},
+        "data_broker_sha256": {"$ref": "#/$defs/sha256"},
+        "milvus_catalog_sha256": {"$ref": "#/$defs/sha256"},
+        "milvus_database": {"const": "default"},
+        "milvus_port": {"const": 19530},
+        "milvus_server_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "policy_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_probe_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sandbox_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_policy_sha256",
+        "container_id_sha256",
+        "receipt_sha256",
+        "run_id_sha256",
+        "sandbox_id_sha256"
+      ],
+      "properties": {
+        "active_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "container_id_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "active_policy_bound_to_verified_sandbox",
+        "broker_describe_allowed",
+        "broker_get_allowed",
+        "broker_mutation_routes_absent",
+        "broker_query_allowed",
+        "broker_search_allowed",
+        "business_rows_modified",
+        "sandbox_direct_milvus_denied"
+      ],
+      "properties": {
+        "active_policy_bound_to_verified_sandbox": {"const": true},
+        "broker_describe_allowed": {"const": true},
+        "broker_get_allowed": {"const": true},
+        "broker_mutation_routes_absent": {"const": true},
+        "broker_query_allowed": {"const": true},
+        "broker_search_allowed": {"const": true},
+        "business_rows_modified": {"const": 0},
+        "sandbox_direct_milvus_denied": {"const": true}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

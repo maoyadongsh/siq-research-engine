@@ -1,0 +1,26 @@
+id: siq-stepfun
+display_name: SIQ StepFun inference
+description: OpenAI-compatible StepFun fallback used by the SIQ Hermes profile.
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: StepFun API credential.
+    env_vars: [SIQ_STEPFUN_LLM_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: api.stepfun.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow:
+          method: GET
+          path: /v1/models
+      - allow:
+          method: POST
+          path: /v1/chat/completions
+binaries:
+  - /opt/siq/hermes/venv/bin/python

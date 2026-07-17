@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/formal-delete-guard-evidence.schema.json",
+  "title": "SIQ OpenShell formal destructive action guard evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "decision",
+    "profile",
+    "scope",
+    "formal_business_run",
+    "business_inference_exercised",
+    "threshold",
+    "transactions",
+    "cases",
+    "normal_cleanup",
+    "cleanup",
+    "host_runtime_unchanged",
+    "cutover_performed",
+    "snapshot_integrity_verified",
+    "analysis_tree_outside_fixture_unchanged",
+    "provenance",
+    "sanitization"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.formal-delete-guard-evidence.v2"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision": {"const": "GO"},
+    "profile": {"const": "siq_analysis"},
+    "scope": {"const": "formal_business_sandbox"},
+    "formal_business_run": {"const": true},
+    "business_inference_exercised": {"const": false},
+    "threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["absolute_deleted_file_count", "trigger_operator", "monitoring"],
+      "properties": {
+        "absolute_deleted_file_count": {"const": 500},
+        "trigger_operator": {"const": "greater_than"},
+        "monitoring": {"const": "recursive_filesystem_events"}
+      }
+    },
+    "transactions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "transaction_count", "run_set_sha256", "receipt_set_sha256"],
+      "properties": {
+        "contract": {"const": "four_distinct_formal_transaction_v2_receipts"},
+        "transaction_count": {"const": 4},
+        "run_set_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_set_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/guardCase"},
+      "allOf": [
+        {"contains": {"properties": {"mechanism": {"const": "shell_rm"}}, "required": ["mechanism"]}},
+        {"contains": {"properties": {"mechanism": {"const": "python_shutil"}}, "required": ["mechanism"]}},
+        {"contains": {"properties": {"mechanism": {"const": "node_fs"}}, "required": ["mechanism"]}}
+      ]
+    },
+    "normal_cleanup": {"$ref": "#/$defs/normalCleanup"},
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sandbox_deleted",
+        "forward_port_released",
+        "active_state_removed",
+        "ephemeral_identity_removed",
+        "transaction_finalized",
+        "snapshot_artifacts_removed",
+        "fixture_removed",
+        "outside_analysis_tree_unchanged"
+      ],
+      "properties": {
+        "sandbox_deleted": {"const": true},
+        "forward_port_released": {"const": true},
+        "active_state_removed": {"const": true},
+        "ephemeral_identity_removed": {"const": true},
+        "transaction_finalized": {"const": true},
+        "snapshot_artifacts_removed": {"const": true},
+        "fixture_removed": {"const": true},
+        "outside_analysis_tree_unchanged": {"const": true}
+      }
+    },
+    "host_runtime_unchanged": {"const": true},
+    "cutover_performed": {"const": false},
+    "snapshot_integrity_verified": {"const": true},
+    "analysis_tree_outside_fixture_unchanged": {"const": true},
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hermes_commit",
+        "image_sha256",
+        "policy_sha256",
+        "mount_contract_sha256",
+        "lifecycle_sha256",
+        "transaction_module_sha256",
+        "destructive_guard_sha256",
+        "guard_worker_sha256",
+        "mount_contract_module_sha256",
+        "runner_sha256",
+        "evidence_schema_sha256",
+        "raw_receipt_sha256"
+      ],
+      "properties": {
+        "hermes_commit": {"const": "ddb8d8fa842283ef651a6e4514f8f561f736c72e"},
+        "image_sha256": {"$ref": "#/$defs/sha256"},
+        "policy_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "lifecycle_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_module_sha256": {"$ref": "#/$defs/sha256"},
+        "destructive_guard_sha256": {"$ref": "#/$defs/sha256"},
+        "guard_worker_sha256": {"$ref": "#/$defs/sha256"},
+        "mount_contract_module_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sanitization": {"$ref": "#/$defs/sanitization"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "guardCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "triggered",
+        "reason_code",
+        "sandbox_terminated",
+        "snapshot_restored",
+        "observed_deleted_file_count",
+        "restored_file_count",
+        "residual_missing_file_count",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "transaction_receipt_sha256",
+        "guard_event_sha256",
+        "snapshot_manifest_sha256",
+        "snapshot_tree_sha256",
+        "raw_case_receipt_sha256"
+      ],
+      "properties": {
+        "mechanism": {"enum": ["shell_rm", "python_shutil", "node_fs"]},
+        "triggered": {"const": true},
+        "reason_code": {"const": "deletion_count_gt_500"},
+        "sandbox_terminated": {"const": true},
+        "snapshot_restored": {"const": true},
+        "observed_deleted_file_count": {"const": 501},
+        "restored_file_count": {"const": 501},
+        "residual_missing_file_count": {"const": 0},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "guard_event_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_tree_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_case_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "normalCleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "deleted_file_count",
+        "guard_triggered",
+        "allowed",
+        "sandbox_remained_healthy",
+        "cleanup_succeeded",
+        "unexpected_residual_file_count",
+        "mkdir_allowed",
+        "create_allowed",
+        "write_allowed",
+        "overwrite_allowed",
+        "rename_allowed",
+        "small_delete_allowed",
+        "recursive_cleanup_allowed",
+        "run_id_sha256",
+        "sandbox_id_sha256",
+        "transaction_receipt_sha256",
+        "raw_case_receipt_sha256"
+      ],
+      "properties": {
+        "mechanism": {"const": "current_task_file_cleanup"},
+        "deleted_file_count": {"type": "integer", "minimum": 1, "maximum": 500},
+        "guard_triggered": {"const": false},
+        "allowed": {"const": true},
+        "sandbox_remained_healthy": {"const": true},
+        "cleanup_succeeded": {"const": true},
+        "unexpected_residual_file_count": {"const": 0},
+        "mkdir_allowed": {"const": true},
+        "create_allowed": {"const": true},
+        "write_allowed": {"const": true},
+        "overwrite_allowed": {"const": true},
+        "rename_allowed": {"const": true},
+        "small_delete_allowed": {"const": true},
+        "recursive_cleanup_allowed": {"const": true},
+        "run_id_sha256": {"$ref": "#/$defs/sha256"},
+        "sandbox_id_sha256": {"$ref": "#/$defs/sha256"},
+        "transaction_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "raw_case_receipt_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sanitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contains_api_keys",
+        "contains_headers",
+        "contains_prompt_or_input",
+        "contains_raw_output",
+        "contains_local_paths",
+        "contains_runtime_identifiers",
+        "exporter_ready"
+      ],
+      "properties": {
+        "contains_api_keys": {"const": false},
+        "contains_headers": {"const": false},
+        "contains_prompt_or_input": {"const": false},
+        "contains_raw_output": {"const": false},
+        "contains_local_paths": {"const": false},
+        "contains_runtime_identifiers": {"const": false},
+        "exporter_ready": {"const": true}
+      }
+    }
+  }
+}

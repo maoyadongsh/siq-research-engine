@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/memory-write-evidence.schema.json",
+  "title": "SIQ OpenShell host memory write evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "decision",
+    "passed",
+    "evidence_window",
+    "contract_binding",
+    "agent_groups",
+    "backends"
+  ],
+  "properties": {
+    "schema_version": {"const": "siq.openshell.memory-write-evidence.v1"},
+    "decision": {"const": "GO"},
+    "passed": {"const": true},
+    "evidence_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at_unix", "completed_at_unix"],
+      "properties": {
+        "started_at_unix": {"type": "integer", "minimum": 1},
+        "completed_at_unix": {"type": "integer", "minimum": 1}
+      }
+    },
+    "contract_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundary_contract_sha256",
+        "evidence_schema_sha256",
+        "executor",
+        "logical_alias",
+        "physical_collection_sha256",
+        "required_schema_version",
+        "sandbox_direct_milvus"
+      ],
+      "properties": {
+        "boundary_contract_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "executor": {"const": "host_fastapi_memory_service_only"},
+        "logical_alias": {"const": "siq_agent_memory_active"},
+        "physical_collection_sha256": {"$ref": "#/$defs/sha256"},
+        "required_schema_version": {"const": "siq_agent_memory_milvus_v2"},
+        "sandbox_direct_milvus": {"const": false}
+      }
+    },
+    "agent_groups": {
+      "type": "array",
+      "prefixItems": [
+        {"const": "primary_market"},
+        {"const": "secondary_market"}
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "backends": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["postgresql", "milvus"],
+      "properties": {
+        "postgresql": {"$ref": "#/$defs/postgresql_backend"},
+        "milvus": {"$ref": "#/$defs/milvus_backend"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "common_backend": {
+      "type": "object",
+      "required": [
+        "captured_at_unix",
+        "completed_at_unix",
+        "probe_sha256",
+        "receipt_sha256",
+        "operation_outcomes",
+        "residual_count"
+      ],
+      "properties": {
+        "captured_at_unix": {"type": "integer", "minimum": 1},
+        "completed_at_unix": {"type": "integer", "minimum": 1},
+        "probe_sha256": {"$ref": "#/$defs/sha256"},
+        "receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "residual_count": {"const": 0}
+      }
+    },
+    "postgresql_backend": {
+      "allOf": [
+        {"$ref": "#/$defs/common_backend"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "captured_at_unix",
+            "completed_at_unix",
+            "probe_sha256",
+            "receipt_sha256",
+            "operation_outcomes",
+            "residual_count"
+          ],
+          "properties": {
+            "captured_at_unix": {"type": "integer", "minimum": 1},
+            "completed_at_unix": {"type": "integer", "minimum": 1},
+            "probe_sha256": {"$ref": "#/$defs/sha256"},
+            "receipt_sha256": {"$ref": "#/$defs/sha256"},
+            "operation_outcomes": {"$ref": "#/$defs/postgresql_groups"},
+            "residual_count": {"const": 0}
+          }
+        }
+      ]
+    },
+    "milvus_backend": {
+      "allOf": [
+        {"$ref": "#/$defs/common_backend"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "captured_at_unix",
+            "completed_at_unix",
+            "probe_sha256",
+            "receipt_sha256",
+            "schema_preflight_passed",
+            "operation_outcomes",
+            "residual_count"
+          ],
+          "properties": {
+            "captured_at_unix": {"type": "integer", "minimum": 1},
+            "completed_at_unix": {"type": "integer", "minimum": 1},
+            "probe_sha256": {"$ref": "#/$defs/sha256"},
+            "receipt_sha256": {"$ref": "#/$defs/sha256"},
+            "schema_preflight_passed": {"const": true},
+            "operation_outcomes": {"$ref": "#/$defs/milvus_groups"},
+            "residual_count": {"const": 0}
+          }
+        }
+      ]
+    },
+    "postgresql_groups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_market", "secondary_market"],
+      "properties": {
+        "primary_market": {"$ref": "#/$defs/postgresql_outcome"},
+        "secondary_market": {"$ref": "#/$defs/postgresql_outcome"}
+      }
+    },
+    "milvus_groups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_market", "secondary_market"],
+      "properties": {
+        "primary_market": {"$ref": "#/$defs/milvus_outcome"},
+        "secondary_market": {"$ref": "#/$defs/milvus_outcome"}
+      }
+    },
+    "postgresql_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["insert", "readback", "rollback", "post_rollback_verify", "residual_count"],
+      "properties": {
+        "insert": {"const": true},
+        "readback": {"const": true},
+        "rollback": {"const": true},
+        "post_rollback_verify": {"const": true},
+        "residual_count": {"const": 0}
+      }
+    },
+    "milvus_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upsert", "get", "search", "delete", "post_delete_verify", "residual_count"],
+      "properties": {
+        "upsert": {"const": true},
+        "get": {"const": true},
+        "search": {"const": true},
+        "delete": {"const": true},
+        "post_delete_verify": {"const": true},
+        "residual_count": {"const": 0}
+      }
+    }
+  }
+}

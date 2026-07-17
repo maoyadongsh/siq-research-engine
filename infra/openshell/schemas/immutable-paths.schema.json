@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/immutable-paths.schema.json",
+  "title": "SIQ immutable path registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "project_root",
+    "wiki_root",
+    "source_digest",
+    "entries",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "siq.immutable_paths.v1"
+    },
+    "generated_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "project_root": {
+      "const": "${SIQ_PROJECT_ROOT}"
+    },
+    "wiki_root": {
+      "$ref": "#/$defs/repositoryPath"
+    },
+    "source_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry_count", "by_kind", "skipped_by_reason"],
+      "properties": {
+        "entry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "by_kind": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "skipped_by_reason": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "market": {"type": "string", "minLength": 1},
+        "company_id": {"type": "string", "minLength": 1},
+        "report_id": {"type": "string", "minLength": 1},
+        "filing_id": {"type": "string", "minLength": 1},
+        "parse_run_id": {"type": "string", "minLength": 1},
+        "task_id": {"type": "string", "minLength": 1},
+        "deal_id": {"type": "string", "minLength": 1},
+        "snapshot_id": {"type": "string", "minLength": 1}
+      },
+      "minProperties": 2
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "kind",
+        "owner",
+        "identity",
+        "source_manifest",
+        "manifest_sha256",
+        "finalization_sha256",
+        "recursive"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/repositoryPath"},
+        "kind": {
+          "enum": ["finalized_report", "deal_evidence_snapshot"]
+        },
+        "owner": {
+          "enum": ["ingestion", "deal_evidence"]
+        },
+        "identity": {"$ref": "#/$defs/identity"},
+        "source_manifest": {"$ref": "#/$defs/repositoryPath"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "finalization_sha256": {"$ref": "#/$defs/sha256"},
+        "recursive": {"const": true}
+      }
+    }
+  }
+}

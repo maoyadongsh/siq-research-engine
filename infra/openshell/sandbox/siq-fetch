@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -eu
+exec /opt/siq/hermes/venv/bin/python \
+  /opt/siq/openshell-client/scripts/openshell/siq_fetch.py \
+  --guard-endpoint http://host.openshell.internal:18792/v1/request \
+  --bridge-alias host.openshell.internal \
+  "$@"

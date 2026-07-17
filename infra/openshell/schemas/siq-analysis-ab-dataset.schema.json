@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://siq.local/schemas/openshell/siq-analysis-ab-dataset.schema.json",
+  "title": "SIQ Analysis Host/OpenShell A/B Dataset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "model",
+    "temperature",
+    "instructions",
+    "repetitions",
+    "run_timeout_seconds",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "siq.openshell.siq-analysis-ab-dataset.v1"
+    },
+    "profile": {
+      "const": "siq_analysis"
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,159}$",
+      "not": {
+        "anyOf": [
+          {"pattern": "://"},
+          {"pattern": "^[Bb][Ee][Aa][Rr][Ee][Rr]"}
+        ]
+      }
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    },
+    "instructions": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 131072
+    },
+    "repetitions": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 10
+    },
+    "run_timeout_seconds": {
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 3600
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    }
+  },
+  "$defs": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": {
+          "enum": ["assistant", "system", "user"]
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 131072
+        }
+      }
+    },
+    "numeric_expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expectation_id", "value", "absolute_tolerance"],
+      "properties": {
+        "expectation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "value": {
+          "type": "number"
+        },
+        "absolute_tolerance": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "expectations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numeric",
+        "citations",
+        "evidence_ids",
+        "required_sections",
+        "abstention_required",
+        "abstention_markers",
+        "required_tools",
+        "fallback_expected",
+        "policy_denial_expected"
+      ],
+      "properties": {
+        "numeric": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/numeric_expectation"
+          }
+        },
+        "citations": {
+          "$ref": "#/$defs/expected_strings"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/expected_strings"
+        },
+        "required_sections": {
+          "$ref": "#/$defs/expected_strings"
+        },
+        "abstention_required": {
+          "type": "boolean"
+        },
+        "abstention_markers": {
+          "$ref": "#/$defs/expected_strings"
+        },
+        "required_tools": {
+          "$ref": "#/$defs/safe_ids"
+        },
+        "fallback_expected": {
+          "type": ["boolean", "null"]
+        },
+        "policy_denial_expected": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "abstention_required": {"const": true}
+            },
+            "required": ["abstention_required"]
+          },
+          "then": {
+            "properties": {
+              "abstention_markers": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    },
+    "expected_strings": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "safe_ids": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "input", "history", "expectations"],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 131072
+        },
+        "history": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/message"
+          }
+        },
+        "expectations": {
+          "$ref": "#/$defs/expectations"
+        }
+      }
+    }
+  }
+}

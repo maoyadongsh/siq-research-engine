@@ -1,0 +1,209 @@
+{
+  "schema_version": "siq.openshell.egress_allowlist.v1",
+  "unknown_json_post_max_bytes": 131072,
+  "rules": [
+    {
+      "rule_id": "approved_model_minimax",
+      "category": "model",
+      "host_patterns": [
+        "api.minimax.chat"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "content_types": [
+        "application/json"
+      ],
+      "max_body_bytes": 16777216
+    },
+    {
+      "rule_id": "approved_model_stepfun",
+      "category": "model",
+      "host_patterns": [
+        "api.stepfun.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "content_types": [
+        "application/json"
+      ],
+      "max_body_bytes": 16777216
+    },
+    {
+      "rule_id": "approved_model_kimi",
+      "category": "model",
+      "host_patterns": [
+        "api.kimi.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "content_types": [
+        "application/json"
+      ],
+      "max_body_bytes": 16777216
+    },
+    {
+      "rule_id": "approved_search_tavily",
+      "category": "search",
+      "host_patterns": [
+        "api.tavily.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "content_types": [
+        "application/json"
+      ],
+      "max_body_bytes": 16777216
+    },
+    {
+      "rule_id": "approved_search_exa",
+      "category": "search",
+      "host_patterns": [
+        "api.exa.ai"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "content_types": [
+        "application/json"
+      ],
+      "max_body_bytes": 16777216
+    },
+    {
+      "rule_id": "approved_github_api",
+      "category": "github",
+      "host_patterns": [
+        "api.github.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "content_types": [
+        "application/json",
+        "application/vnd.github+json"
+      ],
+      "max_body_bytes": 26214400
+    },
+    {
+      "rule_id": "approved_github_https_git",
+      "category": "github",
+      "host_patterns": [
+        "github.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "GET",
+        "HEAD",
+        "POST"
+      ],
+      "content_types": [
+        "application/x-git-receive-pack-request",
+        "application/x-git-upload-pack-request"
+      ],
+      "max_body_bytes": 268435456
+    },
+    {
+      "rule_id": "approved_github_release_upload",
+      "category": "github",
+      "host_patterns": [
+        "uploads.github.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "POST"
+      ],
+      "content_types": [
+        "application/octet-stream"
+      ],
+      "max_body_bytes": 268435456
+    },
+    {
+      "rule_id": "approved_lark_openapi",
+      "category": "lark",
+      "host_patterns": [
+        "open.feishu.cn",
+        "open.larksuite.com"
+      ],
+      "schemes": [
+        "https"
+      ],
+      "ports": [
+        443
+      ],
+      "methods": [
+        "DELETE",
+        "GET",
+        "HEAD",
+        "PATCH",
+        "POST",
+        "PUT"
+      ],
+      "content_types": [
+        "application/json",
+        "application/octet-stream",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data"
+      ],
+      "max_body_bytes": 134217728
+    }
+  ]
+}

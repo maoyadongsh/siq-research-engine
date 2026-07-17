@@ -1,0 +1,29 @@
+id: siq-kimi-coding
+display_name: SIQ Kimi Coding fallback
+description: Kimi Coding Plan fallback using the reviewed Hermes Anthropic and OpenAI-compatible paths.
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    description: Kimi Coding Plan API credential.
+    env_vars: [KIMI_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+endpoints:
+  - host: api.kimi.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    rules:
+      - allow:
+          method: GET
+          path: /coding/v1/models
+      - allow:
+          method: POST
+          path: /coding/v1/messages
+      - allow:
+          method: POST
+          path: /coding/v1/chat/completions
+binaries:
+  - /opt/siq/hermes/venv/bin/python
