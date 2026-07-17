@@ -5,11 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MAX_BYTES = 5 * 1024 * 1024
@@ -26,9 +26,18 @@ RUNTIME_PREFIXES = (
     "var/",
 )
 RUNTIME_SOURCE_ALLOWLIST_BASENAMES = {".gitkeep", "README.md"}
-LOCAL_REVIEW_PREFIXES = (
-    ".superpowers/",
-)
+OPENSHELL_PUBLIC_RUNTIME_PATHS = {
+    "artifacts/openshell/README.md",
+    "artifacts/openshell/tracked-artifacts.json",
+    "artifacts/openshell/v0.6/baseline.json",
+    "artifacts/openshell/v0.6/baseline.md",
+    "artifacts/openshell/v0.6/readiness.json",
+    "artifacts/openshell/v0.6/readiness.md",
+    "var/openshell/README.md",
+}
+OPENSHELL_RUNTIME_PREFIXES = ("artifacts/openshell/", "var/openshell/")
+OPENSHELL_SANITIZED_SUFFIX_RE = re.compile(r"\.sanitized\.(?:json|log|md)\Z")
+LOCAL_REVIEW_PREFIXES = (".superpowers/",)
 BLOCKED_SUFFIXES = {
     ".7z",
     ".avi",
@@ -77,7 +86,17 @@ def runtime_artifact_path(path: str) -> bool:
 
 def runtime_source_allowlisted(path: str) -> bool:
     normalized = normalized_repo_path(path)
-    return runtime_artifact_path(normalized) and Path(normalized).name in RUNTIME_SOURCE_ALLOWLIST_BASENAMES
+    if not runtime_artifact_path(normalized):
+        return False
+    if normalized.startswith(OPENSHELL_RUNTIME_PREFIXES):
+        if normalized in OPENSHELL_PUBLIC_RUNTIME_PATHS:
+            return True
+        if normalized.startswith("artifacts/openshell/"):
+            return bool(OPENSHELL_SANITIZED_SUFFIX_RE.search(normalized))
+        return normalized.startswith("var/openshell/manifests/") and bool(
+            OPENSHELL_SANITIZED_SUFFIX_RE.search(normalized)
+        )
+    return Path(normalized).name in RUNTIME_SOURCE_ALLOWLIST_BASENAMES
 
 
 def _git_lines(repo_root: Path, args: list[str]) -> list[str]:
@@ -122,14 +141,23 @@ def finding_for_path(
     if not full_path.is_file():
         return None
     if runtime_artifact_path(normalized):
-        if runtime_source_allowlisted(normalized):
+        if normalized.startswith(OPENSHELL_RUNTIME_PREFIXES):
+            if not runtime_source_allowlisted(normalized):
+                return LargeFileChangeFinding(
+                    code="tracked_runtime_artifact_changed",
+                    path=normalized,
+                    detail="tracked OpenShell runtime files require a public path or sanitized artifact name",
+                    size_bytes=full_path.stat().st_size,
+                )
+        elif Path(normalized).name in RUNTIME_SOURCE_ALLOWLIST_BASENAMES:
             return None
-        return LargeFileChangeFinding(
-            code="tracked_runtime_artifact_changed",
-            path=normalized,
-            detail="tracked runtime artifacts must stay out of source commits",
-            size_bytes=full_path.stat().st_size,
-        )
+        else:
+            return LargeFileChangeFinding(
+                code="tracked_runtime_artifact_changed",
+                path=normalized,
+                detail="tracked runtime artifacts must stay out of source commits",
+                size_bytes=full_path.stat().st_size,
+            )
     if any(normalized.startswith(prefix) for prefix in LOCAL_REVIEW_PREFIXES):
         return LargeFileChangeFinding(
             code="local_review_artifact_changed",
@@ -172,10 +200,14 @@ def check_large_file_changes(
     image_max_bytes: int = DEFAULT_IMAGE_MAX_BYTES,
 ) -> list[LargeFileChangeFinding]:
     repo_root = repo_root.resolve()
-    candidates = list(paths) if paths is not None else changed_paths(
-        repo_root,
-        base_ref=base_ref,
-        include_untracked=include_untracked,
+    candidates = (
+        list(paths)
+        if paths is not None
+        else changed_paths(
+            repo_root,
+            base_ref=base_ref,
+            include_untracked=include_untracked,
+        )
     )
     findings: list[LargeFileChangeFinding] = []
     for path in candidates:
@@ -214,7 +246,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     passed = not findings
     if args.json:
-        print(json.dumps({"passed": passed, "findings": [asdict(item) for item in findings]}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"passed": passed, "findings": [asdict(item) for item in findings]}, ensure_ascii=False, indent=2
+            )
+        )
     elif passed:
         print("PASS large-file changed-file gate")
     else:

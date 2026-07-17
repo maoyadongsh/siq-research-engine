@@ -39,12 +39,16 @@ artifacts/eval-runs/2026-07-06-secondary-market-mvp/
 
 - 本 README
 - 必要的 `.gitkeep`
+- `.gitignore` 放行、经过脱敏扫描并由 manifest 绑定的 OpenShell 证据和日志
 
 不可提交：
 
 - Playwright HTML 报告
-- 单次评测 JSON / HTML / Markdown 输出
-- 临时日志和批处理导出结果
+- 未经筛选和脱敏的单次评测 JSON / HTML / Markdown 输出
+- 未经脱敏的临时日志和批处理导出结果
+- OpenShell 原始审计事件、网络请求正文、用户输入输出、token、TLS 和 gateway 状态库
+
+OpenShell 参赛证据和日志在移除凭据值及私有业务正文、通过 secret scan、登记 `tracked-artifacts.json` 后可以提交。`.gitignore` 的后缀例外只提供候选路径，不能绕过 manifest 的路径、大小和摘要绑定。
 
 ## 运行或使用建议
 

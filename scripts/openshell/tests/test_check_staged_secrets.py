@@ -53,7 +53,10 @@ if sys.argv[1] != "detect":
     raise SystemExit(9)
 config = next((item.split("=", 1)[1] for item in sys.argv if item.startswith("--config=")), None)
 ignore = next((item.split("=", 1)[1] for item in sys.argv if item.startswith("--gitleaks-ignore-path=")), None)
-if config is None or pathlib.Path(config).read_bytes() != b"[extend]\\nuseDefault = true\\n":
+config_content = pathlib.Path(config).read_text() if config is not None else ""
+if "[extend]" not in config_content or "useDefault = true" not in config_content:
+    raise SystemExit(9)
+if "(?:^|/)artifacts/secondary-market-multi-market/real-smoke\\.sanitized\\.json$" not in config_content:
     raise SystemExit(9)
 if ignore is None or pathlib.Path(ignore).read_bytes() != b"":
     raise SystemExit(9)
@@ -216,3 +219,13 @@ def test_docker_command_is_pinned_read_only_and_networkless(
     assert "--config=/siq-gitleaks-config/gitleaks.toml" in captured
     assert "--gitleaks-ignore-path=/siq-gitleaks-config/gitleaksignore" in captured
     assert "--redact=100" in captured
+
+def test_trusted_config_only_allowlists_the_known_sanitized_smoke_artifact() -> None:
+    module = _module()
+    config = module.TRUSTED_CONFIG.decode("utf-8")
+
+    assert "[allowlist]" in config
+    assert "[[allowlists]]" not in config
+    assert "(?:^|/)artifacts/secondary-market-multi-market/real-smoke\\.sanitized\\.json$" in config
+    assert "artifacts/.*" not in config
+    assert "var/.*" not in config

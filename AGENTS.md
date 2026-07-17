@@ -30,4 +30,4 @@ Python 项目统一使用 `pytest`，测试文件放在各包自己的 `tests/` 
 
 ## 安全与配置提示
 
-不要提交密钥、凭据或本地运行时数据。请从 `infra/env/local.example` 复制起步，并将本地覆盖配置写入 `infra/env/local.env`。`SIQ_AUTH_SECRET_KEY` 必须设置，且长度至少为 32 个字符；`SIQ_SOURCE_TOKEN_SECRET` 强烈建议单独配置为不同的 32+ 字符密钥，未配置时 source token 逻辑会为了兼容性回退到 `SIQ_AUTH_SECRET_KEY`。`SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 仅应用于短期迁移兼容，不要作为常态配置。`data/`、`var/`、`artifacts/` 与 `test-results/` 中的本地产物不应进入版本控制。
+不要提交密钥、凭据或本地运行时数据。请从 `infra/env/local.example` 复制起步，并将本地覆盖配置写入 `infra/env/local.env`。`SIQ_AUTH_SECRET_KEY` 必须设置，且长度至少为 32 个字符；`SIQ_SOURCE_TOKEN_SECRET` 强烈建议单独配置为不同的 32+ 字符密钥，未配置时 source token 逻辑会为了兼容性回退到 `SIQ_AUTH_SECRET_KEY`。`SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=1` 仅应用于短期迁移兼容，不要作为常态配置。`data/`、`var/`、`artifacts/` 与 `test-results/` 中的本地产物不应进入版本控制。唯一例外是 `.gitignore` 按精确文件名放行、已经脱敏并通过 tracked-state 与 secret scan 的 OpenShell baseline 和 toolchain manifest；新增证据必须同步更新三道 allowlist 和测试，原始日志、trace、TLS、数据库、凭据与备份始终不得提交。

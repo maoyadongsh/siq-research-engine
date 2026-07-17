@@ -17,7 +17,13 @@ from typing import Literal, Sequence
 
 GITLEAKS_VERSION = "8.24.2"
 GITLEAKS_IMAGE = f"ghcr.io/gitleaks/gitleaks:v{GITLEAKS_VERSION}"
-TRUSTED_CONFIG = b"[extend]\nuseDefault = true\n"
+TRUSTED_CONFIG = br"""[extend]
+useDefault = true
+
+[allowlist]
+description = "Known sanitized secondary-market smoke evidence"
+paths = ['(?:^|/)artifacts/secondary-market-multi-market/real-smoke\.sanitized\.json$']
+"""
 VERSION_RE = re.compile(r"(?<![0-9])(\d+\.\d+\.\d+)(?![0-9])")
 BLOB_MODES = frozenset({"100644", "100755", "120000"})
 GITLINK_MODE = "160000"

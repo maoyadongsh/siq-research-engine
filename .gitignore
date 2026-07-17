@@ -163,3 +163,23 @@ artifacts/openshell/**
 !artifacts/openshell/**/
 !artifacts/openshell/**/*.sanitized.json
 !artifacts/openshell/**/*.sanitized.md
+
+# Version the production tracking workflow without exposing Wiki facts or runtime outputs.
+!data/wiki/
+data/wiki/*
+!data/wiki/tracking/
+data/wiki/tracking/*
+!data/wiki/tracking/scripts/
+data/wiki/tracking/scripts/*
+!data/wiki/tracking/scripts/*.py
+!data/wiki/tracking/scripts/*.sh
+!data/wiki/tracking/scripts_multi_market/
+data/wiki/tracking/scripts_multi_market/*
+!data/wiki/tracking/scripts_multi_market/*.py
+!data/wiki/tracking/scripts_multi_market/*.sh
+
+!artifacts/secondary-market-multi-market/
+artifacts/secondary-market-multi-market/**
+!artifacts/secondary-market-multi-market/README.md
+!artifacts/secondary-market-multi-market/*.sanitized.json
+!artifacts/secondary-market-multi-market/*.png

@@ -44,12 +44,16 @@ SIQ_RUNTIME_ROOT=/home/maoyd/siq-research-engine/var
 
 - 本 README
 - 必要的 `.gitkeep`
+- `.gitignore` 明确放行且通过 manifest 绑定的 OpenShell 脱敏 README/manifest
 
 不可提交：
 
 - `*.db`
-- 上传文件、下载文件、解析产物、日志、缓存、模型权重
+- 上传文件、下载文件、解析产物、未经脱敏的日志、缓存、模型权重
 - 用户会话、附件、聊天响应和任何本地敏感数据
+- OpenShell TLS 私钥、provider 凭据、gateway 数据库、未经脱敏的日志、trace、缓存和回退备份
+
+OpenShell 运行树采用“默认忽略、脱敏导出、manifest 精确绑定”，而不是提交整个 `var/openshell/`。非敏感运行证据和日志导出到 `artifacts/openshell/` 后可以提交；凭据值、绝对用户目录、请求正文和用户内容不得进入可发布副本。
 
 ## 运行或使用建议
 
