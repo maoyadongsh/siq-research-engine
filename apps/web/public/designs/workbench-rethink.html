@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIQ 工作台重构方案</title>
+  <style>
+    :root {
+      --blue: #0071e3;
+      --blue-dark: #005bb5;
+      --blue-soft: #eff6ff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #d8e1ec;
+      --page: #f5f7fb;
+      --white: #fff;
+      --green: #16a34a;
+      --green-soft: #ecfdf3;
+      --amber: #b7791f;
+      --amber-soft: #fff8e8;
+      --red: #c2413b;
+      --red-soft: #fff2f0;
+      --shadow: 0 18px 48px rgba(15, 23, 42, .08);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--page);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .gallery-bar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; align-items: center; gap: 20px;
+      min-height: 68px; padding: 10px 22px;
+      border-bottom: 1px solid var(--line); background: rgba(255,255,255,.96);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; white-space: nowrap; font-family: Georgia, serif; font-size: 18px; }
+    .brand-mark { display: grid; place-items: center; width: 39px; height: 39px; border: 1px solid #607086; border-radius: 50%; font-size: 12px; }
+    .switcher { display: flex; gap: 4px; min-width: 0; margin-left: auto; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--page); overflow-x: auto; }
+    .switcher button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); white-space: nowrap; font-weight: 650; }
+    .switcher button.active { color: var(--blue-dark); background: var(--white); box-shadow: 0 2px 8px rgba(15,23,42,.07); }
+    .intro { max-width: 1440px; margin: 0 auto; padding: 34px 24px 24px; }
+    .intro h1 { margin: 0; font-family: Georgia, "Noto Serif SC", serif; font-size: clamp(30px, 4vw, 52px); font-weight: 500; }
+    .intro p { max-width: 860px; margin: 12px 0 20px; color: var(--muted); font-size: 15px; line-height: 1.8; }
+    .principles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 14px; background: var(--white); overflow: hidden; }
+    .principle { min-height: 76px; padding: 15px 18px; border-right: 1px solid var(--line); }
+    .principle:last-child { border-right: 0; }
+    .principle b { display: block; margin-bottom: 5px; font-size: 14px; }
+    .principle span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .concept { display: none; max-width: 1440px; margin: 0 auto; padding: 0 24px 48px; }
+    .concept.active { display: block; }
+    .concept-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: 6px 0 14px; }
+    .concept-head h2 { margin: 0 0 4px; font-family: Georgia, "Noto Serif SC", serif; font-size: 28px; font-weight: 500; }
+    .concept-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .concept-tag { padding: 7px 11px; border: 1px solid #b9d7f5; border-radius: 999px; color: var(--blue-dark); background: var(--blue-soft); font-size: 12px; font-weight: 700; }
+    .stage { min-height: 760px; border: 1px solid var(--line); border-radius: 18px; background: var(--white); box-shadow: var(--shadow); overflow: hidden; }
+    .app-shell { display: grid; grid-template-columns: 66px 1fr; min-height: 760px; }
+    .rail { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 10px; border-right: 1px solid var(--line); background: #fbfdff; }
+    .rail .brand-mark { margin-bottom: 8px; }
+    .rail-dot { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: #52637a; font-size: 12px; font-weight: 800; }
+    .rail-dot.active { color: var(--blue); background: var(--blue-soft); box-shadow: inset 3px 0 var(--blue); }
+    .rail-spacer { flex: 1; }
+    .app { min-width: 0; background: var(--page); }
+    .app-top { display: flex; align-items: center; gap: 12px; height: 62px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--white); }
+    .search { display: flex; align-items: center; width: min(520px, 54vw); height: 38px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; color: #94a3b8; font-size: 13px; }
+    .top-spacer { flex: 1; }
+    .icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: #52637a; }
+    .app-main { padding: 22px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: var(--white); }
+    .panel-pad { padding: 18px; }
+    .page-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .page-row h3 { margin: 0; font-family: Georgia, "Noto Serif SC", serif; font-size: 28px; font-weight: 500; }
+    .eyebrow { color: var(--blue-dark); font-size: 12px; font-weight: 800; }
+    .company { display: flex; align-items: center; gap: 12px; }
+    .company-mark { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #b9d7f5; border-radius: 13px; color: var(--blue); background: var(--blue-soft); font-weight: 800; }
+    .company b { display: block; font-family: Georgia, "Noto Serif SC", serif; font-size: 22px; }
+    .company small { color: var(--muted); font-family: ui-monospace, monospace; }
+    .primary { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 15px; border: 1px solid var(--blue); border-radius: 10px; color: var(--white); background: var(--blue); font-weight: 700; }
+    .secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--white); font-weight: 650; }
+    .workflow { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--white); overflow: hidden; }
+    .step { position: relative; min-width: 0; padding: 14px 15px; border-right: 1px solid var(--line); }
+    .step:last-child { border-right: 0; }
+    .step-num { display: block; margin-bottom: 5px; color: #94a3b8; font: 700 11px ui-monospace, monospace; }
+    .step b { display: block; font-size: 13px; }
+    .step small { color: var(--muted); font-size: 11px; }
+    .step.done::after, .step.current::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--green); }
+    .step.current::after { background: var(--blue); }
+    .metric-strip { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--white); overflow: hidden; }
+    .metric { padding: 15px 16px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric span { display: block; color: var(--muted); font-size: 12px; }
+    .metric b { display: block; margin-top: 6px; font: 500 26px Georgia, serif; }
+    .grid-2 { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(290px, .75fr); gap: 16px; margin-top: 16px; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .section-title h4 { margin: 0; font-size: 16px; }
+    .section-title a { color: var(--blue-dark); font-size: 12px; font-weight: 700; }
+    .task-list, .activity-list { display: grid; gap: 8px; }
+    .task { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 12px 0; border-bottom: 1px solid #e8edf4; }
+    .task:last-child { border-bottom: 0; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+    .status-dot.green { background: var(--green); }
+    .status-dot.amber { background: var(--amber); }
+    .task b { display: block; font-size: 13px; }
+    .task small { color: var(--muted); font-size: 11px; }
+    .pill { padding: 5px 8px; border-radius: 999px; color: var(--blue-dark); background: var(--blue-soft); font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .pill.green { color: #13743a; background: var(--green-soft); }
+    .pill.amber { color: #8a5b16; background: var(--amber-soft); }
+    .next-action { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; padding: 16px; border: 1px solid #b9d7f5; border-radius: 13px; background: var(--blue-soft); }
+    .next-action b { display: block; margin-bottom: 4px; }
+    .next-action span { color: var(--muted); font-size: 12px; }
+    .matrix { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--white); overflow: hidden; }
+    .matrix th, .matrix td { padding: 14px 12px; border-bottom: 1px solid var(--line); text-align: center; font-size: 12px; }
+    .matrix th { color: var(--muted); background: #f8fafc; font-weight: 700; }
+    .matrix th:first-child, .matrix td:first-child { text-align: left; }
+    .matrix tr:last-child td { border-bottom: 0; }
+    .matrix-company b { display: block; font-size: 14px; }
+    .matrix-company small { color: var(--muted); font-family: ui-monospace, monospace; }
+    .state { display: inline-grid; place-items: center; min-width: 28px; height: 28px; border-radius: 8px; font-weight: 800; }
+    .state.done { color: var(--green); background: var(--green-soft); }
+    .state.current { color: var(--blue-dark); background: var(--blue-soft); }
+    .state.wait { color: #94a3b8; background: #f1f5f9; }
+    .timeline { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; margin: 24px 0 8px; }
+    .timeline::before { content: ""; position: absolute; top: 18px; left: 7%; right: 7%; height: 1px; background: #bfd3e8; }
+    .milestone { position: relative; z-index: 1; text-align: center; }
+    .milestone i { display: grid; place-items: center; width: 36px; height: 36px; margin: 0 auto 9px; border: 1px solid var(--line); border-radius: 50%; background: var(--white); color: var(--muted); font-style: normal; font-size: 11px; font-weight: 800; }
+    .milestone.done i { color: var(--white); border-color: var(--green); background: var(--green); }
+    .milestone.current i { color: var(--white); border-color: var(--blue); background: var(--blue); box-shadow: 0 0 0 5px #dbeafe; }
+    .milestone b { display: block; font-size: 12px; }
+    .milestone small { color: var(--muted); font-size: 10px; }
+    .evidence-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .evidence { min-height: 96px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; }
+    .evidence b { display: block; margin-bottom: 10px; font-size: 12px; }
+    .bar { height: 5px; border-radius: 999px; background: #e7edf5; overflow: hidden; }
+    .bar span { display: block; height: 100%; border-radius: inherit; background: var(--blue); }
+    .evidence small { display: block; margin-top: 9px; color: var(--muted); }
+    .minimal-list { border-top: 1px solid var(--line); }
+    .minimal-row { display: grid; grid-template-columns: 110px minmax(0,1fr) 110px 28px; align-items: center; gap: 12px; min-height: 64px; border-bottom: 1px solid var(--line); }
+    .minimal-row time, .minimal-row small { color: var(--muted); font-size: 12px; }
+    .minimal-row b { font-size: 13px; }
+    .flow-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .flow-inline span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--white); font-size: 11px; font-weight: 700; }
+    .flow-inline span.done { color: var(--green); border-color: #b8e1c5; }
+    .flow-inline span.current { color: var(--blue-dark); border-color: #9bcaf7; background: var(--blue-soft); }
+    @media (max-width: 900px) {
+      .principles { grid-template-columns: 1fr 1fr; }
+      .principle:nth-child(2) { border-right: 0; }
+      .principle:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .workflow, .metric-strip { overflow-x: auto; grid-template-columns: repeat(6, minmax(132px, 1fr)); }
+      .grid-2 { grid-template-columns: 1fr; }
+      .matrix-wrap { overflow-x: auto; }
+      .matrix { min-width: 760px; }
+      .evidence-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 620px) {
+      .gallery-bar { align-items: flex-start; flex-direction: column; gap: 8px; padding: 10px 12px; }
+      .switcher { width: 100%; margin: 0; }
+      .intro, .concept { padding-left: 12px; padding-right: 12px; }
+      .intro { padding-top: 24px; }
+      .principles { grid-template-columns: 1fr; }
+      .principle { border-right: 0; border-bottom: 1px solid var(--line); }
+      .principle:last-child { border-bottom: 0; }
+      .concept-head { align-items: flex-start; flex-direction: column; }
+      .stage, .app-shell { min-height: 720px; }
+      .app-shell { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      .app-top { height: 56px; padding: 0 12px; }
+      .search { width: 46px; color: transparent; padding: 0; justify-content: center; }
+      .search::before { content: "⌕"; color: var(--blue); font-size: 22px; }
+      .app-main { padding: 12px; }
+      .page-row { align-items: flex-start; flex-direction: column; }
+      .page-row h3 { font-size: 25px; }
+      .company { width: 100%; }
+      .metric-strip { grid-template-columns: repeat(6, 112px); }
+      .workflow { grid-template-columns: repeat(6, 122px); }
+      .evidence-grid { grid-template-columns: 1fr; }
+      .timeline { min-width: 650px; }
+      .timeline-wrap { overflow-x: auto; padding: 0 8px; }
+      .minimal-row { grid-template-columns: 76px minmax(0,1fr) 24px; }
+      .minimal-row small { display: none; }
+      .next-action { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="gallery-bar">
+    <div class="brand"><span class="brand-mark">SIQ</span><span>Research Engine</span></div>
+    <div class="switcher" role="tablist" aria-label="工作台方案">
+      <button class="active" data-target="a" role="tab">01 行动中枢</button>
+      <button data-target="b" role="tab">02 研究矩阵</button>
+      <button data-target="c" role="tab">03 项目脉络</button>
+      <button data-target="d" role="tab">04 证据工作台</button>
+      <button data-target="e" role="tab">05 极简桌面</button>
+    </div>
+  </header>
+
+  <div class="intro">
+    <h1>工作台应该回答四个问题</h1>
+    <p>用户进入首页后，首先需要知道当前研究对象、下一步行动、哪些环节存在阻塞，以及最近新增了什么产物。数量统计只作为辅助信息，不再占据页面的视觉中心。</p>
+    <div class="principles">
+      <div class="principle"><b>研究对象优先</b><span>围绕公司项目组织内容，而不是围绕功能菜单。</span></div>
+      <div class="principle"><b>下一步优先</b><span>将系统判断的后续动作放在第一视线区域。</span></div>
+      <div class="principle"><b>流程可见</b><span>六个研究阶段采用横向关系，直接展示进度与阻塞。</span></div>
+      <div class="principle"><b>产物可追溯</b><span>下载、解析、报告和核查结果均可回到公司与任务。</span></div>
+    </div>
+  </div>
+
+  <main>
+    <section class="concept active" data-concept="a">
+      <div class="concept-head"><div><h2>方案一：行动中枢</h2><p>适合日常高频使用，打开页面即可继续未完成任务。</p></div><span class="concept-tag">推荐</span></div>
+      <div class="stage app-shell">
+        <aside class="rail"><span class="brand-mark">SIQ</span><span class="rail-dot active">台</span><span class="rail-dot">搜</span><span class="rail-dot">析</span><span class="rail-dot">核</span><span class="rail-spacer"></span><span class="rail-dot">问</span></aside>
+        <div class="app"><div class="app-top"><div class="search">搜索公司、代码、报告或文档</div><span class="top-spacer"></span><button class="icon-button">○</button><button class="icon-button">系</button></div>
+          <div class="app-main">
+            <div class="panel panel-pad">
+              <div class="page-row"><div><span class="eyebrow">今日研究</span><h3>继续美的集团的事实核查</h3></div><div class="company"><span class="company-mark">MD</span><div><b>美的集团</b><small>000333 · 更新于 23:13</small></div></div></div>
+              <div class="workflow"><div class="step done"><span class="step-num">01</span><b>搜索下载</b><small>10 份</small></div><div class="step done"><span class="step-num">02</span><b>财报解析</b><small>7 份</small></div><div class="step done"><span class="step-num">03</span><b>智能分析</b><small>2 份</small></div><div class="step current"><span class="step-num">04</span><b>事实核查</b><small>2 项待复核</small></div><div class="step"><span class="step-num">05</span><b>持续跟踪</b><small>待更新</small></div><div class="step"><span class="step-num">06</span><b>法务合规</b><small>8 份</small></div></div>
+            </div>
+            <div class="grid-2"><div class="panel panel-pad"><div class="section-title"><h4>优先任务</h4><a>查看全部</a></div><div class="next-action"><div><b>核对经营现金流同比下降 11.84%</b><span>分析报告已生成，证据链中有 2 项需要人工确认。</span></div><button class="primary">开始复核 →</button></div><div class="task-list"><div class="task"><i class="status-dot amber"></i><div><b>美的集团 · 事实核查</b><small>2 条证据来源待确认</small></div><span class="pill amber">待处理</span></div><div class="task"><i class="status-dot"></i><div><b>网宿科技 · 更新跟踪结论</b><small>新增 1 份公告</small></div><span class="pill">新材料</span></div><div class="task"><i class="status-dot green"></i><div><b>光环新网 · 财报解析完成</b><small>结构化数据已入库</small></div><span class="pill green">已完成</span></div></div></div>
+              <aside class="panel panel-pad"><div class="section-title"><h4>资产概览</h4><a>个人空间</a></div><div class="metric-strip" style="grid-template-columns:1fr 1fr; margin-top:0"><div class="metric"><span>项目</span><b>3</b></div><div class="metric"><span>产物</span><b>39</b></div><div class="metric"><span>报告</span><b>19</b></div><div class="metric"><span>下载</span><b>10</b></div></div></aside></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="concept" data-concept="b">
+      <div class="concept-head"><div><h2>方案二：研究矩阵</h2><p>适合同时管理多家公司，强调项目横向比较和流程缺口。</p></div><span class="concept-tag">多项目</span></div>
+      <div class="stage app-shell"><aside class="rail"><span class="brand-mark">SIQ</span><span class="rail-dot active">台</span><span class="rail-dot">搜</span><span class="rail-dot">析</span><span class="rail-spacer"></span><span class="rail-dot">问</span></aside><div class="app"><div class="app-top"><div class="search">搜索研究对象</div><span class="top-spacer"></span><button class="secondary">新增公司</button></div><div class="app-main">
+        <div class="page-row"><div><span class="eyebrow">PORTFOLIO</span><h3>研究对象矩阵</h3></div><div class="flow-inline"><span class="current">3 个项目</span><span>39 份产物</span><span class="done">19 份报告</span></div></div>
+        <div class="metric-strip"><div class="metric"><span>待处理任务</span><b>4</b></div><div class="metric"><span>新下载</span><b>10</b></div><div class="metric"><span>已解析</span><b>7</b></div><div class="metric"><span>待核查</span><b>3</b></div><div class="metric"><span>活跃预警</span><b>6</b></div><div class="metric"><span>法务意见</span><b>8</b></div></div>
+        <div class="panel panel-pad" style="margin-top:16px"><div class="section-title"><h4>公司 × 研究阶段</h4><a>按最近更新排序</a></div><div class="matrix-wrap"><table class="matrix"><thead><tr><th>研究对象</th><th>下载</th><th>解析</th><th>分析</th><th>核查</th><th>跟踪</th><th>法务</th><th>下一步</th></tr></thead><tbody><tr><td class="matrix-company"><b>美的集团</b><small>000333</small></td><td><span class="state done">10</span></td><td><span class="state done">7</span></td><td><span class="state done">2</span></td><td><span class="state current">2</span></td><td><span class="state done">2</span></td><td><span class="state done">8</span></td><td><button class="secondary">复核证据</button></td></tr><tr><td class="matrix-company"><b>网宿科技</b><small>300017</small></td><td><span class="state done">4</span></td><td><span class="state done">3</span></td><td><span class="state current">1</span></td><td><span class="state wait">0</span></td><td><span class="state done">2</span></td><td><span class="state wait">0</span></td><td><button class="secondary">生成核查</button></td></tr><tr><td class="matrix-company"><b>光环新网</b><small>300383</small></td><td><span class="state done">3</span></td><td><span class="state current">2</span></td><td><span class="state wait">0</span></td><td><span class="state wait">0</span></td><td><span class="state wait">0</span></td><td><span class="state wait">0</span></td><td><button class="secondary">继续解析</button></td></tr></tbody></table></div></div>
+      </div></div></div>
+    </section>
+
+    <section class="concept" data-concept="c">
+      <div class="concept-head"><div><h2>方案三：项目脉络</h2><p>适合深度研究单一公司，突出阶段演进和最近产物。</p></div><span class="concept-tag">单项目</span></div>
+      <div class="stage app-shell"><aside class="rail"><span class="brand-mark">SIQ</span><span class="rail-dot active">台</span><span class="rail-dot">搜</span><span class="rail-dot">析</span><span class="rail-spacer"></span><span class="rail-dot">问</span></aside><div class="app"><div class="app-top"><div class="search">切换研究对象：美的集团</div><span class="top-spacer"></span><button class="primary">新增材料</button></div><div class="app-main">
+        <div class="panel panel-pad"><div class="page-row"><div class="company"><span class="company-mark">MD</span><div><b>美的集团</b><small>000333 · 家用电器</small></div></div><div class="flow-inline"><span class="done">证据完整</span><span class="current">2 项待复核</span></div></div><div class="timeline-wrap"><div class="timeline"><div class="milestone done"><i>01</i><b>搜索下载</b><small>06/27</small></div><div class="milestone done"><i>02</i><b>财报解析</b><small>06/28</small></div><div class="milestone done"><i>03</i><b>智能分析</b><small>07/03</small></div><div class="milestone current"><i>04</i><b>事实核查</b><small>进行中</small></div><div class="milestone"><i>05</i><b>持续跟踪</b><small>待更新</small></div><div class="milestone"><i>06</i><b>法务合规</b><small>已有 8 份</small></div></div></div></div>
+        <div class="grid-2"><div class="panel panel-pad"><div class="section-title"><h4>研究时间线</h4><a>全部产物</a></div><div class="activity-list"><div class="task"><i class="status-dot amber"></i><div><b>事实核查报告生成</b><small>发现 1 条 warning、2 条 suggestion</small></div><span class="pill">今天 10:02</span></div><div class="task"><i class="status-dot green"></i><div><b>智能分析报告更新</b><small>经营质量与现金流章节已重算</small></div><span class="pill green">07/03</span></div><div class="task"><i class="status-dot green"></i><div><b>2025 年报解析完成</b><small>三大表、关键指标与页码溯源已入库</small></div><span class="pill green">06/28</span></div></div></div><aside class="panel panel-pad"><div class="section-title"><h4>下一步</h4></div><div class="next-action"><div><b>复核扣非利润差异</b><span>报告值与重算值存在 1.3% 差异。</span></div><button class="primary">进入核查</button></div></aside></div>
+      </div></div></div>
+    </section>
+
+    <section class="concept" data-concept="d">
+      <div class="concept-head"><div><h2>方案四：证据工作台</h2><p>适合审计、核查和合规场景，先看证据完整度与风险。</p></div><span class="concept-tag">风控导向</span></div>
+      <div class="stage app-shell"><aside class="rail"><span class="brand-mark">SIQ</span><span class="rail-dot active">台</span><span class="rail-dot">核</span><span class="rail-dot">法</span><span class="rail-spacer"></span><span class="rail-dot">问</span></aside><div class="app"><div class="app-top"><div class="search">搜索证据、指标或报告</div><span class="top-spacer"></span><button class="secondary">导出证据包</button></div><div class="app-main">
+        <div class="page-row"><div><span class="eyebrow">EVIDENCE DESK</span><h3>美的集团 · 证据完整度</h3></div><button class="primary">处理 2 项待复核</button></div>
+        <div class="evidence-grid" style="margin-top:16px"><div class="evidence"><b>核心财务数据</b><div class="bar"><span style="width:96%"></span></div><small>15 / 15 指标已溯源</small></div><div class="evidence"><b>计算公式</b><div class="bar"><span style="width:88%"></span></div><small>2 项差异待确认</small></div><div class="evidence"><b>原文引用</b><div class="bar"><span style="width:82%"></span></div><small>11 / 13 引用已定位</small></div><div class="evidence"><b>风险覆盖</b><div class="bar"><span style="width:72%"></span></div><small>6 条活跃预警</small></div><div class="evidence"><b>持续跟踪</b><div class="bar"><span style="width:64%"></span></div><small>3 条舆情日报</small></div><div class="evidence"><b>法务意见</b><div class="bar"><span style="width:90%"></span></div><small>8 份意见已入库</small></div></div>
+        <div class="grid-2"><div class="panel panel-pad"><div class="section-title"><h4>待复核证据</h4><a>按风险排序</a></div><div class="task-list"><div class="task"><i class="status-dot amber"></i><div><b>OCF / 净利润口径差异 1.3%</b><small>报告值 1.214 vs 重算值 1.198</small></div><span class="pill amber">公式</span></div><div class="task"><i class="status-dot amber"></i><div><b>治理风险引用页码缺失</b><small>PDF 原页尚未回填</small></div><span class="pill amber">证据</span></div><div class="task"><i class="status-dot green"></i><div><b>资产负债率复算一致</b><small>61.17%，证据链完整</small></div><span class="pill green">通过</span></div></div></div><aside class="panel panel-pad"><div class="section-title"><h4>风险分布</h4></div><div class="metric-strip" style="grid-template-columns:1fr 1fr;margin:0"><div class="metric"><span>Critical</span><b style="color:var(--red)">0</b></div><div class="metric"><span>Warning</span><b style="color:var(--amber)">1</b></div><div class="metric"><span>Suggestion</span><b style="color:var(--blue)">2</b></div><div class="metric"><span>Verified</span><b style="color:var(--green)">15</b></div></div></aside></div>
+      </div></div></div>
+    </section>
+
+    <section class="concept" data-concept="e">
+      <div class="concept-head"><div><h2>方案五：极简桌面</h2><p>减少卡片和装饰，只保留当前对象、流程、任务和最近产物。</p></div><span class="concept-tag">最简洁</span></div>
+      <div class="stage app-shell"><aside class="rail"><span class="brand-mark">SIQ</span><span class="rail-dot active">台</span><span class="rail-dot">搜</span><span class="rail-dot">析</span><span class="rail-spacer"></span><span class="rail-dot">问</span></aside><div class="app"><div class="app-top"><div class="search">搜索公司、代码、报告或文档</div><span class="top-spacer"></span><button class="icon-button">○</button><button class="icon-button">系</button></div><div class="app-main">
+        <div class="page-row"><div><span class="eyebrow">WORKBENCH</span><h3>工作平台</h3></div><div class="company"><span class="company-mark">MD</span><div><b>美的集团</b><small>000333</small></div></div></div>
+        <div class="panel panel-pad" style="margin-top:16px"><div class="section-title"><h4>研究进度</h4><button class="primary">继续事实核查 →</button></div><div class="flow-inline"><span class="done">搜索下载 10</span><span class="done">财报解析 7</span><span class="done">智能分析 2</span><span class="current">事实核查 2</span><span>持续跟踪 2</span><span>法务合规 8</span></div></div>
+        <div class="panel panel-pad" style="margin-top:16px"><div class="section-title"><h4>最近工作</h4><a>39 份个人产物</a></div><div class="minimal-list"><div class="minimal-row"><time>今天 10:02</time><div><b>美的集团 2025 年事实核查报告</b><small>事实核查 · 已生成</small></div><span class="pill amber">待复核</span><b>→</b></div><div class="minimal-row"><time>07/03 21:01</time><div><b>美的集团 · 智能体简介</b><small>智能分析 · analysis</small></div><span class="pill green">已完成</span><b>→</b></div><div class="minimal-row"><time>06/29 00:52</time><div><b>_ST阳光_2025年年度报告.pdf</b><small>文档解析 · document_upload</small></div><span class="pill">已解析</span><b>→</b></div><div class="minimal-row"><time>06/28 23:06</time><div><b>_ST凯鑫_2025年年度报告摘要.pdf</b><small>财报解析 · parsed</small></div><span class="pill">已入库</span><b>→</b></div></div></div>
+      </div></div></div>
+    </section>
+  </main>
+
+  <script>
+    const buttons = [...document.querySelectorAll('.switcher button')];
+    const concepts = [...document.querySelectorAll('.concept')];
+    buttons.forEach((button) => button.addEventListener('click', () => {
+      buttons.forEach((item) => item.classList.toggle('active', item === button));
+      concepts.forEach((section) => section.classList.toggle('active', section.dataset.concept === button.dataset.target));
+      window.scrollTo({ top: document.querySelector('.intro').offsetHeight, behavior: 'smooth' });
+    }));
+  </script>
+</body>
+</html>

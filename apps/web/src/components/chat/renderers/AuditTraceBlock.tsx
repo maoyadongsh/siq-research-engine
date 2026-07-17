@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileJson, Loader2 } from 'lucide-react'
+import { CheckCircle2, FileJson, Loader2, TriangleAlert } from 'lucide-react'
 import { apiFetch } from '../../../lib/apiClient'
 import { renderInline } from './InlineRenderer'
 import { extractAnswerAuditTraceId } from './rendererUtils'
@@ -10,14 +10,19 @@ export function AuditTraceBlock({
   lines,
   blockKey,
   apiPrefix = '/api',
+  title = '证据链审计详情',
 }: {
   lines: string[]
   blockKey: string
   apiPrefix?: string
+  title?: string
 }) {
   const items = lines.map((line) => line.trim()).filter(Boolean)
   const traceId = extractAnswerAuditTraceId(lines)
   const traceApiPrefix = apiPrefix.replace(/\/$/, '')
+  const validationPassed = /全部通过/.test(title)
+  const validationWarning = /待核对|失败|未通过/.test(title)
+  const toneClass = validationPassed ? ' chat-audit-block-success' : validationWarning ? ' chat-audit-block-warning' : ''
   const [status, setStatus] = useState<AuditTraceStatus>('idle')
   const [trace, setTrace] = useState<unknown>(null)
   const [error, setError] = useState('')
@@ -41,8 +46,12 @@ export function AuditTraceBlock({
   }
 
   return (
-    <details key={blockKey} className="chat-audit-block">
-      <summary className="chat-audit-summary">审计详情</summary>
+    <details key={blockKey} className={`chat-audit-block${toneClass}`}>
+      <summary className="chat-audit-summary">
+        {validationPassed ? <CheckCircle2 className="chat-audit-status-icon" /> : null}
+        {validationWarning ? <TriangleAlert className="chat-audit-status-icon" /> : null}
+        <span>{title}</span>
+      </summary>
       <div className="chat-audit-list">
         {items.length ? items.map((item, index) => (
           <div key={`${blockKey}-${index}`} className="chat-audit-item">

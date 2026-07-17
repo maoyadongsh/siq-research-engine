@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { LogOut, Menu, Settings, UserRound } from 'lucide-react'
+import { LogOut, Menu, UserRound } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import GlobalSearch from './GlobalSearch'
 import NotificationMenu from './NotificationMenu'
@@ -67,11 +67,11 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
   const accountLabel = user
     ? `${user.full_name || user.username || '我的账户'}（${roleLabel(user.role)}）`
     : '我的账户'
+  const accountName = user?.full_name || user?.username || '我的账户'
   const navigationExpanded = desktopNav ? !sidebarCollapsed : mobileSidebarOpen
   const navigationLabel = desktopNav
     ? sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'
-    : mobileSidebarOpen ? '关闭导航' : '打开导航'
-  const accountName = user?.full_name || user?.username || '我的账户'
+    : mobileSidebarOpen ? '关闭导航菜单' : '打开导航菜单'
   const handleToggleNavigation = () => {
     if (desktopNav) {
       onToggleSidebar()
@@ -92,7 +92,7 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
   return (
       <header
       className={`fixed left-0 right-0 top-0 z-30 flex items-center gap-3 border-b border-border bg-white/88 px-3 shadow-[0_1px_0_rgba(255,255,255,0.78)_inset] backdrop-blur-xl transition-[left] duration-300 sm:px-6 lg:gap-4 xl:pr-14 2xl:pr-16 ${
-        sidebarCollapsed ? 'lg:left-20' : 'lg:left-64 xl:left-72'
+        sidebarCollapsed ? 'lg:left-16' : 'lg:left-64'
       }`}
       style={{
         height: 'var(--app-topbar-height)',
@@ -103,29 +103,19 @@ export default function Topbar({ sidebarCollapsed, mobileSidebarOpen, onToggleSi
       <button
         type="button"
         onClick={handleToggleNavigation}
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent text-slate-500 transition hover:border-border hover:bg-white hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="mobile-nav-trigger inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-transparent bg-transparent text-slate-600 transition-colors duration-200 hover:border-border hover:bg-slate-100/80 hover:text-[#005bb5] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/25"
         aria-label={navigationLabel}
         aria-controls="app-sidebar"
         aria-expanded={navigationExpanded}
         title={navigationLabel}
       >
-        <Menu className="h-5 w-5" />
+        <Menu className="h-[21px] w-[21px]" />
       </button>
-      <div className="min-w-0 flex-1 px-1 md:px-3 lg:max-w-[min(48vw,720px)]">
+      <div className="topbar-search-slot min-w-0 flex-1 px-1 md:px-3 lg:max-w-[min(48vw,720px)]">
         <GlobalSearch />
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+      <div className="topbar-actions ml-auto flex shrink-0 items-center gap-0 pl-2 sm:gap-0.5 sm:pl-3">
         <NotificationMenu />
-        {user && (
-          <button
-            onClick={() => navigate('/settings')}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent text-sm font-semibold text-text-muted transition hover:border-border hover:bg-white hover:text-text focus:outline-none focus:ring-4 focus:ring-primary/10"
-            title="设置"
-            aria-label="设置"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
-        )}
         {user && (
           <div ref={accountMenuRef} className="relative">
             <button

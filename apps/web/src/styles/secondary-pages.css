@@ -67,6 +67,9 @@
   padding: .5rem;
   box-shadow: 0 8px 22px rgba(15,23,42,.04), 0 1px 0 rgba(255,255,255,.92) inset;
 }
+.secondary-step-row.dashboard-workflow-nav {
+  justify-content: safe center;
+}
 .secondary-step-chip {
   display: inline-flex;
   min-height: 2.25rem;
@@ -301,4 +304,197 @@ html.dark .secondary-status-error {
   border-color: rgba(248,113,113,.24);
   background: rgba(248,113,113,.12);
   color: #fca5a5;
+}
+
+/* Workspace-only refinement: keep the workflow shortcuts light and borderless. */
+.workspace-step-row {
+  gap: .45rem;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.workspace-step-chip {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.workspace-step-chip:hover {
+  background: rgba(0, 113, 227, .08) !important;
+  color: var(--color-primary);
+}
+
+
+/* Workspace workflow rail: compact, connected, and lighter than the old card grid. */
+.workspace-flow-section {
+  width: 100%;
+}
+.workspace-flow-track {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: .5rem;
+  position: relative;
+  padding: .4rem 0;
+}
+.workspace-flow-track::before {
+  content: "";
+  position: absolute;
+  left: 4.2%;
+  right: 4.2%;
+  top: 2.34rem;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0,113,227,.16), rgba(0,113,227,.34), rgba(15,23,42,.08));
+  pointer-events: none;
+}
+.workspace-flow-item {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon copy arrow"
+    "index copy arrow";
+  align-items: center;
+  gap: .42rem .72rem;
+  min-height: 7.25rem;
+  padding: 1rem .85rem .95rem;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 1.05rem;
+  background: linear-gradient(180deg, rgba(255,255,255,.86), rgba(248,251,255,.58));
+  color: var(--color-text);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, .045);
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, background .2s ease;
+}
+.workspace-flow-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 113, 227, .28);
+  background: #fff;
+  box-shadow: 0 18px 34px rgba(15, 23, 42, .07);
+}
+.workspace-flow-icon {
+  grid-area: icon;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  width: 2.65rem;
+  height: 2.65rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 113, 227, .16);
+  border-radius: .95rem;
+  background: #fff;
+  color: var(--color-primary);
+  box-shadow: 0 8px 18px rgba(0, 113, 227, .08);
+}
+.workspace-flow-index {
+  grid-area: index;
+  justify-self: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: .7rem;
+  font-weight: 760;
+  color: rgba(100, 116, 139, .78);
+}
+.workspace-flow-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+.workspace-flow-label {
+  display: block;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: .98rem;
+  font-weight: 780;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-flow-desc {
+  display: block;
+  display: -webkit-box;
+  margin-top: .38rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--color-text-muted);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+.workspace-flow-arrow {
+  grid-area: arrow;
+  color: rgba(100, 116, 139, .58);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity .2s ease, transform .2s ease, color .2s ease;
+}
+.workspace-flow-item:hover .workspace-flow-arrow {
+  color: var(--color-primary);
+  opacity: 1;
+  transform: translateX(0);
+}
+@media (max-width: 1279px) {
+  .workspace-flow-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .workspace-flow-track::before { display: none; }
+}
+@media (max-width: 767px) {
+  .workspace-flow-track { grid-template-columns: 1fr; gap: .55rem; }
+  .workspace-flow-item { min-height: 4.9rem; padding: .82rem .9rem; }
+  .workspace-flow-desc { -webkit-line-clamp: 1; }
+}
+
+/* Workspace option 17: centered close label/value metric tiles. */
+.workspace-close-metric-grid {
+  align-items: stretch;
+}
+.workspace-close-metric {
+  min-height: 6.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .58rem;
+  padding: 1.1rem .85rem;
+  border: 1px solid rgba(0, 113, 227, .42);
+  border-radius: var(--radius-card);
+  background: rgba(255, 255, 255, .72);
+  box-shadow: none;
+  text-align: center;
+}
+.workspace-close-metric-label {
+  color: #334155;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.18;
+  white-space: nowrap;
+}
+.workspace-close-metric-value {
+  color: #0f172a;
+  font-family: 'Prata', 'Times New Roman', serif;
+  font-size: 1.75rem;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 640px) {
+  .workspace-close-metric {
+    min-height: 7.15rem;
+    gap: .64rem;
+  }
+  .workspace-close-metric-label {
+    font-size: 1.08rem;
+  }
+  .workspace-close-metric-value {
+    font-size: 2rem;
+  }
+}
+@media (min-width: 1536px) {
+  .workspace-close-metric {
+    min-height: 6.8rem;
+  }
+  .workspace-close-metric-label {
+    font-size: .98rem;
+  }
+  .workspace-close-metric-value {
+    font-size: 1.85rem;
+  }
 }

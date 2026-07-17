@@ -16,8 +16,10 @@ test('AuditTraceBlock keeps answer audit details compact and collapsible', () =>
   const block = source('AuditTraceBlock.tsx')
 
   assert.match(block, /<details\b/)
-  assert.match(block, /className="chat-audit-block"/)
-  assert.match(block, /<summary className="chat-audit-summary">审计详情<\/summary>/)
+  assert.match(block, /className=\{`chat-audit-block\$\{toneClass\}`\}/)
+  assert.match(block, /title = '证据链审计详情'/)
+  assert.match(block, /<summary className="chat-audit-summary">/)
+  assert.match(block, /<span>\{title\}<\/span>/)
   assert.match(block, /className="chat-audit-list"/)
   assert.match(block, /className="chat-audit-item"/)
   assert.match(block, /extractAnswerAuditTraceId\(lines\)/)
@@ -32,6 +34,15 @@ test('AuditTraceBlock keeps answer audit details compact and collapsible', () =>
   assert.match(block, /暂无可展示的审计详情。/)
 })
 
+test('AuditTraceBlock exposes validation status tones', () => {
+  const block = source('AuditTraceBlock.tsx')
+  assert.match(block, /全部通过/)
+  assert.match(block, /chat-audit-block-success/)
+  assert.match(block, /chat-audit-block-warning/)
+  assert.match(block, /CheckCircle2/)
+  assert.match(block, /TriangleAlert/)
+})
+
 test('MarkdownBlocks routes audit detail sections before normal headings', () => {
   const markdownBlocks = source('MarkdownBlocks.tsx')
   const citationBranch = markdownBlocks.indexOf('if (isCitationHeading(trimmed))')
@@ -41,6 +52,7 @@ test('MarkdownBlocks routes audit detail sections before normal headings', () =>
   assert.match(markdownBlocks, /import \{ AuditTraceBlock \} from '\.\/AuditTraceBlock'/)
   assert.match(markdownBlocks, /\bisAuditHeading\b/)
   assert.match(markdownBlocks, /collectHeadingSectionLines\(lines, i, isAuditHeading\)/)
+  assert.match(markdownBlocks, /title=\{auditHeadingTitle\(trimmed\)\}/)
   assert.match(markdownBlocks, /apiPrefix=\{auditTraceApiPrefix\}/)
   assert.ok(citationBranch >= 0)
   assert.ok(auditBranch > citationBranch)

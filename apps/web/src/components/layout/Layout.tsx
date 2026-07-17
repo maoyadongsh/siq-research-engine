@@ -41,6 +41,20 @@ export default function Layout() {
     return () => media.removeEventListener('change', syncSidebar)
   }, [])
 
+  useEffect(() => {
+    const timers = new WeakMap<Element, number>()
+    const onScroll = (event: Event) => {
+      const target = event.target === document ? document.documentElement : event.target
+      if (!(target instanceof Element)) return
+      target.classList.add('is-scrolling')
+      const previous = timers.get(target)
+      if (previous) window.clearTimeout(previous)
+      timers.set(target, window.setTimeout(() => target.classList.remove('is-scrolling'), 650))
+    }
+    document.addEventListener('scroll', onScroll, true)
+    return () => document.removeEventListener('scroll', onScroll, true)
+  }, [])
+
   const toggleSidebar = () => {
     sidebarManuallyChanged.current = true
     setCollapsed((current) => !current)
@@ -68,7 +82,7 @@ export default function Layout() {
       <main
         id="main-content"
         tabIndex={-1}
-        className={`transition-[padding-left] duration-300 ease-out ${primaryMarketRoute ? 'primary-market-route' : ''} ${collapsed ? 'lg:pl-20' : 'lg:pl-64 xl:pl-72'}`}
+        className={`transition-[padding-left] duration-300 ease-out ${primaryMarketRoute ? 'primary-market-route' : ''} ${collapsed ? 'lg:pl-16' : 'lg:pl-64'}`}
         style={{ paddingTop: 'var(--app-topbar-height)' }}
       >
         <div

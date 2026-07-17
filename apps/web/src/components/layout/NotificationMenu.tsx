@@ -406,7 +406,7 @@ export default function NotificationMenu() {
           <Bell className="h-[18px] w-[18px]" />
           {unread > 0 && (
             <span className="absolute -right-2.5 -top-2.5 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-xs font-bold text-white">
-              {unread}
+              {unread > 99 ? '99+' : unread}
             </span>
           )}
         </span>

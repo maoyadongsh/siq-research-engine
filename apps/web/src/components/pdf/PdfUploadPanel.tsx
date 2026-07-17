@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, FileText, FolderOpen, Loader2, RefreshCw, Search, Settings2, UploadCloud, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronUp, FileText, FolderOpen, Loader2, RefreshCw, Search, Settings2, UploadCloud, X } from 'lucide-react'
 import { EmptyState } from '@/components/page'
 import type { DownloadedPdf, HealthStatus } from '../../lib/pdfTypes'
 import { escHtml, formatDateTime, formatSize, isTerminal } from '../../lib/pdfFormatting'
@@ -161,7 +161,7 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
         </div>
         {downloadedReports.length > 0 ? (
           <>
-            <div className="pdf-download-list">
+            <div id="downloaded-reports-list" className="pdf-download-list">
               {visibleReports.map((report) => {
                 const isPdf = report.isPdf !== false
                 const kind = documentKind(report)
@@ -240,9 +240,13 @@ export function PdfUploadPanel(props: PdfUploadPanelProps) {
               <button
                 type="button"
                 onClick={() => setReportsExpanded((v) => !v)}
-                className="mt-3 w-full rounded-xl border border-border bg-bg/60 px-3 py-2 text-xs font-semibold leading-5 text-text-muted hover:bg-bg hover:text-text"
+                className="mx-auto mt-3 flex min-h-10 items-center justify-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold leading-5 text-text-muted transition-colors hover:border-primary/35 hover:text-primary"
+                aria-expanded={reportsExpanded}
+                aria-controls="downloaded-reports-list"
               >
-                {reportsExpanded ? `收起` : `展开`} 已下载财报（{visibleReports.length}/{sortedReports.length}）
+                {reportsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                <span>{reportsExpanded ? '收起' : '展开'}已下载财报</span>
+                <span className="font-mono text-xs text-text-muted">{visibleReports.length}/{sortedReports.length}</span>
               </button>
             )}
           </>

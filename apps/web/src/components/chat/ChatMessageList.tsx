@@ -116,6 +116,7 @@ export default function ChatMessageList({
           const streamingAvatar = msg.role === 'assistant' && msg.streaming && i === messages.length - 1
             ? renderStreamingAvatar?.(msg)
             : null
+          const progressNode = msg.role === 'assistant' ? renderProgress?.(msg) : null
 
           return (
             <div
@@ -135,10 +136,10 @@ export default function ChatMessageList({
                         auditTraceApiPrefix={auditTraceApiPrefix}
                       />
                     ) : (
-                      msg.streaming ? '正在思考…' : ''
+                      msg.streaming && !progressNode ? '正在思考…' : ''
                     )}
                     <ChatAttachmentList attachments={msg.attachments} />
-                    {msg.role === 'assistant' ? renderProgress?.(msg) : null}
+                    {progressNode}
                     {structuredAuditTraceId ? (
                       <AuditTraceBlock
                         blockKey={`audit-trace-${msg.createdAt ?? i}`}

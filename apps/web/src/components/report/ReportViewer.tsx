@@ -269,11 +269,13 @@ function LegacyReportViewer({ agentConfig, pageTitle, reportType, reportApiSuffi
         <section className="secondary-hero">
           <div className="secondary-hero-inner">
             <div className="min-w-0">
-              <div className="secondary-kicker">
-                <KickerIcon className="h-3.5 w-3.5" />
-                {meta.english}
+              <div className="secondary-title-row">
+                <div className="secondary-kicker">
+                  <KickerIcon className="h-3.5 w-3.5" />
+                  {meta.english}
+                </div>
+                <h1 className="secondary-title">{pageTitle}</h1>
               </div>
-              <h1 className="secondary-title">{pageTitle}</h1>
               <p className="secondary-description">选择公司和报告版本，系统会以统一阅读样式展示 HTML 结果。</p>
             </div>
             <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center lg:flex-col lg:items-end">

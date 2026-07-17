@@ -150,7 +150,7 @@ export const appRoutes: AppRoute[] = [
   }),
   defineRoute('/admin/users', () => import('../pages/UserAdmin'), {
     permission: 'user.manage',
-    sidebar: { group: 'userAdmin', to: '/admin/users', icon: UsersRound, label: '用户审批' },
+    sidebar: { group: 'userAdmin', to: '/admin/users', icon: UsersRound, label: '用户管理' },
   }),
   defineRoute('/admin/users/:userId', () => import('../pages/UserDetail'), {
     permission: 'user.manage',

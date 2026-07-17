@@ -29,6 +29,19 @@ export const REPORT_VIEWER_THEME = `
   body::before,body::after{display:none!important}
   *{box-sizing:border-box!important}
   .container{max-width:1400px!important}
+  .status-strip,.status-row,.summary,.overview,.executive-summary,.abstract,.key-points,.metrics,.kpi,.kpi-card,.metric-card,.stat-card,
+  .verdict-banner,.finding,.finding-card,.check-card,.result-card,.audit-card,.status-card,[class*="summary"],[class*="overview"],[class*="metric"],[class*="stat"]{
+    font-size:16px!important;
+  }
+  .status-strip span,.status-row span,.summary p,.overview p,.executive-summary p,.abstract p,.key-points p,.key-points li,
+  .metrics p,.metrics span,.kpi p,.kpi span,.kpi-card p,.kpi-card span,.metric-card p,.metric-card span,.stat-card p,.stat-card span,
+  .verdict-banner p,.verdict-banner span,.finding p,.finding li,.finding-card p,.finding-card li,.check-card p,.result-card p,.audit-card p,.status-card p{
+    font-size:16px!important;
+    line-height:1.75!important;
+  }
+  .kpi-label,.metric-label,.stat-label,[class*="label"]{
+    font-size:15px!important;
+  }
   .report-header{
     background:linear-gradient(135deg,#ffffff 0%,#f6faff 52%,#eef6ff 100%)!important;
     border-bottom:1px solid #dbeafe!important;
@@ -195,42 +208,128 @@ export const REPORT_VIEWER_THEME = `
   }
   .report-chart-tooltip strong,.income-bridge-tooltip strong{color:#ffffff!important}
   .report-chart-tooltip span,.income-bridge-tooltip span{color:#d1d5db!important}
-  .status-panel.status-alert{border-left-color:#b42318!important}
-  .status-panel.status-watch{border-left-color:#b45309!important}
+
+  /* SIQ blue-white reading theme normalizes generated report templates. */
+  :root,html,body{
+    --bg-primary:#f5f7fb!important;
+    --bg-secondary:#ffffff!important;
+    --bg-card:#ffffff!important;
+    --bg-card-hover:#f7faff!important;
+    --text-primary:#0f172a!important;
+    --text-secondary:#334155!important;
+    --text-muted:#64748b!important;
+    --border-color:#d8e1ec!important;
+    --shadow:none!important;
+    --shadow-lg:none!important;
+  }
+  html,body{
+    background:#f5f7fb!important;
+    color:#0f172a!important;
+    font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif!important;
+  }
+  h1,h2,h3,h4,h5,h6,.report-title,.section-title,.chart-title,.card-title,.verdict-text h2,.verdict-banner h2,.verdict-banner h3{
+    color:#0f172a!important;
+    font-family:"Noto Serif SC","Songti SC",Georgia,serif!important;
+    font-weight:600!important;
+  }
+  .report-header,.header:not(.report-header),.hero:not(.chart-area),.cover,.opinion-header,.legal-header,.report-cover,[class*="hero"]:not(.chart-area),[class*="cover"]{
+    background:#ffffff!important;
+    border-color:#d8e1ec!important;
+    box-shadow:none!important;
+  }
+  .section,.kpi-card,.chart-container:not(.income-bridge-panel),.risk-card,.table-wrapper,.evidence-panel,
+  .summary,.overview,.executive-summary,.abstract,.key-points,.metrics,.kpi,.risk-summary,
+  .card,.panel,.verdict-banner,.finding,.finding-card,.check-card,.result-card,.audit-card,.status-card,
+  [class*="summary"],[class*="overview"],[class*="highlight"],[class*="insight"]{
+    background:#ffffff!important;
+    color:#0f172a!important;
+    border-color:#d8e1ec!important;
+    border-radius:12px!important;
+    box-shadow:none!important;
+  }
+  .card-icon,.finding-icon,.section-icon,.meta-icon,.source-icon,.risk-icon,.badge-icon,.status-icon,
+  .header:not(.report-header) .badge,.icon:not(svg):not(path):not(circle):not(rect):not(line):not(polyline):not(polygon),
+  [class*="icon"]:not(svg):not(path):not(circle):not(rect):not(line):not(polyline):not(polygon){
+    background:transparent!important;
+    color:#005bb5!important;
+    border-color:rgba(0,113,227,.35)!important;
+  }
+  .badge,.tag,.chip,.pill,[class*="badge"],[class*="tag"],[class*="chip"],[class*="pill"]{
+    background:#eff6ff!important;
+    color:#1d4ed8!important;
+    border-color:rgba(0,113,227,.28)!important;
+    border-radius:999px!important;
+  }
+  .section-header,th{
+    background:#eff6ff!important;
+    border-color:#d8e1ec!important;
+  }
+  table,td{
+    background:#ffffff!important;
+    border-color:#d8e1ec!important;
+    box-shadow:none!important;
+  }
+  tr:nth-child(even) td{background:#f7faff!important}
+  pre,code,kbd,samp,blockquote{
+    background:#f7faff!important;
+    border-color:#bfdbfe!important;
+  }
+  blockquote{border-left-color:#0071e3!important}
+  a{color:#005bb5!important}
+  .stock-badge,.evidence-tag{
+    background:#eff6ff!important;
+    border-color:rgba(0,113,227,.28)!important;
+    color:#1d4ed8!important;
+  }
+  .siq-report-document,.siq-report-document body{
+    overflow:hidden!important;
+  }
+  .siq-md-inline-heading{
+    color:#0f172a!important;
+    font-family:"Noto Serif SC","Songti SC",Georgia,serif!important;
+    font-size:1.04em!important;
+    font-weight:600!important;
+  }
+  .status-panel.status-alert,.attention-item{border-left-color:#b42318!important}
+  .status-panel.status-watch{border-left-color:#b58a24!important}
   .status-panel.status-steady{border-left-color:#157347!important}
   .status-alert .status-label,.badge.alert,.priority-chip{
-    background:#fde4df!important;
-    color:#b42318!important;
-    border-color:#f1aaa1!important;
-  }
-  .hero:not(.chart-area) .status-alert .status-label,
-  .header:not(.report-header) .status-alert .status-label,
-  .hero:not(.chart-area) .priority-chip,
-  .header:not(.report-header) .priority-chip{
-    color:#b42318!important;
+    background:#fff5f2!important;color:#b42318!important;border-color:#e8b7b0!important;
   }
   .status-watch .status-label,.badge.warning{
-    background:#fff1d6!important;
-    color:#b45309!important;
-    border-color:#f7c66d!important;
-  }
-  .hero:not(.chart-area) .status-watch .status-label,
-  .header:not(.report-header) .status-watch .status-label{
-    color:#b45309!important;
+    background:#fffaf0!important;color:#8f6810!important;border-color:#d7bd7c!important;
   }
   .status-steady .status-label{
-    background:#def7e8!important;
-    color:#157347!important;
-    border-color:#a8dfbd!important;
+    background:#f1faf4!important;color:#157347!important;border-color:#afd8bd!important;
   }
-  .hero:not(.chart-area) .status-steady .status-label,
-  .header:not(.report-header) .status-steady .status-label{
-    color:#157347!important;
-  }
-  .attention-item{border-left-color:#b42318!important}
-  .stat-card.blue b,.stat-card.blue .number{color:#26547c!important}
+  .stat-card.blue b,.stat-card.blue .number{color:#4b5968!important}
   .stat-card.red b,.stat-card.red .number{color:#b42318!important}
-  .stat-card.yellow b,.stat-card.yellow .number{color:#9a6700!important}
+  .stat-card.yellow b,.stat-card.yellow .number{color:#8f6810!important}
   .stat-card.green b,.stat-card.green .number{color:#157347!important}
-  .stat-card.purple b,.stat-card.purple .number{color:#6f4aa8!important}
+  .stat-card.purple b,.stat-card.purple .number{color:#69556f!important}
+
+  /* Compact, unfilled status marks for generated reports. */
+  .verdict-badge,
+  .verdict-badge.approve{
+    width:64px!important;
+    height:64px!important;
+    min-width:64px!important;
+    flex:0 0 64px!important;
+    border:1.5px solid #157347!important;
+    background:transparent!important;
+    color:#157347!important;
+    font-family:"Noto Serif SC","Songti SC",Georgia,serif!important;
+    font-size:16px!important;
+    font-weight:600!important;
+  }
+  .card-status.pass,.status.pass,.badge.pass,.tag.safe,.tag.pass,.chip.pass,.pill.pass,
+  .verified,.status.verified,.badge.verified,.tag.verified,[class*="verified"]{
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    color:#157347!important;
+    box-shadow:none!important;
+    padding:.15rem .2rem!important;
+    font-weight:600!important;
+  }
 `

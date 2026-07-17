@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Cardo:wght@400;700&family=Inter:wght@400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=Prata&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./styles/tokens.css";
@@ -10,6 +11,7 @@
 @import "./styles/system-surfaces.css";
 @import "./styles/quick-questions.css";
 @import "./styles/app-base.css";
+@import "./styles/luxury-theme.css";
 @import "./styles/primary-market-mobile.css";
 
 @theme {

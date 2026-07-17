@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SIQ 左上角图标封面对比</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f4f2ee;
+      --ink: #1a1a1a;
+      --muted: #756f68;
+      --line: #ddd7cf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--page);
+      color: var(--ink);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    header {
+      padding: 34px clamp(20px, 4vw, 64px) 26px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(250, 249, 247, .92);
+    }
+    h1 {
+      margin: 0;
+      font-family: Georgia, "Noto Serif SC", serif;
+      font-size: clamp(30px, 4vw, 52px);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+    header p {
+      max-width: 760px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    main {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 34px 24px;
+      padding: 30px clamp(20px, 4vw, 64px) 60px;
+    }
+    article { min-width: 0; }
+    .meta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+    .meta strong {
+      font-family: Georgia, "Noto Serif SC", serif;
+      font-size: 22px;
+      font-weight: 400;
+    }
+    .meta span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .cover {
+      position: relative;
+      width: 100%;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #faf9f7;
+      aspect-ratio: 1256 / 884;
+      box-shadow: 0 16px 44px rgba(26, 26, 26, .07);
+    }
+    .cover-base {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .logo-zone {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: 5.494%;
+      height: 7.014%;
+      overflow: hidden;
+      border-right: 1px solid #e3ddd5;
+      border-bottom: 1px solid #e3ddd5;
+      background: #faf9f7;
+    }
+    .logo-zone img {
+      position: absolute;
+      display: block;
+      height: auto;
+      max-width: none;
+      mix-blend-mode: multiply;
+    }
+    .candidate-1 { left: 18%; top: 0; width: 64%; }
+    .candidate-2 { left: -4%; top: 12%; width: 129%; }
+    .candidate-3 { left: 4%; top: 7%; width: 113%; }
+    .candidate-4 { left: -27%; top: 23%; width: 177%; }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>左上角图标封面对比</h1>
+    <p>四张封面使用完全相同的前端页面、尺寸和位置，仅替换左上角 SIQ 图标。请直接比较图标与当前 Luxury 风格界面的协调度。</p>
+  </header>
+  <main>
+    <article>
+      <div class="meta"><strong>方案 01</strong><span>深色实心圆章</span></div>
+      <div class="cover">
+        <img class="cover-base" src="./siq-icon-cover-assets/frontend-cover.png" alt="完整前端封面，左上角使用方案 01" />
+        <div class="logo-zone"><img class="candidate-1" src="./siq-icon-cover-assets/candidate-01.png" alt="方案 01 图标" /></div>
+      </div>
+    </article>
+    <article>
+      <div class="meta"><strong>方案 02</strong><span>细线圆章</span></div>
+      <div class="cover">
+        <img class="cover-base" src="./siq-icon-cover-assets/frontend-cover.png" alt="完整前端封面，左上角使用方案 02" />
+        <div class="logo-zone"><img class="candidate-2" src="./siq-icon-cover-assets/candidate-02.png" alt="方案 02 图标" /></div>
+      </div>
+    </article>
+    <article>
+      <div class="meta"><strong>方案 03</strong><span>轻量对话圆章</span></div>
+      <div class="cover">
+        <img class="cover-base" src="./siq-icon-cover-assets/frontend-cover.png" alt="完整前端封面，左上角使用方案 03" />
+        <div class="logo-zone"><img class="candidate-3" src="./siq-icon-cover-assets/candidate-03.png" alt="方案 03 图标" /></div>
+      </div>
+    </article>
+    <article>
+      <div class="meta"><strong>方案 04</strong><span>纯 SIQ 字标</span></div>
+      <div class="cover">
+        <img class="cover-base" src="./siq-icon-cover-assets/frontend-cover.png" alt="完整前端封面，左上角使用方案 04" />
+        <div class="logo-zone"><img class="candidate-4" src="./siq-icon-cover-assets/candidate-04.png" alt="方案 04 图标" /></div>
+      </div>
+    </article>
+  </main>
+</body>
+</html>

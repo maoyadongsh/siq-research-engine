@@ -67,6 +67,7 @@ export const trackingQuickQuestions: AgentQuickQuestionInput[] = [
 
 export const legalQuickQuestions: AgentQuickQuestionInput[] = [
   introQuickQuestion(),
+  '生成年报法律意见书',
   {
     label: '起草意见要点',
     prompt: '请基于当前公司、报告和我提供的事实，按公司法务/律师工作底稿口径在对话中起草法律意见要点，不要生成 HTML 或保存文件。请先说明事实前提和检索边界，再给出审慎结论、法规依据、风险提示、建议动作、待核实事项和引用来源。',

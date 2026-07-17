@@ -6,7 +6,6 @@ interface PageWithAgentChatProps extends Omit<AgentChatPanelProps, 'collapsed' |
   children: ReactNode
 }
 
-const VIEWPORT_HEIGHT = 'calc(100dvh - var(--app-topbar-height) - var(--app-content-y))'
 export default function PageWithAgentChat({
   children,
   apiPrefix,
@@ -18,14 +17,11 @@ export default function PageWithAgentChat({
   const [agentOpen, setAgentOpen] = useState(false)
 
   return (
-    <div
-      className="agent-chat-page relative flex gap-5 overflow-hidden"
-      style={{ height: VIEWPORT_HEIGHT }}
-    >
-      <div className="agent-chat-content min-w-0 flex-1 overflow-y-auto pr-1 xl:pr-0">{children}</div>
+    <div className="agent-chat-page relative min-w-0">
+      <div className="agent-chat-content min-w-0">{children}</div>
       {!agentOpen && (
         <button
-          className="agent-chat-fab fixed bottom-4 right-4 z-40 flex h-14 min-w-14 items-center justify-center gap-2 rounded-[var(--radius-panel)] border border-white/80 bg-white px-4 text-sm font-semibold text-text shadow-[0_16px_44px_rgba(15,23,42,0.16)] backdrop-blur [@media(min-width:640px)]:hidden"
+          className="agent-chat-fab fixed bottom-5 right-5 z-40 flex h-12 min-w-12 items-center justify-center gap-2 rounded-full border border-[#0071e3] bg-[#ffffff] px-3 text-sm font-semibold text-text shadow-none"
           onClick={() => setAgentOpen(true)}
           aria-label={`打开${title}`}
         >
@@ -35,12 +31,12 @@ export default function PageWithAgentChat({
       )}
       {agentOpen && (
         <button
-          className="agent-chat-backdrop fixed inset-0 z-40 bg-slate-950/38 backdrop-blur-md [@media(min-width:640px)]:hidden"
+          className="agent-chat-backdrop fixed inset-0 z-40 bg-black/20 backdrop-blur-sm"
           onClick={() => setAgentOpen(false)}
           aria-label="关闭助手"
         />
       )}
-      <div className={`agent-chat-dock h-full shrink-0 [@media(min-width:640px)]:relative [@media(min-width:640px)]:z-auto ${agentOpen ? 'is-open fixed z-50 [@media(min-width:640px)]:static' : 'is-closed hidden [@media(min-width:640px)]:block'}`}>
+      <div className={`agent-chat-dock ${agentOpen ? 'is-open fixed z-50' : 'hidden'}`}>
         <AgentChatPanel
           apiPrefix={apiPrefix}
           title={title}

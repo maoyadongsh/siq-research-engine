@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Search, Loader2, FileText, X, ArrowLeft } from 'lucide-react'
+import { Search, Loader2, FileText, X } from 'lucide-react'
 import { isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '../../lib/authenticatedSourceLinks'
 import { apiJson } from '@/shared/api/client'
 
@@ -24,8 +24,6 @@ function formatTime(value: string) {
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
-
-const MOBILE_QUERY = '(max-width: 639px)'
 
 function resultTime(value: string) {
   const time = new Date(value).getTime()
@@ -124,31 +122,16 @@ function ResultList({ results, onResultClick }: { results: SearchResult[]; onRes
 export default function GlobalSearch() {
   const navigate = useNavigate()
   const searchBoxRef = useRef<HTMLDivElement>(null)
-  const mobileInputRef = useRef<HTMLInputElement>(null)
+  const mobileSearchBoxRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [openSearch, setOpenSearch] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
-
-  useEffect(() => {
-    const media = window.matchMedia(MOBILE_QUERY)
-    const sync = (event: MediaQueryListEvent) => {
-      if (!event.matches && mobileOpen) setMobileOpen(false)
-    }
-    media.addEventListener('change', sync)
-    return () => media.removeEventListener('change', sync)
-  }, [mobileOpen])
-
-  useEffect(() => {
-    if (mobileOpen && mobileInputRef.current) {
-      mobileInputRef.current.focus()
-    }
-  }, [mobileOpen])
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
-      if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
+      const target = event.target as Node
+      if (!searchBoxRef.current?.contains(target) && !mobileSearchBoxRef.current?.contains(target)) {
         setOpenSearch(false)
       }
     }
@@ -158,13 +141,11 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && mobileOpen) {
-        setMobileOpen(false)
-      }
+      if (event.key === 'Escape') setOpenSearch(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [mobileOpen])
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -212,12 +193,10 @@ export default function GlobalSearch() {
       navigate(`/analysis?search=${encodeURIComponent(query.trim())}`)
     }
     setOpenSearch(false)
-    setMobileOpen(false)
   }
 
   const handleResultClick = () => {
     setOpenSearch(false)
-    setMobileOpen(false)
     setQuery('')
     setResults([])
   }
@@ -254,95 +233,43 @@ export default function GlobalSearch() {
         )}
       </div>
 
-      {/* Mobile trigger */}
-      <div className="flex min-w-0 flex-1 md:hidden">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(true)}
-          className="flex h-10 w-full items-center gap-2 rounded-2xl border border-border bg-white/82 px-4 text-left text-sm text-text-muted shadow-sm backdrop-blur sm:h-11"
-          aria-label="打开搜索"
-        >
-          <Search className="h-5 w-5 shrink-0" />
-          <span className="truncate">搜索公司、代码、报告或文档</span>
-        </button>
-      </div>
-
-      {/* Mobile fullscreen overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col bg-bg animate-in fade-in slide-in-from-bottom-4 duration-200 md:hidden">
-          <div
-            className="flex items-center gap-3 border-b border-border bg-white/82 px-4 py-3 backdrop-blur-2xl"
-            style={{
-              paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
-              paddingRight: 'max(1rem, env(safe-area-inset-right))',
-              paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-            }}
+      {/* Mobile inline search */}
+      <div ref={mobileSearchBoxRef} className="relative min-w-0 flex-1 md:hidden">
+        <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-[18px] w-[18px] -translate-y-1/2 text-primary" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpenSearch(true) }}
+          onFocus={() => setOpenSearch(true)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
+          placeholder="搜索公司、代码或文档"
+          className="mobile-search-field h-10 w-full min-w-0 rounded-[10px] border border-border bg-white pl-9 pr-9 text-sm text-text outline-none placeholder:text-text-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/10"
+          aria-label="全局搜索"
+        />
+        {searching ? <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" /> : null}
+        {!searching && query ? (
+          <button
+            type="button"
+            onClick={() => { setQuery(''); setResults([]); setOpenSearch(false) }}
+            className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-text-muted hover:bg-bg hover:text-text"
+            aria-label="清空搜索"
           >
-            <button
-              type="button"
-              onClick={() => setMobileOpen(false)}
-              className="icon-button shrink-0"
-              aria-label="返回"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted" />
-              <input
-                ref={mobileInputRef}
-                type="search"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setOpenSearch(true) }}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitSearch() }}
-                placeholder="搜索公司、代码、报告或文档"
-                className="h-10 w-full rounded-2xl border border-border bg-white pl-10 pr-10 text-sm text-text shadow-sm focus:border-primary focus:bg-white focus:outline-none focus:ring-4 focus:ring-primary/10"
-              />
-              {searching && <Loader2 className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />}
-              {!searching && query && (
-                <button
-                  type="button"
-                  onClick={() => { setQuery(''); setResults([]); mobileInputRef.current?.focus() }}
-                  className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-text-muted hover:bg-bg hover:text-text"
-                  aria-label="清空"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          <div
-            className="flex-1 overflow-y-auto bg-bg px-4"
-            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-          >
-            {query.trim() ? (
-              <div className="mx-auto max-w-3xl">
-                <div className="mt-3 overflow-hidden rounded-[var(--radius-panel)] border border-border bg-white/96 shadow-sm">
-                  {searching ? (
-                    <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                      正在搜索…
-                    </div>
-                  ) : (
-                    <ResultList results={results} onResultClick={handleResultClick} />
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={submitSearch}
-                  className="mt-3 flex h-11 w-full items-center justify-center rounded-xl accent-gradient text-sm font-semibold text-white shadow-lg shadow-blue-900/15"
-                >
-                  {results[0] ? '查看首个结果' : `搜索 "${query.trim()}"`}
-                </button>
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
+        {openSearch && query.trim() ? (
+          <div className="fixed left-2 right-2 top-[calc(var(--app-topbar-height)+0.5rem)] z-50 max-h-[min(65dvh,32rem)] overflow-y-auto rounded-[10px] border border-border bg-white shadow-[0_16px_38px_rgba(15,23,42,0.14)]">
+            {searching ? (
+              <div className="flex items-center gap-2 px-4 py-5 text-sm text-text-muted">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                正在搜索...
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-text-muted">
-                <Search className="mb-3 h-10 w-10 opacity-30" />
-                <p className="text-sm">输入公司名称、股票代码、报告名或文档名开始搜索</p>
-              </div>
+              <ResultList results={results} onResultClick={handleResultClick} />
             )}
           </div>
-        </div>
-      )}
+        ) : null}
+      </div>
     </>
   )
 }

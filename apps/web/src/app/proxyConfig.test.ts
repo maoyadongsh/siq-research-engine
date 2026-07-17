@@ -140,11 +140,15 @@ test('meeting capture and replay can use an isolated same-origin gateway', () =>
 test('production nginx keeps meeting APIs on the backend', () => {
   const nginxTemplate = readFileSync(resolvePath('nginx.conf.template'), 'utf8')
   const backendRoute = nginxTemplate.match(/location ~ \^\/api\/\(([^)]+)\)/)?.[1] || ''
-  const backendBlock = nginxTemplate.match(/location ~ \^\/api\/\([^)]+\)[^{]*\{([\s\S]*?)\n\s*\}/)?.[1] || ''
+  const backendBlock = [...nginxTemplate.matchAll(/location ~ \^\/api\/\(([^)]+)\)\([^)]*\)\s*\{([\s\S]*?)\n\s*\}/g)]
+    .find((match) => match[1].split('|').includes('chat'))?.[2] || ''
 
   assert.ok(backendRoute.split('|').includes('meetings'))
   assert.match(backendBlock, /proxy_set_header Upgrade \$http_upgrade;/)
   assert.match(backendBlock, /proxy_set_header Connection \$connection_upgrade;/)
+  assert.match(backendBlock, /proxy_read_timeout 1900s;/)
+  assert.match(backendBlock, /proxy_send_timeout 1900s;/)
+  assert.match(backendBlock, /proxy_buffering off;/)
   assert.match(nginxTemplate, /proxy_pass \$\{SIQ_MEETING_STREAM_GATEWAY_URL\};/)
 })
 

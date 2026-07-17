@@ -2,7 +2,7 @@ import { Loader2, RefreshCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { ReportItem } from '@/lib/reportTypes'
 import { handleAuthenticatedSourceClick, isAuthenticatedSourceLink, openAuthenticatedSourceLink } from '@/lib/authenticatedSourceLinks'
-import { REPORT_IFRAME_SANDBOX, isReportSourceLinkMessage } from './reportFrameSandbox'
+import { REPORT_IFRAME_SANDBOX, isReportFrameHeightMessage, isReportSourceLinkMessage } from './reportFrameSandbox'
 
 interface ReportFrameProps {
   selectedReportUrl: string
@@ -16,13 +16,64 @@ interface ReportFrameProps {
   onRetry?: () => void
 }
 
+function renderInlineMarkdown(doc: Document) {
+  const walker = doc.createTreeWalker(doc.body, 4)
+  const nodes: Text[] = []
+  let current = walker.nextNode()
+  while (current) {
+    const parent = current.parentElement
+    if (parent && !parent.closest('script,style,pre,code,textarea')) nodes.push(current as Text)
+    current = walker.nextNode()
+  }
+
+  nodes.forEach((node) => {
+    const source = node.data
+    const heading = source.match(/^(\s*)#{1,6}\s+(.+)$/)
+    if (heading) {
+      const fragment = doc.createDocumentFragment()
+      fragment.append(heading[1])
+      const strong = doc.createElement('strong')
+      strong.className = 'siq-md-inline-heading'
+      strong.textContent = heading[2]
+      fragment.append(strong)
+      node.replaceWith(fragment)
+      return
+    }
+
+    if (!/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/.test(source)) return
+    const fragment = doc.createDocumentFragment()
+    const pattern = /(\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\))/g
+    let cursor = 0
+    for (const match of source.matchAll(pattern)) {
+      const index = match.index || 0
+      if (index > cursor) fragment.append(source.slice(cursor, index))
+      if (match[2]) {
+        const strong = doc.createElement('strong')
+        strong.textContent = match[2]
+        fragment.append(strong)
+      } else if (match[3]) {
+        const code = doc.createElement('code')
+        code.textContent = match[3]
+        fragment.append(code)
+      } else {
+        const anchor = doc.createElement('a')
+        anchor.textContent = match[4]
+        anchor.href = match[5]
+        fragment.append(anchor)
+      }
+      cursor = index + match[0].length
+    }
+    if (cursor < source.length) fragment.append(source.slice(cursor))
+    node.replaceWith(fragment)
+  })
+}
+
 export default function ReportFrame({
   selectedReportUrl,
   selectedReport,
   reportSrcDoc,
   contentLoading,
   iframeTitle,
-  updatedAt,
   accent,
   error,
   onRetry,
@@ -31,16 +82,18 @@ export default function ReportFrame({
 
   useEffect(() => {
     if (contentLoading || !reportSrcDoc) return
-
     const onMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return
-      if (!isReportSourceLinkMessage(event.data)) return
-      if (!isAuthenticatedSourceLink(event.data.href)) return
+      if (isReportFrameHeightMessage(event.data)) {
+        const height = Math.min(Math.max(Math.ceil(event.data.height), 360), 100000)
+        iframeRef.current.style.height = `${height}px`
+        return
+      }
+      if (!isReportSourceLinkMessage(event.data) || !isAuthenticatedSourceLink(event.data.href)) return
       openAuthenticatedSourceLink(event.data.href).catch((error) => {
         console.warn('Failed to open authenticated source link from report frame', error)
       })
     }
-
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [contentLoading, reportSrcDoc])
@@ -62,6 +115,18 @@ export default function ReportFrame({
       }
       if (!doc) return
 
+      renderInlineMarkdown(doc)
+      doc.documentElement.classList.add('siq-report-document')
+
+      const syncHeight = () => {
+        const height = Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight)
+        iframe.style.height = `${height + 2}px`
+      }
+      syncHeight()
+      const resizeObserver = new ResizeObserver(syncHeight)
+      resizeObserver.observe(doc.documentElement)
+      resizeObserver.observe(doc.body)
+
       const onClick = (event: MouseEvent) => {
         const target = event.target
         if (!(target instanceof Element)) return
@@ -74,7 +139,10 @@ export default function ReportFrame({
       }
 
       doc.addEventListener('click', onClick)
-      cleanupDocument = () => doc.removeEventListener('click', onClick)
+      cleanupDocument = () => {
+        doc.removeEventListener('click', onClick)
+        resizeObserver.disconnect()
+      }
     }
 
     iframe.addEventListener('load', bindDocument)
@@ -89,20 +157,10 @@ export default function ReportFrame({
   return (
     <div className="surface-panel overflow-hidden">
       {selectedReport && (
-        <div className="border-b border-border bg-card">
-          <div className="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`h-2.5 w-2.5 rounded-full bg-gradient-to-br ${accent}`} />
-                <p className="truncate text-base font-bold text-text">{selectedReport.filename}</p>
-                <span className="secondary-status">{updatedAt}</span>
-              </div>
-              <p className="mt-1 text-sm text-text-muted">已套用 SIQ 阅读样式，可在右侧助手中追问结论、数据来源和风险点。</p>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <span className="secondary-status secondary-status-info">{Math.max(1, Math.round(selectedReport.size / 1024))} KB</span>
-              <span className="secondary-status secondary-status-success">已加载</span>
-            </div>
+        <div className="border-b border-border bg-card px-5 py-4">
+          <div className="flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full bg-gradient-to-br ${accent}`} />
+            <p className="text-base font-bold text-text">预览</p>
           </div>
         </div>
       )}
@@ -139,8 +197,8 @@ export default function ReportFrame({
           sandbox={REPORT_IFRAME_SANDBOX}
           referrerPolicy="no-referrer"
           srcDoc={reportSrcDoc}
-          className="block w-full max-w-full border-none bg-white h-[min(72dvh,560px)] min-h-[360px] md:h-[min(80dvh,1020px)] md:min-h-[640px]"
-          style={{ border: 'none', display: 'block', background: '#fff' }}
+          className="block min-h-[360px] w-full max-w-full overflow-hidden border-none bg-white"
+          style={{ border: 'none', display: 'block', background: '#fff', overflow: 'hidden' }}
           title={iframeTitle}
         />
       )}

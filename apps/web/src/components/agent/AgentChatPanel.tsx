@@ -310,6 +310,12 @@ export default function AgentChatPanel({
       : avatarState === 'error'
         ? '运行异常'
         : '随时待命'
+  const fallbackProgress = (sending || runningMessage) ? {
+    status: 'running' as const,
+    title: '正在执行任务',
+    detail: '正在连接智能体并处理当前问题',
+    source: 'runtime' as const,
+  } : undefined
 
   if (collapsed) {
     return (
@@ -438,7 +444,9 @@ export default function AgentChatPanel({
               />
             </div>
           )}
-          renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress} compact /> : null}
+          renderProgress={(msg) => msg.streaming ? (
+            <AgentProgressCard progress={msg.progress ?? fallbackProgress} compact />
+          ) : null}
           userMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-br-md bg-primary px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-sm"
           assistantMessageClassName="chat-message-bubble w-fit max-w-full rounded-[18px] rounded-bl-md border border-border bg-white/82 px-3.5 py-2.5 text-sm leading-relaxed text-text shadow-sm"
           messageGapClassName="space-y-3"

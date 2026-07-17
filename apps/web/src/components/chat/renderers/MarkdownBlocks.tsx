@@ -6,6 +6,7 @@ import { CitationBlock } from './CitationBlock'
 import { AuditTraceBlock } from './AuditTraceBlock'
 import {
   collectHeadingSectionLines,
+  auditHeadingTitle,
   hasHtmlTable,
   isCitationHeading,
   isAuditHeading,
@@ -41,7 +42,7 @@ export function MarkdownBlocks({
       continue
     }
 
-    if (hasHtmlTable(lines.slice(i).join('\n')) && !streaming) {
+    if (hasHtmlTable(lines.slice(i).join('\n'))) {
       const htmlLines: string[] = []
       while (i < lines.length) {
         htmlLines.push(lines[i])
@@ -87,12 +88,13 @@ export function MarkdownBlocks({
           blockKey={`audit-${i}`}
           lines={auditLines}
           apiPrefix={auditTraceApiPrefix}
+          title={auditHeadingTitle(trimmed)}
         />,
       )
       continue
     }
 
-    if (isLikelyTableStart(lines, i) && !streaming) {
+    if (isLikelyTableStart(lines, i)) {
       const tableData = parseMarkdownTable(lines, i)
       if (tableData) {
         i = tableData.lineIndex

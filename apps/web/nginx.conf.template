@@ -117,6 +117,13 @@ http {
       proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection $connection_upgrade;
+      # Hermes chat and workflow endpoints are SSE/long-running requests.
+      # Keep the edge from converting a healthy, still-streaming upstream into
+      # a transient 502/504 when an agent is using tools or a fallback model.
+      # 1900s is just above the API's bounded 1800s run deadline; it is not an
+      # unbounded connection lease.
+      proxy_read_timeout 1900s;
+      proxy_send_timeout 1900s;
       proxy_buffering off;
     }
 

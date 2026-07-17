@@ -14,9 +14,11 @@ export function PageHeader({ eyebrow, title, description, meta, actions, classNa
   return (
     <section className={cn('secondary-hero', className)}>
       <div className="secondary-hero-inner">
-        <div className="max-w-4xl">
-          {eyebrow && <div className="secondary-kicker">{eyebrow}</div>}
-          <h1 className="secondary-title">{title}</h1>
+        <div className="min-w-0 max-w-4xl">
+          <div className="secondary-title-row">
+            {eyebrow && <div className="secondary-kicker">{eyebrow}</div>}
+            <h1 className="secondary-title">{title}</h1>
+          </div>
           {description && <p className="secondary-description">{description}</p>}
           {meta && <div className="mt-4 flex flex-wrap items-center gap-3">{meta}</div>}
         </div>

@@ -51,6 +51,34 @@ async function mockVoiceChat(page: Page) {
       await route.fulfill(json(e2eUser))
       return
     }
+    if (url.pathname === '/api/workspace/summary') {
+      await route.fulfill(json({
+        quotas: {
+          agentQuestion: { used: 1, limit: 20, remaining: 19, resetAt: '2026-07-17T08:00:00.000Z' },
+          parseJob: { used: 0, limit: 10, remaining: 10, resetAt: '2026-07-17T08:00:00.000Z' },
+        },
+        stats: { projects: 1, artifacts: 0, downloads: 0, parses: 0, reports: 0 },
+        recentArtifacts: [],
+        artifacts: [],
+        projects: [],
+      }))
+      return
+    }
+    if (url.pathname === '/api/workspace/me') {
+      await route.fulfill(json({
+        user: e2eUser,
+        quotas: {
+          agentQuestion: { used: 1, limit: 20, remaining: 19, resetAt: '2026-07-17T08:00:00.000Z' },
+          parseJob: { used: 0, limit: 10, remaining: 10, resetAt: '2026-07-17T08:00:00.000Z' },
+        },
+        stats: { projects: 1, artifacts: 0, downloads: 0, parses: 0, reports: 0 },
+      }))
+      return
+    }
+    if (url.pathname === '/api/workspace/artifacts') {
+      await route.fulfill(json({ artifacts: [] }))
+      return
+    }
     if (url.pathname === '/api/chat/sessions') {
       await route.fulfill(json({ sessions: [] }))
       return
@@ -139,4 +167,16 @@ test('按住语音按钮会自动转写、发送并显示可回放音频', async
   await expect(page.locator('audio')).toHaveCount(1)
   await expect.poll(() => mock.getStreamPayload()?.message).toBe('请分析这家公司的收入质量')
   await expect(page.locator('audio')).toHaveAttribute('src', /^blob:/)
+})
+
+test('悬浮财报助手打开后显示语音输入按钮', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockVoiceChat(page)
+  await page.goto('/')
+  await page.waitForLoadState('networkidle')
+
+  await page.getByRole('button', { name: '打开财报助手' }).click()
+  const dialog = page.getByRole('dialog', { name: '财报问答助手' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '按住说话' })).toBeVisible()
 })

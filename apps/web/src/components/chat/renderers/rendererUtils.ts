@@ -303,7 +303,12 @@ export function isCitationHeading(trimmed: string) {
 }
 
 export function isAuditHeading(trimmed: string) {
-  return /^(?:#{1,4}\s+)?审计详情[:：]?$/.test(trimmed)
+  return /^(?:#{1,4}\s+)?(?:审计详情|证据链审计详情|计算器校验|勾稽校验|校验失败详情)(?:[（(][^\n）)]*[）)])?[:：]?$/.test(trimmed)
+}
+
+export function auditHeadingTitle(trimmed: string) {
+  const title = trimmed.replace(/^#{1,4}\s+/, '').replace(/[:：]$/, '')
+  return title === '审计详情' ? '证据链审计详情' : title
 }
 
 export function extractAnswerAuditTraceId(lines: string[]) {

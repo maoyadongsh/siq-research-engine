@@ -12,11 +12,11 @@ export interface CodeBlockProps {
   streaming?: boolean
 }
 
-export function CodeBlock({ language, code, blockIndex, streaming = false }: CodeBlockProps) {
+export function CodeBlock({ language, code, blockIndex }: CodeBlockProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const codeLanguage = language.trim()
 
-  if (!streaming && hasMarkdownTable(code) && (isMarkdownCodeLanguage(codeLanguage) || codeLanguage === 'text')) {
+  if (hasMarkdownTable(code) && (isMarkdownCodeLanguage(codeLanguage) || codeLanguage === 'text')) {
     return (
       <MarkdownBlocks
         lines={code.replace(/\r\n?/g, '\n').split('\n')}
@@ -25,7 +25,7 @@ export function CodeBlock({ language, code, blockIndex, streaming = false }: Cod
     )
   }
 
-  if (!streaming && hasHtmlTable(code) && (/^(?:html?|xml|text)$/i.test(codeLanguage) || !codeLanguage)) {
+  if (hasHtmlTable(code) && (/^(?:html?|xml|text)$/i.test(codeLanguage) || !codeLanguage)) {
     const htmlElements = renderSafeHtmlFragment(code, `html-code-${blockIndex}`)
     if (htmlElements) {
       return <div className="chat-html-fragment">{htmlElements}</div>

@@ -28,7 +28,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
     [canManageUsers, canConfigureSystem],
   )
   const visibleBottomItems = useMemo(
-    () => bottomItems.filter((item) => item.to !== '/settings' || canConfigureSystem),
+    () => bottomItems.filter((item) => item.to === '/help' || (item.to === '/settings' && canConfigureSystem)),
     [canConfigureSystem],
   )
   const isChildActive = (child: NonNullable<SidebarItem['children']>[number]) => (
@@ -37,19 +37,17 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
   const isGroupActive = (item: SidebarItem) => (
     location.pathname === item.to || location.pathname.startsWith(`${item.to}/`) || Boolean(item.children?.some(isChildActive))
   )
-  const isGroupExpanded = (item: SidebarItem) => expandedGroups[item.to] ?? false
-
   const renderLink = (item: SidebarItem, compact: boolean, variant: SidebarLinkVariant = 'nav') => {
     const sizeClass = compact
       ? variant === 'nav'
-        ? 'h-10 min-h-10 w-10 rounded-[11px] px-0 py-0'
-        : 'h-10 min-h-10 w-10 rounded-[11px] px-0 py-0 text-sm'
+        ? 'h-11 min-h-11 w-11 rounded-[10px] px-0 py-0 text-[0.95rem]'
+        : 'h-11 min-h-11 w-11 rounded-[10px] px-0 py-0 text-[0.95rem]'
       : variant === 'nav'
-        ? 'min-h-11 rounded-[12px] px-3 py-2'
+        ? 'min-h-12 rounded-[10px] px-3.5 py-2.5 text-[16px] leading-5'
         : variant === 'assistant'
-          ? 'min-h-11 rounded-[12px] px-2.5 py-2 text-sm'
-          : 'min-h-11 rounded-[11px] px-2 py-1.5 text-xs'
-    const iconClass = variant === 'nav' ? 'h-[18px] w-[18px]' : 'h-4 w-4'
+          ? 'min-h-11 rounded-[10px] px-3.5 py-2 text-[15px] leading-5'
+          : 'min-h-11 w-full rounded-[10px] px-3.5 py-2 text-[15px] leading-5'
+    const iconClass = variant === 'nav' ? 'h-[19px] w-[19px]' : 'h-[18px] w-[18px]'
     const link = (
       <NavLink
         key={item.to}
@@ -57,17 +55,17 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         end={item.end}
         onClick={onCloseMobile}
         className={({ isActive }) =>
-          `group relative flex items-center gap-2.5 ${variant === 'nav' ? 'text-[15px] font-bold leading-5' : 'font-semibold'} transition-[background,color,box-shadow] duration-200 ${sizeClass} ${
+          `group relative flex cursor-pointer items-center gap-3 transition-[background,color,box-shadow] duration-200 ease-out ${sizeClass} ${
             isActive
-              ? `bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:rounded-full before:bg-primary ${compact ? 'before:top-2.5 before:bottom-2.5 before:w-0.5' : 'before:top-2 before:bottom-2 before:w-1'}`
-              : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
+              ? `bg-primary/10 text-[#005bb5] shadow-[inset_0_0_0_1px_rgba(0,113,227,0.10)] before:absolute before:left-0 before:rounded-full before:bg-[#0071e3] ${compact ? 'before:bottom-2.5 before:top-2.5 before:w-0.5' : 'before:bottom-2 before:top-2 before:w-1'}`
+              : 'text-slate-700 hover:bg-slate-100/80 hover:text-slate-950'
           } ${compact ? 'justify-center' : ''}`
         }
         onPointerEnter={() => preloadRoute(item.to)}
         onFocus={() => preloadRoute(item.to)}
       >
         <item.icon className={`${iconClass} shrink-0`} />
-        {!compact && <span className="truncate whitespace-nowrap">{item.label}</span>}
+        {!compact && <span className={`truncate whitespace-nowrap ${variant === 'nav' ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>}
       </NavLink>
     )
     return compact ? (
@@ -86,10 +84,10 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       end={item.end}
       onClick={onCloseMobile}
       className={({ isActive }) =>
-        `block rounded-[11px] px-3.5 py-2.5 text-[0.92rem] font-semibold leading-5 transition-colors ${
+        `flex min-h-11 cursor-pointer items-center rounded-[10px] px-3.5 py-2 text-[15px] font-medium leading-5 transition-[background,color,box-shadow] duration-200 ease-out ${
           isActive
-            ? 'bg-primary/10 text-primary shadow-[0_6px_14px_rgba(0,113,227,0.06)]'
-            : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900'
+            ? 'bg-primary/10 text-[#005bb5] shadow-[inset_0_0_0_1px_rgba(0,113,227,0.12)]'
+            : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
         }`
       }
       onPointerEnter={() => preloadRoute(item.to)}
@@ -100,60 +98,49 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
   )
 
   const renderNavItem = (item: SidebarItem, compact: boolean) => {
-    if (!item.children?.length) return renderLink(item, compact)
-    if (compact) {
-      const active = isGroupActive(item)
-      const control = (
-        <button
-          key={item.to}
-          type="button"
-          onClick={onToggle}
-          className={`group relative flex h-10 min-h-10 w-10 items-center justify-center rounded-[11px] font-bold transition-[background,color,box-shadow] duration-200 ${
-            active
-              ? 'bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-0.5 before:rounded-full before:bg-primary'
-              : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
-          }`}
-          aria-label={`展开${item.label}子菜单`}
-        >
-          <item.icon className="h-[18px] w-[18px] shrink-0" />
-        </button>
-      )
-      return (
-        <Tooltip key={item.to} content={item.label} className="flex justify-center" delay="medium">
-          {control}
-        </Tooltip>
-      )
-    }
+    if (compact || !item.children?.length) return renderLink(item, compact)
     const visibleChildren = item.children.filter((child) => !child.permission || hasPermission(child.permission))
-    const expanded = isGroupExpanded(item)
+    const expanded = expandedGroups[item.to] ?? false
     const active = isGroupActive(item)
     return (
-      <div key={item.to} className="space-y-1">
+      <div key={item.to} className="space-y-1.5">
         <button
           type="button"
           onClick={() => setExpandedGroups((current) => ({ ...current, [item.to]: !expanded }))}
-          className={`group relative flex min-h-11 w-full items-center gap-2.5 rounded-[12px] px-3 py-2 text-left transition-[background,color,box-shadow] duration-200 ${
-            active
-              ? 'bg-primary/10 text-primary shadow-[0_8px_18px_rgba(0,113,227,0.08)] before:absolute before:left-0 before:top-2 before:bottom-2 before:w-1 before:rounded-full before:bg-primary'
-              : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-950'
+          className={`group relative flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-[10px] px-3.5 py-2.5 text-left text-[16px] font-semibold leading-5 transition-[background,color] duration-200 ease-out ${
+            active ? 'text-[#005bb5] before:absolute before:bottom-2 before:left-0 before:top-2 before:w-1 before:rounded-full before:bg-[#0071e3] hover:bg-primary/5' : 'text-slate-700 hover:bg-slate-100/80 hover:text-slate-950'
           }`}
           aria-expanded={expanded}
           aria-controls={`sidebar-group-${item.to.replace(/[^a-zA-Z0-9_-]/g, '-')}`}
           onPointerEnter={() => preloadRoute(item.to)}
           onFocus={() => preloadRoute(item.to)}
         >
-          <item.icon className="h-[18px] w-[18px] shrink-0" />
-          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[15px] font-bold leading-5">{item.label}</span>
-          <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+          <item.icon className="h-[19px] w-[19px] shrink-0" />
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap font-semibold">{item.label}</span>
+          <ChevronRight className={`h-[17px] w-[17px] shrink-0 text-slate-500 transition-transform duration-200 ease-out group-hover:text-current ${expanded ? 'rotate-90' : ''}`} />
         </button>
         {expanded ? (
-          <div id={`sidebar-group-${item.to.replace(/[^a-zA-Z0-9_-]/g, '-')}`} className="ml-6 space-y-1.5 border-l border-slate-200/80 pl-3">
+          <div id={`sidebar-group-${item.to.replace(/[^a-zA-Z0-9_-]/g, '-')}`} className="ml-6 space-y-1 border-l border-slate-200/90 pl-3.5">
             {visibleChildren.map(renderChildLink)}
           </div>
         ) : null}
       </div>
     )
   }
+
+  const renderBrandMark = () => (
+    <div
+      className="flex h-11 w-11 shrink-0 items-center justify-center"
+      role="img"
+      aria-label="SIQ"
+    >
+      <span
+        className="grid h-10 w-10 place-items-center rounded-full border border-primary/35 bg-primary/5 font-sans text-[15px] font-black leading-none text-[#0057d9]"
+      >
+        SIQ
+      </span>
+    </div>
+  )
 
   const renderContent = (compact: boolean, showDesktopToggle = true) => (
     <>
@@ -163,28 +150,22 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         >
         {!compact && (
           <>
-            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#2ea8ff] via-[#0071e3] to-[#004fb8] text-[16px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.32)] transition-[background,box-shadow] duration-200">
-              <span className="relative z-10">SIQ</span>
-              <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
-            </div>
-            <span className="whitespace-nowrap text-[19px] font-bold leading-none text-primary">
+            {renderBrandMark()}
+            <span className="whitespace-nowrap font-sans text-[17px] font-semibold leading-none text-slate-900">
               Research Engine
             </span>
           </>
         )}
         {compact && (
-          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-br from-[#2ea8ff] via-[#0071e3] to-[#004fb8] text-[14px] font-black text-white tracking-tighter shadow-[0_10px_24px_rgba(29,78,216,0.24)]">
-            <span className="relative z-10">SIQ</span>
-            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/24 via-white/5 to-transparent" />
-          </div>
+          renderBrandMark()
         )}
       </div>
-      <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-1 ${compact ? 'mt-2 space-y-0.5 px-1.5' : 'mt-3 space-y-0.5 px-2.5'}`}>
+      <nav className={`sidebar-scrollbarless flex-1 overflow-y-auto overflow-x-hidden pb-2 font-sans ${compact ? 'mt-2 space-y-1 px-2.5' : 'mt-3 space-y-1.5 px-2.5'}`}>
         {visibleNavItems.map((item) => renderNavItem(item, compact))}
       </nav>
-      <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>{renderLink(assistantItem, compact, 'assistant')}</div>
-      <div className={`border-t border-border ${compact ? 'px-1.5 py-1' : 'px-2.5 py-1'}`}>
-        <div className={compact ? 'space-y-1' : 'grid grid-cols-3 gap-1.5'}>
+      <div className="border-t border-border px-2.5 py-1.5 font-sans">{renderLink(assistantItem, compact, 'assistant')}</div>
+      <div className="border-t border-border px-2.5 py-1.5 font-sans">
+        <div className={compact ? 'space-y-1' : 'grid grid-cols-2 gap-2'}>
           {visibleBottomItems.map((item) => renderLink(item, compact, 'utility'))}
         </div>
       </div>
@@ -192,7 +173,7 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
         <div className="border-t border-border px-2.5 py-0.5">
           <button
             onClick={onToggle}
-            className={`inline-flex h-10 w-full items-center justify-center rounded-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-4 focus:ring-primary/10 ${compact ? 'px-0' : 'px-3'}`}
+            className={`inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] text-slate-500 transition-colors duration-200 hover:bg-slate-100/80 hover:text-[#005bb5] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 ${compact ? 'px-0' : 'px-3'}`}
             aria-label={compact ? '展开侧边栏' : '收起侧边栏'}
             title={compact ? '展开侧边栏' : '收起侧边栏'}
           >
@@ -214,8 +195,8 @@ export default function Sidebar({ collapsed, mobileOpen = false, onToggle, onClo
       )}
         <aside
         id="app-sidebar"
-        className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 flex-col overflow-hidden border-r border-border bg-white/96 text-slate-700 shadow-[10px_0_32px_rgba(15,23,42,0.06)] backdrop-blur-xl transition-all duration-300 ease-out ${
-          collapsed ? 'lg:w-20' : 'lg:w-64 xl:w-72'
+        className={`fixed bottom-0 left-0 top-0 z-50 flex w-72 flex-col overflow-hidden border-r border-border bg-white text-slate-700 transition-all duration-300 ease-out ${
+          collapsed ? 'lg:w-16' : 'lg:w-64'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         <div className="hidden h-full flex-col lg:flex">{renderContent(collapsed)}</div>
