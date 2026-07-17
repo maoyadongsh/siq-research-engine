@@ -20,6 +20,12 @@ from analysis_market_policy import (
     build_analysis_market_policy,
 )
 from input_adapters import SourceAdapterError
+from overseas_report_template import (
+    SECTION_SPECS,
+    TEMPLATE_ID as OVERSEAS_TEMPLATE_ID,
+    build_template_contract,
+    validate_template_contract,
+)
 
 REPORT_SCHEMA_VERSION = "siq_analysis_report_v2"
 ARTIFACT_SCHEMA_VERSION = "siq_agent_artifact_v2"
@@ -82,24 +88,6 @@ METRIC_LABELS = {
     "insurance_service_result": "保险服务结果",
     "solvency_ratio": "偿付能力充足率",
 }
-
-SECTION_SPECS = (
-    ("executive_summary", "执行摘要"),
-    ("business_overview", "业务与披露口径"),
-    ("revenue_quality", "收入与增长质量"),
-    ("profitability", "盈利能力"),
-    ("balance_sheet", "资产负债结构"),
-    ("cash_flow", "现金流质量"),
-    ("capital_allocation", "资本配置"),
-    ("segments", "分部与经营驱动"),
-    ("risk_factors", "风险因素"),
-    ("controls", "内部控制与治理"),
-    ("accounting_quality", "会计口径与指标质量"),
-    ("valuation_boundary", "估值数据边界"),
-    ("tracking", "后续跟踪清单"),
-    ("traceability", "数据质量与溯源"),
-)
-
 
 def render_analysis_bundle(
     bundle: Mapping[str, Any],
@@ -202,6 +190,15 @@ def render_analysis_bundle(
             "research_pack_merge_schema_version": str(
                 (research_pack_result.get("merge_manifest") or {}).get("schema_version") or ""
             ),
+            "report_template": {
+                "template_id": str(report.get("report_template", {}).get("template_id") or ""),
+                "template_version": str(report.get("report_template", {}).get("template_version") or ""),
+                "market": str(report.get("report_template", {}).get("market") or ""),
+                "section_ids": list(report.get("report_template", {}).get("section_ids") or ()),
+                "required_analysis_dimensions": list(
+                    report.get("report_template", {}).get("required_analysis_dimensions") or ()
+                ),
+            },
             "claims": report["claims"],
             "evidence_catalog": {
                 "rendered_count": len(_presentation_evidence(report)),
@@ -305,8 +302,14 @@ def _build_report(
     )
     merge_sections = merge_manifest.get("sections") if isinstance(merge_manifest.get("sections"), Mapping) else {}
     known_evidence_ids = {_evidence_id(item) for item in evidence}
+    template_contract = build_template_contract(
+        str((bundle.get("research_identity") or {}).get("market") or ""),
+        report_type=str((bundle.get("source_report") or {}).get("report_type") or "unknown"),
+        accounting_standard=str((bundle.get("source_report") or {}).get("accounting_standard") or "unknown"),
+        entity_profile=entity_profile,
+    )
     sections = []
-    for section_id, title in SECTION_SPECS:
+    for section_id, title, _minimum_items in SECTION_SPECS:
         pack_refs = dict(merge_sections.get(section_id) or {})
         merged_evidence_ids = [
             str(item) for item in pack_refs.get("evidence_ids") or () if str(item) in known_evidence_ids
@@ -314,7 +317,14 @@ def _build_report(
         section_evidence_ids = list(
             dict.fromkeys([*_section_evidence_ids(section_id, fact_by_key, evidence), *merged_evidence_ids])
         )
-        content = _section_content(section_id, bundle, fact_by_key, evidence)
+        company_content = _section_content(section_id, bundle, fact_by_key, evidence)
+        pack_content = _research_pack_section_content(
+            section_id,
+            research_pack_result.get("packs") or (),
+            facts,
+            evidence,
+        )
+        content = [*company_content, *pack_content]
         if section_id == "executive_summary":
             context = market_policy.get("reporting_context") or {}
             content.extend(
@@ -334,6 +344,9 @@ def _build_report(
             for item in policy_insights
             if isinstance(item, Mapping) and str(item.get("text") or "").strip()
         )
+        if section_id in {"executive_summary", "business_overview"}:
+            content.extend(str(item) for item in template_contract.get("market_adaptations") or () if item)
+        content.extend(_section_depth_content(section_id, bundle, fact_by_key, evidence))
         sections.append(
             {
                 "section_id": section_id,
@@ -341,6 +354,11 @@ def _build_report(
                 "status": _section_status(section_id, bundle, fact_by_key, evidence),
                 "content": list(dict.fromkeys(content)),
                 "evidence_ids": section_evidence_ids[:4],
+                "analysis_dimensions": list(
+                    (template_contract.get("section_analysis_dimensions") or {}).get(section_id) or ()
+                ),
+                "company_specific_item_count": len(list(dict.fromkeys([*company_content, *pack_content]))),
+                "research_pack_item_count": len(pack_content),
                 "research_pack_refs": {
                     key: list(dict.fromkeys(str(item) for item in pack_refs.get(key) or () if item))
                     for key in ("agent_ids", "finding_ids", "fact_ids", "evidence_ids")
@@ -350,7 +368,7 @@ def _build_report(
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
-        "title": f"{target.get('display_name') or target.get('display_code') or '公司'}财务诊断报告",
+        "title": f"{target.get('display_name') or target.get('display_code') or '公司'}年度深度分析报告",
         "company": {
             "company_key": target.get("company_key"),
             "company_wiki_id": target.get("company_wiki_id"),
@@ -365,6 +383,7 @@ def _build_report(
         "capabilities": dict(bundle.get("capabilities") or {}),
         "entity_profile": entity_profile,
         "market_policy": market_policy,
+        "report_template": template_contract,
         "kpis": _build_kpis(fact_by_key, entity_profile),
         "visuals": _build_visuals(fact_by_key, entity_profile),
         "claims": claims,
@@ -544,14 +563,50 @@ def _section_status(
     evidence: Sequence[Mapping[str, Any]],
 ) -> str:
     capabilities = bundle.get("capabilities") if isinstance(bundle.get("capabilities"), Mapping) else {}
-    financial_institution = bool(capabilities.get("financial_institution"))
+    entity_profile = bundle.get("entity_profile") if isinstance(bundle.get("entity_profile"), Mapping) else {}
+    financial_institution = bool(entity_profile.get("financial_institution", capabilities.get("financial_institution")))
     if financial_institution and section_id == "cash_flow":
         return "not_applicable"
     if financial_institution and section_id == "capital_allocation":
-        return "ready" if capabilities.get("structured_metrics") else "degraded"
+        institution_metrics = {
+            "capital_adequacy_ratio",
+            "core_tier_1_capital_adequacy_ratio",
+            "tier_1_capital_ratio",
+            "solvency_ratio",
+        }
+        return "ready" if institution_metrics.intersection(fact_by_key) else "degraded"
     if section_id == "valuation_boundary" and not capabilities.get("market_snapshot"):
         return "unavailable"
     if section_id == "segments" and not any("segment" in key for key in fact_by_key):
+        return "degraded"
+    metric_requirements = {
+        "executive_summary": {
+            "revenue",
+            "operating_revenue",
+            "total_revenue",
+            "net_income",
+            "net_profit",
+            "parent_net_profit",
+            "net_interest_income",
+            "insurance_revenue",
+        },
+        "revenue_quality": {"revenue", "operating_revenue", "total_revenue", "net_interest_income", "insurance_revenue"},
+        "profitability": {"net_income", "net_profit", "parent_net_profit", "net_profit_parent", "operating_income", "operating_profit"},
+        "balance_sheet": {"total_assets", "total_liabilities", "total_equity"},
+        "cash_flow": {"operating_cash_flow", "operating_cash_flow_net", "net_operating_cash_flow"},
+        "capital_allocation": {
+            "capital_expenditure",
+            "capex",
+            "purchase_of_property_plant_equipment",
+            "dividends_paid",
+            "share_repurchases",
+            "total_debt",
+            "interest_bearing_debt",
+        },
+        "accounting_quality": set(fact_by_key),
+    }
+    required_metrics = metric_requirements.get(section_id)
+    if required_metrics is not None and not required_metrics.intersection(fact_by_key):
         return "degraded"
     role_requirements = {
         "business_overview": {"business", "mda"},
@@ -567,6 +622,60 @@ def _section_status(
     if section_id == "traceability" and not evidence:
         return "degraded"
     return "ready"
+
+
+def _research_pack_section_content(
+    section_id: str,
+    packs: Sequence[Mapping[str, Any]],
+    facts: Sequence[Mapping[str, Any]],
+    evidence: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    facts_by_id = {_fact_record_id(item): item for item in facts if _fact_is_analysis_eligible(item)}
+    evidence_by_id = {_evidence_id(item): item for item in evidence}
+    output: list[str] = []
+    for pack in packs:
+        if not isinstance(pack, Mapping):
+            continue
+        coverage = pack.get("coverage") if isinstance(pack.get("coverage"), Mapping) else {}
+        covers_section = section_id in {str(item) for item in coverage.get("section_ids") or ()}
+        for finding in pack.get("finding_records") or ():
+            if not isinstance(finding, Mapping) or section_id not in {
+                str(item) for item in finding.get("section_ids") or ()
+            }:
+                continue
+            fact = facts_by_id.get(str(finding.get("fact_id") or ""))
+            if fact is not None:
+                label = METRIC_LABELS.get(
+                    str(fact.get("metric_key") or ""),
+                    str(fact.get("raw_label") or fact.get("metric_key") or "指标"),
+                )
+                output.append(f"结构化事实复核：{label}{_format_fact(fact)}。")
+                continue
+            evidence_item = next(
+                (
+                    evidence_by_id.get(str(evidence_id))
+                    for evidence_id in finding.get("evidence_ids") or ()
+                    if evidence_by_id.get(str(evidence_id)) is not None
+                ),
+                None,
+            )
+            if evidence_item is not None:
+                label = _evidence_semantic_label(evidence_item)
+                output.append(f"年报披露核验：已定位{label}，正文判断仅使用其可回溯事实，不直接堆叠原文片段。")
+        if covers_section and not output and section_id == "valuation_boundary":
+            missing = [str(item) for item in pack.get("missing_inputs") or () if item]
+            if missing:
+                output.append("同业与市场估值输入尚不完整，本章仅保留估值方法、预期差和补数边界。")
+    return list(dict.fromkeys(output))[:4]
+
+
+def _fact_record_id(fact: Mapping[str, Any]) -> str:
+    explicit = str(fact.get("fact_id") or "").strip()
+    if explicit:
+        return explicit
+    return "fact_" + hashlib.sha256(
+        json.dumps(fact, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
 
 
 def _section_content(
@@ -757,6 +866,11 @@ def _section_content(
             "同名 XBRL concept 按 context、期间、QTD/YTD 和 dimensions 保持可区分；公司扩展概念不自动等同 non-GAAP。",
         ]
     if section_id == "valuation_boundary":
+        capabilities = bundle.get("capabilities") if isinstance(bundle.get("capabilities"), Mapping) else {}
+        if capabilities.get("market_snapshot"):
+            return [
+                "市场估值快照已标记为可用；估值结论仍需核对快照日期、币种、股份数、净债务及同业口径后才能发布。"
+            ]
         return ["本报告未接入可比的实时行情与估值快照，因此不输出估值倍数或目标价。"]
     if section_id == "tracking":
         return ["后续应跟踪收入、利润、经营现金流、资产负债变化及报告中已披露的主要风险。"]
@@ -768,6 +882,188 @@ def _section_content(
         f"共读取 {len(all_facts)} 条结构化事实，{excluded} 条因核心指标资格或语义冲突仅保留在审计数据中，未进入摘要、图表或数值声明。",
         "源报告、指标与证据保持只读；完整证据数组保存在 JSON 结构化附件中，HTML 仅折叠展示核心结论实际引用的可读定位。",
     ]
+
+
+def _section_depth_content(
+    section_id: str,
+    bundle: Mapping[str, Any],
+    fact_by_key: Mapping[str, Sequence[Mapping[str, Any]]],
+    evidence: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    source_report = bundle.get("source_report") if isinstance(bundle.get("source_report"), Mapping) else {}
+    entity_profile = bundle.get("entity_profile") if isinstance(bundle.get("entity_profile"), Mapping) else {}
+    financial_institution = bool(entity_profile.get("financial_institution"))
+    financial_checks = bundle.get("financial_checks") if isinstance(bundle.get("financial_checks"), Mapping) else {}
+    revenue = _latest(fact_by_key, "revenue", "operating_revenue", "total_revenue")
+    profit = _latest(fact_by_key, "net_income", "net_profit", "parent_net_profit", "net_profit_parent")
+    operating_profit = _latest(fact_by_key, "operating_income", "operating_profit")
+    ocf = _latest(fact_by_key, "operating_cash_flow", "operating_cash_flow_net", "net_operating_cash_flow")
+    assets = _latest(fact_by_key, "total_assets")
+    equity = _latest(fact_by_key, "total_equity", "shareholders_equity")
+    current_assets = _latest(fact_by_key, "current_assets", "total_current_assets")
+    current_liabilities = _latest(fact_by_key, "current_liabilities", "total_current_liabilities")
+    cash = _latest(fact_by_key, "cash_and_cash_equivalents", "cash_and_equivalents", "cash")
+    debt = _latest(fact_by_key, "total_debt", "interest_bearing_debt", "borrowings")
+    capex = _latest(fact_by_key, "capital_expenditure", "capex", "purchase_of_property_plant_equipment")
+    warning_count = len(financial_checks.get("warnings") or ()) + len(financial_checks.get("issues") or ())
+
+    if section_id == "executive_summary":
+        return [
+            _ratio_sentence("利润率", profit, revenue) or "利润与收入缺少同期间同口径数据，执行摘要不伪造利润率。",
+            _ratio_sentence("经营现金流/利润", ocf, profit)
+            or "经营现金流与利润不可比，收益质量判断保持降级。",
+            f"关键结论同时检查增长、盈利、现金转化、资产负债和披露风险；当前财务检查保留 {warning_count} 项告警。",
+            "结论强度按证据覆盖分级：已验证事实、基于事实的分析推论、数据缺口三者明确区分。",
+        ]
+    if section_id == "business_overview":
+        return [
+            f"报告期类型为 {source_report.get('report_type') or source_report.get('form_type') or '未披露'}，呈报币种为 {source_report.get('reporting_currency') or '未披露'}。",
+            "竞争定位只使用年报业务、分部、地域、客户及管理层讨论证据；行业常识不能替代公司披露。",
+            "商业模式分析需回答收入来源、定价与成本驱动、资本强度、周期性及主要外部依赖，并对缺失项降级。",
+        ]
+    if section_id == "revenue_quality":
+        return [
+            _series_coverage_sentence("收入", fact_by_key, "revenue", "operating_revenue", "total_revenue"),
+            _ratio_sentence("经营现金流/收入", ocf, revenue)
+            or "经营现金流与收入不可比，无法验证收入的现金实现程度。",
+            "收入质量进一步核对分部/地域结构、客户集中、合同负债或递延收入及应收款变化；未解析字段不会用经验值补齐。",
+        ]
+    if section_id == "profitability":
+        return [
+            _ratio_sentence("净利率", profit, revenue) or "利润与收入不可比，不计算净利率。",
+            _ratio_sentence("营业利润率", operating_profit, revenue)
+            or "营业利润与收入不可比，不计算营业利润率。",
+            _ratio_sentence("资产收益率代理值", profit, assets)
+            or "利润与资产不可比，不计算资产收益率代理值。",
+            "利润驱动需拆分收入、毛利、费用、减值、税项、投资收益和一次性项目；只有具备证据的驱动才进入结论。",
+        ]
+    if section_id == "balance_sheet":
+        return [
+            _ratio_sentence("权益占资产比重", equity, assets) or "权益与资产不可比，不计算资本缓冲比例。",
+            _ratio_sentence("流动比率", current_assets, current_liabilities)
+            or "流动资产或流动负债缺失，短期流动性评价保持降级。",
+            _ratio_sentence("有息负债/权益", debt, equity)
+            or "有息负债或权益缺失，不输出杠杆倍数。",
+            "资产负债诊断同步检查债务期限、受限资金、商誉与减值、养老金及表外承诺，缺少附注证据时不作肯定判断。",
+        ]
+    if section_id == "cash_flow":
+        if financial_institution:
+            return [
+                "金融机构现金流不按工业企业自由现金流框架下结论，改用监管资本、流动性覆盖、资产负债期限与资金来源稳定性。",
+                "存贷款、保费、赔付及投资资产变动必须结合金融机构报表结构解释，不能把经营现金流正负直接等同经营好坏。",
+                "缺少监管流动性指标时，本章仅保留披露边界与后续补数要求。",
+                "任何现金流判断都需与利润、资产负债和资本充足/偿付能力交叉验证。",
+            ]
+        return [
+            _series_coverage_sentence(
+                "经营现金流",
+                fact_by_key,
+                "operating_cash_flow",
+                "operating_cash_flow_net",
+                "net_operating_cash_flow",
+            ),
+            _free_cash_flow_sentence(ocf, capex),
+            "现金流诊断重点识别利润增长但现金转弱、营运资本占用、一次性回款及资本开支挤压等背离。",
+        ]
+    if section_id == "capital_allocation":
+        return [
+            _ratio_sentence("资本开支/收入", capex, revenue)
+            or "资本开支或收入缺少同口径数据，不计算再投资强度。",
+            _net_debt_sentence(debt, cash),
+            "分红、回购、并购、减债与再投资应分别评价资金来源、回报门槛和资产负债影响，不把股东回报自动视为价值创造。",
+        ]
+    if section_id == "segments":
+        return [
+            "分部分析至少覆盖收入/利润贡献、增长差异、资本占用和地域或产品集中度；无法量化时明确指出缺失字段。",
+            "分部间抵销、口径调整和总部费用不与经营分部直接混同，避免高估单一业务贡献。",
+            "关键经营驱动需落到销量、价格、客户、门店/产能、利用率或单位经济性等公司实际披露指标。",
+        ]
+    if section_id == "risk_factors":
+        return [
+            f"风险排序同时考虑发生可能性、财务影响、可逆性和证据强度；当前结构化财务检查记录 {warning_count} 项告警。",
+            "每项核心风险必须写明传导链：触发因素 -> 收入/利润/现金流/资产负债影响 -> 可观察预警指标。",
+            "汇率、利率、税务、诉讼、监管、供应链和网络安全等仅在当前报告存在对应披露时列为公司特定风险。",
+        ]
+    if section_id == "controls":
+        return [
+            "治理分析区分董事会结构、审计委员会监督、管理层自评、外部审计意见和已披露缺陷，不能相互替代。",
+            "关联交易、控股股东影响、少数股东权益及管理层激励仅在年报证据覆盖时形成判断。",
+            "若审计意见、关键审计事项或重大缺陷未进入解析包，结论必须标记为未核验而非默认正常。",
+        ]
+    if section_id == "accounting_quality":
+        return [
+            "会计质量检查覆盖收入确认、减值、资本化、准备金、税项、养老金、租赁及公允价值等高判断领域。",
+            "GAAP/IFRS 指标、公司定义替代业绩指标和分析计算值分别标识，禁止跨口径拼接同比或利润率。",
+            "利润与现金流、资产增长与收入增长、应收/存货与业务变化之间出现背离时，应列为待验证信号。",
+        ]
+    if section_id == "valuation_boundary":
+        return [
+            "估值框架应按商业模式选择盈利、现金流、账面价值或分部估值锚点，并与同业口径保持一致。",
+            "缺少报告期末股价、净债务、股份数和一致预期时，只讨论估值驱动与预期差，不给出伪精确倍数或目标价。",
+            "估值重估条件需对应可验证的增长、利润率、现金转化、资本效率或风险溢价变化。",
+        ]
+    if section_id == "tracking":
+        return [
+            "下一报告期优先复核收入与利润趋势是否同向、经营现金流是否跟随以及资产负债率是否恶化。",
+            "跟踪分部/地域增长、毛利或营业利润率、资本开支、净债务及管理层给出的关键经营指标。",
+            "催化剂必须绑定可验证事件或指标改善，不能仅写宏观转好、行业复苏等不可核验套话。",
+            "反证条件包括核心指标口径重述、现金转化持续弱于利润、债务上升或关键风险披露升级。",
+            "所有跟踪项保留期间、币种、会计基础和证据定位，避免跨期口径漂移。",
+        ]
+    return [
+        f"可回溯证据覆盖率为 {sum(_evidence_has_locator(item) for item in evidence)}/{len(evidence)}。",
+        "正文只展示支撑核心结论的有限证据，完整事实与证据保留在 JSON 审计附件。",
+        "数据缺口、语义冲突和不可比期间均进入限制说明，不以零值、行业均值或模型猜测替代。",
+    ]
+
+
+def _series_coverage_sentence(
+    label: str,
+    fact_by_key: Mapping[str, Sequence[Mapping[str, Any]]],
+    *keys: str,
+) -> str:
+    periods = {
+        str(item.get("period_end") or item.get("period") or "")
+        for key in keys
+        for item in fact_by_key.get(key, ())
+        if _numeric_value(item) is not None and str(item.get("period_end") or item.get("period") or "")
+    }
+    if len(periods) >= 3:
+        return f"{label}已覆盖 {len(periods)} 个可识别期间，可用于观察中期趋势；同比仍仅在币种、范围和会计基础一致时计算。"
+    return f"{label}仅覆盖 {len(periods)} 个可识别期间，趋势判断样本不足，报告不外推长期增速。"
+
+
+def _free_cash_flow_sentence(
+    operating_cash_flow: Mapping[str, Any] | None,
+    capital_expenditure: Mapping[str, Any] | None,
+) -> str:
+    if not operating_cash_flow or not capital_expenditure or not _facts_comparable(
+        operating_cash_flow,
+        capital_expenditure,
+        require_distinct_period=False,
+    ):
+        return "经营现金流与资本开支缺少同期间同口径数据，不计算自由现金流。"
+    ocf_value = _numeric_value(operating_cash_flow)
+    capex_value = _numeric_value(capital_expenditure)
+    if ocf_value is None or capex_value is None:
+        return "经营现金流或资本开支不是可验证数值，不计算自由现金流。"
+    free_cash_flow = ocf_value - abs(capex_value)
+    currency = str(operating_cash_flow.get("currency") or "")
+    return f"自由现金流代理值为 {_format_chart_amount(free_cash_flow, currency)}（经营现金流减资本开支绝对值；不替代公司定义口径）。"
+
+
+def _net_debt_sentence(
+    debt: Mapping[str, Any] | None,
+    cash: Mapping[str, Any] | None,
+) -> str:
+    if not debt or not cash or not _facts_comparable(debt, cash, require_distinct_period=False):
+        return "有息负债与现金缺少同期间同口径数据，不计算净债务。"
+    debt_value = _numeric_value(debt)
+    cash_value = _numeric_value(cash)
+    if debt_value is None or cash_value is None:
+        return "有息负债或现金不是可验证数值，不计算净债务。"
+    currency = str(debt.get("currency") or "")
+    return f"净债务代理值为 {_format_chart_amount(debt_value - cash_value, currency)}（有息负债减现金及现金等价物）。"
 
 
 def _section_evidence_ids(
@@ -1566,7 +1862,7 @@ def _render_html(report: Mapping[str, Any]) -> str:
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(report["title"])}</title><style>
-:root{{--ink:#172033;--muted:#607089;--line:#d9e2ee;--blue:#1769e0;--warn:#a45b00;--bg:#f4f7fb;--chart-grid:#cbd6e3}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0}}main{{max-width:1120px;margin:auto;background:#fff;min-height:100vh;padding:56px clamp(24px,6vw,80px);overflow:hidden}}header{{border-bottom:2px solid var(--ink);padding-bottom:28px}}h1{{font-family:Georgia,"Noto Serif SC",serif;font-size:38px;margin:0 0 12px}}.meta{{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted)}}.quality{{display:inline-block;margin-top:18px;padding:4px 10px;border:1px solid #e2b16d;color:var(--warn);border-radius:4px}}section{{padding:30px 0;border-bottom:1px solid var(--line)}}.section-title{{display:grid;grid-template-columns:36px 1fr auto;align-items:center;gap:12px}}.section-title span{{color:var(--blue);font-weight:700}}h2{{font-size:21px;margin:0}}h3{{font-size:16px;margin:24px 0 8px}}.section-title b{{font-size:12px;color:var(--muted);font-weight:600}}li{{margin:8px 0}}.citations{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}.citations:empty{{display:none}}.evidence-link{{color:var(--blue);text-decoration:none;border-bottom:1px solid #9fc4f7}}.evidence-link:focus-visible,.chart-mark:focus-visible,summary:focus-visible{{outline:3px solid #e0a126;outline-offset:3px}}.kpi-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:24px;border-block:1px solid var(--line)}}.kpi{{min-width:0;padding:18px 16px;border-left:1px solid var(--line)}}.kpi:first-child{{border-left:0}}.kpi span,.kpi strong{{display:block}}.kpi span{{color:var(--muted)}}.kpi strong{{font-size:18px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}}.kpi .evidence-link{{display:inline-block;margin-top:6px;font-size:13px}}.chart-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:28px}}.chart-figure{{min-width:0;margin:0;border:1px solid var(--line);border-radius:4px;padding:16px;background:#fff}}.chart-figure figcaption{{font-size:16px;font-weight:700}}.chart-figure p{{margin:6px 0 0;color:var(--muted);font-size:13px}}.financial-chart{{display:block;width:100%;height:auto;aspect-ratio:720/310;min-height:250px}}.financial-chart text{{fill:var(--ink);font:12px system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0}}.financial-chart .axis-label{{fill:var(--muted)}}.chart-axis{{stroke:var(--chart-grid);stroke-width:1;vector-effect:non-scaling-stroke}}.trend-line{{fill:none;stroke:var(--blue);stroke-width:3;vector-effect:non-scaling-stroke}}.chart-mark circle{{fill:#fff;stroke:var(--blue);stroke-width:3;vector-effect:non-scaling-stroke}}table{{width:100%;border-collapse:collapse;margin-top:20px}}th,td{{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}}details.evidence-catalog{{margin-top:18px;border-block:1px solid var(--line)}}details.evidence-catalog>summary{{cursor:pointer;padding:16px 0;font-weight:700;color:var(--blue)}}.evidence-catalog-body{{padding:0 0 18px}}.evidence-reference{{padding:14px 0;border-bottom:1px solid var(--line);scroll-margin-top:18px}}.evidence-reference-head{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}}.source-link{{color:var(--blue);white-space:nowrap}}.source-unavailable,.audit-id{{color:var(--muted)}}.audit-id{{display:block;margin-top:4px;overflow-wrap:anywhere}}blockquote{{margin:9px 0 0;padding-left:12px;border-left:2px solid var(--line);color:var(--muted)}}footer{{margin-top:40px;color:var(--muted)}}@media(max-width:760px){{.chart-grid{{grid-template-columns:1fr}}.kpi-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.kpi:nth-child(odd){{border-left:0}}}}@media(max-width:640px){{main{{padding:30px 18px}}h1{{font-size:30px}}.section-title{{grid-template-columns:30px 1fr}}.section-title b{{grid-column:2}}.chart-figure{{padding:8px}}.financial-chart{{min-height:210px}}.evidence-reference-head{{display:block}}.source-link,.source-unavailable{{display:inline-block;margin-top:6px}}table{{display:block;max-width:100%;overflow-x:auto}}}}
+:root{{--ink:#172033;--muted:#607089;--line:#d9e2ee;--blue:#1769e0;--warn:#a45b00;--bg:#f4f7fb;--chart-grid:#cbd6e3}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0}}main{{max-width:1120px;margin:auto;background:#fff;min-height:100vh;padding:56px clamp(24px,6vw,80px);overflow:hidden}}header{{border-bottom:2px solid var(--ink);padding-bottom:28px}}h1{{font-family:Georgia,"Noto Serif SC",serif;font-size:38px;margin:0 0 12px}}.meta{{display:flex;flex-wrap:wrap;gap:8px 22px;color:var(--muted)}}.quality{{display:inline-block;margin-top:18px;padding:4px 10px;border:1px solid #e2b16d;color:var(--warn);border-radius:4px}}section{{padding:30px 0;border-bottom:1px solid var(--line)}}.section-title{{display:grid;grid-template-columns:36px 1fr auto;align-items:center;gap:12px}}.section-title span{{color:var(--blue);font-weight:700}}h2{{font-size:21px;margin:0}}h3{{font-size:16px;margin:24px 0 8px}}.section-title b{{font-size:12px;color:var(--muted);font-weight:600}}li{{margin:8px 0}}.citations{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}.citations:empty{{display:none}}.evidence-link{{color:var(--blue);text-decoration:none;border-bottom:1px solid #9fc4f7}}.evidence-link:focus-visible,.chart-mark:focus-visible,summary:focus-visible{{outline:3px solid #e0a126;outline-offset:3px}}.kpi-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:24px;border-block:1px solid var(--line)}}.kpi{{min-width:0;padding:18px 16px;border-left:1px solid var(--line)}}.kpi:first-child{{border-left:0}}.kpi span,.kpi strong{{display:block}}.kpi span{{color:var(--muted)}}.kpi strong{{font-size:18px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}}.kpi .evidence-link{{display:inline-block;margin-top:6px;font-size:13px}}.chart-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:28px}}.chart-figure{{min-width:0;margin:0;border:1px solid var(--line);border-radius:4px;padding:16px;background:#fff}}.chart-figure figcaption{{font-size:16px;font-weight:700}}.chart-figure p{{margin:6px 0 0;color:var(--muted);font-size:13px}}.financial-chart{{display:block;width:100%;height:auto;aspect-ratio:720/310;min-height:250px}}.financial-chart text{{fill:var(--ink);font:12px system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:0}}.financial-chart .axis-label{{fill:var(--muted)}}.chart-axis{{stroke:var(--chart-grid);stroke-width:1;vector-effect:non-scaling-stroke}}.trend-line{{fill:none;stroke:var(--blue);stroke-width:3;vector-effect:non-scaling-stroke}}.chart-mark circle{{fill:#fff;stroke:var(--blue);stroke-width:3;vector-effect:non-scaling-stroke}}table{{width:100%;border-collapse:collapse;margin-top:20px}}th,td{{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}}details.evidence-catalog{{margin-top:18px;border-block:1px solid var(--line)}}details.evidence-catalog>summary{{cursor:pointer;padding:16px 0;font-weight:700;color:var(--blue)}}.evidence-catalog-body{{max-height:min(70vh,960px);overflow:auto;overscroll-behavior:contain;padding:0 12px 18px 0}}.evidence-reference{{padding:14px 0;border-bottom:1px solid var(--line);scroll-margin-top:18px}}.evidence-reference-head{{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}}.source-link{{color:var(--blue);white-space:nowrap}}.source-unavailable,.audit-id{{color:var(--muted)}}.audit-id{{display:block;margin-top:4px;overflow-wrap:anywhere}}blockquote{{margin:9px 0 0;padding-left:12px;border-left:2px solid var(--line);color:var(--muted)}}footer{{margin-top:40px;color:var(--muted)}}@media(max-width:760px){{.chart-grid{{grid-template-columns:1fr}}.kpi-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.kpi:nth-child(odd){{border-left:0}}}}@media(max-width:640px){{main{{padding:30px 18px}}h1{{font-size:30px}}.section-title{{grid-template-columns:30px 1fr}}.section-title b{{grid-column:2}}.chart-figure{{padding:8px}}.financial-chart{{min-height:210px}}.evidence-reference-head{{display:block}}.source-link,.source-unavailable{{display:inline-block;margin-top:6px}}table{{display:block;max-width:100%;overflow-x:auto}}}}
 </style></head><body><main><header><h1>{html.escape(report["title"])}</h1><div class="meta"><span>{html.escape(market_label)}</span><span>{html.escape(str(report["company"].get("display_code") or ""))}</span><span>{html.escape(str(source.get("report_id") or ""))}</span><span>截止 {html.escape(str(source.get("period_end") or "未披露"))}</span><span>{html.escape(str(report["adapter"].get("source_family")))}</span></div><div class="quality">源数据质量：{html.escape(quality)}</div></header>{_render_visual_summary(report, evidence_by_id)}{"".join(markdown_sections)}<section><div class="section-title"><span>15</span><h2>核心事实表</h2><b>可回溯</b></div><table><tbody>{"".join(fact_rows)}</tbody></table></section><section><div class="section-title"><span>16</span><h2>核心结论证据</h2><b>只读审计</b></div><p>正文仅保留核心结论使用的可读定位摘要；全部适配器证据保存在 JSON 结构化附件中。</p>{evidence_catalog}</section><footer>{html.escape(report["disclaimer"])}</footer></main><script>document.addEventListener("click",function(event){{var link=event.target.closest('a[href^="#evidence-"]');if(!link)return;var target=document.querySelector(link.getAttribute("href"));if(!target)return;var catalog=target.closest("details");if(catalog)catalog.open=true;}});</script></body></html>"""
 
 
@@ -1582,6 +1878,48 @@ def _validate_rendered_report(
         failures.append("research_identity_incomplete")
     if len(report.get("sections") or ()) != len(SECTION_SPECS):
         failures.append("section_count_invalid")
+    report_template = report.get("report_template") if isinstance(report.get("report_template"), Mapping) else {}
+    failures.extend(validate_template_contract(report_template))
+    if report_template.get("template_id") != OVERSEAS_TEMPLATE_ID:
+        failures.append("overseas_template_missing")
+    if str(report_template.get("market") or "") != str(identity.get("market") or ""):
+        failures.append("overseas_template_identity_mismatch")
+    minimum_items = (
+        report_template.get("section_minimum_items")
+        if isinstance(report_template.get("section_minimum_items"), Mapping)
+        else {}
+    )
+    minimum_company_items = (
+        report_template.get("section_minimum_company_items")
+        if isinstance(report_template.get("section_minimum_company_items"), Mapping)
+        else {}
+    )
+    expected_dimensions = (
+        report_template.get("section_analysis_dimensions")
+        if isinstance(report_template.get("section_analysis_dimensions"), Mapping)
+        else {}
+    )
+    covered_dimensions: set[str] = set()
+    for section in report.get("sections") or ():
+        if not isinstance(section, Mapping):
+            continue
+        section_id = str(section.get("section_id") or "")
+        required = int(minimum_items.get(section_id) or 0)
+        if len(section.get("content") or ()) < required:
+            failures.append("overseas_section_depth_insufficient")
+        required_company_items = int(minimum_company_items.get(section_id) or 0)
+        if int(section.get("company_specific_item_count") or 0) < required_company_items:
+            failures.append("overseas_section_company_analysis_insufficient")
+        dimensions = [str(item) for item in section.get("analysis_dimensions") or () if item]
+        if dimensions != [str(item) for item in expected_dimensions.get(section_id) or () if item]:
+            failures.append("overseas_section_dimension_mismatch")
+        covered_dimensions.update(dimensions)
+        pack_refs = section.get("research_pack_refs") if isinstance(section.get("research_pack_refs"), Mapping) else {}
+        if pack_refs.get("finding_ids") and int(section.get("research_pack_item_count") or 0) <= 0:
+            failures.append("research_pack_findings_not_consumed")
+    required_dimensions = {str(item) for item in report_template.get("required_analysis_dimensions") or () if item}
+    if not required_dimensions.issubset(covered_dimensions):
+        failures.append("overseas_report_dimensions_incomplete")
     market_policy = report.get("market_policy") if isinstance(report.get("market_policy"), Mapping) else {}
     policy_market = market_policy.get("market") if isinstance(market_policy.get("market"), Mapping) else {}
     if market_policy.get("schema_version") != POLICY_SCHEMA_VERSION:

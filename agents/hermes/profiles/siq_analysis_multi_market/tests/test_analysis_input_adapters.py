@@ -650,7 +650,14 @@ def test_renderer_bounds_claim_evidence_catalog_and_keeps_full_json_audit_payloa
     rendered_catalog_count = rendered.count('class="evidence-reference"')
 
     assert report["claims"]
+    assert report["report_template"]["template_id"] == "siq_overseas_annual_report_v1"
+    assert report["report_template"]["market"] == "HK"
+    assert "max-height:min(70vh,960px)" in rendered
+    executive = next(item for item in report["sections"] if item["section_id"] == "executive_summary")
+    assert executive["research_pack_item_count"] > 0
+    assert {"multi_period_trend", "cross_statement_check"} <= set(executive["analysis_dimensions"])
     assert sidecar["metadata"]["claims"] == report["claims"]
+    assert sidecar["metadata"]["report_template"]["template_id"] == "siq_overseas_annual_report_v1"
     assert all({"claim_id", "claim", "claim_type", "evidence_ids"} <= claim.keys() for claim in report["claims"])
     assert '<details class="evidence-catalog">' in rendered
     assert '<details class="evidence-catalog" open' not in rendered
@@ -1147,9 +1154,9 @@ def test_formal_renderer_emits_responsive_evidence_bound_financial_charts(tmp_pa
 
 @pytest.mark.parametrize(
     ("market", "currency"),
-    (("CN", "CNY"), ("HK", "HKD"), ("JP", "JPY"), ("KR", "KRW"), ("EU", "EUR")),
+    (("HK", "HKD"), ("JP", "JPY"), ("KR", "KRW"), ("EU", "EUR")),
 )
-def test_pdf_markets_share_formal_pack_and_renderer_without_currency_assumptions(tmp_path, market, currency):
+def test_overseas_pdf_markets_share_formal_pack_and_renderer_without_currency_assumptions(tmp_path, market, currency):
     company_dir, report_dir, target = _pdf_fixture(tmp_path / market.lower())
     identity = {
         "market": market,
