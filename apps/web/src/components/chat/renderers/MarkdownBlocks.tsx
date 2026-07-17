@@ -22,7 +22,6 @@ import {
 
 export function MarkdownBlocks({
   lines,
-  streaming,
   auditTraceApiPrefix = '/api',
 }: {
   lines: string[]
@@ -41,7 +40,7 @@ export function MarkdownBlocks({
       continue
     }
 
-    if (hasHtmlTable(lines.slice(i).join('\n')) && !streaming) {
+    if (hasHtmlTable(lines.slice(i).join('\n'))) {
       const htmlLines: string[] = []
       while (i < lines.length) {
         htmlLines.push(lines[i])
@@ -92,7 +91,7 @@ export function MarkdownBlocks({
       continue
     }
 
-    if (isLikelyTableStart(lines, i) && !streaming) {
+    if (isLikelyTableStart(lines, i)) {
       const tableData = parseMarkdownTable(lines, i)
       if (tableData) {
         i = tableData.lineIndex
@@ -101,7 +100,7 @@ export function MarkdownBlocks({
       }
     }
 
-    if (isLikelyAlignedTableStart(lines, i) && !streaming) {
+    if (isLikelyAlignedTableStart(lines, i)) {
       const tableData = parseAlignedTable(lines, i)
       if (tableData) {
         i = tableData.lineIndex
