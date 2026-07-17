@@ -1,3 +1,4 @@
+import json
 import re
 import sys
 from pathlib import Path
@@ -10,7 +11,14 @@ sys.path.insert(
     str(Path(__file__).resolve().parents[3] / "agents" / "hermes" / "profiles" / "shared" / "scripts"),
 )
 
-from local_citations import _company_task_index, _report_table_records, primary_report, resolve_citation_refs
+from local_citations import (
+    _company_task_index,
+    _report_table_records,
+    enrich_citation_line,
+    find_company_dir_from_text,
+    primary_report,
+    resolve_citation_refs,
+)
 from services.citation_links import append_missing_pdf_source_links
 
 from services import citation_links
@@ -22,6 +30,76 @@ SABIC_TASK_ID = "914d6a5a-9aed-47ab-b4ae-a380a9b95253"
 BASF_TASK_ID = "03690a47-062e-42eb-9ad7-d609a87cf777"
 WANHUA_TASK_ID = "f256875c-dad2-4fbf-9240-ef288fea0b0f"
 PURE_HELPER_TASK_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def _write_pdf_market_fixture(
+    wiki_base: Path,
+    *,
+    market: str,
+    company_dir_name: str,
+    company_id: str,
+    stock_code: str,
+    company_name: str,
+    task_id: str,
+    metric_name: str,
+    canonical_name: str,
+    period: str,
+) -> Path:
+    company_dir = wiki_base / market.lower() / "companies" / company_dir_name
+    (company_dir / "metrics" / "reports" / "2025-annual").mkdir(parents=True)
+    (company_dir / "reports" / "2025-annual").mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "company_id": company_id,
+                "stock_code": stock_code,
+                "company_short_name": company_name,
+                "aliases": [stock_code, company_name],
+                "reports": [
+                    {
+                        "report_id": "2025-annual",
+                        "task_id": task_id,
+                        "period_end": period,
+                        "document_full": "reports/2025-annual/document_full.json",
+                        "source_filename_metadata": {
+                            "market": market,
+                            "stock_code": stock_code,
+                            "company_short_name": company_name,
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (company_dir / "metrics" / "reports" / "2025-annual" / "three_statements.json").write_text(
+        json.dumps(
+            {
+                "data": [
+                    {
+                        "metric_name": metric_name,
+                        "canonical_name": canonical_name,
+                        "period": period,
+                        "value": "100",
+                        "unit": "million",
+                        "source": {
+                            "pdf_page": 7,
+                            "table_index": 3,
+                            "md_line": 88,
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (company_dir / "reports" / "2025-annual" / "document_full.json").write_text(
+        json.dumps({"task": {"task_id": task_id}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return company_dir
 
 
 def _disable_local_enricher(monkeypatch):
@@ -591,3 +669,200 @@ def test_multi_company_citations_resolve_each_line_by_own_task_id():
     assert f"/api/source/{BASF_TASK_ID}/table/260?format=html" in basf_block
     assert f"/api/pdf_page/{WANHUA_TASK_ID}/" not in basf_block
     assert f"/api/source/{WANHUA_TASK_ID}/" not in basf_block
+
+
+@pytest.mark.parametrize(
+    (
+        "market",
+        "company_dir_name",
+        "company_id",
+        "stock_code",
+        "company_name",
+        "task_id",
+        "metric_name",
+        "canonical_name",
+        "query_metric",
+        "period",
+    ),
+    (
+        ("JP", "7203-Toyota-Motor-Corporation", "JP:7203", "7203", "Toyota Motor Corporation", "11111111-1111-1111-1111-111111111101", "資本合計", "total_equity", "资本合计", "2025-03-31"),
+        ("KR", "005930-Samsung-Electronics-Co-Ltd", "KR:005930", "005930", "Samsung Electronics Co., Ltd", "11111111-1111-1111-1111-111111111102", "자산총계", "total_assets", "资产合计", "2025-12-31"),
+        ("EU", "SHEL-Shell-plc", "UK:SHEL", "SHEL", "Shell plc", "11111111-1111-1111-1111-111111111103", "Total assets", "total_assets", "资产合计", "2025-12-31"),
+        ("HK", "03690-MEITUAN-W", "HK:03690", "03690", "MEITUAN W", "11111111-1111-1111-1111-111111111104", "商誉", "goodwill", "商誉", "2025-12-31"),
+    ),
+)
+def test_pdf_market_citations_restore_task_page_table_and_links(
+    tmp_path,
+    monkeypatch,
+    market,
+    company_dir_name,
+    company_id,
+    stock_code,
+    company_name,
+    task_id,
+    metric_name,
+    canonical_name,
+    query_metric,
+    period,
+):
+    company_dir = _write_pdf_market_fixture(
+        tmp_path,
+        market=market,
+        company_dir_name=company_dir_name,
+        company_id=company_id,
+        stock_code=stock_code,
+        company_name=company_name,
+        task_id=task_id,
+        metric_name=metric_name,
+        canonical_name=canonical_name,
+        period=period,
+    )
+    stale_task_id = "99999999-9999-9999-9999-999999999999"
+    line = (
+        f"[D1] source_type=wiki_metrics, file=metrics/three_statements.json, "
+        f"metric={query_metric}, period={period}, market={market}, company_id={company_id}, "
+        f"report_id=2025-annual, filing_id={market}:{stock_code}:2025-annual, "
+        f"parse_run_id={market}:parse-run, task_id={stale_task_id}, "
+        "pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+
+    assert find_company_dir_from_text(line, tmp_path) == company_dir
+    monkeypatch.setattr(
+        citation_links,
+        "_get_enrich_citation_line",
+        lambda: lambda source_line, context: enrich_citation_line(source_line, context, tmp_path),
+    )
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda source_task_id: f"token-{source_task_id}")
+
+    enriched = append_missing_pdf_source_links(line)
+
+    assert f"task_id={task_id}" in enriched
+    assert "pdf_page=7" in enriched
+    assert "table_index=3" in enriched
+    assert "md_line=88" in enriched
+    assert f"https://public.example/api/pdf_page/{task_id}/7?format=html&source_token=" in enriched
+    assert f"https://public.example/api/source/{task_id}/page/7?format=html&source_token=" in enriched
+    assert f"https://public.example/api/source/{task_id}/table/3?format=html&source_token=" in enriched
+    assert stale_task_id not in enriched
+
+
+def test_a_share_unknown_explicit_task_id_keeps_existing_identity_boundary(tmp_path):
+    company_dir = tmp_path / "companies" / "600000-Test"
+    company_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps(
+            {
+                "company_id": "600000-Test",
+                "stock_code": "600000",
+                "company_short_name": "测试公司",
+                "reports": [{"report_id": "2025-annual", "task_id": PURE_HELPER_TASK_ID}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    stale_task_id = "99999999-9999-9999-9999-999999999999"
+    line = (
+        f"[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=营业收入, "
+        f"period=2025, market=CN, company_id=600000-Test, task_id={stale_task_id}, "
+        "pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+
+    assert enrich_citation_line(line, line, tmp_path) == line
+
+
+def test_hk_metric_without_structured_source_uses_matching_report_table(tmp_path, monkeypatch):
+    task_id = "11111111-1111-1111-1111-111111111120"
+    company_dir = _write_pdf_market_fixture(
+        tmp_path,
+        market="HK",
+        company_dir_name="03690-MEITUAN-W",
+        company_id="HK:03690",
+        stock_code="03690",
+        company_name="MEITUAN W",
+        task_id=task_id,
+        metric_name="Total assets",
+        canonical_name="total_assets",
+        period="2025-12-31",
+    )
+    (company_dir / "reports" / "2025-annual" / "report.json").write_text(
+        json.dumps(
+            {
+                "tables": [
+                    {
+                        "table_index": 116,
+                        "pdf_page_number": 296,
+                        "line": 6199,
+                        "heading": "16 INTANGIBLE ASSETS",
+                        "preview": "Goodwill RMB'000 As of January 1, 2025 Cost and impairment",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    line = (
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=商誉, "
+        "period=2025-12-31, market=HK, company_id=HK:03690, report_id=2025-annual, "
+        "filing_id=HK:03690:2025-annual, parse_run_id=HK:parse, task_id=未返回, "
+        "pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+    monkeypatch.setattr(
+        citation_links,
+        "_get_enrich_citation_line",
+        lambda: lambda source_line, context: enrich_citation_line(source_line, context, tmp_path),
+    )
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda _task_id: "signed-token")
+
+    enriched = append_missing_pdf_source_links(line)
+
+    assert f"task_id={task_id}" in enriched
+    assert "pdf_page=296" in enriched
+    assert "table_index=116" in enriched
+    assert "md_line=6199" in enriched
+    assert f"/api/source/{task_id}/table/116?format=html&source_token=" in enriched
+
+
+def test_pdf_market_explicit_identity_overrides_task_id_bound_to_another_company(tmp_path):
+    wrong_task_id = "11111111-1111-1111-1111-111111111130"
+    correct_task_id = "11111111-1111-1111-1111-111111111131"
+    _write_pdf_market_fixture(
+        tmp_path,
+        market="KR",
+        company_dir_name="005930-Samsung-Electronics-Co-Ltd",
+        company_id="KR:005930",
+        stock_code="005930",
+        company_name="Samsung Electronics Co., Ltd",
+        task_id=wrong_task_id,
+        metric_name="Total equity",
+        canonical_name="total_equity",
+        period="2025-12-31",
+    )
+    _write_pdf_market_fixture(
+        tmp_path,
+        market="EU",
+        company_dir_name="SHEL-Shell-plc",
+        company_id="UK:SHEL",
+        stock_code="SHEL",
+        company_name="Shell plc",
+        task_id=correct_task_id,
+        metric_name="Total equity",
+        canonical_name="total_equity",
+        period="2025-12-31",
+    )
+    line = (
+        "[D1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=Total equity, "
+        "period=2025-12-31, market=EU, company_id=UK:SHEL, report_id=2025-annual, "
+        f"filing_id=EU:SHEL:2025-annual, parse_run_id=EU:parse, task_id={wrong_task_id}, "
+        "pdf_page=未返回, table_index=未返回, md_line=未返回"
+    )
+
+    enriched = enrich_citation_line(line, line, tmp_path)
+
+    assert f"task_id={correct_task_id}" in enriched
+    assert wrong_task_id not in enriched
+    assert "pdf_page=7" in enriched
+    assert "table_index=3" in enriched

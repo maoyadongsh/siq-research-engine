@@ -852,6 +852,118 @@ def test_second_financial_validation_failure_removes_blocking_language():
     assert "后端确定性财务结果包" not in reply
 
 
+def test_financial_repair_suggestion_keeps_streamed_draft_without_second_rewrite():
+    reply = runtime._reply_with_financial_repair_suggestion(
+        "## 结论\n- 原始高质量回答。\n\n## 解读要点\n- 保留分析深度。",
+        "guardrail_status=blocked\ncalculation_trace_reason=trace_operation_missing",
+    )
+
+    assert "原始高质量回答" in reply
+    assert "保留分析深度" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "`trace_operation_missing`" in reply
+    assert "guardrail_status=blocked" not in reply
+
+
+def test_financial_repair_prompt_requires_readable_single_unit_output():
+    prompt = runtime._financial_repair_run_input(
+        message="分析商誉",
+        draft="原稿",
+        validation_failure="calculation_trace_reason=reconciliation_trace_missing",
+    )
+
+    assert "结论 / 关键数据 / 引用来源" in prompt
+    assert "必须在关键数据后增加“解读要点”章节" in prompt
+    assert "区分披露事实与分析判断" in prompt
+    assert "同一金额只选一种易读单位" in prompt
+    assert "不要输出后端结果包" in prompt
+    assert "同时含三个金额的完整算式" in prompt
+    assert "最小范围编辑" in prompt
+    assert "不得重新概括或整体重写" in prompt
+
+
+def test_financial_repair_quality_gate_rejects_shortened_analysis():
+    original = (
+        "## 结论\n- 经营现金流含金量较高。\n\n"
+        "## 依据/数据\n" + "| 项目 | 金额 |\n| --- | ---: |\n| 经营现金流 | 533 |\n\n" * 2
+        + "## 解读要点\n- 现金回流稳健。\n\n"
+        + "## 风险/关注点\n- 关注回款节奏。\n\n"
+        + "## 后续动作建议\n- 继续核对应收账款。\n\n"
+        + "## 引用来源\n[D1] source_type=wiki_metrics\n"
+        + "分析正文。" * 160
+    )
+    repaired = "## 结论\n- 经营现金流较好。\n\n## 引用来源\n[D1] source_type=wiki_metrics"
+
+    assert not runtime._financial_repair_preserves_content_quality(original, repaired)
+
+
+def test_low_quality_financial_repair_shows_original_and_suggestion():
+    original = (
+        "## 结论\n- 原始高质量结论。\n\n"
+        "## 解读要点\n- 原始分析判断。\n\n"
+        "## 风险/关注点\n- 原始风险提示。\n\n"
+        "## 引用来源\n[D1] source_type=wiki_metrics\n"
+        + "原始详细分析。" * 150
+    )
+    selected = runtime._select_financial_repair_result(
+        first_draft=original,
+        first_validation=(
+            "guardrail_status=blocked\n"
+            "calculation_trace_reason=trace_operation_missing"
+        ),
+        repaired_draft="## 结论\n- 简略回答。",
+        repaired_validation="## 结论\n- 简略回答。",
+    )
+
+    assert "原始高质量结论" in selected
+    assert "原始分析判断" in selected
+    assert "简略回答" in selected
+    assert "# 原始回答（流式原稿）" in selected
+    assert "# 建议修复稿（对照）" in selected
+    assert "内容保真检查未通过" in selected
+    assert "## 校验失败详情" not in selected
+
+
+def test_high_fidelity_financial_repair_shows_both_versions():
+    original = (
+        "## 结论\n- 占比 12%。\n\n"
+        "## 解读要点\n- 风险较低。\n\n"
+        "## 引用来源\n[D1] source_type=wiki_metrics"
+    )
+    repaired = original.replace("12%", "11.69%")
+
+    selected = runtime._select_financial_repair_result(
+        first_draft=original,
+        first_validation="guardrail_status=blocked\ncalculation_trace_reason=trace_claim_result_mismatch",
+        repaired_draft=repaired,
+        repaired_validation=repaired,
+    )
+
+    assert "11.69%" in selected
+    assert "占比 12%" in selected
+    assert "# 原始回答（流式原稿）" in selected
+    assert "# 建议修复稿（对照）" in selected
+    assert "状态：校验通过" in selected
+    assert "## 校验失败详情" not in selected
+
+
+def test_failed_financial_repair_shows_both_versions_and_failure_status():
+    selected = runtime._select_financial_repair_result(
+        first_draft="## 结论\n- 原稿结论。",
+        first_validation="guardrail_status=blocked\ncalculation_trace_reason=trace_operation_missing",
+        repaired_draft="## 结论\n- 建议修复结论。",
+        repaired_validation=(
+            "guardrail_status=blocked\n"
+            "calculation_trace_reason=trace_claim_result_mismatch"
+        ),
+    )
+
+    assert "原稿结论" in selected
+    assert "建议修复结论" in selected
+    assert "状态：仍有校验项未通过" in selected
+    assert "## 校验失败详情" in selected
+
+
 def test_second_financial_validation_failure_hides_verbose_model_traces_and_backend_pack():
     reply = runtime._reply_with_financial_validation_failures(
         "## 结论\n- 正文。\n\n"
@@ -957,6 +1069,27 @@ def test_financial_display_sanitizer_hides_real_answer_trace_pollution():
     assert "34,256,859 千元）。" in displayed
     assert "## 引用来源" in displayed
     assert "[1] source_type=wiki_metrics" in displayed
+
+
+def test_financial_display_sanitizer_keeps_safe_validation_summaries():
+    displayed = runtime._sanitize_financial_reply_for_display(
+        "## 结论\n- 商誉净值 11.83 亿元。\n\n"
+        "## 计算器校验\n"
+        "- 商誉净值占总资产 0.12%，后端证据重算一致。\n"
+        "trace_id=calc:ratio\nstatus: ok\n\n"
+        "## 勾稽校验\n"
+        "- 原值 12.82 亿元 - 减值准备 0.99 亿元 = 净值 11.83 亿元，校验通过。\n"
+        "schema_version=siq_financial_reconciliation_trace_v1\n\n"
+        "## 引用来源\n[1] source_type=wiki_metrics"
+    )
+
+    assert "## 计算器校验" in displayed
+    assert "后端证据重算一致" in displayed
+    assert "## 勾稽校验" in displayed
+    assert "校验通过" in displayed
+    assert "trace_id=" not in displayed
+    assert "status: ok" not in displayed
+    assert "schema_version=" not in displayed
 
 
 def test_saic_wrong_change_conversions_are_blocked_and_replaced_by_deterministic_pack(monkeypatch):

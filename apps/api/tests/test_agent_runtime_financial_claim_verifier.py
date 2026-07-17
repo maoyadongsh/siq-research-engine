@@ -2832,6 +2832,38 @@ def test_evidence_recompute_reconciliation_uses_exact_evidence_for_rounded_displ
     assert reconciliation["result"]["net"] == "1183122320.47"
 
 
+def test_evidence_recompute_reconciliation_accepts_exact_facts_with_unit_rows_between():
+    gross, allowance, net = (dict(item) for item in _trusted_goodwill_evidence())
+    for item in (gross, allowance, net):
+        item.pop("financial_scope", None)
+    gross.update({"value": "1282085915.36", "unit": "元", "period": "2025-12-31"})
+    allowance.update({"value": "98963594.89", "unit": "元", "period": "2025-12-31"})
+    net.update({"value": "1183122320.47", "unit": "元", "period": "2025-12-31"})
+    reply = (
+        "| 项目 | 2025-12-31 | 2024-12-31 |\n"
+        "| --- | ---: | ---: |\n"
+        "| 商誉账面净值(元) | 1,183,122,320.47 | 1,198,210,116.59 |\n"
+        "| 商誉账面净值(万元) | 118,312.2320 | 119,821.0117 |\n"
+        "| 商誉账面净值(亿元) | 11.8312232 | 11.98210117 |\n"
+        "| 商誉账面原值(元) | 1,282,085,915.36 | 1,302,999,061.44 |\n"
+        "| 商誉减值准备(元) | 98,963,594.89 | 104,788,944.85 |\n"
+        "[D1] source_type=wiki_document_links task_id=task-midea "
+        "pdf_page=206 table_index=163 md_line=4325\n"
+        "[D2] source_type=wiki_metrics task_id=task-midea "
+        "pdf_page=65 table_index=84 md_line=1840"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=MIDEA_IDENTITY,
+        require_reconciliation=True,
+        trusted_evidence=(gross, allowance, net),
+    )
+
+    assert result.allowed is True
+    assert any(run["operation"] == "goodwill_reconciliation" for run in result.runs)
+
+
 def test_evidence_recompute_accepts_yoy_when_nearest_year_labels_explicit_previous_operand():
     evidence = (
         _trusted_period_goodwill_fact(
@@ -3308,6 +3340,7 @@ def test_unit_restatement_in_multi_metric_sentence_keeps_nearest_amount_binding(
         "\n[D1] source_type=wiki_document_links task_id=task-midea "
         "pdf_page=206 table_index=163 md_line=4325"
     )
+
     facts = _reference_facts(
         reply,
         references=[

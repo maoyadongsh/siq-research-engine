@@ -3,9 +3,16 @@ import json
 
 import anyio
 import httpx
+import pytest
 from services.hermes_client import StreamEvent
 
-from services import agent_chat_runtime as runtime, agent_runtime_sessions, agent_runtime_streaming
+from services import (
+    agent_chat_runtime as runtime,
+    agent_runtime_sessions,
+    agent_runtime_streaming,
+    hermes_client,
+    openshell_pool_recovery,
+)
 
 
 class _Request:
@@ -227,6 +234,7 @@ def test_collect_stream_run_success_uses_streaming_terminal_owner(monkeypatch):
         "reply_length": 5,
         "content": "hello",
         "terminal": state.terminal_result.to_payload(),
+        "runtime_provenance": {"runtime_target": "host"},
     }
     assert saved_messages == [("assistant", "hello", "collect-success-session", "siq_assistant")]
     assert state.status == "completed"
@@ -375,6 +383,7 @@ def test_collect_chat_reply_replaces_external_tool_loop_reply_before_history(mon
         monkeypatch.setattr(runtime, "collect_run_result", fake_collect)
         monkeypatch.setattr(runtime, "_claim_durable_active_run", fake_true)
         monkeypatch.setattr(runtime, "_bind_durable_active_run", fake_true)
+        monkeypatch.setattr(runtime, "_active_run_ownership_is_current", fake_true)
         monkeypatch.setattr(runtime, "_release_durable_lease", fake_noop)
         monkeypatch.setattr(runtime, "_trusted_financial_receipts_after_run", fake_trusted_runs)
         monkeypatch.setattr(runtime, "recover_financial_tool_loop_reply", lambda *_args: recovered_reply)
@@ -450,6 +459,7 @@ def test_collect_stream_run_reasoning_uses_streaming_event_owner(monkeypatch):
         "new_achievements": [],
         "content": "answer",
         "terminal": state.terminal_result.to_payload(),
+        "runtime_provenance": {"runtime_target": "host"},
     }
     assert saved_messages == [("assistant", "answer", "collect-reasoning-session", "siq_assistant")]
     assert state.status == "completed"
@@ -1273,3 +1283,370 @@ def test_stop_active_run_without_state_returns_not_stopped():
     result = anyio.run(runtime.stop_active_run, "siq_assistant", "missing-active-run")
 
     assert result == {"stopped": False, "detail": "No active Hermes run"}
+
+
+def test_collect_chat_durable_conflict_leaves_no_orphan_user_message_or_pool_lease(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_prepare(*_args, **_kwargs):
+        calls.append("prepare")
+        return runtime.ChatRequestEnvelope(
+            all_attachments=[],
+            message_hash="collect-conflict-hash",
+            user_display_message="分析收入增长",
+        )
+
+    async def fake_claim(*_args, **_kwargs):
+        calls.append("durable_claim")
+        return None
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("a losing session request must not write history or touch the pool")
+
+    monkeypatch.setattr(runtime, "_prepare_chat_request_envelope", fake_prepare)
+    monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+    monkeypatch.setattr(runtime, "_acquire_durable_provisional_claim", fake_claim)
+    monkeypatch.setattr(runtime, "save_message", forbidden)
+    monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
+    monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
+    monkeypatch.setattr(runtime, "_acquire_pool_route", forbidden)
+    monkeypatch.setattr(runtime, "create_run", forbidden)
+
+    async def run_case():
+        return await runtime._collect_chat_reply_impl(
+            "分析收入增长",
+            object(),
+            session_id="collect-durable-conflict-session",
+            profile="siq_analysis",
+        )
+
+    assert anyio.run(run_case) == runtime._ACTIVE_RUN_CONFLICT_MESSAGE
+    assert calls == ["prepare", "durable_claim"]
+
+
+def test_stream_chat_durable_conflict_leaves_no_orphan_user_message_or_pool_lease(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_prepare(*_args, **_kwargs):
+        calls.append("prepare")
+        return runtime.ChatRequestEnvelope(
+            all_attachments=[],
+            message_hash="stream-conflict-hash",
+            user_display_message="分析现金流",
+        )
+
+    async def fake_claim(*_args, **_kwargs):
+        calls.append("durable_claim")
+        return None
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("a losing session request must not write history or touch the pool")
+
+    monkeypatch.setattr(runtime, "_prepare_chat_request_envelope", fake_prepare)
+    monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: None)
+    monkeypatch.setattr(runtime, "_acquire_durable_provisional_claim", fake_claim)
+    monkeypatch.setattr(runtime, "save_message", forbidden)
+    monkeypatch.setattr(runtime, "_load_chat_run_preflight_context", forbidden)
+    monkeypatch.setattr(runtime, "analyze_images_with_primary_model", forbidden)
+    monkeypatch.setattr(runtime, "_acquire_pool_route", forbidden)
+    monkeypatch.setattr(runtime, "create_run", forbidden)
+
+    async def run_case():
+        return [
+            event
+            async for event in runtime._stream_chat_reply_impl(
+                "分析现金流",
+                _Request(),
+                object(),
+                session_id="stream-durable-conflict-session",
+                profile="siq_analysis",
+            )
+        ]
+
+    events = anyio.run(run_case)
+
+    assert calls == ["prepare", "durable_claim"]
+    assert [event["event"] for event in events] == ["error"]
+    assert _event_payload(events[0]) == {
+        "message": runtime._ACTIVE_RUN_CONFLICT_MESSAGE,
+        "error_code": "active_run_conflict",
+        "retryable": True,
+    }
+
+
+def test_pool_lease_heartbeat_continues_through_postprocessing(monkeypatch):
+    state = runtime.ActiveRunState(
+        profile="siq_analysis",
+        session_id="postprocessing-heartbeat",
+        run_id="run-postprocessing-heartbeat",
+        status="postprocessing",
+    )
+    state.run_route = hermes_client.HermesRunRoute(
+        target="openshell",
+        base="http://127.0.0.1:28652/v1/runs",
+        model="siq_analysis",
+        authorization="Bearer test",
+        session_namespace="scope",
+        pool_binding=object(),
+        pool_lease_id="lease-postprocessing",
+        pool_owner_token="owner-" + "3" * 64,
+        pool_owner_generation=3,
+    )
+    calls = []
+
+    async def fake_sleep(_seconds):
+        calls.append("sleep")
+
+    async def fake_renew(current):
+        calls.append("durable")
+        return True
+
+    async def fake_pool_heartbeat(route, *, session_id):
+        calls.append("pool")
+        state.status = "succeeded"
+        return True
+
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(runtime, "_renew_durable_active_run", fake_renew)
+    monkeypatch.setattr(runtime, "_heartbeat_pool_route", fake_pool_heartbeat)
+
+    anyio.run(runtime._active_run_lease_heartbeat, state)
+
+    assert calls == ["sleep", "durable", "pool"]
+
+
+def test_postprocessing_fence_rejects_stale_durable_owner(monkeypatch):
+    state = runtime.ActiveRunState(
+        profile="siq_analysis",
+        session_id="postprocessing-fence",
+        run_id="run-postprocessing-fence",
+        status="postprocessing",
+        owner_id="old-api-owner",
+    )
+    state.run_route = hermes_client.HermesRunRoute(
+        target="openshell",
+        base="http://127.0.0.1:28652/v1/runs",
+        model="siq_analysis",
+        authorization="Bearer test",
+        session_namespace="scope",
+        pool_binding=object(),
+        pool_lease_id="lease-postprocessing-fence",
+        pool_owner_token="owner-" + "4" * 64,
+        pool_owner_generation=4,
+    )
+
+    async def stale_owner(_state):
+        return False
+
+    async def forbidden_pool_heartbeat(*_args, **_kwargs):
+        raise AssertionError("stale DB owner must not touch the rotated pool owner")
+
+    monkeypatch.setattr(runtime, "_renew_durable_active_run", stale_owner)
+    monkeypatch.setattr(runtime, "_heartbeat_pool_route", forbidden_pool_heartbeat)
+
+    assert anyio.run(runtime._active_run_ownership_is_current, state) is False
+
+
+def _openshell_release_state(
+    *,
+    runtime_terminal_confirmed: bool,
+    runtime_children_terminal_confirmed: bool,
+) -> runtime.ActiveRunState:
+    state = runtime.ActiveRunState(
+        profile="siq_analysis",
+        session_id="release-reconcile-session",
+        run_id="run-release-reconcile",
+        owner_id="api-owner-release-reconcile",
+    )
+    state.runtime_terminal_confirmed = runtime_terminal_confirmed
+    state.runtime_children_terminal_confirmed = runtime_children_terminal_confirmed
+    state.run_route = hermes_client.HermesRunRoute(
+        target="openshell",
+        base="http://127.0.0.1:28652/v1/runs",
+        model="siq_analysis",
+        authorization="Bearer test",
+        session_namespace="scope-release-reconcile",
+        canary_run_id="canary-123456789abc",
+        pool_binding=object(),
+        pool_lease_id="lease-release-reconcile",
+        pool_owner_token="owner-" + "5" * 64,
+        pool_owner_generation=5,
+    )
+    return state
+
+
+@pytest.mark.parametrize(
+    ("runtime_terminal_confirmed", "pool_released"),
+    ((True, False), (False, False)),
+)
+def test_pool_release_failure_or_unquiesced_main_keeps_durable_row_running(
+    monkeypatch,
+    runtime_terminal_confirmed,
+    pool_released,
+):
+    state = _openshell_release_state(
+        runtime_terminal_confirmed=runtime_terminal_confirmed,
+        runtime_children_terminal_confirmed=True,
+    )
+    calls = []
+
+    async def fake_pool_release(route, *, session_id, terminal_confirmed):
+        calls.append(("pool", route, session_id, terminal_confirmed))
+        return pool_released
+
+    async def forbidden_db_release(*_args, **_kwargs):
+        raise AssertionError("the durable row must remain running until exact pool release")
+
+    def fake_schedule(current, *, status):
+        calls.append(("schedule", current, status))
+
+    monkeypatch.setattr(runtime, "_release_pool_route", fake_pool_release)
+    monkeypatch.setattr(runtime, "_release_durable_lease", forbidden_db_release)
+    monkeypatch.setattr(runtime, "_schedule_orphan_reconciliation", fake_schedule)
+
+    async def run_case():
+        await runtime._release_durable_active_run(state, status="failed")
+
+    anyio.run(run_case)
+
+    assert calls == [
+        (
+            "pool",
+            state.run_route,
+            state.session_id,
+            runtime_terminal_confirmed,
+        ),
+        ("schedule", state, "failed"),
+    ]
+
+
+def test_unconfirmed_children_do_not_schedule_same_process_reconciler(monkeypatch):
+    state = _openshell_release_state(
+        runtime_terminal_confirmed=True,
+        runtime_children_terminal_confirmed=False,
+    )
+    pool_calls = []
+
+    async def fake_pool_release(route, *, session_id, terminal_confirmed):
+        pool_calls.append((route, session_id, terminal_confirmed))
+        return False
+
+    async def forbidden_db_release(*_args, **_kwargs):
+        raise AssertionError("children uncertainty must keep the durable row running")
+
+    def forbidden_reconciler(*_args, **_kwargs):
+        raise AssertionError("children uncertainty must not start the main-run reconciler")
+
+    monkeypatch.setattr(runtime, "_release_pool_route", fake_pool_release)
+    monkeypatch.setattr(runtime, "_release_durable_lease", forbidden_db_release)
+    monkeypatch.setattr(runtime, "_schedule_orphan_reconciliation", forbidden_reconciler)
+
+    async def run_case():
+        await runtime._release_durable_active_run(state, status="failed")
+
+    anyio.run(run_case)
+
+    assert pool_calls == [(state.run_route, state.session_id, False)]
+
+
+def test_confirmed_children_reconciler_waits_for_quiescence_then_releases_pool_before_db(
+    monkeypatch,
+):
+    state = _openshell_release_state(
+        runtime_terminal_confirmed=False,
+        runtime_children_terminal_confirmed=True,
+    )
+    statuses = [
+        hermes_client.HermesRunStatus(
+            run_id=state.run_id,
+            status="running",
+            quiesced=False,
+        ),
+        hermes_client.HermesRunStatus(
+            run_id=state.run_id,
+            status="completed",
+            quiesced=True,
+        ),
+    ]
+    calls = []
+
+    async def fake_renew(current):
+        assert current is state
+        calls.append("renew")
+        return True
+
+    async def fake_status(run_id, *, profile, route):
+        assert (run_id, profile, route) == (state.run_id, state.profile, state.run_route)
+        current = statuses.pop(0)
+        calls.append(("status", current.write_quiesced))
+        return current
+
+    async def fake_pool_release(route, *, session_id, terminal_confirmed):
+        assert route is state.run_route
+        assert session_id == state.session_id
+        assert terminal_confirmed is True
+        calls.append("pool_release")
+        return True
+
+    async def fake_db_release(profile, session_id, run_id, owner_id, *, status):
+        assert (profile, session_id, run_id, owner_id, status) == (
+            state.profile,
+            state.session_id,
+            state.run_id,
+            state.owner_id,
+            "succeeded",
+        )
+        calls.append("db_release")
+        return True
+
+    async def fake_sleep(_seconds):
+        calls.append("sleep")
+
+    monkeypatch.setattr(runtime, "_renew_durable_active_run", fake_renew)
+    monkeypatch.setattr(runtime, "_get_routed_run_status", fake_status)
+    monkeypatch.setattr(runtime, "_release_pool_route", fake_pool_release)
+    monkeypatch.setattr(runtime, "_release_durable_lease", fake_db_release)
+    monkeypatch.setattr(runtime.asyncio, "sleep", fake_sleep)
+
+    async def run_case():
+        await runtime._reconcile_orphaned_main_run(state, status="succeeded")
+
+    anyio.run(run_case)
+
+    assert statuses == []
+    assert calls == [
+        "renew",
+        ("status", False),
+        "sleep",
+        "renew",
+        ("status", True),
+        "pool_release",
+        "sleep",
+        "renew",
+        "db_release",
+    ]
+
+
+def test_required_recovery_not_ready_rejects_before_pool_acquire(monkeypatch):
+    state = _openshell_release_state(
+        runtime_terminal_confirmed=False,
+        runtime_children_terminal_confirmed=True,
+    )
+
+    async def forbidden_acquire(*_args, **_kwargs):
+        raise AssertionError("readiness gate must run before pool admission")
+
+    monkeypatch.setattr(openshell_pool_recovery, "recovery_required", lambda: True)
+    monkeypatch.setattr(openshell_pool_recovery, "recovery_ready", lambda: False)
+    monkeypatch.setattr(runtime.openshell_pool_adapter, "acquire_wait_async", forbidden_acquire)
+
+    async def run_case():
+        with pytest.raises(RuntimeError, match="^openshell_pool_recovery_not_ready$"):
+            await runtime._acquire_pool_route(
+                state.run_route,
+                session_id="user-1-analysis-recovery-not-ready",
+                tenant_id="default",
+                user_id="1",
+            )
+
+    anyio.run(run_case)

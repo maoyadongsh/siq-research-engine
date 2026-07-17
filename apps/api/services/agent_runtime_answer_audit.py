@@ -796,6 +796,19 @@ def _has_actionable_legacy_marker(
     return False
 
 
+def _runtime_provenance_snapshot(value: Mapping[str, Any] | None) -> dict[str, str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    target = str(value.get("runtime_target") or "").strip().lower()
+    if target not in {"host", "openshell"}:
+        return None
+    snapshot = {"runtime_target": target}
+    run_id = str(value.get("canary_run_id") or "").strip()
+    if target == "openshell" and re.fullmatch(r"canary-[0-9a-f]{12}", run_id):
+        snapshot["canary_run_id"] = run_id
+    return snapshot
+
+
 def build_answer_audit_trace(
     *,
     message: str,
@@ -808,6 +821,7 @@ def build_answer_audit_trace(
     guardrail_result: Mapping[str, Any] | None = None,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
     trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
+    runtime_provenance: Mapping[str, Any] | None = None,
     created_at: datetime | str | None = None,
 ) -> dict[str, Any]:
     sanitized_message = str(redact_audit_value(message or "", max_string_length=2000))
@@ -935,6 +949,13 @@ def build_answer_audit_trace(
         "delivered_claim_verifier_result": delivered_claim_verifier_result,
         "citations": references,
     }
+    runtime_snapshot = _runtime_provenance_snapshot(runtime_provenance)
+    if runtime_snapshot is not None:
+        payload["runtime_provenance"] = runtime_snapshot
+    if calculation_trace_validation.failures:
+        payload["calculation_trace_validation"]["failures"] = list(
+            calculation_trace_validation.failures
+        )
     fallback_events = _find_context_value(context, {"auditfallbackevents", "fallbackevents", "postgresfallbackevents"})
     if fallback_events not in (None, "", [], {}):
         payload["fallback_events"] = redact_audit_value(fallback_events, max_string_length=1000)
@@ -1028,6 +1049,7 @@ def record_answer_audit_trace_for_reply(
     guardrail_result: Mapping[str, Any] | None = None,
     trusted_calculation_runs: Sequence[Mapping[str, Any]] = (),
     trusted_calculation_evidence: Sequence[Mapping[str, Any]] = (),
+    runtime_provenance: Mapping[str, Any] | None = None,
     log_path: str | Path | None = None,
     raise_on_error: bool = False,
 ) -> dict[str, Any]:
@@ -1043,6 +1065,7 @@ def record_answer_audit_trace_for_reply(
             guardrail_result=guardrail_result,
             trusted_calculation_runs=trusted_calculation_runs,
             trusted_calculation_evidence=trusted_calculation_evidence,
+            runtime_provenance=runtime_provenance,
         )
     except Exception as exc:
         if raise_on_error:
@@ -1054,6 +1077,9 @@ def record_answer_audit_trace_for_reply(
             "session_id": str(redact_audit_value(session_id or "", max_string_length=256)),
             "audit_build_error": exc.__class__.__name__,
         }
+        runtime_snapshot = _runtime_provenance_snapshot(runtime_provenance)
+        if runtime_snapshot is not None:
+            record["runtime_provenance"] = runtime_snapshot
     return record_answer_audit_trace(record, log_path=log_path, raise_on_error=raise_on_error)
 
 

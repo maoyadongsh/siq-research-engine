@@ -1,9 +1,9 @@
 import inspect
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from datetime import datetime
 
 import anyio
 from fastapi import HTTPException
@@ -16,9 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from models import ChatMessage
 from routers import agent_chat_router, agent_user_router, chat
 from routers.agent_user_router import SpecialistAgentConfig, create_specialist_agent_router
-from services.auth_service import User, UserRole
 from schemas import ChatAttachment, ChatRequest
-
+from services.auth_service import User, UserRole
 
 ROUTERS = [
     (create_specialist_agent_router(SpecialistAgentConfig(prefix="/analysis", tag="analysis", profile="analysis")), "analysis"),
@@ -90,6 +89,8 @@ def test_specialized_agent_chat_routes_forward_attachments(monkeypatch):
         assert captured["message"] == "请分析附件"
         assert captured["async_session"] is session
         assert captured["profile"] == expected_profile
+        assert captured["tenant_id"] == agent_user_router.DEFAULT_TENANT_ID
+        assert captured["user_id"] == "1"
         assert captured["display_message"] == "请分析这个文件"
         assert len(captured["attachments"]) == 1
         assert captured["attachments"][0].filename == "sample.md"
@@ -214,6 +215,8 @@ def test_specialized_agent_stream_enables_answer_audit_trace_id(monkeypatch):
         assert chunks
         assert captured["profile"] == "siq_analysis"
         assert captured["session_id"] == "user-7-analysis-created"
+        assert captured["tenant_id"] == agent_user_router.DEFAULT_TENANT_ID
+        assert captured["user_id"] == "7"
         assert captured["emit_audit_trace_id"] is True
         assert session_mgr.incremented == ["user-7-analysis-created"]
 

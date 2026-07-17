@@ -22,6 +22,7 @@ from sqlmodel import Field, Session, SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 _POOL_PRINCIPAL_MAX_BYTES = 512
+_PROCESS_RUNTIME_OWNER_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
 
 
 def _pool_principal(
@@ -96,7 +97,7 @@ def runtime_owner_id() -> str:
     configured = os.getenv("SIQ_RUNTIME_OWNER_ID", "").strip()
     if configured:
         return configured
-    return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}"
+    return _PROCESS_RUNTIME_OWNER_ID
 
 
 def _lease_seconds() -> int:

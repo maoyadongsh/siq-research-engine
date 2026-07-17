@@ -36,6 +36,28 @@ LATEX_INLINE_SYMBOLS: dict[str, str] = {
     r"\%": "%",
 }
 
+PROCESS_PREAMBLE_MARKERS = (
+    "无需重新路由",
+    "先验证",
+    "用终端",
+    "工具调用",
+    "打输一个表情",
+    "一顿乱投",
+)
+
+
+def strip_process_preamble(content: str | None) -> str:
+    """Remove leaked model scratch text before the first formal section."""
+
+    text = str(content or "")
+    heading = re.search(r"(?m)^##\s+\S", text)
+    if heading is None or heading.start() == 0:
+        return text
+    preamble = text[: heading.start()]
+    if not any(marker in preamble for marker in PROCESS_PREAMBLE_MARKERS):
+        return text
+    return text[heading.start() :].lstrip()
+
 
 def normalize_plain_inline_latex(content: str | None) -> str:
     if not content:
@@ -52,7 +74,9 @@ def normalize_evidence_trace_for_display(content: str | None) -> str:
     """Apply the single citation/link normalization path used by every agent."""
     if not content:
         return content or ""
-    return append_missing_pdf_source_links(normalize_plain_inline_latex(content))
+    return append_missing_pdf_source_links(
+        normalize_plain_inline_latex(strip_process_preamble(content))
+    )
 
 
 def _has_structured_evidence_trace(reply: str) -> bool:

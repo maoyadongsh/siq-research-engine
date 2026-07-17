@@ -60,7 +60,10 @@ from services.path_config import FRONTEND_ROOT
 from services.runtime_security import cors_origins_from_env, validate_runtime_security_config
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from services import primary_market_materials as primary_market_materials_service
+from services import (
+    openshell_pool_recovery as openshell_pool_recovery_service,
+    primary_market_materials as primary_market_materials_service,
+)
 
 FRONT_DIR = str(FRONTEND_ROOT)
 logger = logging.getLogger("siq.api")
@@ -95,6 +98,15 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             logger.exception("primary_market_startup_reconcile_failed")
+    pool_recovery_manager: openshell_pool_recovery_service.OpenShellPoolRecoveryManager | None = None
+    if openshell_pool_recovery_service.recovery_enabled():
+        pool_recovery_manager = openshell_pool_recovery_service.OpenShellPoolRecoveryManager()
+        try:
+            await pool_recovery_manager.start()
+        except Exception:
+            logger.exception("openshell_pool_startup_recovery_failed")
+            await pool_recovery_manager.stop()
+            pool_recovery_manager = None
     reconciler: asyncio.Task[None] | None = None
     if os.environ.get("SIQ_PRIMARY_MARKET_RECONCILE_PERIODIC", "1").strip().lower() in {
         "1", "true", "yes", "on"
@@ -103,6 +115,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if pool_recovery_manager is not None:
+            await pool_recovery_manager.stop()
         if reconciler is not None:
             reconciler.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -231,6 +245,7 @@ def health():
         "requests_total": snapshot["request_count"],
         "request_errors_total": snapshot["request_error_count"],
         "answer_traces_total": snapshot["answer_trace_count"],
+        "openshell_recovery": openshell_pool_recovery_service.readiness_snapshot(),
     }
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -68,6 +68,9 @@ class ActiveRunState:
     owner_id: str | None = None
     lease_heartbeat_task: asyncio.Task | None = None
     run_route: HermesRunRoute | None = None
+    runtime_terminal_confirmed: bool = False
+    runtime_children_terminal_confirmed: bool = True
+    memory_research_identity: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.profile = _runtime_profile(self.profile)
@@ -296,6 +299,7 @@ def get_active_run_snapshot(
         "error": state.error,
         "terminal": state.terminal_result.to_payload() if state.terminal_result else None,
         "runtime_target": state.run_route.target if state.run_route is not None else "host",
+        "canary_run_id": state.run_route.canary_run_id if state.run_route is not None else None,
     }
 
 
@@ -461,6 +465,11 @@ def __getattr__(name: str) -> Any:
 
         return getattr(agent_chat_runtime_impl, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# These compatibility exports are resolved lazily above to avoid an import cycle.
+hermes_timeout: Any
+stream_chat_reply: Any
 
 
 __all__ = [

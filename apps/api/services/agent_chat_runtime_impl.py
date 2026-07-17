@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -10,6 +11,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -50,6 +52,8 @@ from services import (
     agent_runtime_statement_context,
     agent_runtime_task_ids,
     agent_runtime_wiki_context,
+    openshell_pool_adapter,
+    openshell_scope_lifecycle,
     primary_market_agent_runtime,
 )
 from services.agent_runtime_fallback_contexts import (
@@ -110,13 +114,17 @@ from services.agent_runtime_tool_output import normalize_tool_output as _normali
 from services.hermes_client import (
     HermesProfile,
     HermesRunRoute,
+    HermesRunStatus,
     RunTerminalAccumulator,
     RunTerminalError,
     RunTerminalResult,
     collect_run_result,
     create_run,
+    discard_run_terminal_result,
+    get_run_status,
+    pop_run_terminal_result,
     normalize_runtime_target,
-    resolve_run_route,
+    resolve_requested_run_route,
     route_session_id,
     stop_run,
     stream_run,
@@ -133,10 +141,12 @@ from services.path_config import (
     HERMES_SHARED_SCRIPTS_ROOT,
     PDF_OUTPUT_ROOT_CANDIDATES,
     PDF_RESULT_ROOT_CANDIDATES,
+    PROJECT_ROOT,
     WIKI_ROOT as CONFIG_WIKI_ROOT,
     WIKI_ROOT_CANDIDATES,
 )
 from services.runtime_coordination import (
+    attach_active_run_pool_lease,
     bind_active_run,
     claim_active_run,
     lease_seconds,
@@ -150,6 +160,15 @@ logger = logging.getLogger(__name__)
 
 _RUNTIME_OWNER_ID = runtime_owner_id()
 _ACTIVE_RUN_CONFLICT_MESSAGE = "当前会话已有请求正在处理，请等待当前结果完成后再试。"
+_ORPHAN_RECONCILIATION_TASKS: set[asyncio.Task[None]] = set()
+
+
+@dataclass(frozen=True)
+class DurableProvisionalClaim:
+    profile: HermesProfile
+    session_id: str
+    provisional_run_id: str
+    owner_id: str
 
 
 async def _claim_durable_active_run(profile: HermesProfile, session_id: str, run_id: str, owner_id: str) -> bool:
@@ -173,25 +192,102 @@ async def _claim_durable_active_run(profile: HermesProfile, session_id: str, run
         return True
 
 
+async def _acquire_durable_provisional_claim(
+    profile: HermesProfile,
+    session_id: str,
+) -> DurableProvisionalClaim | None:
+    owner_id = _RUNTIME_OWNER_ID
+    provisional_run_id = f"claim-{uuid.uuid4().hex}"
+    if not await _claim_durable_active_run(profile, session_id, provisional_run_id, owner_id):
+        return None
+    return DurableProvisionalClaim(
+        profile=profile,
+        session_id=session_id,
+        provisional_run_id=provisional_run_id,
+        owner_id=owner_id,
+    )
+
+
 async def _release_durable_active_run(state: ActiveRunState, *, status: str) -> None:
-    if not state.owner_id:
-        return
     if state.lease_heartbeat_task and not state.lease_heartbeat_task.done():
         state.lease_heartbeat_task.cancel()
         await asyncio.gather(state.lease_heartbeat_task, return_exceptions=True)
-    try:
-        await _release_durable_lease(
-            state.profile,
-            state.session_id,
-            state.run_id,
-            state.owner_id,
-            status=status,
+    terminal_confirmed = (
+        state.runtime_terminal_confirmed
+        and state.runtime_children_terminal_confirmed
+    )
+    if state.run_route is not None and state.run_route.pool_lease_id:
+        pool_released = await _release_pool_route(
+            state.run_route,
+            session_id=state.session_id,
+            terminal_confirmed=terminal_confirmed,
         )
-    except Exception:
-        if DATABASE_URL.startswith("postgresql") or os.getenv("SIQ_REQUIRE_DURABLE_RUNTIME_COORDINATION", "0") == "1":
-            logger.exception("failed to release durable active-run lease")
-        else:
-            logger.debug("local durable active-run release unavailable", exc_info=True)
+        # Keep the DB row recoverable whenever the writer has not been proven
+        # quiescent or its exact pool release did not commit.
+        if not terminal_confirmed or not pool_released:
+            if state.owner_id and state.runtime_children_terminal_confirmed:
+                _schedule_orphan_reconciliation(state, status=status)
+            return
+    if state.owner_id:
+        try:
+            await _release_durable_lease(
+                state.profile,
+                state.session_id,
+                state.run_id,
+                state.owner_id,
+                status=status,
+            )
+        except Exception:
+            if DATABASE_URL.startswith("postgresql") or os.getenv("SIQ_REQUIRE_DURABLE_RUNTIME_COORDINATION", "0") == "1":
+                logger.exception("failed to release durable active-run lease")
+            else:
+                logger.debug("local durable active-run release unavailable", exc_info=True)
+
+
+def _schedule_orphan_reconciliation(state: ActiveRunState, *, status: str) -> None:
+    task = asyncio.create_task(_reconcile_orphaned_main_run(state, status=status))
+    _ORPHAN_RECONCILIATION_TASKS.add(task)
+    task.add_done_callback(_ORPHAN_RECONCILIATION_TASKS.discard)
+
+
+async def _reconcile_orphaned_main_run(state: ActiveRunState, *, status: str) -> None:
+    interval = float(_env_int("SIQ_OPENSHELL_ORPHAN_RECONCILE_SECONDS", 2, minimum=1, maximum=60))
+    pool_terminal_released = False
+    while True:
+        if not await _renew_durable_active_run(state):
+            return
+        if pool_terminal_released:
+            try:
+                if await _release_durable_lease(
+                    state.profile,
+                    state.session_id,
+                    state.run_id,
+                    state.owner_id or "",
+                    status=status,
+                ):
+                    return
+            except Exception:
+                logger.exception("failed to finalize reconciled OpenShell lease")
+            await asyncio.sleep(interval)
+            continue
+        try:
+            runtime_status = await _get_routed_run_status(
+                state.run_id,
+                profile=state.profile,
+                route=state.run_route,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(interval)
+            continue
+        if runtime_status.write_quiesced:
+            pool_terminal_released = await _release_pool_route(
+                state.run_route,
+                session_id=state.session_id,
+                terminal_confirmed=True,
+            )
+        await asyncio.sleep(interval)
 
 
 async def _release_durable_lease(profile: HermesProfile, session_id: str, run_id: str, owner_id: str, *, status: str) -> bool:
@@ -231,6 +327,42 @@ async def _bind_durable_active_run(
             return True
 
 
+async def _attach_durable_pool_lease(
+    claim: DurableProvisionalClaim,
+    route: HermesRunRoute | None,
+) -> bool:
+    if route is None or route.pool_binding is None or not route.pool_lease_id:
+        return True
+    if (
+        not route.pool_owner_generation
+        or not route.pool_binding.scope_id
+        or not route.canary_run_id
+    ):
+        return False
+    try:
+        async with AsyncSession(async_engine) as coordination_session:
+            return await attach_active_run_pool_lease(
+                coordination_session,
+                profile=claim.profile,
+                session_id=claim.session_id,
+                provisional_run_id=claim.provisional_run_id,
+                owner_id=claim.owner_id,
+                pool_lease_id=route.pool_lease_id,
+                pool_scope_id=route.pool_binding.scope_id,
+                pool_binding_run_id=route.canary_run_id,
+                pool_owner_generation=route.pool_owner_generation,
+                pool_tenant_id=route.pool_tenant_id,
+                pool_user_id=route.pool_user_id,
+            )
+    except Exception:
+        if DATABASE_URL.startswith("postgresql") or os.getenv(
+            "SIQ_REQUIRE_DURABLE_RUNTIME_COORDINATION", "0"
+        ) == "1":
+            raise
+        logger.debug("local durable pool-lease attach unavailable", exc_info=True)
+        return True
+
+
 async def _renew_durable_active_run(state: ActiveRunState) -> bool:
     try:
         async with AsyncSession(async_engine) as coordination_session:
@@ -250,16 +382,24 @@ async def _renew_durable_active_run(state: ActiveRunState) -> bool:
 
 async def _active_run_lease_heartbeat(state: ActiveRunState) -> None:
     interval = max(10, lease_seconds() // 3)
+    if state.run_route is not None and state.run_route.pool_lease_id:
+        interval = min(interval, 60)
+    active_statuses = {"running", "postprocessing"}
     try:
-        while state.status == "running" and not state.stop_requested:
+        while state.status in active_statuses and not state.stop_requested:
             await asyncio.sleep(interval)
-            if state.status != "running" or state.stop_requested:
+            if state.status not in active_statuses or state.stop_requested:
                 return
-            if not await _renew_durable_active_run(state):
+            durable_ok = await _renew_durable_active_run(state)
+            pool_ok = await _heartbeat_pool_route(
+                state.run_route,
+                session_id=state.session_id,
+            )
+            if not durable_ok or not pool_ok:
                 state.stop_requested = True
                 state.error = "active_run_lease_lost"
                 try:
-                    await _stop_routed_run(
+                    state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
                         state.run_id,
                         profile=state.profile,
                         route=state.run_route,
@@ -1837,7 +1977,12 @@ async def stream_active_run_events(
         yield event
 
 
-def normalize_history(messages: list[ChatMessage], limit: int = HISTORY_LIMIT) -> list[dict]:
+def normalize_history(
+    messages: list[ChatMessage],
+    limit: int = HISTORY_LIMIT,
+    *,
+    research_identity_scope: Mapping[str, Any] | None = None,
+) -> list[dict]:
     return agent_runtime_history.normalize_history(
         messages,
         limit=limit,
@@ -1847,6 +1992,7 @@ def normalize_history(messages: list[ChatMessage], limit: int = HISTORY_LIMIT) -
         is_loop_polluted_assistant_message=_is_loop_polluted_assistant_message,
         normalize_evidence_trace_for_display=normalize_evidence_trace_for_display,
         sanitize_assistant_history_reply=_sanitize_assistant_history_reply,
+        research_identity_scope=research_identity_scope,
     )
 
 
@@ -1855,11 +2001,13 @@ async def load_history(
     session_id: str,
     *,
     limit: int = HISTORY_LIMIT,
+    research_identity_scope: Mapping[str, Any] | None = None,
 ) -> list[dict]:
     return await agent_runtime_history.load_history(
         async_session,
         session_id,
         limit=limit,
+        research_identity_scope=research_identity_scope,
         normalize_messages=lambda messages: normalize_history(messages, limit=limit),
     )
 
@@ -2022,11 +2170,204 @@ def _requested_run_route(
     profile: HermesProfile,
     runtime_target: str | None,
     session_id: str,
+    context: Any | None = None,
+) -> HermesRunRoute | None:
+    return resolve_requested_run_route(
+        profile,
+        runtime_target,
+        session_id=session_id,
+        context=context,
+    )
+
+
+async def _requested_run_route_with_scope_lifecycle(
+    profile: HermesProfile,
+    runtime_target: str | None,
+    session_id: str,
+    context: Any | None = None,
 ) -> HermesRunRoute | None:
     target = normalize_runtime_target(profile, runtime_target, session_id=session_id)
-    if target == "host":
-        return None
-    return resolve_run_route(profile, target, session_id=session_id)
+    if target == "openshell" and profile == "siq_analysis":
+        try:
+            await openshell_scope_lifecycle.ensure_binding(context)
+        except openshell_scope_lifecycle.OpenShellScopeLifecycleError as exc:
+            if runtime_target is not None:
+                raise RuntimeError(exc.code) from exc
+            logger.exception("OpenShell scope auto-provision failed; using Host fallback")
+    return _requested_run_route(profile, runtime_target, session_id, context)
+
+
+async def _acquire_pool_route(
+    route: HermesRunRoute | None,
+    *,
+    session_id: str,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
+) -> HermesRunRoute | None:
+    if route is None or route.pool_binding is None:
+        return route
+    if tenant_id is None or user_id is None:
+        raise RuntimeError("openshell_pool_principal_incomplete")
+    tenant_id = str(tenant_id).strip()
+    user_id = str(user_id).strip()
+    if (
+        not tenant_id
+        or len(tenant_id.encode("utf-8")) > 512
+        or any(ord(character) < 0x20 for character in tenant_id)
+        or re.fullmatch(r"(?:0|[1-9][0-9]{0,19})", user_id) is None
+    ):
+        raise RuntimeError("openshell_pool_principal_invalid")
+    if not session_id.startswith(f"user-{user_id}-analysis-"):
+        raise RuntimeError("openshell_pool_principal_session_mismatch")
+    from services import openshell_pool_recovery
+
+    if (
+        openshell_pool_recovery.recovery_required()
+        and not openshell_pool_recovery.recovery_ready()
+    ):
+        raise RuntimeError("openshell_pool_recovery_not_ready")
+    try:
+        admission = await openshell_pool_adapter.acquire_wait_async(
+            route.pool_binding,
+            session_id=session_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            timeout_seconds=float(
+                _env_int("SIQ_OPENSHELL_POOL_WAIT_SECONDS", 1800, minimum=1)
+            ),
+            poll_interval=0.25,
+        )
+    except openshell_pool_adapter.OpenShellPoolAdapterError as exc:
+        raise RuntimeError(exc.code) from exc
+    if (
+        admission.status != "active"
+        or admission.target != "openshell"
+        or admission.run_id != route.canary_run_id
+        or not admission.api_key
+        or not admission.session_namespace
+        or not admission.owner_token
+        or admission.owner_generation < 1
+    ):
+        raise RuntimeError("openshell_pool_admission_invalid")
+    return replace(
+        route,
+        base=admission.base,
+        authorization=f"Bearer {admission.api_key}",
+        session_namespace=admission.session_namespace,
+        pool_lease_id=admission.lease_id,
+        pool_owner_token=admission.owner_token,
+        pool_owner_generation=admission.owner_generation,
+        pool_tenant_id=tenant_id,
+        pool_user_id=user_id,
+        pool_write_relative_path=admission.write_relative_path,
+    )
+
+
+async def _heartbeat_pool_route(route: HermesRunRoute | None, *, session_id: str) -> bool:
+    if (
+        route is None
+        or route.pool_binding is None
+        or not route.pool_lease_id
+        or not route.pool_owner_token
+        or not route.pool_owner_generation
+    ):
+        return True
+    try:
+        admission = await openshell_pool_adapter.heartbeat_async(
+            route.pool_binding,
+            session_id=session_id,
+            tenant_id=route.pool_tenant_id,
+            user_id=route.pool_user_id,
+            owner_token=route.pool_owner_token,
+            owner_generation=route.pool_owner_generation,
+        )
+    except openshell_pool_adapter.OpenShellPoolAdapterError:
+        logger.exception("OpenShell pool heartbeat failed")
+        return False
+    return bool(
+        admission.status == "active"
+        and admission.run_bound
+        and admission.run_id == route.canary_run_id
+        and admission.lease_id == route.pool_lease_id
+    )
+
+
+async def _mark_pool_route_bound(
+    route: HermesRunRoute | None,
+    *,
+    session_id: str,
+) -> HermesRunRoute | None:
+    if (
+        route is None
+        or route.pool_binding is None
+        or not route.pool_lease_id
+        or not route.pool_owner_token
+        or not route.pool_owner_generation
+    ):
+        return route
+    try:
+        admission = await openshell_pool_adapter.mark_run_bound_async(
+            route.pool_binding,
+            session_id=session_id,
+            tenant_id=route.pool_tenant_id,
+            user_id=route.pool_user_id,
+            owner_token=route.pool_owner_token,
+            owner_generation=route.pool_owner_generation,
+        )
+    except openshell_pool_adapter.OpenShellPoolAdapterError as exc:
+        raise RuntimeError(exc.code) from exc
+    if (
+        admission.status != "active"
+        or not admission.run_bound
+        or admission.lease_id != route.pool_lease_id
+        or admission.owner_generation != route.pool_owner_generation
+        or admission.run_id != route.canary_run_id
+    ):
+        raise RuntimeError("openshell_pool_run_bind_invalid")
+    return route
+
+
+async def _active_run_ownership_is_current(state: ActiveRunState) -> bool:
+    """Fence postprocessing and child runs against restart/worker takeover."""
+
+    if state.run_route is None or not state.run_route.pool_lease_id:
+        return True
+    if not state.owner_id:
+        return False
+    durable_ok = await _renew_durable_active_run(state)
+    if not durable_ok:
+        return False
+    return await _heartbeat_pool_route(state.run_route, session_id=state.session_id)
+
+
+async def _release_pool_route(
+    route: HermesRunRoute | None,
+    *,
+    session_id: str,
+    terminal_confirmed: bool,
+) -> bool:
+    if (
+        route is None
+        or route.pool_binding is None
+        or not route.pool_lease_id
+        or not route.pool_owner_token
+        or not route.pool_owner_generation
+    ):
+        return True
+    try:
+        return await openshell_pool_adapter.release_async(
+            session_id=session_id,
+            tenant_id=route.pool_tenant_id,
+            user_id=route.pool_user_id,
+            owner_token=route.pool_owner_token,
+            owner_generation=route.pool_owner_generation,
+            terminal_confirmed=terminal_confirmed,
+        )
+    except openshell_pool_adapter.OpenShellPoolAdapterError:
+        # A failed release leaves the company slot occupied/orphaned, which is
+        # safer than admitting a second writer.
+        logger.exception("OpenShell pool release failed")
+        return False
 
 
 def _routed_hermes_session_id(
@@ -2058,8 +2399,8 @@ async def _create_routed_run(
     else:
         # Never replay an OpenShell request on Host. Even a pre-connect failure
         # must remain visible so policy/runtime faults cannot be masked by an
-        # unsandboxed execution. Operators roll back explicitly with
-        # SIQ_HERMES_RUNTIME=host or a per-request host target.
+        # unsandboxed execution. Operators roll back through the owner-only
+        # runtime selector.
         run_id = await create_run(
             run_input,
             history,
@@ -2077,6 +2418,7 @@ async def _collect_routed_run_result(
     timeout: float | httpx.Timeout | None,
     route: HermesRunRoute | None,
 ) -> str:
+    discard_run_terminal_result(run_id)
     if route is None:
         return await collect_run_result(run_id, profile=profile, timeout=timeout)
     return await collect_run_result(run_id, profile=profile, timeout=timeout, route=route)
@@ -2103,6 +2445,207 @@ async def _stop_routed_run(
     if route is None:
         return await stop_run(run_id, profile=profile)
     return await stop_run(run_id, profile=profile, route=route)
+
+
+async def _get_routed_run_status(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    route: HermesRunRoute | None,
+) -> HermesRunStatus:
+    if route is None:
+        return await get_run_status(run_id, profile=profile)
+    return await get_run_status(run_id, profile=profile, route=route)
+
+
+async def _wait_routed_run_write_quiesced(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    route: HermesRunRoute | None,
+    timeout_seconds: float | None = None,
+) -> bool:
+    """Require a pinned Hermes receipt that its executor can no longer write."""
+
+    if route is None or not route.pool_lease_id:
+        return False
+    timeout = timeout_seconds
+    if timeout is None:
+        timeout = float(_env_int("SIQ_HERMES_STOP_CONFIRM_SECONDS", 15, minimum=1, maximum=120))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        try:
+            status = await _get_routed_run_status(run_id, profile=profile, route=route)
+        except (httpx.HTTPError, RuntimeError):
+            status = None
+        if status is not None and status.write_quiesced:
+            return True
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        await asyncio.sleep(min(0.25, remaining))
+
+
+async def _stop_and_confirm_routed_run(
+    run_id: str,
+    *,
+    profile: HermesProfile,
+    route: HermesRunRoute | None,
+    timeout_seconds: float | None = None,
+) -> bool:
+    """Request stop, then independently prove executor quiescence."""
+
+    try:
+        await _stop_routed_run(run_id, profile=profile, route=route)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            logger.debug("failed to request Hermes run stop", exc_info=True)
+    except Exception:
+        logger.debug("failed to request Hermes run stop", exc_info=True)
+    if route is None or not route.pool_lease_id:
+        return False
+    return await _wait_routed_run_write_quiesced(
+        run_id,
+        profile=profile,
+        route=route,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+async def _release_provisional_durable_claim(
+    profile: HermesProfile,
+    session_id: str,
+    provisional_run_id: str,
+    owner_id: str,
+    *,
+    run_id: str | None = None,
+    status: str = "failed",
+) -> None:
+    """Release either side of a bind whose commit result may be uncertain."""
+
+    candidates = [run_id, provisional_run_id] if run_id else [provisional_run_id]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            released = await _release_durable_lease(
+                profile,
+                session_id,
+                candidate,
+                owner_id,
+                status=status,
+            )
+        except Exception:
+            logger.exception("failed to release provisional durable run claim")
+            continue
+        if released:
+            return
+
+
+async def _claim_create_and_bind_routed_run(
+    run_input: str | list[dict[str, Any]],
+    history: list[dict[str, Any]],
+    *,
+    profile: HermesProfile,
+    session_id: str,
+    route: HermesRunRoute | None,
+    provisional_claim: DurableProvisionalClaim | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
+) -> tuple[str, HermesRunRoute | None, str] | None:
+    """Own the session before pool admission and clean up every uncertain stage."""
+
+    claim = provisional_claim
+    if claim is None:
+        claim = await _acquire_durable_provisional_claim(profile, session_id)
+        if claim is None:
+            return None
+    elif claim.profile != profile or claim.session_id != session_id:
+        await _release_provisional_durable_claim(
+            claim.profile,
+            claim.session_id,
+            claim.provisional_run_id,
+            claim.owner_id,
+        )
+        raise RuntimeError("durable_provisional_claim_scope_mismatch")
+
+    acquired_route = route
+    creation_started = False
+    run_id: str | None = None
+    try:
+        pool_principal_kwargs = {}
+        if tenant_id is not None:
+            pool_principal_kwargs["tenant_id"] = tenant_id
+        if user_id is not None:
+            pool_principal_kwargs["user_id"] = user_id
+        acquired_route = await _acquire_pool_route(
+            route,
+            session_id=session_id,
+            **pool_principal_kwargs,
+        )
+        if not await _attach_durable_pool_lease(claim, acquired_route):
+            raise RuntimeError("openshell_pool_durable_attach_failed")
+        acquired_route = await _mark_pool_route_bound(acquired_route, session_id=session_id)
+        creation_started = True
+        run_id, acquired_route = await _create_routed_run(
+            run_input,
+            history,
+            profile=profile,
+            session_id=session_id,
+            route=acquired_route,
+        )
+        if await _bind_durable_active_run(
+            profile,
+            session_id,
+            claim.provisional_run_id,
+            run_id,
+            claim.owner_id,
+        ):
+            return run_id, acquired_route, claim.owner_id
+
+        terminal_confirmed = await _stop_and_confirm_routed_run(
+            run_id,
+            profile=profile,
+            route=acquired_route,
+        )
+        await _release_provisional_durable_claim(
+            profile,
+            session_id,
+            claim.provisional_run_id,
+            claim.owner_id,
+            run_id=run_id,
+        )
+        await _release_pool_route(
+            acquired_route,
+            session_id=session_id,
+            terminal_confirmed=terminal_confirmed,
+        )
+        return None
+    except BaseException:
+        terminal_confirmed = not creation_started
+        if run_id is not None:
+            try:
+                terminal_confirmed = await _stop_and_confirm_routed_run(
+                    run_id,
+                    profile=profile,
+                    route=acquired_route,
+                )
+            except BaseException:
+                terminal_confirmed = False
+        await _release_provisional_durable_claim(
+            profile,
+            session_id,
+            claim.provisional_run_id,
+            claim.owner_id,
+            run_id=run_id,
+        )
+        await _release_pool_route(
+            acquired_route,
+            session_id=session_id,
+            terminal_confirmed=terminal_confirmed,
+        )
+        raise
 
 
 def _strip_local_memory_blocks(text: str) -> str:
@@ -2268,6 +2811,7 @@ async def save_message_in_background(
     audit_trace_id: str | None = None,
     research_identity: Mapping[str, Any] | None = None,
     request_context: Any | None = None,
+    refresh_local_memory: bool = True,
 ) -> None:
     async with AsyncSession(async_engine) as async_session:
         memory_kwargs = (
@@ -2289,7 +2833,7 @@ async def save_message_in_background(
             audit_trace_id=audit_trace_id,
             **memory_kwargs,
         )
-        if role == "assistant" and profile:
+        if role == "assistant" and profile and refresh_local_memory:
             await _refresh_session_memory_for_request(
                 async_session,
                 profile,
@@ -2654,6 +3198,10 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
         "code": company.get("stock_code") or company.get("ticker"),
         "dir": str(company_dir),
     }
+    # The directory was selected by the backend resolver, not supplied by the
+    # model. Preserve that verified scope during evidence and guardrail passes
+    # so a same-name company in another market cannot replace it.
+    output["force_company"] = True
     output["resolved_period"] = {
         **(output.get("resolved_period") if isinstance(output.get("resolved_period"), dict) else {}),
         "market": market,
@@ -4214,19 +4762,6 @@ def _note_detail_result(
 
     metric_queries = [message]
     normalized_message = _normalize_financial_text(message)
-    if any(term in normalized_message for term in ("偿债", "流动性", "现金流", "现金流量")):
-        company_hint = _context_company_hint(resolved_context) or message
-        cashflow_result, _cashflow_renderer = _statement_metric_result(
-            f"{company_hint} 经营活动现金流量净额",
-            resolved_context,
-        )
-        evidence.extend(
-            agent_runtime_financial_evidence.build_trusted_calculation_evidence(
-                statement_result=cashflow_result,
-                note_result=None,
-                expected_identity=identity,
-            )
-        )
     if any(term in normalized_message for term in ("商誉", "商譽", "goodwill", "のれん", "영업권")):
         # Compound questions with formulas/numbers can over-constrain the
         # semantic note matcher. Retry the same resolved company with the
@@ -5286,6 +5821,8 @@ def _record_financial_llm_provenance_if_needed(
     raw_output: str,
     stored_output: str,
     attachments: Any | None = None,
+    terminal_runtime: Any | None = None,
+    runtime_provenance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     return agent_runtime_financial_provenance.record_financial_llm_provenance_if_needed(
         message=message,
@@ -5296,6 +5833,8 @@ def _record_financial_llm_provenance_if_needed(
         stored_output=stored_output,
         attachments=attachments,
         profile_dirs=HERMES_PROFILE_DIRS,
+        runtime_metadata=terminal_runtime,
+        runtime_provenance=runtime_provenance,
         is_runtime_status_reply=_is_runtime_status_reply,
         needs_financial_evidence_contract=_needs_financial_evidence_contract,
     )
@@ -5361,6 +5900,19 @@ def _trusted_financial_calculation_evidence(
         )
     )
     normalized_message = _normalize_financial_text(message)
+    if any(term in normalized_message for term in ("偿债", "流动性", "现金流", "现金流量")):
+        company_hint = _context_company_hint(resolved_context) or message
+        cashflow_result, _cashflow_renderer = _statement_metric_result(
+            f"{company_hint} 经营活动现金流量净额",
+            resolved_context,
+        )
+        evidence.extend(
+            agent_runtime_financial_evidence.build_trusted_calculation_evidence(
+                statement_result=cashflow_result,
+                note_result=None,
+                expected_identity=identity,
+            )
+        )
     if any(term in normalized_message for term in ("商誉", "商譽", "goodwill", "のれん", "영업권")):
         # Goodwill analysis commonly compares the main-statement net amount
         # with total assets and parent equity even when the user did not name
@@ -5470,6 +6022,7 @@ def enforce_financial_evidence_contract(
         deterministic_calculation_pack=agent_runtime_financial_evidence.render_deterministic_calculation_pack(
             trusted_evidence
         ),
+        strict_validation=True,
     )
     guarded_reply = _strip_inline_financial_evidence_labels_for_display(guarded_reply)
     if isinstance(context, dict):
@@ -5508,7 +6061,7 @@ def _strip_inline_financial_evidence_labels_for_display(reply: str) -> str:
 def _sanitize_financial_reply_for_display(reply: str) -> str:
     """Hide machine validation metadata after it has served the guardrail."""
 
-    text = _strip_verbose_financial_validation_sections(reply or "")
+    text = _compact_financial_validation_sections_for_display(reply or "")
     text = _strip_inline_financial_evidence_labels_for_display(text)
     text = re.sub(r"[ \t]+\|", " |", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -5565,6 +6118,12 @@ def _financial_validation_failed(guarded_reply: str) -> bool:
     return _FINANCIAL_VALIDATION_BLOCK_MARKER in (guarded_reply or "")
 
 
+def _financial_validation_is_repairable(guarded_reply: str) -> bool:
+    return _financial_validation_failed(guarded_reply) and "calculation_trace_reason=" in (
+        guarded_reply or ""
+    )
+
+
 def _financial_repair_run_input(
     *,
     message: str,
@@ -5575,13 +6134,79 @@ def _financial_repair_run_input(
 
     return (
         "你正在执行财务回答的唯一一次校验修复。不得重新路由、重新选公司或输出思考过程。\n"
-        "请直接输出一份完整的最终回答，保留有证据支持的内容，只修正下面校验失败项。\n"
+        "请对第一轮草稿做最小范围编辑，不得重新概括或整体重写。保留原稿的分析深度、章节、表格、风险提示和后续建议；"
+        "只修正校验失败涉及的数字、公式、口径或证据绑定，并删除机器措辞。\n"
+        "纯事实问答使用“结论 / 关键数据 / 引用来源”；若原始问题要求分析、解读、风险、原因或重要性，必须在关键数据后增加“解读要点”章节。"
+        "解读要点写 3–5 条数据含义，不复述表格，且区分披露事实与分析判断。结论 3–5 条，同一金额只选一种易读单位，精确原值集中放在一张表中。"
+        "验证通过时可在引用来源前增加简短的“计算器校验 / 勾稽校验”摘要，每栏只保留可读结论。\n"
+        "不要输出后端结果包、trace、calculation_id、evidence_id、trusted 标签、运行记录或“无二次心算”等内部信息。\n"
         "所有金额换算、变动额、比例、勾稽关系必须采用校验器给出的期望值或后端确定性结果包；"
-        "不要手写工具调用记录，不要声称调用了未实际调用的工具。\n\n"
+        "不要手写工具调用记录，不要声称调用了未实际调用的工具。"
+        "若失败项是原值/准备/净额勾稽，正文必须出现一条同时含三个金额的完整算式，或在同一张紧凑表中列出三项精确金额。\n\n"
+        "若失败原因为 trace_operation_missing，所有占比必须各自单独成句并明确分子、分母和结果；无法绑定证据的占比应删除。\n\n"
         f"## 原始问题\n{message}\n\n"
         f"## 第一轮草稿\n{draft}\n\n"
         f"## 第一轮校验失败项\n{validation_failure}"
     )
+
+
+_FINANCIAL_REPAIR_QUALITY_HEADINGS = (
+    "依据/数据",
+    "关键数据",
+    "解读要点",
+    "风险/关注点",
+    "风险与提示",
+    "后续动作建议",
+    "引用来源",
+)
+
+
+def _financial_repair_preserves_content_quality(original: str, repaired: str) -> bool:
+    """Reject a valid-but-materially-degraded rewrite of the streamed answer."""
+
+    original_text = (original or "").strip()
+    repaired_text = (repaired or "").strip()
+    if not repaired_text:
+        return False
+    if len(original_text) >= 800 and len(repaired_text) < len(original_text) * 0.72:
+        return False
+    for heading in _FINANCIAL_REPAIR_QUALITY_HEADINGS:
+        if heading in original_text and heading not in repaired_text:
+            return False
+    original_tables = len(re.findall(r"(?m)^\|\s*---", original_text))
+    repaired_tables = len(re.findall(r"(?m)^\|\s*---", repaired_text))
+    if original_tables >= 2 and repaired_tables == 0:
+        return False
+    return True
+
+
+def _select_financial_repair_result(
+    *,
+    first_draft: str,
+    first_validation: str,
+    repaired_draft: str,
+    repaired_validation: str,
+) -> str:
+    """Keep the streamed draft and expose the suggested repair for comparison."""
+
+    original = normalize_evidence_trace_for_display(first_draft).strip()
+    suggested = normalize_evidence_trace_for_display(repaired_draft).strip()
+    preserves_quality = _financial_repair_preserves_content_quality(original, suggested)
+    validation_passed = not _financial_validation_failed(repaired_validation)
+    if validation_passed:
+        suggested_display = repaired_validation.strip()
+        status = "校验通过" if preserves_quality else "校验通过，但内容保真检查未通过"
+    else:
+        suggested_display = _reply_with_financial_validation_failures(suggested, repaired_validation)
+        status = "仍有校验项未通过"
+    return (
+        "# 原始回答（流式原稿）\n"
+        "> 原稿完整保留，未被建议修复稿静默覆盖；其中派生计算仍以校验状态为准。\n\n"
+        f"{original}\n\n"
+        "# 建议修复稿（对照）\n"
+        f"> 状态：{status}。当前仅作对照展示，便于核对修改内容。\n\n"
+        f"{suggested_display}"
+    ).strip()
 
 
 def _strip_verbose_financial_validation_sections(draft: str) -> str:
@@ -5593,6 +6218,35 @@ def _strip_verbose_financial_validation_sections(draft: str) -> str:
         "",
         content,
     )
+    return re.sub(r"\n{3,}", "\n\n", content).strip()
+
+
+_FINANCIAL_VALIDATION_SECTION_RE = re.compile(
+    r"(?ms)^(?P<heading>## (?:计算器校验|勾稽校验)(?:[（(][^\n）)]*[）)])?)\s*\n"
+    r"(?P<body>.*?)(?=^## |\Z)"
+)
+_FINANCIAL_VALIDATION_INTERNAL_LINE_RE = re.compile(
+    r"(?:trace_id|trace_schema|schema_version|calculation_id|evidence_id|trusted:|"
+    r"\binputs?\s*[:=]|\bresult\s*[:=]|\boperation\s*[:=]|\bstatus\s*[:=]|"
+    r"financial_calculator\.py|financial_reconciliation_validator\.py|后端确定性财务结果包)",
+    re.IGNORECASE,
+)
+
+
+def _compact_financial_validation_sections_for_display(draft: str) -> str:
+    """Keep user-facing validation summaries while hiding machine trace fields."""
+
+    def replace(match: re.Match[str]) -> str:
+        safe_lines = [
+            line.rstrip()
+            for line in match.group("body").splitlines()
+            if line.strip() and not _FINANCIAL_VALIDATION_INTERNAL_LINE_RE.search(line)
+        ][:100]
+        if not safe_lines:
+            return ""
+        return f"{match.group('heading')}\n" + "\n".join(safe_lines) + "\n\n"
+
+    content = _FINANCIAL_VALIDATION_SECTION_RE.sub(replace, draft or "")
     return re.sub(r"\n{3,}", "\n\n", content).strip()
 
 
@@ -5634,6 +6288,14 @@ def _reply_with_financial_validation_failures(draft: str, validation_failure: st
     ).strip()
 
 
+def _reply_with_financial_repair_suggestion(draft: str, validation_failure: str) -> str:
+    """Legacy fallback: preserve the draft and fold diagnostics into one card."""
+
+    original = normalize_evidence_trace_for_display(draft).strip()
+    failure = _compact_financial_validation_failure(validation_failure)
+    return f"{original}\n\n## 计算器校验（存在待核对项）\n{failure}".strip()
+
+
 async def _run_single_financial_repair(
     *,
     profile: HermesProfile,
@@ -5642,38 +6304,97 @@ async def _run_single_financial_repair(
     message: str,
     draft: str,
     validation_failure: str,
+    parent_state: ActiveRunState | None = None,
 ) -> tuple[str, HermesRunRoute | None]:
     repair_input = _financial_repair_run_input(
         message=message,
         draft=draft,
         validation_failure=validation_failure,
     )
-    repair_run_id, repair_route = await _create_routed_run(
-        repair_input,
-        [],
-        profile=profile,
-        session_id=session_id,
-        route=route,
-    )
-    repaired = await asyncio.wait_for(
-        _collect_routed_run_result(
-            repair_run_id,
+    repair_run_id: str | None = None
+    repair_route = route
+    try:
+        repair_run_id, repair_route = await _create_routed_run(
+            repair_input,
+            [],
             profile=profile,
-            timeout=hermes_timeout(),
-            route=repair_route,
-        ),
-        timeout=STREAM_TIMEOUT_SECONDS,
-    )
-    return repaired, repair_route
+            session_id=session_id,
+            route=route,
+        )
+        repaired = await asyncio.wait_for(
+            _collect_routed_run_result(
+                repair_run_id,
+                profile=profile,
+                timeout=hermes_timeout(),
+                route=repair_route,
+            ),
+            timeout=STREAM_TIMEOUT_SECONDS,
+        )
+        return repaired, repair_route
+    except RunTerminalError as exc:
+        terminal_confirmed = exc.result.status == "failed"
+        if repair_run_id is not None and exc.result.status == "cancelled":
+            terminal_confirmed = await _wait_routed_run_write_quiesced(
+                repair_run_id,
+                profile=profile,
+                route=repair_route,
+            )
+        elif repair_run_id is not None and exc.result.status not in {"failed", "cancelled"}:
+            terminal_confirmed = await _stop_and_confirm_routed_run(
+                repair_run_id,
+                profile=profile,
+                route=repair_route,
+            )
+        if parent_state is not None and not terminal_confirmed:
+            parent_state.runtime_children_terminal_confirmed = False
+        raise
+    except BaseException:
+        terminal_confirmed = False
+        if repair_run_id is not None:
+            try:
+                terminal_confirmed = await _stop_and_confirm_routed_run(
+                    repair_run_id,
+                    profile=profile,
+                    route=repair_route,
+                )
+            except BaseException:
+                terminal_confirmed = False
+        if parent_state is not None and not terminal_confirmed:
+            parent_state.runtime_children_terminal_confirmed = False
+        raise
 
 
-def _trusted_financial_receipts(profile: HermesProfile, session_id: str) -> tuple[Mapping[str, Any], ...]:
+def _trusted_financial_receipts(
+    profile: HermesProfile,
+    session_id: str,
+    *,
+    route: HermesRunRoute | None = None,
+) -> tuple[Mapping[str, Any], ...]:
     runtime_profile = _runtime_profile(profile)
-    profile_root = HERMES_PROFILE_ROOTS.get(runtime_profile)
-    if profile_root is None:
-        return ()
-    live_alias = HERMES_LIVE_PROFILE_ALIASES.get(runtime_profile)
-    live_profile_roots = (HERMES_PROFILES_ROOT / live_alias,) if live_alias else ()
+    if route is not None and route.target == "openshell":
+        run_id = str(route.canary_run_id or "")
+        if re.fullmatch(r"canary-[0-9a-f]{12}", run_id) is None:
+            return ()
+        profile_root = PROJECT_ROOT / "var/openshell/siq-analysis/runtime-snapshots" / run_id
+        try:
+            resolved_root = profile_root.resolve(strict=True)
+            expected_parent = (
+                PROJECT_ROOT / "var/openshell/siq-analysis/runtime-snapshots"
+            ).resolve(strict=True)
+        except OSError:
+            return ()
+        if resolved_root.parent != expected_parent or not resolved_root.is_dir():
+            return ()
+        profile_root = resolved_root
+        live_profile_roots = (resolved_root / "runtime-state",)
+        hermes_session_id = _routed_hermes_session_id(profile, session_id, route)
+    else:
+        profile_root = HERMES_PROFILE_ROOTS.get(runtime_profile)
+        if profile_root is None:
+            return ()
+        live_alias = HERMES_LIVE_PROFILE_ALIASES.get(runtime_profile)
+        live_profile_roots = (HERMES_PROFILES_ROOT / live_alias,) if live_alias else ()
+        hermes_session_id = hermes_runs_session_id(profile, session_id)
     allowed_paths = {
         "financial_calculator.py": (
             FINANCIAL_CALCULATOR_PATH,
@@ -5689,7 +6410,7 @@ def _trusted_financial_receipts(profile: HermesProfile, session_id: str) -> tupl
     return agent_runtime_financial_trace.extract_runtime_financial_receipts(
         profile_dir=profile_root,
         profile_dirs=live_profile_roots,
-        hermes_session_id=hermes_runs_session_id(profile, session_id),
+        hermes_session_id=hermes_session_id,
         allowed_script_paths=allowed_paths,
     )
 
@@ -5700,13 +6421,14 @@ async def _trusted_financial_receipts_after_run(
     *,
     message: str,
     reply: str,
+    route: HermesRunRoute | None = None,
 ) -> tuple[Mapping[str, Any], ...]:
-    receipts = _trusted_financial_receipts(profile, session_id)
+    receipts = _trusted_financial_receipts(profile, session_id, route=route)
     if receipts or not agent_runtime_financial_guard.requires_financial_calculation_trace(message, reply):
         return receipts
     for delay in (0.02, 0.05, 0.1):
         await asyncio.sleep(delay)
-        receipts = _trusted_financial_receipts(profile, session_id)
+        receipts = _trusted_financial_receipts(profile, session_id, route=route)
         if receipts:
             return receipts
     return ()
@@ -5885,13 +6607,33 @@ async def _load_chat_run_preflight_context(
     history_limit: int,
     message: str = "",
     context: Any | None = None,
+    isolate_runtime_context: bool = False,
+    research_identity_scope: Mapping[str, Any] | None = None,
 ) -> ChatRunPreflightContext:
+    async def scoped_history(
+        scoped_session: AsyncSession,
+        scoped_session_id: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if not isolate_runtime_context:
+            return await load_history(scoped_session, scoped_session_id, limit=limit)
+        if research_identity_scope is None:
+            return []
+        return await load_history(
+            scoped_session,
+            scoped_session_id,
+            limit=limit,
+            research_identity_scope=research_identity_scope,
+        )
+
     async def scoped_local_memory_context(
         scoped_session: AsyncSession,
         scoped_profile: HermesProfile,
         scoped_session_id: str,
-        **_kwargs: Any,
     ) -> str | None:
+        if isolate_runtime_context:
+            return None
         if primary_market_agent_runtime.is_primary_market_ic_runtime(
             scoped_profile,
             context,
@@ -5908,6 +6650,31 @@ async def _load_chat_run_preflight_context(
             scoped_session_id,
         )
 
+    async def scoped_agent_memory_context(
+        scoped_session: AsyncSession,
+        scoped_profile: HermesProfile,
+        scoped_session_id: str,
+        scoped_message: str,
+        *,
+        research_context: Any | None = None,
+    ) -> str | None:
+        if isolate_runtime_context and research_identity_scope is None:
+            return None
+        if research_context is None:
+            return await ensure_agent_memory_context(
+                scoped_session,
+                scoped_profile,
+                scoped_session_id,
+                scoped_message,
+            )
+        return await ensure_agent_memory_context(
+            scoped_session,
+            scoped_profile,
+            scoped_session_id,
+            scoped_message,
+            research_context=research_context,
+        )
+
     return await agent_runtime_preflight.load_chat_run_preflight_context_with_agent_memory(
         async_session,
         session_id=session_id,
@@ -5916,9 +6683,9 @@ async def _load_chat_run_preflight_context(
         history_limit=history_limit,
         message=message,
         request_context=context,
-        load_history=load_history,
+        load_history=scoped_history,
         ensure_local_memory_context=scoped_local_memory_context,
-        ensure_agent_memory_context=ensure_agent_memory_context,
+        ensure_agent_memory_context=scoped_agent_memory_context,
     )
 
 
@@ -5946,6 +6713,61 @@ def _terminal_error_payload(
         "retryable": result.retryable,
         "trace_id": result.run_id,
     }
+
+
+def _runtime_provenance(route: HermesRunRoute | None) -> dict[str, str]:
+    payload = {"runtime_target": route.target if route is not None else "host"}
+    if route is not None and route.canary_run_id:
+        payload["canary_run_id"] = route.canary_run_id
+    if route is not None and route.target == "openshell" and route.pool_lease_id:
+        scope_id = str(getattr(route.pool_binding, "scope_id", "") or "")
+        generation_material = "\0".join(
+            (
+                route.session_namespace,
+                route.canary_run_id or "",
+                scope_id,
+            )
+        )
+        payload["sandbox_generation_id"] = hashlib.sha256(
+            generation_material.encode("utf-8")
+        ).hexdigest()[:16]
+        if scope_id:
+            payload["sandbox_scope_id"] = scope_id
+        if route.pool_company:
+            payload["sandbox_company"] = route.pool_company
+    return payload
+
+
+def _runtime_research_identity_scope(
+    context: Any | None,
+    route: HermesRunRoute | None,
+) -> dict[str, str] | None:
+    if route is None or route.target != "openshell":
+        return None
+    scope = agent_runtime_context.research_identity(context)
+    route_market = str(route.pool_market or "").strip().upper()
+    if route_market:
+        if scope.get("market") and scope["market"] != route_market:
+            return None
+        scope["market"] = route_market
+    if not scope.get("company_id") and route.pool_company:
+        company_id = str(route.pool_company).partition("-")[0].strip()
+        if company_id:
+            scope["company_id"] = company_id
+    if not scope.get("market") or not scope.get("company_id"):
+        return None
+    return scope
+
+
+def _memory_context_with_scope(
+    context: Mapping[str, Any],
+    scope: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if scope is None:
+        return dict(context)
+    existing = context.get("research_identity")
+    identity = dict(existing) if isinstance(existing, Mapping) else {}
+    return {**context, "research_identity": {**identity, **scope}}
 
 
 def _record_answer_audit_trace_compat(**kwargs: Any) -> dict[str, Any]:
@@ -5976,13 +6798,21 @@ def _record_answer_audit_trace_compat(**kwargs: Any) -> dict[str, Any]:
     except TypeError as exc:
         unsupported = {
             key
-            for key in ("trusted_calculation_runs", "trusted_calculation_evidence")
+            for key in (
+                "trusted_calculation_runs",
+                "trusted_calculation_evidence",
+                "runtime_provenance",
+            )
             if key in str(exc)
         }
         if not unsupported:
             raise
         fallback = dict(enriched)
-        for key in ("trusted_calculation_runs", "trusted_calculation_evidence"):
+        for key in (
+            "trusted_calculation_runs",
+            "trusted_calculation_evidence",
+            "runtime_provenance",
+        ):
             fallback.pop(key, None)
         return agent_runtime_answer_audit.record_answer_audit_trace_for_reply(**fallback)
 
@@ -6000,6 +6830,8 @@ async def _collect_chat_reply_impl(
     enforce_evidence_contract: bool = True,
     answer_audit_callback: AnswerAuditCallback | None = None,
     runtime_target: str | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
 ) -> str:
     primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
@@ -6015,10 +6847,7 @@ async def _collect_chat_reply_impl(
     user_display_message = envelope.user_display_message
     audit_context = agent_runtime_context.mutable_context_dict(context)
     memory_save_kwargs = _chat_memory_save_kwargs(profile, audit_context)
-    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(
-        profile,
-        audit_context,
-    )
+    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(profile, audit_context)
     catalog_reply = None if primary_market_ic_runtime else build_wiki_catalog_reply(message)
     short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
         catalog_reply=catalog_reply,
@@ -6031,29 +6860,49 @@ async def _collect_chat_reply_impl(
         if duplicate_reply:
             return duplicate_reply
 
+    provisional_claim = await _acquire_durable_provisional_claim(profile, session_id)
+    if provisional_claim is None:
+        return _ACTIVE_RUN_CONFLICT_MESSAGE
+
     if short_circuit.catalog_reply:
-        await save_message(
-            async_session,
-            "user",
-            user_display_message,
-            session_id,
-            attachments=all_attachments,
-            **memory_save_kwargs,
+        try:
+            await save_message(
+                async_session,
+                "user",
+                user_display_message,
+                session_id,
+                attachments=all_attachments,
+                **memory_save_kwargs,
+            )
+            await save_message(
+                async_session,
+                "assistant",
+                short_circuit.catalog_reply,
+                session_id,
+                **memory_save_kwargs,
+            )
+            await _refresh_session_memory_for_request(
+                async_session,
+                profile,
+                session_id,
+                audit_context,
+            )
+            _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
+        except BaseException:
+            await _release_provisional_durable_claim(
+                provisional_claim.profile,
+                provisional_claim.session_id,
+                provisional_claim.provisional_run_id,
+                provisional_claim.owner_id,
+            )
+            raise
+        await _release_provisional_durable_claim(
+            provisional_claim.profile,
+            provisional_claim.session_id,
+            provisional_claim.provisional_run_id,
+            provisional_claim.owner_id,
+            status="succeeded",
         )
-        await save_message(
-            async_session,
-            "assistant",
-            short_circuit.catalog_reply,
-            session_id,
-            **memory_save_kwargs,
-        )
-        await _refresh_session_memory_for_request(
-            async_session,
-            profile,
-            session_id,
-            audit_context,
-        )
-        _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         return short_circuit.catalog_reply
 
     completed_guard_input: str | None = None
@@ -6062,71 +6911,80 @@ async def _collect_chat_reply_impl(
         if completed_artifacts:
             completed_guard_input = _analysis_completion_guard_input(message, completed_artifacts)
 
-    preflight_context = await _load_chat_run_preflight_context(
-        async_session,
-        message=(
-            primary_market_agent_runtime.primary_market_retrieval_query(
-                profile,
-                audit_context,
-            )
-            if primary_market_ic_runtime
-            else completed_guard_input or message
-        ),
-        session_id=session_id,
-        profile=profile,
-        attachments=all_attachments,
-        history_limit=history_limit,
-        context=context,
-    )
-    await wait_for_pdf_attachment_parses(preflight_context.attachments)
-    all_attachments = _attachments_with_fresh_metadata(preflight_context.attachments)
-    await save_message(
-        async_session,
-        "user",
-        user_display_message,
-        session_id,
-        attachments=all_attachments,
-        **memory_save_kwargs,
-    )
-    image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
-        completed_guard_input or message,
-        all_attachments,
-    )
-
-    run_input = build_hermes_run_input(
-        completed_guard_input or message,
-        profile=profile,
-        session_id=session_id,
-        context=audit_context,
-        allow_initialize=preflight_context.allow_initialize,
-        attachments=all_attachments,
-        local_memory_context=preflight_context.local_memory_context,
-        image_analysis_context=image_analysis_context,
-        use_hermes_image_fallback=not image_model_succeeded,
-    )
-    run_route = _requested_run_route(profile, runtime_target, session_id)
-    owner_id = _RUNTIME_OWNER_ID
-    provisional_run_id = f"claim-{uuid.uuid4().hex}"
-    if not await _claim_durable_active_run(profile, session_id, provisional_run_id, owner_id):
-        return _ACTIVE_RUN_CONFLICT_MESSAGE
+    claim_transferred = False
     try:
-        run_id, run_route = await _create_routed_run(
+        run_route = await _requested_run_route_with_scope_lifecycle(profile, runtime_target, session_id, audit_context)
+        isolate_runtime_context = bool(run_route is not None and run_route.target == "openshell")
+        history_scope = _runtime_research_identity_scope(audit_context, run_route)
+        memory_context = _memory_context_with_scope(audit_context, history_scope)
+        if isolate_runtime_context and history_scope is not None:
+            memory_save_kwargs = {**memory_save_kwargs, "research_identity": history_scope}
+        preflight_context = await _load_chat_run_preflight_context(
+            async_session,
+            message=(
+                primary_market_agent_runtime.primary_market_retrieval_query(
+                    profile,
+                    audit_context,
+                )
+                if primary_market_ic_runtime
+                else completed_guard_input or message
+            ),
+            session_id=session_id,
+            profile=profile,
+            attachments=all_attachments,
+            history_limit=history_limit,
+            context=memory_context,
+            isolate_runtime_context=isolate_runtime_context,
+            research_identity_scope=history_scope,
+        )
+        await wait_for_pdf_attachment_parses(preflight_context.attachments)
+        all_attachments = _attachments_with_fresh_metadata(preflight_context.attachments)
+        await save_message(
+            async_session,
+            "user",
+            user_display_message,
+            session_id,
+            attachments=all_attachments,
+            **memory_save_kwargs,
+        )
+        image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
+            completed_guard_input or message,
+            all_attachments,
+        )
+        run_input = build_hermes_run_input(
+            completed_guard_input or message,
+            profile=profile,
+            session_id=session_id,
+            context=audit_context,
+            allow_initialize=preflight_context.allow_initialize,
+            attachments=all_attachments,
+            local_memory_context=preflight_context.local_memory_context,
+            image_analysis_context=image_analysis_context,
+            use_hermes_image_fallback=not image_model_succeeded,
+        )
+        claim_transferred = True
+        claimed_run = await _claim_create_and_bind_routed_run(
             run_input,
             preflight_context.history,
             profile=profile,
             session_id=session_id,
             route=run_route,
+            provisional_claim=provisional_claim,
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
-    except Exception:
-        await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
+    except BaseException:
+        if not claim_transferred:
+            await _release_provisional_durable_claim(
+                provisional_claim.profile,
+                provisional_claim.session_id,
+                provisional_claim.provisional_run_id,
+                provisional_claim.owner_id,
+            )
         raise
-    if not await _bind_durable_active_run(profile, session_id, provisional_run_id, run_id, owner_id):
-        try:
-            await _stop_routed_run(run_id, profile=profile, route=run_route)
-        except Exception:
-            logger.debug("failed to stop unclaimed Hermes run", exc_info=True)
-        await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
+    if claimed_run is None:
         return _ACTIVE_RUN_CONFLICT_MESSAGE
+    run_id, run_route, owner_id = claimed_run
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.run_route = run_route
     state.owner_id = owner_id
@@ -6153,22 +7011,48 @@ async def _collect_chat_reply_impl(
             ),
             timeout=STREAM_TIMEOUT_SECONDS,
         )
-        state.terminal_result = RunTerminalResult(
-            run_id=run_id,
-            status="succeeded",
-            received_text=reply,
+        captured_terminal = pop_run_terminal_result(run_id)
+        state.terminal_result = (
+            captured_terminal
+            if captured_terminal is not None and captured_terminal.succeeded
+            else RunTerminalResult(
+                run_id=run_id,
+                status="succeeded",
+                received_text=reply,
+            )
         )
+        state.runtime_terminal_confirmed = True
         state.status = "postprocessing"
+        if not await _active_run_ownership_is_current(state):
+            state.runtime_children_terminal_confirmed = False
+            state.status = "failed"
+            state.error = "active_run_lease_lost"
+            return _ACTIVE_RUN_CONFLICT_MESSAGE
     except RunTerminalError as exc:
         state.terminal_result = exc.result
+        if exc.result.status == "failed":
+            state.runtime_terminal_confirmed = True
+        elif exc.result.status == "cancelled":
+            state.runtime_terminal_confirmed = await _wait_routed_run_write_quiesced(
+                run_id,
+                profile=profile,
+                route=run_route,
+            )
+        else:
+            state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+                run_id,
+                profile=profile,
+                route=run_route,
+            )
         state.status = exc.result.status
         state.error = exc.result.error_code or exc.result.status
         return _terminal_user_message(exc.result)
     except (asyncio.TimeoutError, httpx.TimeoutException):
-        try:
-            await _stop_routed_run(run_id, profile=profile, route=run_route)
-        except Exception:
-            pass
+        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+            run_id,
+            profile=profile,
+            route=run_route,
+        )
         state.terminal_result = RunTerminalResult(
             run_id=run_id,
             status="timed_out",
@@ -6193,10 +7077,11 @@ async def _collect_chat_reply_impl(
         reply = normalize_evidence_trace_for_display(reply)
     else:
         trusted_runs = await _trusted_financial_receipts_after_run(
-            profile=profile,
-            session_id=session_id,
+            profile,
+            session_id,
             message=message,
             reply=reply,
+            route=run_route,
         )
         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
         try:
@@ -6206,34 +7091,8 @@ async def _collect_chat_reply_impl(
             if enforce_evidence_contract:
                 first_draft = reply
                 first_validation = enforce_financial_evidence_contract(message, audit_context, first_draft)
-                if _financial_validation_failed(first_validation):
-                    try:
-                        repaired_draft, _ = await _run_single_financial_repair(
-                            profile=profile,
-                            session_id=session_id,
-                            route=run_route,
-                            message=message,
-                            draft=first_draft,
-                            validation_failure=first_validation,
-                        )
-                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                        repaired_validation = enforce_financial_evidence_contract(
-                            message,
-                            audit_context,
-                            repaired_draft,
-                        )
-                        reply = (
-                            _reply_with_financial_validation_failures(repaired_draft, repaired_validation)
-                            if _financial_validation_failed(repaired_validation)
-                            else repaired_validation
-                        )
-                        raw_reply = repaired_draft
-                    except Exception as exc:
-                        logger.exception("single financial repair run failed")
-                        reply = _reply_with_financial_validation_failures(
-                            first_draft,
-                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                        )
+                if _financial_validation_is_repairable(first_validation):
+                    reply = _reply_with_financial_repair_suggestion(first_draft, first_validation)
                 else:
                     reply = first_validation
             reply = normalize_evidence_trace_for_display(reply)
@@ -6247,6 +7106,7 @@ async def _collect_chat_reply_impl(
                 final_reply=reply,
                 enforce_evidence_contract=enforce_evidence_contract,
                 trusted_calculation_runs=trusted_runs,
+                runtime_provenance=_runtime_provenance(run_route),
             )
         finally:
             agent_runtime_financial_trace.reset_current_trusted_runs(trusted_token)
@@ -6263,6 +7123,8 @@ async def _collect_chat_reply_impl(
             raw_output=raw_reply,
             stored_output=reply,
             attachments=all_attachments,
+            terminal_runtime=state.terminal_result.runtime,
+            runtime_provenance=_runtime_provenance(run_route),
         )
     await save_message(
         async_session,
@@ -6272,12 +7134,13 @@ async def _collect_chat_reply_impl(
         audit_trace_id=_answer_audit_trace_id(answer_audit_record),
         **memory_save_kwargs,
     )
-    await _refresh_session_memory_for_request(
-        async_session,
-        profile,
-        session_id,
-        audit_context,
-    )
+    if not isolate_runtime_context:
+        await _refresh_session_memory_for_request(
+            async_session,
+            profile,
+            session_id,
+            audit_context,
+        )
     _remember_completed_run(profile, session_id, message_hash, reply)
     state.status = "succeeded"
     await _release_durable_active_run(state, status="succeeded")
@@ -6298,6 +7161,8 @@ async def collect_chat_reply(
     enforce_evidence_contract: bool = True,
     answer_audit_callback: AnswerAuditCallback | None = None,
     runtime_target: str | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
 ) -> str:
     with _profile_wiki_context(profile):
         return await _collect_chat_reply_impl(
@@ -6312,6 +7177,8 @@ async def collect_chat_reply(
             enforce_evidence_contract=enforce_evidence_contract,
             answer_audit_callback=answer_audit_callback,
             runtime_target=runtime_target,
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
 
 
@@ -6380,14 +7247,11 @@ async def _collect_stream_run(
                             diagnostic=text_loop["sample"],
                         )
                         state.stop_requested = True
-                        try:
-                            await _stop_routed_run(
-                                state.run_id,
-                                profile=state.profile,
-                                route=state.run_route,
-                            )
-                        except Exception:
-                            pass
+                        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+                            state.run_id,
+                            profile=state.profile,
+                            route=state.run_route,
+                        )
                         loop_delta = (
                             f"\n\n{OUTPUT_LOOP_STOP_MESSAGE}\n\n"
                             f"循环样本：{text_loop['sample']}\n"
@@ -6434,14 +7298,11 @@ async def _collect_stream_run(
                             diagnostic=projection.tool_label,
                         )
                         state.stop_requested = True
-                        try:
-                            await _stop_routed_run(
-                                state.run_id,
-                                profile=state.profile,
-                                route=state.run_route,
-                            )
-                        except Exception:
-                            pass
+                        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+                            state.run_id,
+                            profile=state.profile,
+                            route=state.run_route,
+                        )
                         repeated_delta = (
                             f"\n\n{REPEATED_TOOL_CALL_STOP_MESSAGE}\n\n"
                             f"重复工具：{projection.tool_label}\n"
@@ -6493,14 +7354,11 @@ async def _collect_stream_run(
                             diagnostic=projection.tool_label,
                         )
                         state.stop_requested = True
-                        try:
-                            await _stop_routed_run(
-                                state.run_id,
-                                profile=state.profile,
-                                route=state.run_route,
-                            )
-                        except Exception:
-                            pass
+                        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+                            state.run_id,
+                            profile=state.profile,
+                            route=state.run_route,
+                        )
                         failure_delta = (
                             f"\n\n{TOOL_FAILURE_STOP_MESSAGE}\n\n"
                             f"连续失败工具：{projection.tool_label}\n"
@@ -6532,6 +7390,7 @@ async def _collect_stream_run(
                     await _append_reasoning_active_run(state, ev.text)
                 elif ev.type == "done":
                     terminal_result = terminal_accumulator.accept(ev)
+                    state.runtime_terminal_confirmed = True
                     if loop_detected:
                         break
                     if ev.text and not full_reply:
@@ -6543,10 +7402,38 @@ async def _collect_stream_run(
                             full_reply = ev.text
                             await append_model_delta(suffix)
                     await append_model_delta("", final=True)
+                    if not await _active_run_ownership_is_current(state):
+                        failed = True
+                        state.runtime_children_terminal_confirmed = False
+                        state.stop_requested = True
+                        terminal_result = RunTerminalResult(
+                            run_id=state.run_id,
+                            status="failed",
+                            received_text=full_reply,
+                            error_code="active_run_lease_lost",
+                            retryable=True,
+                            diagnostic="Runtime ownership changed before postprocessing",
+                            runtime=terminal_result.runtime if terminal_result is not None else None,
+                        )
+                        await _append_state_event(
+                            state,
+                            "error",
+                            _terminal_error_payload(
+                                terminal_result,
+                                message=_ACTIVE_RUN_CONFLICT_MESSAGE,
+                            ),
+                        )
                     break
                 elif ev.type in {"failed", "cancelled"}:
                     failed = True
                     terminal_result = terminal_accumulator.accept(ev)
+                    state.runtime_terminal_confirmed = ev.type == "failed"
+                    if ev.type == "cancelled":
+                        state.runtime_terminal_confirmed = await _wait_routed_run_write_quiesced(
+                            state.run_id,
+                            profile=state.profile,
+                            route=state.run_route,
+                        )
                     status_message = (
                         RUN_FAILED_MESSAGE
                         if ev.type == "failed"
@@ -6583,6 +7470,11 @@ async def _collect_stream_run(
             if terminal_result is None and not failed:
                 failed = True
                 terminal_result = terminal_accumulator.protocol_eof()
+                state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+                    state.run_id,
+                    profile=state.profile,
+                    route=state.run_route,
+                )
                 failure_delta = f"\n\n{PROTOCOL_EOF_MESSAGE}" if full_reply else PROTOCOL_EOF_MESSAGE
                 full_reply = f"{full_reply}{failure_delta}" if full_reply else failure_delta
                 await _append_progress_event(
@@ -6603,14 +7495,11 @@ async def _collect_stream_run(
         terminal_result = terminal_accumulator.timed_out(
             "Hermes stream idle timeout" if idle_timed_out else "Agent runtime deadline exceeded"
         )
-        try:
-            await _stop_routed_run(
-                state.run_id,
-                profile=state.profile,
-                route=state.run_route,
-            )
-        except Exception:
-            pass
+        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+            state.run_id,
+            profile=state.profile,
+            route=state.run_route,
+        )
         timeout_message = IDLE_TIMEOUT_MESSAGE if idle_timed_out else TIMEOUT_MESSAGE
         timeout_delta = f"\n\n{timeout_message}" if full_reply else timeout_message
         full_reply = f"{full_reply}{timeout_delta}" if full_reply else timeout_delta
@@ -6627,14 +7516,11 @@ async def _collect_stream_run(
     except httpx.TimeoutException:
         failed = True
         terminal_result = terminal_accumulator.timed_out("Hermes HTTP stream timeout")
-        try:
-            await _stop_routed_run(
-                state.run_id,
-                profile=state.profile,
-                route=state.run_route,
-            )
-        except Exception:
-            pass
+        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+            state.run_id,
+            profile=state.profile,
+            route=state.run_route,
+        )
         timeout_delta = f"\n\n{TIMEOUT_MESSAGE}" if full_reply else TIMEOUT_MESSAGE
         full_reply = f"{full_reply}{timeout_delta}" if full_reply else timeout_delta
         await _append_progress_event(
@@ -6649,6 +7535,11 @@ async def _collect_stream_run(
         )
     except Exception as exc:
         failed = True
+        state.runtime_terminal_confirmed = await _stop_and_confirm_routed_run(
+            state.run_id,
+            profile=state.profile,
+            route=state.run_route,
+        )
         exception_detail = str(exc)
         external_tool_loop_guard = agent_runtime_financial_guard.is_external_tool_loop_guard_reply(
             exception_detail
@@ -6716,6 +7607,8 @@ async def _collect_stream_run(
                     diagnostic="Agent runtime guard stopped the run",
                 )
             state.terminal_result = terminal_result
+            if terminal_result is not None:
+                state.status = terminal_result.status
 
             if full_reply and terminal_result is not None and terminal_result.succeeded:
                 trusted_runs: tuple[Mapping[str, Any], ...] = ()
@@ -6749,6 +7642,7 @@ async def _collect_stream_run(
                             state.session_id,
                             message=state.original_message or "",
                             reply=reply,
+                            route=state.run_route,
                         )
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
@@ -6759,36 +7653,11 @@ async def _collect_stream_run(
                                     state.context,
                                     first_draft,
                                 )
-                                if _financial_validation_failed(first_validation):
-                                    try:
-                                        repaired_draft, _ = await _run_single_financial_repair(
-                                            profile=state.profile,
-                                            session_id=state.session_id,
-                                            route=state.run_route,
-                                            message=state.original_message or "",
-                                            draft=first_draft,
-                                            validation_failure=first_validation,
-                                        )
-                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                                        repaired_validation = enforce_financial_evidence_contract(
-                                            state.original_message or "",
-                                            state.context,
-                                            repaired_draft,
-                                        )
-                                        reply = (
-                                            _reply_with_financial_validation_failures(
-                                                repaired_draft,
-                                                repaired_validation,
-                                            )
-                                            if _financial_validation_failed(repaired_validation)
-                                            else repaired_validation
-                                        )
-                                    except Exception as exc:
-                                        logger.exception("single streamed financial repair run failed")
-                                        reply = _reply_with_financial_validation_failures(
-                                            first_draft,
-                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                                        )
+                                if _financial_validation_is_repairable(first_validation):
+                                    reply = _reply_with_financial_repair_suggestion(
+                                        first_draft,
+                                        first_validation,
+                                    )
                                 else:
                                     reply = first_validation
                         finally:
@@ -6804,6 +7673,7 @@ async def _collect_stream_run(
                             state.session_id,
                             message=state.original_message or "",
                             reply=reply,
+                            route=state.run_route,
                         )
                         trusted_token = agent_runtime_financial_trace.set_current_trusted_runs(trusted_runs)
                         try:
@@ -6814,36 +7684,11 @@ async def _collect_stream_run(
                                     state.context,
                                     first_draft,
                                 )
-                                if _financial_validation_failed(first_validation):
-                                    try:
-                                        repaired_draft, _ = await _run_single_financial_repair(
-                                            profile=state.profile,
-                                            session_id=state.session_id,
-                                            route=state.run_route,
-                                            message=state.original_message or "",
-                                            draft=first_draft,
-                                            validation_failure=first_validation,
-                                        )
-                                        repaired_draft = normalize_evidence_trace_for_display(repaired_draft)
-                                        repaired_validation = enforce_financial_evidence_contract(
-                                            state.original_message or "",
-                                            state.context,
-                                            repaired_draft,
-                                        )
-                                        reply = (
-                                            _reply_with_financial_validation_failures(
-                                                repaired_draft,
-                                                repaired_validation,
-                                            )
-                                            if _financial_validation_failed(repaired_validation)
-                                            else repaired_validation
-                                        )
-                                    except Exception as exc:
-                                        logger.exception("single streamed financial repair run failed")
-                                        reply = _reply_with_financial_validation_failures(
-                                            first_draft,
-                                            f"{first_validation}\n\nrepair_run_error={type(exc).__name__}: {exc}",
-                                        )
+                                if _financial_validation_is_repairable(first_validation):
+                                    reply = _reply_with_financial_repair_suggestion(
+                                        first_draft,
+                                        first_validation,
+                                    )
                                 else:
                                     reply = first_validation
                         finally:
@@ -6863,6 +7708,7 @@ async def _collect_stream_run(
                         final_reply=reply,
                         enforce_evidence_contract=enforce_evidence_contract,
                         trusted_calculation_runs=trusted_runs,
+                        runtime_provenance=_runtime_provenance(state.run_route),
                     )
 
                 if not primary_market_ic_runtime:
@@ -6887,14 +7733,21 @@ async def _collect_stream_run(
                         raw_output=raw_full_reply,
                         stored_output=reply,
                         attachments=getattr(state, "provenance_attachments", None),
+                        terminal_runtime=terminal_result.runtime,
+                        runtime_provenance=_runtime_provenance(state.run_route),
                     )
+                stream_memory_identity = (
+                    dict(state.memory_research_identity)
+                    if state.memory_research_identity is not None
+                    else agent_runtime_context.research_identity(state.context)
+                )
                 stream_memory_kwargs: dict[str, Any] = {}
                 if primary_market_ic_runtime:
                     stream_memory_kwargs["request_context"] = state.context
-                else:
-                    stream_memory_identity = agent_runtime_context.research_identity(state.context)
-                    if stream_memory_identity:
-                        stream_memory_kwargs["research_identity"] = stream_memory_identity
+                elif stream_memory_identity:
+                    stream_memory_kwargs["research_identity"] = stream_memory_identity
+                if state.run_route is not None and state.run_route.target == "openshell":
+                    stream_memory_kwargs["refresh_local_memory"] = False
                 await save_message_in_background(
                     "assistant",
                     reply,
@@ -6915,6 +7768,10 @@ async def _collect_stream_run(
                 if full_reply:
                     done_payload = {**done_payload, "content": full_reply}
                 done_payload = {**done_payload, "terminal": terminal_result.to_payload()}
+                done_payload = {
+                    **done_payload,
+                    "runtime_provenance": _runtime_provenance(state.run_route),
+                }
                 await _append_completed_active_run(state, done_payload)
             elif state.user_stop_requested:
                 await _append_user_stopped_active_run(state, STOPPED_MESSAGE)
@@ -6941,9 +7798,11 @@ async def _start_streaming_chat_run(
     emit_audit_trace_id: bool = False,
     owner_id: str | None = None,
     run_route: HermesRunRoute | None = None,
+    memory_research_identity: Mapping[str, Any] | None = None,
 ) -> ActiveRunState:
     state = ActiveRunState(profile=profile, session_id=session_id, run_id=run_id)
     state.run_route = run_route
+    state.memory_research_identity = memory_research_identity
     state.message_hash = message_hash
     state.original_message = message
     state.context = context
@@ -6982,6 +7841,8 @@ async def _stream_chat_reply_impl(
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
     runtime_target: str | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     primary_market_agent_runtime.validate_market_runtime_context(profile, context)
     envelope = await _prepare_chat_request_envelope(
@@ -7007,10 +7868,7 @@ async def _stream_chat_reply_impl(
             yield event
         return
 
-    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(
-        profile,
-        audit_context,
-    )
+    primary_market_ic_runtime = primary_market_agent_runtime.is_primary_market_ic_runtime(profile, audit_context)
     catalog_reply = None if primary_market_ic_runtime else build_wiki_catalog_reply(message)
     short_circuit = agent_runtime_preflight.plan_chat_preflight_short_circuit(
         catalog_reply=catalog_reply,
@@ -7031,29 +7889,60 @@ async def _stream_chat_reply_impl(
             }
             return
 
+    provisional_claim = await _acquire_durable_provisional_claim(profile, session_id)
+    if provisional_claim is None:
+        yield {
+            "event": "error",
+            "data": json.dumps(
+                {
+                    "message": _ACTIVE_RUN_CONFLICT_MESSAGE,
+                    "error_code": "active_run_conflict",
+                    "retryable": True,
+                },
+                ensure_ascii=False,
+            ),
+        }
+        return
+
     if short_circuit.catalog_reply:
-        await save_message(
-            async_session,
-            "user",
-            user_display_message,
-            session_id,
-            attachments=all_attachments,
-            **memory_save_kwargs,
+        try:
+            await save_message(
+                async_session,
+                "user",
+                user_display_message,
+                session_id,
+                attachments=all_attachments,
+                **memory_save_kwargs,
+            )
+            await save_message(
+                async_session,
+                "assistant",
+                short_circuit.catalog_reply,
+                session_id,
+                **memory_save_kwargs,
+            )
+            await _refresh_session_memory_for_request(
+                async_session,
+                profile,
+                session_id,
+                audit_context,
+            )
+            _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
+        except BaseException:
+            await _release_provisional_durable_claim(
+                provisional_claim.profile,
+                provisional_claim.session_id,
+                provisional_claim.provisional_run_id,
+                provisional_claim.owner_id,
+            )
+            raise
+        await _release_provisional_durable_claim(
+            provisional_claim.profile,
+            provisional_claim.session_id,
+            provisional_claim.provisional_run_id,
+            provisional_claim.owner_id,
+            status="succeeded",
         )
-        await save_message(
-            async_session,
-            "assistant",
-            short_circuit.catalog_reply,
-            session_id,
-            **memory_save_kwargs,
-        )
-        await _refresh_session_memory_for_request(
-            async_session,
-            profile,
-            session_id,
-            audit_context,
-        )
-        _remember_completed_run(profile, session_id, message_hash, short_circuit.catalog_reply)
         yield {"event": "delta", "data": json.dumps({"content": short_circuit.catalog_reply}, ensure_ascii=False)}
         yield {
             "event": "done",
@@ -7072,95 +7961,116 @@ async def _stream_chat_reply_impl(
             completed_guard_active = True
             completed_guard_input = _analysis_completion_guard_input(message, completed_artifacts)
 
-    preflight_context = await _load_chat_run_preflight_context(
-        async_session,
-        message=(
-            primary_market_agent_runtime.primary_market_retrieval_query(
-                profile,
-                audit_context,
-            )
-            if primary_market_ic_runtime
-            else completed_guard_input or message
-        ),
-        session_id=session_id,
-        profile=profile,
-        attachments=all_attachments,
-        history_limit=history_limit,
-        context=context,
-    )
-    all_attachments = preflight_context.attachments
-    if _pdf_attachment_parse_dirs(all_attachments):
-        yield {
-            "event": "progress",
-            "data": json.dumps(
-                _progress_payload(
-                    status="running",
-                    title="正在等待 PDF 解析",
-                    detail="聊天附件只走 MinerU 直连解析，不进入财报解析前端队列；正在等待独立解析产物写入本地后再启动智能体。",
-                    source="runtime",
-                ),
-                ensure_ascii=False,
-            ),
-        }
-        await wait_for_pdf_attachment_parses(all_attachments)
-        all_attachments = _attachments_with_fresh_metadata(all_attachments)
-    await save_message(
-        async_session,
-        "user",
-        user_display_message,
-        session_id,
-        attachments=all_attachments,
-        **memory_save_kwargs,
-    )
-    image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
-        completed_guard_input or message,
-        all_attachments,
-    )
-
-    run_input = build_hermes_run_input(
-        completed_guard_input or message,
-        profile=profile,
-        session_id=session_id,
-        context=audit_context,
-        allow_initialize=preflight_context.allow_initialize,
-        attachments=all_attachments,
-        local_memory_context=preflight_context.local_memory_context,
-        image_analysis_context=image_analysis_context,
-        use_hermes_image_fallback=not image_model_succeeded,
-    )
-    run_route = _requested_run_route(profile, runtime_target, session_id)
-    owner_id = _RUNTIME_OWNER_ID
-    provisional_run_id = f"claim-{uuid.uuid4().hex}"
-    if not await _claim_durable_active_run(profile, session_id, provisional_run_id, owner_id):
-        yield {
-            "event": "error",
-            "data": json.dumps(
-                {
-                    "message": _ACTIVE_RUN_CONFLICT_MESSAGE,
-                    "error_code": "active_run_conflict",
-                    "retryable": True,
-                },
-                ensure_ascii=False,
-            ),
-        }
-        return
     try:
-        run_id, run_route = await _create_routed_run(
+        run_route = await _requested_run_route_with_scope_lifecycle(profile, runtime_target, session_id, audit_context)
+        isolate_runtime_context = bool(run_route is not None and run_route.target == "openshell")
+        history_scope = _runtime_research_identity_scope(audit_context, run_route)
+        memory_context = _memory_context_with_scope(audit_context, history_scope)
+        if isolate_runtime_context and history_scope is not None:
+            memory_save_kwargs = {**memory_save_kwargs, "research_identity": history_scope}
+        preflight_context = await _load_chat_run_preflight_context(
+            async_session,
+            message=(
+                primary_market_agent_runtime.primary_market_retrieval_query(
+                    profile,
+                    audit_context,
+                )
+                if primary_market_ic_runtime
+                else completed_guard_input or message
+            ),
+            session_id=session_id,
+            profile=profile,
+            attachments=all_attachments,
+            history_limit=history_limit,
+            context=memory_context,
+            isolate_runtime_context=isolate_runtime_context,
+            research_identity_scope=history_scope,
+        )
+        all_attachments = preflight_context.attachments
+        if _pdf_attachment_parse_dirs(all_attachments):
+            yield {
+                "event": "progress",
+                "data": json.dumps(
+                    _progress_payload(
+                        status="running",
+                        title="正在等待 PDF 解析",
+                        detail="聊天附件只走 MinerU 直连解析，不进入财报解析前端队列；正在等待独立解析产物写入本地后再启动智能体。",
+                        source="runtime",
+                    ),
+                    ensure_ascii=False,
+                ),
+            }
+            await wait_for_pdf_attachment_parses(all_attachments)
+            all_attachments = _attachments_with_fresh_metadata(all_attachments)
+        await save_message(
+            async_session,
+            "user",
+            user_display_message,
+            session_id,
+            attachments=all_attachments,
+            **memory_save_kwargs,
+        )
+        image_analysis_context, image_model_succeeded = await analyze_images_with_primary_model(
+            completed_guard_input or message,
+            all_attachments,
+        )
+        run_input = build_hermes_run_input(
+            completed_guard_input or message,
+            profile=profile,
+            session_id=session_id,
+            context=audit_context,
+            allow_initialize=preflight_context.allow_initialize,
+            attachments=all_attachments,
+            local_memory_context=preflight_context.local_memory_context,
+            image_analysis_context=image_analysis_context,
+            use_hermes_image_fallback=not image_model_succeeded,
+        )
+        if run_route is not None and run_route.pool_binding is not None:
+            yield {
+                "event": "progress",
+                "data": json.dumps(
+                    _progress_payload(
+                        status="running",
+                        title="正在等待公司分析运行槽",
+                        detail="同一公司写任务按提交顺序串行执行；其他公司可并行运行。",
+                        source="openshell_pool",
+                    ),
+                    ensure_ascii=False,
+                ),
+            }
+    except BaseException:
+        await _release_provisional_durable_claim(
+            provisional_claim.profile,
+            provisional_claim.session_id,
+            provisional_claim.provisional_run_id,
+            provisional_claim.owner_id,
+        )
+        raise
+    try:
+        claimed_run = await _claim_create_and_bind_routed_run(
             run_input,
             preflight_context.history,
             profile=profile,
             session_id=session_id,
             route=run_route,
+            provisional_claim=provisional_claim,
+            tenant_id=tenant_id,
+            user_id=user_id,
         )
-    except Exception:
-        await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
-        raise
-    if not await _bind_durable_active_run(profile, session_id, provisional_run_id, run_id, owner_id):
-        try:
-            await _stop_routed_run(run_id, profile=profile, route=run_route)
-        except Exception:
-            logger.debug("failed to stop unclaimed Hermes run", exc_info=True)
-        await _release_durable_lease(profile, session_id, provisional_run_id, owner_id, status="failed")
+    except RuntimeError as exc:
+        yield {
+            "event": "error",
+            "data": json.dumps(
+                {
+                    "message": "OpenShell 公司运行槽暂不可用，请稍后重试。",
+                    "error_code": str(exc),
+                    "retryable": True,
+                },
+                ensure_ascii=False,
+            ),
+        }
+        return
+    if claimed_run is None:
         yield {
             "event": "error",
             "data": json.dumps(
@@ -7173,6 +8083,7 @@ async def _stream_chat_reply_impl(
             ),
         }
         return
+    run_id, run_route, owner_id = claimed_run
     async def guarded_done_payload(reply: str) -> dict:
         if completed_guard_active:
             return {"new_achievements": [], "stage": "already_completed_llm_reply", "deduped": True}
@@ -7192,6 +8103,7 @@ async def _stream_chat_reply_impl(
         emit_audit_trace_id=emit_audit_trace_id,
         owner_id=owner_id,
         run_route=run_route,
+        memory_research_identity=history_scope,
     )
 
     async for event in stream_active_run_events(
@@ -7217,6 +8129,8 @@ async def stream_chat_reply(
     enforce_evidence_contract: bool = True,
     emit_audit_trace_id: bool = False,
     runtime_target: str | None = None,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     with _profile_wiki_context(profile):
         async for event in _stream_chat_reply_impl(
@@ -7233,6 +8147,8 @@ async def stream_chat_reply(
             enforce_evidence_contract=enforce_evidence_contract,
             emit_audit_trace_id=emit_audit_trace_id,
             runtime_target=runtime_target,
+            tenant_id=tenant_id,
+            user_id=user_id,
         ):
             yield event
 

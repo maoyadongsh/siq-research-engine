@@ -418,6 +418,39 @@ def test_runtime_includes_live_finsight_profile_as_receipt_candidate(tmp_path, m
     assert captured["profile_dirs"] == (tmp_path / "finsight_assistant",)
 
 
+def test_openshell_runtime_reads_receipts_from_routed_fresh_snapshot(tmp_path, monkeypatch):
+    run_id = "canary-0123456789ab"
+    snapshot = tmp_path / "var/openshell/siq-analysis/runtime-snapshots" / run_id
+    (snapshot / "runtime-state").mkdir(parents=True)
+    captured = {}
+
+    def fake_extract(**kwargs):
+        captured.update(kwargs)
+        return ()
+
+    route = runtime.HermesRunRoute(
+        target="openshell",
+        base="http://127.0.0.1:28651/v1/runs",
+        model="siq_analysis",
+        authorization="Bearer redacted",
+        session_namespace=f"siq:openshell:{run_id}:siq_analysis:cn:scope",
+        canary_run_id=run_id,
+    )
+    monkeypatch.setattr(runtime, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(runtime.agent_runtime_financial_trace, "extract_runtime_financial_receipts", fake_extract)
+
+    assert runtime._trusted_financial_receipts(
+        "siq_analysis",
+        "user-1-analysis-session",
+        route=route,
+    ) == ()
+    assert captured["profile_dir"] == snapshot
+    assert captured["profile_dirs"] == (snapshot / "runtime-state",)
+    assert captured["hermes_session_id"] == (
+        f"siq:openshell:{run_id}:siq_analysis:cn:scope:user-1-analysis-session"
+    )
+
+
 def test_rejects_piped_or_chained_financial_command(tmp_path):
     profile_dir = tmp_path / "profile"
     script = tmp_path / "financial_calculator.py"
@@ -493,7 +526,8 @@ def test_runtime_retries_financial_receipt_after_terminal_event(monkeypatch):
     delays: list[float] = []
     receipt = {"operation": "ratio", "receipt_source": "hermes_session_tool"}
 
-    def fake_receipts(_profile, _session_id):
+    def fake_receipts(_profile, _session_id, *, route=None):
+        assert route is None
         nonlocal calls
         calls += 1
         return () if calls == 1 else (receipt,)
@@ -522,7 +556,8 @@ def test_runtime_retries_financial_receipt_after_terminal_event(monkeypatch):
 def test_runtime_does_not_wait_for_non_financial_receipt(monkeypatch):
     calls = 0
 
-    def fake_receipts(_profile, _session_id):
+    def fake_receipts(_profile, _session_id, *, route=None):
+        assert route is None
         nonlocal calls
         calls += 1
         return ()

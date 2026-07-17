@@ -37,6 +37,20 @@ def test_request_id_is_returned_on_health_response():
 
     assert response.status_code == 200
     assert response.headers[REQUEST_ID_HEADER] == "req-2026.07.07"
+
+
+def test_health_exposes_credential_free_openshell_recovery_state(monkeypatch):
+    expected = {"enabled": True, "required": True, "ready": True}
+    monkeypatch.setattr(
+        main.openshell_pool_recovery_service,
+        "readiness_snapshot",
+        lambda: expected,
+    )
+
+    response = TestClient(main.app).get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["openshell_recovery"] == expected
     assert response.json()["status"] == "ok"
     assert "uptime_seconds" in response.json()
 

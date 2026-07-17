@@ -7,6 +7,7 @@ import re
 from itertools import combinations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
+from itertools import combinations
 from typing import Any, Mapping, Sequence
 
 from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
@@ -2158,6 +2159,16 @@ RECONCILIATION_ROLE_TERMS = {
 }
 
 
+def _reconciliation_line_role(line: str) -> str | None:
+    compact_line = _compact_semantic_text(line)
+    matched_roles = [
+        role
+        for role, terms in RECONCILIATION_ROLE_TERMS.items()
+        if any(_compact_semantic_text(term) in compact_line for term in terms)
+    ]
+    return matched_roles[0] if len(matched_roles) == 1 else None
+
+
 def _reconciliation_fact_line_matches(
     line: str,
     reference: Mapping[str, Any],
@@ -2167,16 +2178,7 @@ def _reconciliation_fact_line_matches(
 
     if not line.strip() or "source_type=" in line or "schema_version" in line:
         return False
-    compact_line = _compact_semantic_text(line)
-    role_terms = RECONCILIATION_ROLE_TERMS[role]
-    if not any(_compact_semantic_text(term) in compact_line for term in role_terms):
-        return False
-    if any(
-        _compact_semantic_text(term) in compact_line
-        for peer_role, terms in RECONCILIATION_ROLE_TERMS.items()
-        if peer_role != role
-        for term in terms
-    ):
+    if _reconciliation_line_role(line) != role:
         return False
     return bool(_trusted_value_occurrences(line, reference, allow_opposite_sign=role == "allowance"))
 
@@ -2187,7 +2189,7 @@ def _reconciliation_fact_block_line(
     allowance: Mapping[str, Any],
     net: Mapping[str, Any],
 ) -> int | None:
-    """Find adjacent, role-bound gross/allowance/net rows in visible answer text."""
+    """Find a compact, role-bound gross/allowance/net fact block."""
 
     lines = (reply or "").splitlines()
     references = (("gross", gross), ("allowance", allowance), ("net", net))
@@ -2200,13 +2202,67 @@ def _reconciliation_fact_block_line(
     for gross_line in matched_lines[0]:
         for allowance_line in matched_lines[1]:
             for net_line in matched_lines[2]:
-                if (allowance_line, net_line) != (gross_line + 1, gross_line + 2):
-                    continue
-                fact_rows = lines[gross_line - 1 : net_line]
-                is_markdown_table = all("|" in row for row in fact_rows)
-                is_adjacent_text = all(row.strip() and not row.lstrip().startswith("#") for row in fact_rows)
-                if is_markdown_table or is_adjacent_text:
-                    return gross_line
+                ordered_lines = sorted((gross_line, allowance_line, net_line))
+                first_line, last_line = ordered_lines[0], ordered_lines[-1]
+                fact_rows = lines[first_line - 1 : last_line]
+                if ordered_lines == list(range(first_line, last_line + 1)):
+                    is_adjacent_text = all(
+                        row.strip() and not row.lstrip().startswith("#") for row in fact_rows
+                    )
+                    if is_adjacent_text:
+                        return first_line
+                # Readable answers may place normalized-unit helper rows between
+                # the three exact facts. Accept a bounded span only when every
+                # intervening row remains inside the same Markdown table and is
+                # itself bound to one of the same three reconciliation facts.
+                is_bound_markdown_block = all(
+                    "|" in row
+                    and _reconciliation_line_role(row) in RECONCILIATION_ROLE_TERMS
+                    for row in fact_rows
+                )
+                if last_line - first_line <= 8 and is_bound_markdown_block:
+                    return first_line
+    return None
+
+
+def _reconciliation_statement_line(
+    reply: str,
+    gross: Mapping[str, Any],
+    allowance: Mapping[str, Any],
+    net: Mapping[str, Any],
+) -> int | None:
+    """Find a visible goodwill reconciliation statement even when display values are rounded."""
+
+    for line_number, line in enumerate((reply or "").splitlines(), start=1):
+        if "source_type=" in line:
+            continue
+        expression = re.sub(r"^\s*(?:[-*+]|\d+[.)、])\s+", "", line)
+        compact = _compact_semantic_text(expression)
+        gross_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["gross"][:3]]
+        allowance_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["allowance"][:2]]
+        net_positions = [compact.find(_compact_semantic_text(term)) for term in RECONCILIATION_ROLE_TERMS["net"][:5]]
+        gross_position = min((position for position in gross_positions if position >= 0), default=-1)
+        allowance_position = min((position for position in allowance_positions if position >= 0), default=-1)
+        net_position = min((position for position in net_positions if position >= 0), default=-1)
+        if min(gross_position, allowance_position, net_position) < 0:
+            continue
+        if re.search(r"[+*/×÷]", expression):
+            continue
+        if len(re.findall(r"[=＝]", expression)) not in {1, 2}:
+            continue
+        if len(re.findall(rf"[{FINANCIAL_MINUS_SIGN_CLASS}]", expression)) != 1:
+            continue
+        if not (
+            net_position < gross_position < allowance_position
+            or gross_position < allowance_position < net_position
+        ):
+            continue
+        if not all(
+            _trusted_value_occurrences(expression, reference, allow_opposite_sign=role == "allowance")
+            for role, reference in (("gross", gross), ("allowance", allowance), ("net", net))
+        ):
+            continue
+        return line_number
     return None
 
 

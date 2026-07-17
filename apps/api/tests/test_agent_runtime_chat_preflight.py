@@ -844,9 +844,22 @@ def test_stream_chat_reply_duplicate_short_circuits_before_preflight(monkeypatch
 def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(monkeypatch):
     async def run_case():
         calls: list[tuple] = []
+        claim = runtime.DurableProvisionalClaim(
+            profile="siq_assistant",
+            session_id="preflight-catalog-session",
+            provisional_run_id="claim-stream-catalog",
+            owner_id="api-owner",
+        )
 
         async def forbidden(*_args, **_kwargs):
             raise AssertionError("catalog path must not enter streaming run startup")
+
+        async def fake_acquire_claim(profile, current_session_id):
+            calls.append(("claim", profile, current_session_id))
+            return claim
+
+        async def fake_release_claim(profile, current_session_id, provisional_run_id, owner_id, *, status="failed", **_kwargs):
+            calls.append(("release", profile, current_session_id, provisional_run_id, owner_id, status))
 
         async def fake_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
             calls.append(("save", role, content, current_session_id, attachments))
@@ -858,6 +871,8 @@ def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(mon
             calls.append(("remember_completed_run", profile, current_session_id, bool(message_hash), reply))
 
         monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: "catalog reply")
+        monkeypatch.setattr(runtime, "_acquire_durable_provisional_claim", fake_acquire_claim)
+        monkeypatch.setattr(runtime, "_release_provisional_durable_claim", fake_release_claim)
         monkeypatch.setattr(runtime, "save_message", fake_save_message)
         monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh_session_memory)
         monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember_completed_run)
@@ -884,10 +899,19 @@ def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(mon
     calls, events = anyio.run(run_case)
 
     assert calls == [
+        ("claim", "siq_assistant", "preflight-catalog-session"),
         ("save", "user", "现在入库了多少家公司", "preflight-catalog-session", []),
         ("save", "assistant", "catalog reply", "preflight-catalog-session", None),
         ("refresh_session_memory", "siq_assistant", "preflight-catalog-session"),
         ("remember_completed_run", "siq_assistant", "preflight-catalog-session", True, "catalog reply"),
+        (
+            "release",
+            "siq_assistant",
+            "preflight-catalog-session",
+            "claim-stream-catalog",
+            "api-owner",
+            "succeeded",
+        ),
     ]
     assert [event["event"] for event in events] == ["delta", "done"]
     assert _event_payload(events[0]) == {"content": "catalog reply"}
@@ -901,9 +925,22 @@ def test_stream_chat_reply_catalog_short_circuits_before_streaming_run_start(mon
 def test_collect_chat_reply_catalog_short_circuits_before_preflight(monkeypatch):
     async def run_case():
         calls: list[tuple] = []
+        claim = runtime.DurableProvisionalClaim(
+            profile="siq_assistant",
+            session_id="preflight-blocking-catalog-session",
+            provisional_run_id="claim-collect-catalog",
+            owner_id="api-owner",
+        )
 
         async def forbidden(*_args, **_kwargs):
             raise AssertionError("catalog path must not enter preflight")
+
+        async def fake_acquire_claim(profile, current_session_id):
+            calls.append(("claim", profile, current_session_id))
+            return claim
+
+        async def fake_release_claim(profile, current_session_id, provisional_run_id, owner_id, *, status="failed", **_kwargs):
+            calls.append(("release", profile, current_session_id, provisional_run_id, owner_id, status))
 
         async def fake_save_message(_async_session, role, content, current_session_id, attachments=None, audit_trace_id=None):
             calls.append(("save", role, content, current_session_id, attachments))
@@ -915,6 +952,8 @@ def test_collect_chat_reply_catalog_short_circuits_before_preflight(monkeypatch)
             calls.append(("remember_completed_run", profile, current_session_id, bool(message_hash), reply))
 
         monkeypatch.setattr(runtime, "build_wiki_catalog_reply", lambda _message: "catalog reply")
+        monkeypatch.setattr(runtime, "_acquire_durable_provisional_claim", fake_acquire_claim)
+        monkeypatch.setattr(runtime, "_release_provisional_durable_claim", fake_release_claim)
         monkeypatch.setattr(runtime, "save_message", fake_save_message)
         monkeypatch.setattr(runtime, "refresh_session_memory", fake_refresh_session_memory)
         monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember_completed_run)
@@ -938,10 +977,19 @@ def test_collect_chat_reply_catalog_short_circuits_before_preflight(monkeypatch)
 
     assert reply == "catalog reply"
     assert calls == [
+        ("claim", "siq_assistant", "preflight-blocking-catalog-session"),
         ("save", "user", "现在入库了多少家公司", "preflight-blocking-catalog-session", []),
         ("save", "assistant", "catalog reply", "preflight-blocking-catalog-session", None),
         ("refresh_session_memory", "siq_assistant", "preflight-blocking-catalog-session"),
         ("remember_completed_run", "siq_assistant", "preflight-blocking-catalog-session", True, "catalog reply"),
+        (
+            "release",
+            "siq_assistant",
+            "preflight-blocking-catalog-session",
+            "claim-collect-catalog",
+            "api-owner",
+            "succeeded",
+        ),
     ]
 
 

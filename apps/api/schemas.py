@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -160,6 +160,7 @@ class ChatRequest(BaseModel):
     display_message: Optional[str] = None
     context: Optional[ChatContext] = None
     attachments: list[ChatAttachment] = Field(default_factory=list)
+    runtime_target: Optional[Literal["host", "openshell"]] = None
 
 
 class ChatResponse(BaseModel):

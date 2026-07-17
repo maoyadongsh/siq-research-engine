@@ -21,6 +21,7 @@ from services.agent_chat_runtime import (
     stream_active_run_events,
     stream_chat_reply,
 )
+from services.agent_memory_service import DEFAULT_TENANT_ID
 from services.agent_runtime_answer_audit import get_answer_audit_trace, is_answer_audit_trace_id
 from services.agent_runtime_context import research_identity
 from services.analysis_report_workflow import (
@@ -40,6 +41,7 @@ from services.hermes_model_control import maybe_handle_model_control
 from services.legal_workflow import (
     LegalWorkflowRequest,
     build_legal_workflow_request,
+    legal_workflow_autoroute_enabled,
     run_legal_workflow,
 )
 from services.session_manager import get_session_manager, keeps_sessions_forever
@@ -267,7 +269,10 @@ def _legal_workflow_request(
 ) -> LegalWorkflowRequest | None:
     if config.tag != "legal" and config.profile != "siq_legal":
         return None
-    return build_legal_workflow_request(req.message, req.context)
+    workflow_request = build_legal_workflow_request(req.message, req.context)
+    if workflow_request is None or not legal_workflow_autoroute_enabled(workflow_request):
+        return None
+    return workflow_request
 
 
 async def _run_legal_workflow_reply(
@@ -745,6 +750,8 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
             display_message=req.display_message,
             attachments=req.attachments,
             answer_audit_callback=_capture_answer_audit,
+            tenant_id=DEFAULT_TENANT_ID,
+            user_id=str(current_user_id),
         )
         await _record_agent_workspace_artifact_background(
             current_user_id=current_user_id,
@@ -1030,6 +1037,8 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                     reply=reply,
                 ),
                 emit_audit_trace_id=True,
+                tenant_id=DEFAULT_TENANT_ID,
+                user_id=str(current_user_id),
             ):
                 yield event
             get_session_manager().increment_message_count(session_id)

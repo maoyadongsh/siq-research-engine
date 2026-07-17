@@ -12,6 +12,7 @@ from services.runtime_coordination import (
     list_recoverable_active_runs,
     release_active_run,
     renew_active_run,
+    runtime_owner_id,
     takeover_active_run,
 )
 from services.usage_service import (
@@ -27,6 +28,18 @@ from services.usage_service import (
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+
+
+def test_runtime_owner_id_is_stable_within_process(monkeypatch):
+    monkeypatch.delenv("SIQ_RUNTIME_OWNER_ID", raising=False)
+
+    assert runtime_owner_id() == runtime_owner_id()
+
+
+def test_runtime_owner_id_prefers_explicit_configuration(monkeypatch):
+    monkeypatch.setenv("SIQ_RUNTIME_OWNER_ID", "api-owner-1")
+
+    assert runtime_owner_id() == "api-owner-1"
 
 
 @pytest.mark.asyncio

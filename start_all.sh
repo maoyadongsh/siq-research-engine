@@ -107,6 +107,15 @@ START_MARKET_REPORT_FINDER="${SIQ_START_MARKET_REPORT_FINDER:-0}"
 START_MARKET_REPORT_RULES="${SIQ_START_MARKET_REPORT_RULES:-0}"
 START_VECTOR_INGEST="${SIQ_START_VECTOR_INGEST:-0}"
 START_MINERU_SERVICES="$(printf '%s' "${SIQ_START_MINERU_SERVICES:-auto}" | tr '[:upper:]' '[:lower:]')"
+START_OPENSHELL_GATEWAY="${SIQ_START_OPENSHELL_GATEWAY:-1}"
+START_OPENSHELL_BROKERS="$(printf '%s' "${SIQ_START_OPENSHELL_BROKERS:-auto}" | tr '[:upper:]' '[:lower:]')"
+HERMES_RUNTIME="$(printf '%s' "${SIQ_HERMES_RUNTIME:-host}" | tr '[:upper:]' '[:lower:]')"
+OPENSHELL_GATEWAY_ENDPOINT="https://127.0.0.1:17671"
+OPENSHELL_GATEWAY_VERSION="0.0.83"
+OPENSHELL_GATEWAY_STARTED_BY_START_ALL=0
+OPENSHELL_GATEWAY_LIFECYCLE_STATE="disabled"
+OPENSHELL_BROKERS_STARTED_BY_START_ALL=0
+OPENSHELL_BROKERS_LIFECYCLE_STATE="disabled"
 case "${SIQ_MEETINGS_ENABLED:-0}" in
     1|true|TRUE|yes|YES|on|ON) START_MEETING_SERVICES=1 ;;
     *) START_MEETING_SERVICES=0 ;;
@@ -280,6 +289,8 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
     done
     wait 2>/dev/null
+    stop_owned_openshell_brokers
+    stop_owned_openshell_gateway
     log "已退出。"
 }
 pids=()
@@ -434,6 +445,300 @@ require_free_port() {
     fi
 }
 
+# ---------- OpenShell gateway lifecycle (BEGIN) ----------
+stop_owned_openshell_gateway() {
+    if [[ "$OPENSHELL_GATEWAY_STARTED_BY_START_ALL" != "1" ]]; then
+        return 0
+    fi
+
+    # Clear ownership before calling the stop script so a later trap cannot stop it twice.
+    OPENSHELL_GATEWAY_STARTED_BY_START_ALL=0
+    log "停止本次启动的项目 OpenShell gateway..."
+    if "$SIQ_PROJECT_ROOT/scripts/openshell/stop_gateway.sh" >/dev/null 2>&1; then
+        OPENSHELL_GATEWAY_LIFECYCLE_STATE="stopped"
+        ok "本次启动的项目 OpenShell gateway 已停止"
+    else
+        warn "项目 OpenShell gateway 未能自动停止；未发送强制终止，请运行 status_gateway.sh 检查。"
+    fi
+}
+
+validate_openshell_startup_mode() {
+    case "$START_OPENSHELL_GATEWAY" in
+        0|1) ;;
+        *) die "SIQ_START_OPENSHELL_GATEWAY 仅支持 0 或 1。" ;;
+    esac
+    if [[ "$HERMES_RUNTIME" != "host" ]]; then
+        die "start_all.sh 的环境基线必须保持 SIQ_HERMES_RUNTIME=host；请用 switch_siq_analysis_runtime.sh 热切换 siq_analysis。"
+    fi
+    export SIQ_HERMES_RUNTIME=host
+}
+
+probe_openshell_gateway_state() {
+    local status_output
+    if ! status_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/status_gateway.sh" 2>&1)"; then
+        return 2
+    fi
+    if [[ "$status_output" == *"Process: running"* && \
+          "$status_output" == *"Health: reachable"* && \
+          "$status_output" == *"$OPENSHELL_GATEWAY_ENDPOINT"* && \
+          "$status_output" == *"Status:"* && \
+          "$status_output" == *"Connected"* && \
+          "$status_output" == *"Version:"* && \
+          "$status_output" == *"$OPENSHELL_GATEWAY_VERSION"* ]]; then
+        return 0
+    fi
+    if [[ "$status_output" == *"Process: stopped"* && "$status_output" == *"Health: unreachable"* ]]; then
+        return 1
+    fi
+    return 2
+}
+
+check_openshell_gateway_assets() {
+    local openshell_dir="$SIQ_PROJECT_ROOT/scripts/openshell"
+    local state_root="$SIQ_PROJECT_ROOT/var/openshell"
+    local bin_root="$state_root/toolchains/v$OPENSHELL_GATEWAY_VERSION/bin"
+    local gateway_root="$state_root/gateway/siq-openshell-dev"
+    local client_tls_root="$state_root/xdg/state/openshell/tls"
+    local component binary version_output relative tls_root command_name
+    local lifecycle_scripts=(
+        env.sh
+        gateway_bind_contract.py
+        gateway_runtime_identity.py
+        gateway_start_recovery.py
+        prepare_gateway.sh
+        render_gateway_config.py
+        run_cli.sh
+        start_gateway.sh
+        status_gateway.sh
+        stop_gateway.sh
+    )
+    local required_tls=(
+        ca.crt
+        client/tls.crt
+        client/tls.key
+        jwt/kid
+        jwt/public.pem
+        jwt/signing.pem
+        server/tls.crt
+        server/tls.key
+    )
+
+    for command_name in python3 curl ss flock realpath; do
+        command -v "$command_name" >/dev/null 2>&1 || \
+            die "OpenShell gateway 前置命令缺失；未执行下载或升级。"
+    done
+    for component in "${lifecycle_scripts[@]}"; do
+        [[ -x "$openshell_dir/$component" && ! -L "$openshell_dir/$component" ]] || \
+            die "OpenShell gateway lifecycle 脚本缺失或不安全；未执行下载或升级。"
+    done
+    for component in openshell openshell-gateway openshell-sandbox; do
+        binary="$bin_root/$component"
+        [[ -x "$binary" && ! -L "$binary" ]] || \
+            die "OpenShell v$OPENSHELL_GATEWAY_VERSION 项目本地工具链不完整；未执行下载或升级。"
+        if ! version_output="$("$binary" --version 2>/dev/null)" || \
+           [[ "$version_output" != "$component $OPENSHELL_GATEWAY_VERSION" ]]; then
+            die "OpenShell 项目本地工具链版本不匹配；未执行下载或升级。"
+        fi
+    done
+    [[ -f "$gateway_root/gateway.toml" && ! -L "$gateway_root/gateway.toml" ]] || \
+        die "OpenShell gateway 配置尚未准备；请显式运行 prepare_gateway.sh。"
+    for tls_root in "$gateway_root/tls" "$client_tls_root"; do
+        for relative in "${required_tls[@]}"; do
+            [[ -f "$tls_root/$relative" && ! -L "$tls_root/$relative" ]] || \
+                die "OpenShell gateway TLS 资产尚未准备或不安全；请显式运行 prepare_gateway.sh。"
+        done
+    done
+    if ! python3 "$openshell_dir/render_gateway_config.py" \
+        --project-root "$SIQ_PROJECT_ROOT" --check >/dev/null 2>&1; then
+        die "OpenShell gateway 配置缺失或已漂移；请显式运行 prepare_gateway.sh。"
+    fi
+}
+
+ensure_openshell_gateway() {
+    local probe_result=0 start_output
+    validate_openshell_startup_mode
+    if [[ "$START_OPENSHELL_GATEWAY" == "0" ]]; then
+        OPENSHELL_GATEWAY_LIFECYCLE_STATE="disabled"
+        return 0
+    fi
+
+    check_openshell_gateway_assets
+    probe_openshell_gateway_state || probe_result=$?
+    case "$probe_result" in
+        0)
+            OPENSHELL_GATEWAY_LIFECYCLE_STATE="preexisting"
+            ok "项目 OpenShell gateway 已在运行  -> $OPENSHELL_GATEWAY_ENDPOINT"
+            return 0
+            ;;
+        1)
+            ;;
+        *)
+            die "项目 OpenShell gateway 状态异常；拒绝覆盖或自动修复，请先运行 status_gateway.sh。"
+            ;;
+    esac
+
+    log "启动项目 OpenShell gateway（Hermes 仍使用 host runtime）..."
+    if ! start_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/start_gateway.sh" 2>&1)"; then
+        die "项目 OpenShell gateway 启动失败；未执行下载、升级或 Hermes 切流。"
+    fi
+    if [[ "$start_output" == *"OpenShell gateway siq-openshell-dev connected on 127.0.0.1:17671"* ]]; then
+        OPENSHELL_GATEWAY_STARTED_BY_START_ALL=1
+        OPENSHELL_GATEWAY_LIFECYCLE_STATE="started_by_start_all"
+    elif [[ "$start_output" == *"Gateway already running with PID"* ]]; then
+        OPENSHELL_GATEWAY_LIFECYCLE_STATE="preexisting"
+    else
+        die "项目 OpenShell gateway 启动结果无法确认；拒绝取得进程所有权。"
+    fi
+
+    probe_result=0
+    probe_openshell_gateway_state || probe_result=$?
+    if [[ "$probe_result" != "0" ]]; then
+        die "项目 OpenShell gateway 启动后状态校验失败；Hermes 仍保持 host runtime。"
+    fi
+    ok "项目 OpenShell gateway 已就绪  -> $OPENSHELL_GATEWAY_ENDPOINT"
+}
+# ---------- OpenShell gateway lifecycle (END) ----------
+
+# ---------- OpenShell broker lifecycle (BEGIN) ----------
+stop_owned_openshell_brokers() {
+    if [[ "$OPENSHELL_BROKERS_STARTED_BY_START_ALL" != "1" ]]; then
+        return 0
+    fi
+
+    OPENSHELL_BROKERS_STARTED_BY_START_ALL=0
+    log "停止本次启动的 OpenShell host brokers..."
+    if "$SIQ_PROJECT_ROOT/scripts/openshell/stop_brokers.sh" >/dev/null 2>&1; then
+        OPENSHELL_BROKERS_LIFECYCLE_STATE="stopped"
+        ok "本次启动的 OpenShell host brokers 已停止"
+    else
+        warn "OpenShell host brokers 未能自动停止；未发送强制终止，请运行 status_brokers.sh 检查。"
+    fi
+}
+
+probe_openshell_brokers_state() {
+    local status_output
+    if ! status_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/status_brokers.sh" \
+        --require-request-identity 2>/dev/null)"; then
+        return 2
+    fi
+    python3 - "$status_output" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+    brokers = payload["brokers"]
+    entries = [brokers[name] for name in ("egress", "data")]
+    states = [entry["state"] for entry in entries]
+except (KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(2)
+if payload.get("ok") is not True:
+    raise SystemExit(2)
+if states == ["running", "running"] and all(
+    entry.get("request_identity_required") is True for entry in entries
+):
+    raise SystemExit(0)
+if states == ["stopped", "stopped"]:
+    raise SystemExit(1)
+raise SystemExit(2)
+PY
+}
+
+check_openshell_broker_assets() {
+    local script
+    for script in bridge_endpoint.py broker_lifecycle.py start_brokers.sh status_brokers.sh stop_brokers.sh; do
+        [[ -x "$SIQ_PROJECT_ROOT/scripts/openshell/$script" && ! -L "$SIQ_PROJECT_ROOT/scripts/openshell/$script" ]] || \
+            die "OpenShell broker lifecycle 脚本缺失或不安全。"
+    done
+}
+
+ensure_openshell_brokers() {
+    local probe_result=0 start_output ownership_result=0
+    local secret_file="$SIQ_PROJECT_ROOT/var/openshell/secrets/postgres-reader.env"
+
+    case "$START_OPENSHELL_BROKERS" in
+        0)
+            OPENSHELL_BROKERS_LIFECYCLE_STATE="disabled"
+            return 0
+            ;;
+        1|auto) ;;
+        *) die "SIQ_START_OPENSHELL_BROKERS 仅支持 0、1 或 auto。" ;;
+    esac
+    if [[ "$START_OPENSHELL_GATEWAY" == "0" ]]; then
+        if [[ "$START_OPENSHELL_BROKERS" == "1" ]]; then
+            die "显式启动 OpenShell brokers 时不能禁用项目 gateway。"
+        fi
+        OPENSHELL_BROKERS_LIFECYCLE_STATE="skipped_gateway_disabled"
+        return 0
+    fi
+    if [[ -L "$secret_file" ]]; then
+        die "OpenShell PostgreSQL reader secret 路径不安全。"
+    fi
+    if [[ ! -f "$secret_file" ]]; then
+        if [[ "$START_OPENSHELL_BROKERS" == "1" ]]; then
+            die "OpenShell PostgreSQL reader secret 尚未配置；请先运行 provision_postgres_reader.py apply。"
+        fi
+        OPENSHELL_BROKERS_LIFECYCLE_STATE="skipped_missing_secret"
+        warn "未找到 OpenShell PostgreSQL reader secret；host Hermes 保持正常，brokers 本次跳过。"
+        return 0
+    fi
+
+    check_openshell_broker_assets
+    probe_openshell_brokers_state || probe_result=$?
+    case "$probe_result" in
+        0)
+            OPENSHELL_BROKERS_LIFECYCLE_STATE="preexisting"
+            ok "OpenShell host brokers 已在运行  -> host.openshell.internal:18792/18793"
+            return 0
+            ;;
+        1) ;;
+        *) die "OpenShell host brokers 状态异常；拒绝覆盖或自动修复，请先运行 status_brokers.sh。" ;;
+    esac
+
+    log "启动 OpenShell host brokers（不改变 Hermes host runtime）..."
+    if ! start_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/start_brokers.sh" \
+        --require-request-identity 2>/dev/null)"; then
+        die "OpenShell host brokers 启动失败；Hermes 仍保持 host runtime。"
+    fi
+    python3 - "$start_output" <<'PY' || ownership_result=$?
+import json
+import sys
+
+try:
+    payload = json.loads(sys.argv[1])
+except json.JSONDecodeError:
+    raise SystemExit(2)
+if (
+    payload.get("ok") is not True
+    or payload.get("action") != "start"
+    or payload.get("request_identity_required") is not True
+):
+    raise SystemExit(2)
+started = payload.get("started_by_this_call")
+if started == ["egress", "data"]:
+    raise SystemExit(0)
+if isinstance(started, list) and set(started).issubset({"egress", "data"}):
+    raise SystemExit(1)
+raise SystemExit(2)
+PY
+    case "$ownership_result" in
+        0)
+            OPENSHELL_BROKERS_STARTED_BY_START_ALL=1
+            OPENSHELL_BROKERS_LIFECYCLE_STATE="started_by_start_all"
+            ;;
+        1)
+            OPENSHELL_BROKERS_LIFECYCLE_STATE="preexisting_or_concurrent"
+            ;;
+        *) die "OpenShell host brokers 启动结果无法确认；拒绝取得进程所有权。" ;;
+    esac
+    probe_result=0
+    probe_openshell_brokers_state || probe_result=$?
+    if [[ "$probe_result" != "0" ]]; then
+        die "OpenShell host brokers 启动后状态校验失败；Hermes 仍保持 host runtime。"
+    fi
+    ok "OpenShell host brokers 已就绪  -> host.openshell.internal:18792/18793"
+}
+# ---------- OpenShell broker lifecycle (END) ----------
 
 # ---------- 依赖检查 ----------
 for cmd in uv node npm; do
@@ -480,6 +785,8 @@ if [[ "$START_VECTOR_INGEST" != "0" ]]; then
     require_free_port "$VECTOR_INGEST_PORT" "Milvus 向量入库控制台"
 fi
 
+ensure_openshell_gateway
+ensure_openshell_brokers
 ensure_local_mineru_services
 
 start_hermes_gateway() {
@@ -718,6 +1025,28 @@ curl -s "http://localhost:$BACKEND_PORT/api/wiki/companies/list" | head -c 200
 echo ""
 echo ""
 ok "全部启动完成！浏览器打开: http://localhost:$FRONTEND_PORT"
+echo "Hermes environment fallback: $SIQ_HERMES_RUNTIME"
+if [[ -x "$SIQ_PROJECT_ROOT/scripts/openshell/switch_siq_analysis_runtime.sh" ]]; then
+    if runtime_selection="$("$SIQ_PROJECT_ROOT/scripts/openshell/switch_siq_analysis_runtime.sh" status 2>/dev/null)"; then
+        echo "SIQ analysis runtime selection: $runtime_selection"
+    else
+        warn "SIQ analysis runtime selection 状态不可读；API 将按 fail-closed 契约处理。"
+    fi
+fi
+case "$OPENSHELL_GATEWAY_LIFECYCLE_STATE" in
+    started_by_start_all) echo "OpenShell gateway: running (started by start_all) -> $OPENSHELL_GATEWAY_ENDPOINT" ;;
+    preexisting) echo "OpenShell gateway: running (pre-existing) -> $OPENSHELL_GATEWAY_ENDPOINT" ;;
+    disabled) echo "OpenShell gateway: disabled (SIQ_START_OPENSHELL_GATEWAY=0)" ;;
+    *) echo "OpenShell gateway: $OPENSHELL_GATEWAY_LIFECYCLE_STATE" ;;
+esac
+case "$OPENSHELL_BROKERS_LIFECYCLE_STATE" in
+    started_by_start_all) echo "OpenShell brokers: running (started by start_all) -> host.openshell.internal:18792/18793" ;;
+    preexisting|preexisting_or_concurrent) echo "OpenShell brokers: running (pre-existing) -> host.openshell.internal:18792/18793" ;;
+    skipped_missing_secret) echo "OpenShell brokers: skipped (reader secret not configured)" ;;
+    skipped_gateway_disabled) echo "OpenShell brokers: skipped (gateway disabled)" ;;
+    disabled) echo "OpenShell brokers: disabled (SIQ_START_OPENSHELL_BROKERS=0)" ;;
+    *) echo "OpenShell brokers: $OPENSHELL_BROKERS_LIFECYCLE_STATE" ;;
+esac
 echo "按 Ctrl+C 停止所有服务"
 echo ""
 

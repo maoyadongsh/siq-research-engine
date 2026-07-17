@@ -4,6 +4,7 @@ import types
 from pathlib import Path
 
 import anyio
+from services.hermes_client import RunRuntimeMetadata
 
 from services import agent_chat_runtime as runtime, agent_runtime_answer_audit as audit
 
@@ -13,14 +14,14 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class _StreamEvent:
-    def __init__(self, event_type: str, text: str = ""):
+    def __init__(self, event_type: str, text: str = "", *, runtime_metadata=None):
         self.type = event_type
         self.text = text
         self.tool = None
         self.preview = None
         self.duration = None
         self.error = None
-        self.runtime = None
+        self.runtime = runtime_metadata
 
 
 class _PydanticLikeContext:
@@ -56,6 +57,24 @@ def test_answer_audit_source_field_parser_ignores_xbrl_assignments_inside_quote(
     assert "scale='6'" in fields["quote"]
     assert fields["source_anchor"] == "f-78"
     assert fields["xbrl_tag"] == "us-gaap:Revenue"
+
+
+def test_answer_audit_persists_secret_free_runtime_provenance():
+    record = audit.build_answer_audit_trace(
+        message="分析当前公司",
+        final_reply="已完成。",
+        runtime_provenance={
+            "runtime_target": "openshell",
+            "canary_run_id": "canary-0123456789ab",
+            "authorization": "Bearer must-not-be-persisted",
+            "base": "http://127.0.0.1:28651/v1/runs",
+        },
+    )
+
+    assert record["runtime_provenance"] == {
+        "runtime_target": "openshell",
+        "canary_run_id": "canary-0123456789ab",
+    }
 
 
 def test_answer_audit_trace_extracts_wiki_source_and_guardrail_fields():
@@ -1072,6 +1091,14 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
         audit_calls: list[dict[str, object]] = []
         captured_audit_records: list[dict[str, object]] = []
         refreshed: list[tuple[str, str]] = []
+        terminal_runtime = RunRuntimeMetadata(
+            requested_model="siq_assistant",
+            effective_provider="host-effective",
+            effective_model="host-effective-model",
+            configured_provider="host-configured",
+            configured_model="host-configured-model",
+            fallback_activated=False,
+        )
         raw_reply = f"""最终回答
 
 ## 引用来源
@@ -1154,6 +1181,16 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
         monkeypatch.setattr(runtime, "build_hermes_run_input", lambda message, **kwargs: {"message": message, **kwargs})
         monkeypatch.setattr(runtime, "create_run", fake_create_run)
         monkeypatch.setattr(runtime, "collect_run_result", fake_collect_run_result)
+        monkeypatch.setattr(
+            runtime,
+            "pop_run_terminal_result",
+            lambda run_id: runtime.RunTerminalResult(
+                run_id=run_id,
+                status="succeeded",
+                received_text=raw_reply,
+                runtime=terminal_runtime,
+            ),
+        )
         monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember)
         monkeypatch.setattr(runtime, "_record_financial_llm_provenance_if_needed", fake_provenance)
         monkeypatch.setattr(runtime.agent_runtime_answer_audit, "record_answer_audit_trace_for_reply", fake_record_answer_audit_trace_for_reply)
@@ -1172,7 +1209,7 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
 
     raw_reply, reply, saved, refreshed, remembered, provenance_calls, audit_calls, captured_audit_records = anyio.run(run_case)
 
-    assert reply == raw_reply
+    assert reply == raw_reply.strip()
     assert saved[0] == (
         "user",
         "收入是多少？\n\n[attachment: report.pdf]",
@@ -1191,8 +1228,10 @@ def test_collect_chat_reply_records_answer_audit_after_non_stream_guard(monkeypa
     assert remembered == [("siq_assistant", "audit-non-stream-session", "hash-non-stream", reply)]
     assert provenance_calls[0]["raw_output"] == raw_reply
     assert provenance_calls[0]["stored_output"] == reply
+    assert provenance_calls[0]["terminal_runtime"].effective_provider == "host-effective"
+    assert provenance_calls[0]["runtime_provenance"] == {"runtime_target": "host"}
     assert audit_calls[0]["raw_reply"] == raw_reply
-    assert audit_calls[0]["final_reply"] == raw_reply
+    assert audit_calls[0]["final_reply"].rstrip() == reply
     assert audit_calls[0]["enforce_evidence_contract"] is False
     assert captured_audit_records[0]["trace_id"] == "aat_1234567890abcdef1234567890abcdef"
 
@@ -1457,10 +1496,19 @@ def test_collect_stream_run_records_answer_audit_without_changing_visible_reply(
         saved: list[tuple[str, str, str, str]] = []
         remembered: list[tuple[str, str, str | None, str]] = []
         done_replies: list[str] = []
+        provenance_calls: list[dict[str, object]] = []
+        terminal_runtime = RunRuntimeMetadata(
+            requested_model="siq_assistant",
+            effective_provider="stream-effective",
+            effective_model="stream-effective-model",
+            configured_provider="stream-configured",
+            configured_model="stream-configured-model",
+            fallback_activated=False,
+        )
 
         async def fake_stream_run(*_args, **_kwargs):
             yield _StreamEvent("delta", "最终回答")
-            yield _StreamEvent("done", "最终回答")
+            yield _StreamEvent("done", "最终回答", runtime_metadata=terminal_runtime)
 
         async def fake_save_message_in_background(role, content, session_id, *, profile, audit_trace_id=None):
             saved.append((role, content, session_id, profile, audit_trace_id))
@@ -1475,7 +1523,11 @@ def test_collect_stream_run_records_answer_audit_without_changing_visible_reply(
         monkeypatch.setattr(runtime, "stream_run", fake_stream_run)
         monkeypatch.setattr(runtime, "save_message_in_background", fake_save_message_in_background)
         monkeypatch.setattr(runtime, "_remember_completed_run", fake_remember)
-        monkeypatch.setattr(runtime, "_record_financial_llm_provenance_if_needed", lambda **_kwargs: None)
+        monkeypatch.setattr(
+            runtime,
+            "_record_financial_llm_provenance_if_needed",
+            lambda **kwargs: provenance_calls.append(kwargs),
+        )
         monkeypatch.setattr(
             runtime.agent_runtime_answer_audit,
             "record_answer_audit_trace_for_reply",
@@ -1496,15 +1548,17 @@ def test_collect_stream_run_records_answer_audit_without_changing_visible_reply(
             enforce_evidence_contract=False,
             emit_audit_trace_id=True,
         )
-        return state, saved, remembered, done_replies
+        return state, saved, remembered, done_replies, provenance_calls
 
-    state, saved, remembered, done_replies = anyio.run(run_case)
+    state, saved, remembered, done_replies, provenance_calls = anyio.run(run_case)
 
     assert [event["event"] for event in state.events] == ["progress", "delta", "progress", "done"]
     assert state.content == "最终回答"
     assert state.done_payload is not None
     assert state.done_payload["content"] == "最终回答"
     assert state.done_payload["audit_trace_id"] == "aat_fedcba0987654321fedcba0987654321"
+    assert provenance_calls[0]["terminal_runtime"].effective_provider == "stream-effective"
+    assert provenance_calls[0]["runtime_provenance"] == {"runtime_target": "host"}
     assert done_replies == [state.content]
     assert saved == [(
         "assistant",
