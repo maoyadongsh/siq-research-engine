@@ -27,7 +27,7 @@ def _identity() -> ResearchIdentity:
 
 def _target() -> ResearchTargetV1:
     return ResearchTargetV1(
-        company_key="rk1_safeopaque",
+        company_key="rk1_" + "safeopaque",
         company_wiki_id="AAPL-Apple-Inc",
         display_code="AAPL",
         display_name="Apple Inc.",
