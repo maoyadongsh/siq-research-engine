@@ -161,25 +161,21 @@ sequenceDiagram
 二级市场的披露证据、一级市场的尽调材料、会议陈述、智能体判断和最终决策可以在同一套 evidence / source / memory 体系中互相引用。
 
 ```mermaid
-graph LR
-    subgraph Shared["跨层共享"]
-        S1[事实层<br/>evidence package]
-        S2[权限模型<br/>user_private / project_shared / system_shared]
-        S3[质量门禁<br/>warning/fail package]
-        S4[审计语言<br/>source page/table/line]
-    end
+graph TB
+    P1[二级市场]
+    P2[一级市场]
+    P3[应用中心]
 
-    P1[二级市场] --> S1
-    P1 --> S2
-    P1 --> S3
-    P1 --> S4
-    P2[一级市场] --> S1
-    P2 --> S2
-    P2 --> S3
-    P2 --> S4
-    P3[应用中心] --> S1
-    P3 --> S2
-    P3 --> S3
-    P3 --> S4
+    P1 --> Hub[统一接入]
+    P2 --> Hub
+    P3 --> Hub
 
+    Hub --> S1[事实层<br/>evidence package]
+    Hub --> S2[权限模型<br/>user_private / project_shared / system_shared]
+    Hub --> S3[质量门禁<br/>warning/fail package]
+    Hub --> S4[审计语言<br/>source page/table/line]
+
+    S1 -.-> S2
+    S2 -.-> S3
+    S3 -.-> S4
 ```
