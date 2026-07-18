@@ -791,6 +791,67 @@ def build_trusted_calculation_evidence(
     return tuple(output)
 
 
+def build_trusted_statement_row_evidence(
+    rows: Sequence[Mapping[str, Any]],
+    *,
+    expected_identity: Mapping[str, Any] | None,
+) -> tuple[Mapping[str, Any], ...]:
+    """Convert normalized multi-period statement rows into trusted facts."""
+
+    identity = _identity(expected_identity)
+    if not identity:
+        return ()
+    evidence: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows):
+        metric = str(row.get("metric_key") or row.get("canonical_name") or "").strip()
+        metric_name = str(row.get("metric_name") or row.get("name") or metric).strip()
+        period = str(row.get("period") or "").strip()
+        unit = str(row.get("unit") or row.get("currency") or "").strip()
+        value = _decimal(row.get("normalized_value", row.get("raw_value", row.get("value"))))
+        report_id = str(row.get("report_id") or "").strip()
+        if not all((metric, metric_name, period, unit, report_id)) or value is None:
+            continue
+        source_url = str(row.get("source_url") or "").strip()
+        source_anchor = str(row.get("source_anchor") or "").strip()
+        xbrl_tag = str(row.get("xbrl_tag") or "").strip()
+        source_lineage = _stable_id(
+            "statement-row-lineage",
+            identity.get("company_id"),
+            report_id,
+            row.get("file"),
+            row.get("statement_type"),
+        )
+        record = _record(
+            metric=metric,
+            metric_name=metric_name,
+            aliases=(metric_name, metric, xbrl_tag),
+            period=period,
+            value=value,
+            unit=unit,
+            identity=identity,
+            report_id=report_id,
+            task_id=row.get("task_id") or identity.get("parse_run_id"),
+            pdf_page=row.get("pdf_page"),
+            table_index=row.get("table_index"),
+            md_line=row.get("md_line"),
+            row_index=f"statement-row:{row_index}:{period}:{source_anchor or xbrl_tag}",
+            quote=str(row.get("source_quote") or f"{metric_name} {period} {value} {unit}"),
+            financial_scope=str(row.get("financial_scope") or "consolidated"),
+            source_lineage=source_lineage,
+        )
+        for key, field_value in (
+            ("file", row.get("file")),
+            ("source_url", source_url),
+            ("source_anchor", source_anchor),
+            ("xbrl_tag", xbrl_tag),
+            ("evidence_source_type", row.get("evidence_source_type")),
+        ):
+            if field_value not in (None, ""):
+                record[key] = field_value
+        evidence.append(record)
+    return tuple((*evidence, *_change_evidence(evidence, identity)))
+
+
 _AMOUNT_UNIT_TO_BASE = {
     "元": Decimal("1"),
     "人民币元": Decimal("1"),
@@ -867,4 +928,8 @@ def render_deterministic_calculation_pack(
     )
 
 
-__all__ = ["build_trusted_calculation_evidence", "render_deterministic_calculation_pack"]
+__all__ = [
+    "build_trusted_calculation_evidence",
+    "build_trusted_statement_row_evidence",
+    "render_deterministic_calculation_pack",
+]

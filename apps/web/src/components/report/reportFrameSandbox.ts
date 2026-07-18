@@ -68,6 +68,36 @@ export const REPORT_SOURCE_LINK_BRIDGE_SCRIPT = `<script>
     });
   }
 
+  function normalizeFactCheckOrder() {
+    document.querySelectorAll('h1,h2,h3').forEach(function (heading) {
+      if ((heading.textContent || '').trim() !== '核查明细') return;
+      var boundary = heading.nextElementSibling;
+      var cards = [];
+      while (boundary && !/^H[1-3]$/.test(boundary.tagName)) {
+        if (boundary.tagName === 'DIV') cards.push(boundary);
+        boundary = boundary.nextElementSibling;
+      }
+      if (cards.length < 2) return;
+
+      function severity(card) {
+        var text = (card.textContent || '').toUpperCase();
+        if (/CRITICAL|FAIL|FAILED|严重|失败/.test(text)) return 0;
+        if (/WARNING|警告|风险/.test(text)) return 1;
+        if (/SUGGESTION|建议/.test(text)) return 2;
+        return 3;
+      }
+
+      var sorted = cards.map(function (card, index) {
+        return { card: card, index: index, severity: severity(card) };
+      }).sort(function (left, right) {
+        return left.severity - right.severity || left.index - right.index;
+      }).map(function (entry) { return entry.card; });
+
+      if (sorted.every(function (card, index) { return card === cards[index]; })) return;
+      sorted.forEach(function (card) { heading.parentElement.insertBefore(card, boundary); });
+    });
+  }
+
   function normalizeInlineMarkdown() {
     var walker = document.createTreeWalker(document.body, 4);
     var nodes = [];
@@ -107,6 +137,7 @@ export const REPORT_SOURCE_LINK_BRIDGE_SCRIPT = `<script>
   function startHeightBridge() {
     normalizeInlineMarkdown();
     normalizeStatusMarks();
+    normalizeFactCheckOrder();
     reportHeight();
     requestAnimationFrame(reportHeight);
     setTimeout(reportHeight, 120);
@@ -117,7 +148,7 @@ export const REPORT_SOURCE_LINK_BRIDGE_SCRIPT = `<script>
       resizeObserver.observe(document.body);
     }
     if (window.MutationObserver) {
-      new MutationObserver(function () { normalizeInlineMarkdown(); normalizeStatusMarks(); requestAnimationFrame(reportHeight); })
+      new MutationObserver(function () { normalizeInlineMarkdown(); normalizeStatusMarks(); normalizeFactCheckOrder(); requestAnimationFrame(reportHeight); })
         .observe(document.body, { childList: true, subtree: true, attributes: true });
     }
     window.addEventListener('resize', reportHeight);

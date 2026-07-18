@@ -352,7 +352,7 @@ export function citationActionKind(label: string, href: string): CitationAction[
   if (/\/api\/documents\/source\//.test(href) || /\/api\/documents\/artifact\//.test(href)) return 'source'
   if (/\/api\/source\/[^/]+\/table\//.test(href) || /(?:表格|可读表格)/.test(label)) return 'table'
   if (/\/api\/pdf_page\//.test(href) || /PDF/.test(label)) return 'pdf'
-  if (/\/api\/source\/[^/]+\/page\//.test(href) || /(?:页来源|定位页|来源)/.test(label)) return 'source'
+  if (/\/api\/source\/[^/]+\/page\//.test(href) || /(?:页来源|定位页|来源|披露原文)/.test(label) || /(?:^|\.)sec\.gov\//i.test(href)) return 'source'
   return 'other'
 }
 
@@ -367,7 +367,7 @@ export function parseCitationActions(item: string) {
   const text = item.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*|#[^)\s]*)\)/g, (match, label, href) => {
     if (
       /\/api\/(?:pdf_page|source|documents\/source|documents\/artifact)\//.test(href) ||
-      /(?:打开PDF|PDF页|页来源|定位页|查看表格|可读表格|查看页来源|打开来源|打开产物|文档来源)/.test(label)
+      /(?:打开PDF|PDF页|页来源|定位页|查看表格|可读表格|查看页来源|打开来源|打开产物|文档来源|打开披露原文|披露原文)/.test(label)
     ) {
       addAction(label, href)
       return ''

@@ -4,7 +4,7 @@ export default function HkParsing() {
   return (
     <MarketParsingPage
       market="HK"
-      title="港股 PDF 解析"
+      title="香港市场财报解析"
       kicker="HK Report Parsing"
       description="解析港股 PDF 披露文件，生成 Markdown、表格证据和 PostgreSQL 入库材料。"
       steps={['港股', '解析', '数据管线']}

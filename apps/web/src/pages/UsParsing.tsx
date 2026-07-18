@@ -14,7 +14,7 @@ export default function UsParsing() {
               <FileText className="h-3.5 w-3.5" />
               US Report Parsing
             </div>
-            <h1 className="secondary-title">美股解析</h1>
+            <h1 className="secondary-title">美国市场财报解析</h1>
             <p className="secondary-description">
               解析 SEC 10-K、10-Q、20-F、6-K 披露文件；HTML/iXBRL 生成主体、附注、表格、XBRL facts 和 evidence 解析产物，再进入关系入库与研究资产生成。
             </p>

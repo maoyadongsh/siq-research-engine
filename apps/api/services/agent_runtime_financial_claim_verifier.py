@@ -617,6 +617,22 @@ def _trace_visible_locator_matches(
 ) -> bool:
     """Require an internal cell fact to remain reachable from the displayed answer."""
 
+    source_url = str(trusted.get("source_url") or "").strip()
+    external_fields = ("source_anchor", "xbrl_tag")
+    if source_url and any(str(trusted.get(field) or "").strip() for field in external_fields):
+        for reference in visible_references:
+            if str(reference.get("source_url") or "").strip() != source_url:
+                continue
+            shared_fields = [
+                field
+                for field in external_fields
+                if str(trusted.get(field) or "").strip() and str(reference.get(field) or "").strip()
+            ]
+            if shared_fields and all(
+                str(trusted.get(field) or "").strip() == str(reference.get(field) or "").strip()
+                for field in shared_fields
+            ):
+                return True
     task_id = str(trusted.get("task_id") or "").strip()
     trusted_locator = {
         "pdf_page": _normalized_locator_value(trusted.get("pdf_page") or trusted.get("pdf_page_number")),
@@ -1747,7 +1763,7 @@ def _matching_percent_occurrences(
         )
         period_references = (
             (primary, secondary)
-            if operation in {"yoy", "yoy_growth"}
+            if operation in {"yoy", "yoy_growth", "cagr"}
             and (direct_operand_pair_bound or reply_operands_bound)
             else (primary,)
         )
@@ -1771,6 +1787,13 @@ def _matching_percent_occurrences(
                 direct_operand_pair_bound
                 or absolute_change_pair_bound
                 or ((semantic_bound or heading_semantic_bound) and yoy_context)
+            ):
+                continue
+        elif operation == "cagr":
+            cagr_context = "cagr" in line.lower() or "复合增长率" in line
+            if not cagr_context or not (
+                direct_operand_pair_bound
+                or ((semantic_bound or heading_semantic_bound) and reply_operands_bound)
             ):
                 continue
         elif operation == "ratio":
@@ -2485,6 +2508,70 @@ def materialize_evidence_bound_calculation_runs(
                                 "operation": "yoy",
                                 "metric": f"{inputs['current']['metric']}_yoy",
                                 "period": inputs["current"]["period"],
+                                "inputs": inputs,
+                                "result": {"rate": str(expected), "percent": str(expected * Decimal("100"))},
+                                "research_identity": identity,
+                                "trace_origin": "backend_evidence_recompute",
+                                "display_line_number": claim.line_number,
+                                "display_match_start": claim.match_start,
+                                "display_claim": str(claim.value),
+                        }
+                    )
+
+    if not expected_operations or "cagr" in expected_operations:
+        by_metric: dict[str, list[Mapping[str, Any]]] = {}
+        for reference in evidence:
+            by_metric.setdefault(_trusted_evidence_metric(reference).lower(), []).append(reference)
+        for metric_references in by_metric.values():
+            ordered = sorted(metric_references, key=_trace_period_sort_key)
+            for start_index, start in enumerate(ordered):
+                for end in ordered[start_index + 1 :]:
+                    if _trusted_evidence_period(start) == _trusted_evidence_period(end):
+                        continue
+                    if not _same_source_lineage((start, end)):
+                        continue
+                    if not _same_financial_scope((start, end), require_known=False):
+                        continue
+                    start_year = _trace_period_sort_key(start)[0]
+                    end_year = _trace_period_sort_key(end)[0]
+                    periods = end_year - start_year
+                    if start_year < 0 or end_year < 0 or periods <= 1:
+                        continue
+                    inputs = {
+                        "start": _trusted_trace_input(start, "start"),
+                        "end": _trusted_trace_input(end, "end"),
+                        "periods": {"role": "period_count", "value": str(periods)},
+                    }
+                    expected = _trace_expected_result("cagr", inputs)
+                    if expected is None:
+                        continue
+                    matching_claims = _matching_percent_occurrences(
+                        displayed_percentages,
+                        expected=expected,
+                        operation="cagr",
+                        primary=end,
+                        secondary=start,
+                        all_references=evidence,
+                        visible_reply=reply,
+                    )
+                    for claim in matching_claims:
+                        key = (
+                            "cagr",
+                            inputs["start"]["evidence_id"],
+                            inputs["end"]["evidence_id"],
+                            str(claim.line_number),
+                            str(claim.match_start),
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        materialized.append(
+                            {
+                                "schema_version": CALCULATION_TRACE_SCHEMA,
+                                "tool": "financial_calculator.py",
+                                "operation": "cagr",
+                                "metric": f"{inputs['end']['metric']}_cagr",
+                                "period": inputs["end"]["period"],
                                 "inputs": inputs,
                                 "result": {"rate": str(expected), "percent": str(expected * Decimal("100"))},
                                 "research_identity": identity,

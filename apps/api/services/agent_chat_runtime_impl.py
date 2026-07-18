@@ -1409,7 +1409,7 @@ def _extract_task_ids_from_text(text: str | None) -> list[str]:
 
 
 def _invalid_task_ids_in_reply(message: str, context: Any | None, reply: str) -> list[str]:
-    return agent_runtime_task_ids.invalid_task_ids_in_reply(
+    invalid = agent_runtime_task_ids.invalid_task_ids_in_reply(
         message,
         context,
         reply,
@@ -1418,6 +1418,14 @@ def _invalid_task_ids_in_reply(message: str, context: Any | None, reply: str) ->
         wiki_root=WIKI_ROOT,
         resolve_company_dirs=_resolve_company_dirs,
     )
+    invalid_set = set(invalid)
+    for task_id in _extract_task_ids_from_text(reply):
+        if task_id in invalid_set:
+            continue
+        if not _task_id_matches_research_context(task_id, message, context):
+            invalid.append(task_id)
+            invalid_set.add(task_id)
+    return invalid
 
 
 def _infer_stock_code_from_text(text: str) -> str:
@@ -1503,6 +1511,22 @@ def _pdf2md_info_matches_message(info: dict[str, Any], message: str, context: An
         normalize_text=_normalize_financial_text,
         context_company_hint=_context_company_hint,
     )
+
+
+def _task_id_matches_research_context(task_id: str, message: str, context: Any | None = None) -> bool:
+    """Reject foreign PDF tasks only for the US SEC/XBRL research path."""
+
+    identity = agent_runtime_context.research_identity(context)
+    if str(identity.get("market") or "").strip().upper() != "US":
+        return True
+    company_dirs = list(_resolve_company_dirs(message, context, limit=6))
+    if any(_company_wiki_contains_task_id(company_dir, task_id) for company_dir in company_dirs):
+        return True
+    result_dir = _pdf2md_task_result_dir(task_id)
+    if result_dir is None:
+        return False
+    info = _pdf2md_task_info_from_dir(result_dir)
+    return bool(info and _pdf2md_info_matches_message(info, message, context))
 
 
 def _wiki_company_exists_for_pdf2md_info(info: dict[str, Any]) -> bool:
@@ -5945,6 +5969,33 @@ def _trusted_financial_calculation_evidence(
             expected_identity=identity,
         )
     )
+    core_result = _three_statement_core_result(message, resolved_context)
+    if isinstance(core_result, Mapping):
+        core_identity = agent_runtime_context.research_identity(core_result)
+        if all(
+            not core_identity.get(field) or core_identity.get(field) == identity.get(field)
+            for field in ("market", "company_id", "filing_id")
+        ):
+            metrics_file = Path(str(core_result.get("metrics_file") or ""))
+            company_dir = Path(str(core_result.get("company_dir") or ""))
+            metric_keys = {
+                str(row.get("metric_key") or "").strip()
+                for row in core_result.get("rows") or ()
+                if isinstance(row, Mapping) and str(row.get("metric_key") or "").strip()
+            }
+            payload = _read_json_file(metrics_file) if metrics_file.is_file() else None
+            if metric_keys and isinstance(payload, Mapping):
+                rows = [
+                    _statement_record_to_row(record, str(core_result.get("report_id") or ""), metrics_file, company_dir)
+                    for record in _iter_metric_records(payload.get("data") or payload)
+                    if str(record.get("metric_key") or record.get("canonical_name") or "").strip() in metric_keys
+                ]
+                evidence.extend(
+                    agent_runtime_financial_evidence.build_trusted_statement_row_evidence(
+                        rows,
+                        expected_identity=identity,
+                    )
+                )
     normalized_message = _normalize_financial_text(message)
     if any(term in normalized_message for term in ("偿债", "流动性", "现金流", "现金流量")):
         company_hint = _context_company_hint(resolved_context) or message

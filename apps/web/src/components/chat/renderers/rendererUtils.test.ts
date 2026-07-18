@@ -77,6 +77,21 @@ test('parseCitationActions preserves normal markdown links and tolerates long ci
   ])
 })
 
+test('parseCitationActions exposes SEC filing anchors as source actions', () => {
+  const parsed = parseCitationActions(
+    '[1] source_type=wiki_metrics, source_anchor=f-72, xbrl_tag=us-gaap:Revenues，[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/filing.htm#f-72)',
+  )
+
+  assert.equal(parsed.text, '[1] source_type=wiki_metrics, source_anchor=f-72, xbrl_tag=us-gaap:Revenues')
+  assert.deepEqual(parsed.actions, [
+    {
+      label: '打开披露原文',
+      href: 'https://www.sec.gov/Archives/edgar/data/1045810/filing.htm#f-72',
+      kind: 'source',
+    },
+  ])
+})
+
 test('parseCitationActions removes bare source link helpers and dedupes generated buttons', () => {
   const parsed = parseCitationActions(
     '[1] source_type=wiki_document_links, task_id=task_a, pdf_page=137, table_index=165，打开PDF页(/api/pdf_page/task_a/137)，查看页来源(/api/source/task_a/page/137)，查看表格(/api/source/task_a/table/165)，[打开PDF定位页137](https://public.example/api/pdf_page/task_a/137?format=html)，[查看定位页137来源](https://public.example/api/source/task_a/page/137?format=html)，[查看可读表格165](https://public.example/api/source/task_a/table/165?format=html)',

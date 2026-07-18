@@ -35,7 +35,6 @@ export function buildResearchAgentContext({
           market: company.market,
           company_id: company.company_id,
           company_key: company.company_key,
-          code: company.display_code,
           name: company.display_name,
         }
       : undefined,

@@ -4,7 +4,7 @@ export default function EuParsing() {
   return (
     <MarketParsingPage
       market="EU"
-      title="欧股财报解析"
+      title="欧洲市场财报解析"
       kicker="EU Report Parsing"
       description="解析欧股 PDF 与 ESEF/iXBRL/XHTML/ZIP 披露文件，生成结构化解析产物和 PostgreSQL 入库材料。"
       steps={['欧股', '解析', '数据管线']}

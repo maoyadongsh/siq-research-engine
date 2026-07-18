@@ -4,7 +4,7 @@ export default function KrParsing() {
   return (
     <MarketParsingPage
       market="KR"
-      title="韩股 PDF 解析"
+      title="韩国市场财报解析"
       kicker="KR Report Parsing"
       description="解析韩股 PDF 披露文件，生成 Markdown、表格证据和 PostgreSQL 入库材料。"
       steps={['韩股', '解析', '数据管线']}

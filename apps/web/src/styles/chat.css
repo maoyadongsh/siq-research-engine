@@ -1239,10 +1239,10 @@ html.dark .chat-composer-field:focus-within {
 /* Report pages expose only a compact assistant trigger; the full panel opens as a drawer. */
 .agent-chat-dock.is-open {
   position: fixed;
-  top: calc(var(--app-topbar-height) + 1rem);
-  right: 1rem;
-  bottom: 1rem;
-  width: min(460px, calc(100vw - 2rem));
+  top: calc(var(--app-topbar-height) + .5rem);
+  right: .75rem;
+  bottom: .5rem;
+  width: min(600px, calc(100vw - 1.5rem));
   height: auto;
   max-height: none;
   z-index: 50;
@@ -1252,6 +1252,42 @@ html.dark .chat-composer-field:focus-within {
   width: 100% !important;
   height: 100%;
   max-height: none;
+}
+
+.agent-chat-panel .chat-message-column-assistant {
+  width: 100%;
+  max-width: 100%;
+}
+
+.agent-chat-panel .chat-message-column-assistant .chat-message-row {
+  width: 100%;
+}
+
+.agent-chat-panel .chat-message-column-assistant .chat-message-bubble {
+  max-width: none;
+  flex: 1 1 auto;
+}
+
+.chat-citation-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+}
+
+.chat-citation-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-citation-actions {
+  flex: 0 0 auto;
+}
+
+.chat-citation-action {
+  white-space: nowrap;
 }
 
 @media (max-width: 639px) {

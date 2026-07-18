@@ -32,6 +32,10 @@ test('report srcdoc injects source-link and height bridges', () => {
   assert.match(srcDoc, /siq-report-light-theme/)
   assert.match(srcDoc, /normalizeInlineMarkdown/)
   assert.match(srcDoc, /siq-md-inline-heading/)
+  assert.match(srcDoc, /normalizeFactCheckOrder/)
+  assert.match(srcDoc, /CRITICAL\|FAIL\|FAILED/)
+  assert.match(srcDoc, /WARNING/)
+  assert.match(srcDoc, /SUGGESTION/)
 })
 
 test('report message guards accept only valid payloads', () => {

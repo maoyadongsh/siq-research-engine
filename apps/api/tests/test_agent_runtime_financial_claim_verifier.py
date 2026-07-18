@@ -12,6 +12,7 @@ from services.agent_runtime_financial_claim_verifier import (
     _period_tokens,
     _reference_facts,
     _trace_decimal,
+    _trace_visible_locator_matches,
     _trusted_evidence_value,
     _trusted_trace_input,
     validate_calculation_traces,
@@ -29,6 +30,81 @@ def test_source_field_parser_ignores_xbrl_assignments_inside_quote():
     assert fields["scale"] == "1"
     assert "scale='6'" in fields["quote"]
     assert fields["source_anchor"] == "f-78"
+
+
+def test_sec_xbrl_external_anchor_is_a_reviewable_trace_locator():
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm"
+    trusted = {
+        "source_url": source_url,
+        "source_anchor": "f-72",
+        "xbrl_tag": "us-gaap:Revenues",
+    }
+    visible = ({"source_url": source_url, "source_anchor": "f-72", "xbrl_tag": "us-gaap:Revenues"},)
+
+    assert _trace_visible_locator_matches(trusted, visible)
+    assert not _trace_visible_locator_matches(
+        trusted,
+        ({"source_url": source_url, "source_anchor": "f-73", "xbrl_tag": "us-gaap:Revenues"},),
+    )
+
+
+def test_evidence_recompute_materializes_sec_revenue_cagr():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "run-nvda-2026",
+    }
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm"
+    evidence = tuple(
+        {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "operating_revenue",
+            "canonical_name": "operating_revenue",
+            "metric_name": "Revenues",
+            "aliases": ["Revenues", "营收"],
+            "period": period,
+            "period_key": period,
+            "value": value,
+            "raw_value": value,
+            "unit": "USD",
+            "currency": "USD",
+            "evidence_id": f"nvda-revenue-{period}",
+            "source_lineage": "nvda-income-statement",
+            "financial_scope": "consolidated",
+            "source_url": source_url,
+            "source_anchor": anchor,
+            "xbrl_tag": "us-gaap:Revenues",
+            **identity,
+        }
+        for period, value, anchor in (
+            ("2024-01-28", "60922000000", "f-74"),
+            ("2026-01-25", "215938000000", "f-72"),
+        )
+    )
+    reply = "\n".join(
+        (
+            "FY2024（2024-01-28）营收为 60,922,000,000 USD。",
+            "FY2026（2026-01-25）营收为 215,938,000,000 USD。",
+            "FY2024 → FY2026 的营收复合增长率（CAGR）约为 88.19%。",
+            f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-74, xbrl_tag=us-gaap:Revenues",
+            f"[2] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenues",
+        )
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=identity,
+        require_calculator=True,
+        expected_operations=frozenset({"cagr"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert len(result.runs) == 1
+    assert result.runs[0]["operation"] == "cagr"
+    assert result.runs[0]["inputs"]["periods"]["value"] == "2"
+    assert result.runs[0]["trace_origin"] == "backend_evidence_recompute"
 
 
 @pytest.mark.parametrize("value", (0, 0.0))

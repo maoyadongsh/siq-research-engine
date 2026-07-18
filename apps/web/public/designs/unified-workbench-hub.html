@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIQ 统一工作台设计</title>
+  <style>
+    :root {
+      --blue: #0877e8;
+      --blue-strong: #0067cf;
+      --blue-soft: #edf6ff;
+      --ink: #10203a;
+      --muted: #667891;
+      --line: #d8e4f1;
+      --line-strong: #b8d4f3;
+      --bg: #f3f7fb;
+      --white: #fff;
+      --green: #07995a;
+      --green-soft: #f1fbf6;
+      --amber: #cc8200;
+      --amber-soft: #fff9ee;
+      --red: #d64545;
+      --shadow: 0 14px 34px rgba(33, 66, 108, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--bg); }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+    button, input { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: inherit; text-decoration: none; }
+    .page { max-width: 1480px; margin: 0 auto; padding: 12px; }
+    .shell {
+      overflow: hidden;
+      min-height: calc(100vh - 24px);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--white);
+      box-shadow: var(--shadow);
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 58px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+      font-family: Georgia, "Songti SC", serif;
+      font-size: 19px;
+      white-space: nowrap;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      margin-right: 9px;
+      border: 1px solid #23354e;
+      border-radius: 50%;
+      font-size: 12px;
+    }
+    .search {
+      flex: 1;
+      max-width: 520px;
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      color: #8493a6;
+    }
+    .mode-switch {
+      display: flex;
+      gap: 4px;
+      margin-left: auto;
+      padding: 4px;
+      border-radius: 11px;
+      background: #eef3f8;
+    }
+    .mode-switch button {
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      padding: 8px 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mode-switch button.is-active {
+      background: #fff;
+      color: var(--blue);
+      box-shadow: 0 1px 5px rgba(27, 61, 104, .12);
+    }
+    .icon-button {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      color: var(--muted);
+    }
+    .view { display: none; padding: 12px 14px 14px; }
+    .view.is-active { display: block; }
+    .page-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 48px;
+      margin-bottom: 8px;
+    }
+    .eyebrow { color: var(--blue); font-size: 12px; font-weight: 700; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      margin-bottom: 0;
+      font-family: Georgia, "Songti SC", serif;
+      font-size: 27px;
+      font-weight: 600;
+    }
+    h2 { margin-bottom: 0; font-size: 17px; }
+    h3 { margin-bottom: 0; font-size: 14px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 8px 13px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--blue-strong);
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .focus-bar {
+      display: grid;
+      grid-template-columns: minmax(205px, .9fr) minmax(570px, 2.5fr) auto;
+      align-items: center;
+      gap: 12px;
+      min-height: 88px;
+      padding: 11px 13px;
+    }
+    .company-name {
+      margin: 3px 0 6px;
+      font-family: Georgia, "Songti SC", serif;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .company-code { margin-left: 6px; color: var(--muted); font: 600 13px ui-monospace, monospace; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 4px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .pill.blue { border-color: #b7d8fa; background: #f6fbff; color: var(--blue); }
+    .pill.green { border-color: #bde4d0; background: var(--green-soft); color: var(--green); }
+    .pill.amber { border-color: #eed5a6; background: var(--amber-soft); color: var(--amber); }
+    .workflow { display: grid; grid-template-columns: repeat(6, minmax(78px, 1fr)); gap: 7px; }
+    .stage {
+      min-height: 55px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .stage small { display: block; margin-bottom: 4px; color: #8796a9; font-size: 10px; }
+    .stage strong { font-size: 13px; }
+    .stage.done { border-color: #bce5cf; background: #f5fbf8; }
+    .stage.active { border-color: #8bc2f8; background: #f4faff; }
+    .stage.warn { border-color: #efd39f; background: #fffaf1; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      margin-top: 8px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .metric { padding: 7px 12px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric small { display: block; margin-bottom: 3px; color: var(--muted); font-size: 11px; }
+    .metric strong { font-family: Georgia, serif; font-size: 20px; }
+    .desk-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, .8fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px 6px;
+    }
+    .list { padding: 0 12px 7px; }
+    .list-row {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+      border-bottom: 1px solid #eaf0f6;
+    }
+    .list-row:last-child { border-bottom: 0; }
+    .number, .glyph {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .list-row strong { display: block; font-size: 13px; }
+    .list-row small { color: var(--muted); font-size: 11px; }
+    .task-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      padding: 0 10px 10px;
+    }
+    .task-card {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 64px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfdff;
+    }
+    .task-card strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .task-card small { display: block; color: var(--muted); font-size: 11px; }
+    .shortcut-section { margin-top: 8px; }
+    .shortcut-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+    .shortcut {
+      position: relative;
+      min-height: 70px;
+      padding: 9px 9px 8px 39px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+      transition: border-color .18s ease, transform .18s ease;
+    }
+    .shortcut:hover { transform: translateY(-1px); border-color: #8fc3f7; }
+    .shortcut .glyph { position: absolute; top: 9px; left: 7px; }
+    .shortcut strong { display: block; margin: 0 0 3px; font-size: 13px; }
+    .shortcut p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .shortcut .arrow { position: absolute; right: 9px; bottom: 7px; color: #9aabba; }
+    .primary-ribbon {
+      display: grid;
+      grid-template-columns: 205px repeat(5, 1fr);
+      align-items: stretch;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #f9fbfd;
+    }
+    .ribbon-label { padding: 7px 9px; }
+    .ribbon-label strong { display: block; margin: 2px 0 3px; }
+    .ribbon-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 46px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .ribbon-link:hover { border-color: #8fc3f7; color: var(--blue); }
+
+    .primary-summary {
+      display: grid;
+      grid-template-columns: minmax(235px, .85fr) minmax(430px, 1.65fr) minmax(220px, .7fr);
+      gap: 8px;
+    }
+    .primary-titlebar {
+      display: grid;
+      grid-template-columns: 220px minmax(520px, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .primary-titlebar .metrics { margin-top: 0; }
+    .primary-titlebar h1 { font-size: 25px; }
+    .project-card { padding: 11px 12px; }
+    .project-card .company-name { font-size: 21px; }
+    .project-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .deal-stage {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 5px;
+      margin-top: 8px;
+    }
+    .deal-stage span {
+      position: relative;
+      padding-top: 16px;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: center;
+    }
+    .deal-stage span::before {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: calc(50% - 5px);
+      width: 10px;
+      height: 10px;
+      border: 2px solid #c7d4e2;
+      border-radius: 50%;
+      background: #fff;
+      z-index: 1;
+    }
+    .deal-stage span::after {
+      content: "";
+      position: absolute;
+      top: 7px;
+      left: 50%;
+      width: 100%;
+      height: 1px;
+      background: #cfdbe7;
+    }
+    .deal-stage span:last-child::after { display: none; }
+    .deal-stage .complete::before { border-color: var(--green); background: var(--green); }
+    .deal-stage .current::before { border-color: var(--blue); box-shadow: 0 0 0 4px #e5f2ff; }
+    .gate-list { padding: 4px 12px 7px; }
+    .gate {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid #eaf0f6;
+      font-size: 12px;
+    }
+    .gate:last-child { border: 0; }
+    .primary-nav-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 7px;
+      margin-top: 8px;
+    }
+    .primary-nav-card {
+      min-height: 70px;
+      padding: 9px 10px 8px 42px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+    }
+    .primary-nav-card:hover { border-color: #8fc3f7; }
+    .primary-nav-card { position: relative; }
+    .primary-nav-card .glyph { position: absolute; top: 9px; left: 8px; }
+    .primary-nav-card strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .primary-nav-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .project-table { margin-top: 8px; overflow: hidden; }
+    .table-head, .table-row {
+      display: grid;
+      grid-template-columns: 1.3fr .8fr .8fr .8fr 1fr 82px;
+      align-items: center;
+      gap: 10px;
+      min-width: 760px;
+      padding: 7px 12px;
+    }
+    .table-head { background: #f8fafc; color: var(--muted); font-size: 10px; }
+    .table-row { border-top: 1px solid var(--line); font-size: 12px; }
+    .table-row strong { font-size: 13px; }
+    .mobile-nav { display: none; }
+
+    @media (max-width: 980px) {
+      .brand span { display: none; }
+      .focus-bar { grid-template-columns: 1fr; }
+      .focus-bar .button { justify-self: start; }
+      .workflow { overflow-x: auto; grid-template-columns: repeat(6, 110px); padding-bottom: 3px; }
+      .shortcut-grid { grid-template-columns: repeat(3, 1fr); }
+      .primary-ribbon { grid-template-columns: repeat(5, 1fr); }
+      .ribbon-label { grid-column: 1 / -1; }
+      .primary-summary { grid-template-columns: 1fr 1fr; }
+      .primary-summary > :first-child { grid-column: 1 / -1; }
+      .primary-titlebar { grid-template-columns: 1fr auto; }
+      .primary-titlebar .metrics { grid-column: 1 / -1; grid-row: 2; }
+    }
+
+    @media (max-width: 640px) {
+      .page { padding: 8px; }
+      .shell { min-height: calc(100vh - 16px); border-radius: 14px; }
+      .topbar { height: 54px; padding: 0 10px; gap: 8px; }
+      .brand-mark { width: 33px; height: 33px; margin: 0; }
+      .search { min-width: 0; }
+      .mode-switch { position: fixed; z-index: 5; right: 13px; bottom: 13px; box-shadow: 0 8px 22px rgba(18, 45, 80, .18); }
+      .icon-button { display: none; }
+      .view { padding: 11px; }
+      .page-heading { align-items: flex-start; min-height: 0; margin-bottom: 10px; }
+      h1 { font-size: 23px; }
+      .focus-bar { gap: 11px; padding: 12px; }
+      .workflow { margin: 0 -3px; }
+      .metrics { grid-template-columns: repeat(3, 1fr); }
+      .metric { border-bottom: 1px solid var(--line); }
+      .metric:nth-child(3) { border-right: 0; }
+      .metric:nth-child(n+4) { border-bottom: 0; }
+      .desk-grid, .primary-summary { grid-template-columns: 1fr; }
+      .primary-summary > :first-child { grid-column: auto; }
+      .task-grid { grid-template-columns: 1fr; }
+      .shortcut-grid { grid-template-columns: repeat(2, 1fr); }
+      .shortcut { min-height: 78px; padding-left: 11px; padding-top: 42px; }
+      .primary-ribbon { display: grid; grid-template-columns: repeat(2, 1fr); }
+      .ribbon-label { grid-column: 1 / -1; }
+      .primary-nav-grid { grid-template-columns: repeat(2, 1fr); }
+      .primary-nav-card:first-child { grid-column: 1 / -1; }
+      .primary-titlebar { grid-template-columns: 1fr auto; gap: 8px; }
+      .primary-titlebar .metrics { grid-template-columns: repeat(3, 1fr) !important; }
+      .project-table { overflow-x: auto; }
+      .mobile-nav { display: block; height: 48px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="shell">
+      <header class="topbar">
+        <a class="brand" href="/">
+          <span class="brand-mark">SIQ</span>
+          <span>Research Engine</span>
+        </a>
+        <div class="search">搜索公司、项目、代码或报告</div>
+        <nav class="mode-switch" aria-label="工作台视图">
+          <button class="is-active" data-view="unified">综合工作台</button>
+          <button data-view="primary">一级市场</button>
+        </nav>
+        <button class="icon-button" aria-label="通知">○</button>
+      </header>
+
+      <section class="view is-active" id="unified-view">
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow">今日工作台</div>
+            <h1>研究进展与待办</h1>
+          </div>
+          <a class="button primary" href="/search">+新建研究对象</a>
+        </div>
+
+        <section class="panel focus-bar">
+          <div>
+            <div class="muted small">当前研究对象</div>
+            <div class="company-name">上汽集团<span class="company-code">600104</span></div>
+            <span class="pill blue">年报分析中</span>
+          </div>
+          <div class="workflow" aria-label="二级市场研究流程">
+            <a class="stage done" href="/search"><small>01</small><strong>下载 3</strong></a>
+            <a class="stage done" href="/parse"><small>02</small><strong>解析 2</strong></a>
+            <a class="stage active" href="/analysis"><small>03</small><strong>分析 6</strong></a>
+            <a class="stage" href="/verify"><small>04</small><strong>核查 2</strong></a>
+            <a class="stage" href="/tracking"><small>05</small><strong>跟踪 2</strong></a>
+            <a class="stage warn" href="/legal"><small>06</small><strong>法务 3</strong></a>
+          </div>
+          <a class="button" href="/analysis">查看结论</a>
+        </section>
+
+        <section class="metrics" aria-label="研究资产统计">
+          <div class="metric"><small>我的项目</small><strong>5</strong></div>
+          <div class="metric"><small>个人产物</small><strong>55</strong></div>
+          <div class="metric"><small>下载材料</small><strong>10</strong></div>
+          <div class="metric"><small>解析结果</small><strong>8</strong></div>
+          <div class="metric"><small>文档解析</small><strong>4</strong></div>
+          <div class="metric"><small>生成报告</small><strong>33</strong></div>
+        </section>
+
+        <div class="desk-grid">
+          <section class="panel">
+            <div class="panel-head"><h2>接下来要做的事</h2><span class="muted small">4 项</span></div>
+            <div class="task-grid">
+              <a class="task-card" href="/analysis"><span class="number">1</span><div><strong>复核上汽集团现金流异常</strong><small>智能分析 · 12 分钟前</small></div><span class="pill amber">待复核</span></a>
+              <a class="task-card" href="/verify"><span class="number">2</span><div><strong>补齐网宿科技核查证据</strong><small>2 条引用尚未定位</small></div><span class="pill blue">继续</span></a>
+              <a class="task-card" href="/legal"><span class="number">3</span><div><strong>确认美的集团法务意见</strong><small>3 项风险信号待确认</small></div><span class="pill">查看</span></a>
+              <a class="task-card" href="/tracking"><span class="number">4</span><div><strong>处理光环新网跟踪预警</strong><small>公告监测 · 今日到期</small></div><span class="pill amber">1 项</span></a>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h2>最近产物</h2><span class="muted small">全部</span></div>
+            <div class="list">
+              <div class="list-row"><span class="glyph">析</span><div><strong>上汽集团智能分析</strong><small>21:36 · HTML</small></div><span class="pill blue">预览</span></div>
+              <div class="list-row"><span class="glyph">核</span><div><strong>网宿科技事实核查</strong><small>19:22 · HTML</small></div><span class="pill">预览</span></div>
+              <div class="list-row"><span class="glyph">法</span><div><strong>美的集团法务意见</strong><small>昨日 · HTML</small></div><span class="pill">预览</span></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel shortcut-section">
+          <div class="panel-head"><h2>二级市场六阶段工具</h2><span class="muted small">从材料到结论的完整链路</span></div>
+          <div class="shortcut-grid">
+            <a class="shortcut" href="/search"><span class="glyph">搜</span><strong>搜索下载</strong><p>查询并下载目标公司财报</p><span class="arrow">→</span></a>
+            <a class="shortcut" href="/parse"><span class="glyph">解</span><strong>财报解析</strong><p>提取结构化财务数据</p><span class="arrow">→</span></a>
+            <a class="shortcut" href="/analysis"><span class="glyph">析</span><strong>智能分析</strong><p>生成深度研究报告</p><span class="arrow">→</span></a>
+            <a class="shortcut" href="/verify"><span class="glyph">核</span><strong>事实核查</strong><p>交叉验证数据与证据链</p><span class="arrow">→</span></a>
+            <a class="shortcut" href="/tracking"><span class="glyph">跟</span><strong>持续跟踪</strong><p>订阅事项、公告与预警</p><span class="arrow">→</span></a>
+            <a class="shortcut" href="/legal"><span class="glyph">法</span><strong>法务合规</strong><p>阅读法律意见与风险</p><span class="arrow">→</span></a>
+          </div>
+        </section>
+
+        <section class="primary-ribbon" aria-label="一级市场快捷入口">
+          <div class="ribbon-label"><div class="eyebrow">一级市场</div><strong>项目全周期管理</strong><span class="muted small">2 个进行中项目</span></div>
+          <a class="ribbon-link" href="/primary-market"><span>工作平台</span><span>→</span></a>
+          <a class="ribbon-link" href="/deals"><span>项目管理</span><span>→</span></a>
+          <a class="ribbon-link" href="/primary-market/materials"><span>材料中心</span><span>→</span></a>
+          <a class="ribbon-link" href="/primary-market/meeting"><span>投研决策</span><span>→</span></a>
+          <a class="ribbon-link" href="/primary-market/post-investment"><span>投后管理</span><span>→</span></a>
+        </section>
+      </section>
+
+      <section class="view" id="primary-view">
+        <div class="primary-titlebar">
+          <div>
+            <div class="eyebrow">一级市场</div>
+            <h1>项目工作平台</h1>
+          </div>
+          <section class="metrics" aria-label="一级市场项目统计" style="grid-template-columns: repeat(5, 1fr);">
+            <div class="metric"><small>项目总数</small><strong>6</strong></div>
+            <div class="metric"><small>进行中</small><strong>2</strong></div>
+            <div class="metric"><small>阻断中</small><strong>1</strong></div>
+            <div class="metric"><small>待确认</small><strong>3</strong></div>
+            <div class="metric"><small>可推进</small><strong>2</strong></div>
+          </section>
+          <a class="button primary" href="/deals">+新建项目</a>
+        </div>
+
+        <div class="primary-summary">
+          <section class="panel project-card">
+            <div class="muted small">当前项目</div>
+            <div class="company-name">雨树机器人</div>
+            <div class="muted small">DEAL-YUSHU-2026-001 · Pre-IPO</div>
+            <div class="project-meta"><span class="pill blue">尽调中</span><span class="pill amber">4 项待复核</span><span class="pill green">材料 78%</span></div>
+            <div class="deal-stage" aria-label="项目阶段">
+              <span class="complete">立项</span><span class="complete">材料</span><span class="current">尽调</span><span>投决</span><span>交割</span><span>投后</span>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h2>当前项目待办</h2><span class="muted small">5 项</span></div>
+            <div class="list">
+              <div class="list-row"><span class="number">1</span><div><strong>补齐客户合同和收入凭证</strong><small>材料中心 · 高优先级</small></div><span class="pill amber">阻断</span></div>
+              <div class="list-row"><span class="number">2</span><div><strong>复核估值模型的增长率假设</strong><small>投研决策 · 待人工确认</small></div><span class="pill blue">处理</span></div>
+              <div class="list-row"><span class="number">3</span><div><strong>确认尽调问题清单的责任人</strong><small>项目管理 · 今日</small></div><span class="pill">查看</span></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><h2>流程门禁</h2><span class="pill amber">1 阻断</span></div>
+            <div class="gate-list">
+              <div class="gate"><span>材料完整性</span><span class="pill amber">78%</span></div>
+              <div class="gate"><span>证据入库</span><span class="pill green">通过</span></div>
+              <div class="gate"><span>投决准备度</span><span class="pill blue">待确认</span></div>
+              <div class="gate"><span>风险复核</span><span class="pill amber">4 项</span></div>
+            </div>
+          </section>
+        </div>
+
+        <nav class="primary-nav-grid" aria-label="一级市场功能入口">
+          <a class="primary-nav-card" href="/primary-market"><span class="glyph">工</span><strong>工作平台</strong><p>统一查看项目状态、门禁和待办</p></a>
+          <a class="primary-nav-card" href="/deals"><span class="glyph">项</span><strong>项目管理</strong><p>项目列表、阶段、负责人与进度</p></a>
+          <a class="primary-nav-card" href="/primary-market/materials?dealId=DEAL-YUSHU-2026-001"><span class="glyph">材</span><strong>材料中心</strong><p>文件归集、解析、证据和数据入库</p></a>
+          <a class="primary-nav-card" href="/primary-market/meeting?dealId=DEAL-YUSHU-2026-001"><span class="glyph">决</span><strong>投研决策</strong><p>项目问答、评审、会议与投决意见</p></a>
+          <a class="primary-nav-card" href="/primary-market/post-investment?dealId=DEAL-YUSHU-2026-001"><span class="glyph">后</span><strong>投后管理</strong><p>经营指标、重大事项与投后跟踪</p></a>
+        </nav>
+
+        <section class="panel project-table">
+          <div class="panel-head"><h2>项目列表</h2><a class="muted small" href="/deals">查看全部 →</a></div>
+          <div class="table-head"><span>项目</span><span>行业 / 阶段</span><span>当前节点</span><span>材料</span><span>更新</span><span></span></div>
+          <div class="table-row"><div><strong>雨树机器人</strong><br><span class="muted small">DEAL-YUSHU-2026-001</span></div><span>机器人 · Pre-IPO</span><span class="pill blue">尽调中</span><span>78%</span><span>07/18 10:26</span><a class="button" href="/deals/DEAL-YUSHU-2026-001">进入</a></div>
+          <div class="table-row"><div><strong>Acme 先进制造</strong><br><span class="muted small">DEAL-ACME-2026</span></div><span>制造 · 成长期</span><span class="pill amber">待补件</span><span>61%</span><span>07/17 18:42</span><a class="button" href="/deals/DEAL-ACME-2026">进入</a></div>
+        </section>
+        <div class="mobile-nav"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const buttons = [...document.querySelectorAll('[data-view]')];
+    const views = {
+      unified: document.querySelector('#unified-view'),
+      primary: document.querySelector('#primary-view'),
+    };
+    buttons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const key = button.dataset.view;
+        buttons.forEach((item) => item.classList.toggle('is-active', item === button));
+        Object.entries(views).forEach(([name, view]) => view.classList.toggle('is-active', name === key));
+      });
+    });
+  </script>
+</body>
+</html>

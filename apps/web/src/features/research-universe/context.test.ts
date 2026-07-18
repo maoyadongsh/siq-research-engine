@@ -68,6 +68,34 @@ test('source report identity remains available when no generated analysis artifa
   assert.equal(context.capabilities.analysis_baseline_available, false)
 })
 
+test('display code is not sent as a competing company identity hint', () => {
+  const researchKeyCompany: ResearchCompanyOption = {
+    ...company,
+    company_key: 'rk1_efe0b0aaa4541d81d5e09487f85f936f',
+    company_id: 'rk1_efe0b0aaa4541d81d5e09487f85f936f',
+    display_code: '600104',
+    display_name: '上汽集团',
+    market: 'CN',
+  }
+  const report = sourceReport()
+  report.research_identity = {
+    ...report.research_identity,
+    market: 'CN',
+    company_id: researchKeyCompany.company_id,
+  }
+
+  const context = buildResearchAgentContext({
+    company: researchKeyCompany,
+    sourceReport: report,
+    reportType: 'analysis',
+    reportTitle: '智能分析',
+    pageTitle: '智能分析',
+  })
+
+  assert.equal('code' in context.company!, false)
+  assert.equal(context.company?.company_id, context.research_identity?.company_id)
+})
+
 test('factcheck context uses only the exact source report analysis baseline', () => {
   const context = buildResearchAgentContext({
     company,

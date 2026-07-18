@@ -1,4 +1,9 @@
-from services.agent_runtime_financial_evidence import _decimal, _period, build_trusted_calculation_evidence
+from services.agent_runtime_financial_evidence import (
+    _decimal,
+    _period,
+    build_trusted_calculation_evidence,
+    build_trusted_statement_row_evidence,
+)
 
 
 def test_financial_evidence_decimal_preserves_numeric_zero():
@@ -675,3 +680,47 @@ def test_rejects_saic_evidence_when_research_identity_is_incomplete():
     )
 
     assert evidence == ()
+
+
+def test_trusted_statement_rows_preserve_sec_periods_and_external_locators():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "run-nvda-2026",
+    }
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm"
+    rows = tuple(
+        {
+            "statement_type": "income_statement",
+            "metric_key": "operating_revenue",
+            "metric_name": "Revenues",
+            "period": period,
+            "normalized_value": value,
+            "unit": "USD",
+            "currency": "USD",
+            "report_id": "2026-10-K-0001045810-26-000021",
+            "file": "reports/2026-10-K/metrics/financial_data.json",
+            "source_url": source_url,
+            "source_anchor": anchor,
+            "xbrl_tag": "us-gaap:Revenues",
+            "evidence_source_type": "sec_xbrl_fact",
+        }
+        for period, value, anchor in (
+            ("2024-01-28", "60922000000", "f-74"),
+            ("2025-01-26", "130497000000", "f-73"),
+            ("2026-01-25", "215938000000", "f-72"),
+        )
+    )
+
+    evidence = build_trusted_statement_row_evidence(rows, expected_identity=identity)
+    revenue = [item for item in evidence if item["metric"] == "operating_revenue"]
+
+    assert len(revenue) == 3
+    assert {item["period"] for item in revenue} == {"2024-01-28", "2025-01-26", "2026-01-25"}
+    assert len({item["evidence_id"] for item in revenue}) == 3
+    assert all(item["market"] == "US" for item in revenue)
+    assert all(item["company_id"] == "US:0001045810" for item in revenue)
+    assert all(item["source_url"] == source_url for item in revenue)
+    assert {item["source_anchor"] for item in revenue} == {"f-72", "f-73", "f-74"}
+    assert len([item for item in evidence if item["metric"] == "operating_revenue_absolute_change"]) == 2
