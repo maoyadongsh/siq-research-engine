@@ -1,0 +1,103 @@
+site_name: SIQ Research Engine
+site_description: 面向投研机构的可审计智能研究生产线
+site_url: https://sunbos.github.io/siq-research-engine/
+repo_url: https://github.com/sunbos/siq-research-engine
+repo_name: sunbos/siq-research-engine
+edit_uri: edit/feat/docs-site/docs/site/
+docs_dir: docs/site
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: white
+      accent: grey
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - scheme: slate
+      primary: black
+      accent: grey
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
+  icon:
+    logo: material/bookshelf
+
+nav:
+  - 首页: index.md
+  - 产品:
+      - 项目定位: product/overview.md
+      - 能力矩阵: product/capabilities.md
+      - 技术栈: product/tech-stack.md
+  - 架构:
+      - 产品架构: architecture/overview.md
+      - 仓库地图: architecture/modules.md
+      - 二级市场智能体集群: architecture/secondary-market.md
+      - 一级市场 IC 智能体集群: architecture/primary-market.md
+      - 应用中心: architecture/app-center.md
+      - 拟人化记忆系统: architecture/memory.md
+      - OpenShell 安全运行面: architecture/openshell.md
+  - 使用:
+      - 快速启动: usage/quickstart.md
+      - 环境变量: usage/environment.md
+      - 健康检查: usage/health-check.md
+      - 测试与验证: usage/testing.md
+
+plugins:
+  - search:
+      lang:
+        - ja
+        - en
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - tables
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/sunbos/siq-research-engine
+
+extra_css:
+  - stylesheets/extra.css

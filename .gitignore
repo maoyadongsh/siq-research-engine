@@ -183,3 +183,6 @@ artifacts/secondary-market-multi-market/**
 !artifacts/secondary-market-multi-market/README.md
 !artifacts/secondary-market-multi-market/*.sanitized.json
 !artifacts/secondary-market-multi-market/*.png
+
+# MkDocs build output
+/site/
