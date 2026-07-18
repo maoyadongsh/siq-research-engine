@@ -34,7 +34,7 @@ SIQ 前端
 
 因此，本项目可准确表述为：**针对 SIQ Research Engine 业务契约定制的、非 NemoClaw 路径的原生 OpenShell + Hermes 演示/灰度控制面**。它不是 NVIDIA 官方 NemoClaw 支持路径，也尚未通过正式生产门禁。
 
-当前状态（2026-07-17）：Hermes 升级已冻结；上汽集团 `canary-8e695febb483:28652` 和贵州茅台 `canary-ee8d4d9c4e97:28653` 均运行候选镜像 `aadca453805ef6d783956e93`，生命周期状态、认证探测、Docker 健康检查和 API 资源池恢复均正常。Host 仍是默认运行面，未注册公司和其他 profile 自动留在 Host。Exa 延期配置，`8004/8006` 为可选且当前禁用；三者不阻断当前灰度链路。正式全量门禁仍为 `NO_GO 1/13`，两家公司在线不等于正式 GO。任何操作前先查看：
+当前状态（2026-07-18）：Hermes 升级已冻结；真实前端 OpenShell 流量、公司范围自动创建、同对话跨公司 generation、请求级 lease 释放、API 恢复和空闲 TTL 回收均已验证。Host 仍是默认运行面，未注册公司和其他 profile 自动留在 Host。Exa 延期配置，`8004/8006` 为可选且当前禁用；三者不阻断当前灰度链路。正式全量门禁仍为 `NO_GO`，当前默认 completion 检查为 `0/13`；历史 canary 在线或灰度链路存活都不等于正式 GO。任何操作前先查看：
 
 - `docs/runbooks/hermes-upgrade-freeze.md`；
 - `artifacts/openshell/v0.6/baseline.md`；
@@ -85,8 +85,9 @@ transaction 结构化审计导出见 `docs/runbooks/openshell/formal-egress-audi
 四 transaction 绑定及合成 fixture 清理见 `docs/runbooks/openshell/formal-delete-guard.md`。
 
 发布前用 `python3 scripts/openshell/check_v06_completion.py --json` 逐条核对任务书
-第 16 节；当前真实结果为 `NO_GO 1/13`。只有人工评审、真实业务 A/B 和所有正式证据齐全后，
-才允许使用 `--require-go` 作为发布门禁。
+第 16 节；当前默认检查结果为 `NO_GO 0/13`。`NO_GO` 到 Limited `GO` 的逐项差距、
+证据生成顺序和最终命令见 `docs/runbooks/openshell/no-go-to-go-readiness-matrix.md`。
+只有人工评审、真实业务 A/B 和所有正式证据齐全后，才允许使用 `--require-go` 作为发布门禁。
 
 最新集成状态文档记录的相关专项回归为 `78 passed`，覆盖运行面选择、资源池绑定、租约获取/释放、对话亲和、范围自动创建、并发只创建一个绑定、端口重试、维护锁、空闲 TTL 候选、恢复管理器、Host 回退、运行 owner 稳定性、沙箱代际来源回执和同对话跨公司切换。但正式 A/B `formal11` 仍未通过，阻塞项包括超时率、P95 延迟、引用率、证据覆盖率、幻觉阻断率、报告完整度、任务成功率、主路由遥测和合同失败。因此演示/灰度运行面已验证，不等于正式生产发行。
 
