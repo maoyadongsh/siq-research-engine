@@ -25,6 +25,8 @@ jobs:
   build:
     name: Build MkDocs site
     runs-on: ubuntu-latest
+    outputs:
+      pages-enabled: ${{ steps.set-pages-enabled.outputs.enabled }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -51,10 +53,16 @@ jobs:
           path: ./site
           retention-days: 14
 
-      - name: Setup Pages
+      - name: Check GitHub Pages availability
         id: setup-pages
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
         continue-on-error: true
+
+      - name: Set pages-enabled output
+        id: set-pages-enabled
+        if: steps.setup-pages.outcome == 'success'
+        run: echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload Pages artifact
         if: steps.setup-pages.outcome == 'success'
@@ -66,7 +74,7 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    if: needs.build.outputs.pages-enabled == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
