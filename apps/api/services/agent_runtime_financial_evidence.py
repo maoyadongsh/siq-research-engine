@@ -54,6 +54,8 @@ def _decimal(value: Any) -> Decimal | None:
     if value is None or isinstance(value, bool):
         return None
     text = normalize_financial_minus_signs(value).strip().replace(",", "")
+    if text.startswith("△"):
+        text = f"-{text[1:]}"
     if not text or text in {"-", "—", "--", "不适用", "未返回"}:
         return None
     if text.startswith("(") and text.endswith(")"):
@@ -807,7 +809,12 @@ def build_trusted_statement_row_evidence(
         metric_name = str(row.get("metric_name") or row.get("name") or metric).strip()
         period = str(row.get("period") or "").strip()
         unit = str(row.get("unit") or row.get("currency") or "").strip()
-        value = _decimal(row.get("normalized_value", row.get("raw_value", row.get("value"))))
+        normalized_value = row.get("normalized_value")
+        value = _decimal(
+            normalized_value
+            if normalized_value not in (None, "")
+            else row.get("raw_value", row.get("value"))
+        )
         report_id = str(row.get("report_id") or "").strip()
         if not all((metric, metric_name, period, unit, report_id)) or value is None:
             continue

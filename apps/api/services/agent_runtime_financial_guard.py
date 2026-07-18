@@ -196,6 +196,40 @@ NEGATED_DERIVED_TERM_MARKERS = (
     "仅作上下文",
     "仅作参考",
 )
+PER_CAPITA_CALCULATION_TERMS = (
+    "人均",
+    "每人",
+    "/人",
+    "／人",
+    "万元/人",
+    "元/人",
+    "万欧元/人",
+    "欧元/人",
+)
+PER_CAPITA_EVIDENCE_GAP_MARKERS = (
+    "未返回",
+    "未披露",
+    "未结构化",
+    "未收录",
+    "未提供",
+    "未获取",
+    "未找到",
+    "未涉及",
+    "不涉及",
+    "不含",
+    "不适用",
+    "没有可引用",
+    "无可引用",
+    "缺少",
+    "缺口",
+    "无法计算",
+    "不能计算",
+    "不可计算",
+    "无法拆出",
+    "不能拆出",
+    "不得补全",
+    "留白",
+)
 
 _NEGATED_DERIVED_MARKER_PATTERN = "|".join(
     re.escape(marker) for marker in sorted(NEGATED_DERIVED_TERM_MARKERS, key=len, reverse=True)
@@ -206,6 +240,11 @@ _DERIVED_TERM_PATTERN = "|".join(
 )
 _NEGATED_DERIVED_TERM_RE = re.compile(
     rf"(?:{_NEGATED_DERIVED_MARKER_PATTERN})\s*(?:任何\s*)?(?:(?:{_DERIVED_TERM_PATTERN})(?:\s*(?:、|和|及|或|/)\s*)?)+",
+    re.IGNORECASE,
+)
+_PER_CAPITA_TERM_RE = re.compile(
+    r"(?:人均|每人|每名员工|每位员工|"
+    r"(?:元|万元|千元|百万元|亿元|美元|欧元|港元|日元|韩元|million|billion)\s*[/／]\s*人)",
     re.IGNORECASE,
 )
 
@@ -264,6 +303,20 @@ def _calculation_claim_text(text: str) -> str:
     return "\n".join(meaningful_lines)
 
 
+def _has_per_capita_term(text: str) -> bool:
+    return bool(_PER_CAPITA_TERM_RE.search(text or ""))
+
+
+def _has_contextual_per_capita(text: str) -> bool:
+    for clause in re.split(r"[。！？；;\n]|(?:但|但是|不过|然而)", text or ""):
+        if not _has_per_capita_term(clause):
+            continue
+        if any(marker in clause for marker in PER_CAPITA_EVIDENCE_GAP_MARKERS):
+            continue
+        return True
+    return False
+
+
 def _has_contextual_yoy_change(text: str) -> bool:
     for line in (text or "").splitlines():
         if not any(term in line for term in YOY_CHANGE_TERMS):
@@ -315,6 +368,8 @@ def _reply_has_derived_financial_metric(reply: str) -> bool:
     lowered = text.lower()
     if _has_contextual_yoy_change(text) or _has_contextual_ratio(text) or _has_contextual_amount_normalization(text):
         return True
+    if _has_contextual_per_capita(text):
+        return True
     if any(term.lower() in lowered for term in DERIVED_PER_SHARE_TERMS):
         return True
     # A bare "每股" request is ambiguous and remains conservative, but a
@@ -322,7 +377,11 @@ def _reply_has_derived_financial_metric(reply: str) -> bool:
     # structured evidence citation and need no synthetic calculator trace.
     if "每股" in text and not any(term.lower() in lowered for term in DIRECT_REPORTED_PER_SHARE_TERMS):
         return True
-    return any(term.lower() in lowered for term in DERIVED_FINANCIAL_TERMS)
+    return any(
+        term.lower() in lowered
+        for term in DERIVED_FINANCIAL_TERMS
+        if term not in PER_CAPITA_CALCULATION_TERMS
+    )
 
 
 def _reply_has_calculator_trace(reply: str) -> bool:
@@ -369,7 +428,7 @@ def _required_calculator_operations(
         operations.add("cagr")
     if any(term in text for term in YOY_FINANCIAL_TERMS) or _has_contextual_yoy_change(text):
         operations.update({"yoy", "yoy_growth"})
-    if "人均" in text or "/人" in text:
+    if _has_per_capita_term(message_text) or _has_contextual_per_capita(reply_text):
         operations.add("per_capita")
     ratio_terms = ("占比", "比例", "百分比", "覆盖率", "毛利率", "净利率", "资产负债率", "收益率", "回报率", "净息差")
     # A ratio explicitly requested by the user is mandatory. In the answer,
@@ -910,6 +969,42 @@ def _calculation_run_summary(run: Mapping[str, Any]) -> str:
     return f"✅ {_CALCULATION_OPERATION_LABELS.get(operation, '派生计算')}：确定性重算通过"
 
 
+def _trace_mapping_fingerprint(item: Any) -> tuple[tuple[str, str], ...] | str:
+    if not isinstance(item, Mapping):
+        return repr(item)
+    return tuple((str(key), str(value)) for key, value in sorted(item.items()))
+
+
+def _calculation_run_display_key(run: Mapping[str, Any]) -> tuple[Any, ...]:
+    inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
+    result = run.get("result") if isinstance(run.get("result"), Mapping) else {}
+    input_key = tuple(
+        (str(name), _trace_mapping_fingerprint(value))
+        for name, value in sorted(inputs.items())
+    )
+    return (
+        str(run.get("operation") or "").strip().lower(),
+        str(run.get("metric") or "").strip(),
+        str(run.get("period") or "").strip(),
+        input_key,
+        _trace_mapping_fingerprint(result),
+    )
+
+
+def _dedupe_calculator_runs_for_display(
+    runs: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    deduped: list[Mapping[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for run in runs:
+        key = _calculation_run_display_key(run)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(run)
+    return deduped
+
+
 def _reconciliation_run_summary(run: Mapping[str, Any]) -> str:
     inputs = run.get("inputs") if isinstance(run.get("inputs"), Mapping) else {}
     result = run.get("result") if isinstance(run.get("result"), Mapping) else {}
@@ -975,7 +1070,9 @@ def append_financial_validation_report(
 ) -> str:
     """Append complete readable validation cards without changing the answer body."""
 
-    calculator_runs = [run for run in runs if str(run.get("tool") or "") == "financial_calculator.py"]
+    calculator_runs = _dedupe_calculator_runs_for_display(
+        [run for run in runs if str(run.get("tool") or "") == "financial_calculator.py"]
+    )
     reconciliation_runs = [
         run for run in runs if str(run.get("tool") or "") == "financial_reconciliation_validator.py"
     ]

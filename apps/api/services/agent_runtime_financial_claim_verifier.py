@@ -45,6 +45,8 @@ CANONICAL_METRIC_ALIASES = {
     "profit_before_tax": ("利润总额", "税前利润", "profit before tax"),
     "gross_profit": ("毛利润", "毛利", "gross profit"),
     "gross_margin": ("毛利率", "gross margin"),
+    "operating_margin": ("营业利润率", "营业利益率", "经营利润率", "operating margin"),
+    "pre_tax_margin": ("税前利润率", "税前利益率", "利润总额率", "pre-tax margin", "pretax margin"),
     "net_margin": ("净利率", "净利润率", "net margin"),
     "debt_to_asset_ratio": ("资产负债率", "debt-to-asset ratio", "debt to asset ratio"),
     "net_interest_margin": ("净息差", "净利息收益率", "net interest margin", "NIM"),
@@ -364,6 +366,7 @@ class PercentClaimOccurrence:
     line: str
     match_start: int
     comparison: str = "exact"
+    local_context: str = ""
 
 
 def _trace_decimal(value: Any) -> Decimal | None:
@@ -891,6 +894,8 @@ DERIVED_PERCENT_TERMS = (
 )
 DERIVED_METRIC_REPLY_ALIASES = {
     "gross_margin": ("毛利率", "gross margin"),
+    "operating_margin": ("营业利润率", "营业利益率", "经营利润率", "operating margin"),
+    "pre_tax_margin": ("税前利润率", "税前利益率", "利润总额率", "pre-tax margin", "pretax margin"),
     "net_margin": ("净利率", "净利润率", "net margin"),
     "debt_to_asset_ratio": ("资产负债率", "debt-to-asset ratio", "debt to asset ratio"),
     "return_on_equity": ("净资产收益率", "股本回报率", "roe", "return on equity"),
@@ -921,6 +926,20 @@ def _percent_claim_details(
         (occurrence.value, occurrence.is_percentage_point)
         for occurrence in _percent_claim_occurrences(reply, require_derived_term=require_derived_term)
     )
+
+
+def _local_percent_claim_context(line: str, match_start: int) -> str:
+    prefix = line[:match_start]
+    start = max(
+        (prefix.rfind(marker) for marker in ("；", ";", "。", "!", "！", "?", "？", "|")),
+        default=-1,
+    )
+    comma_start = max(prefix.rfind("，"), prefix.rfind(","))
+    if comma_start > start:
+        comma_context = prefix[comma_start + 1 :]
+        if any(term in comma_context for term in DERIVED_PERCENT_TERMS):
+            start = comma_start
+    return prefix[start + 1 :]
 
 
 def _percent_claim_occurrences(
@@ -971,6 +990,7 @@ def _percent_claim_occurrences(
                     comparison = "approximate"
                 else:
                     comparison = "exact"
+                local_context = _local_percent_claim_context(line, match.start())
                 claims.append(
                     PercentClaimOccurrence(
                         value=value / Decimal("100"),
@@ -980,6 +1000,7 @@ def _percent_claim_occurrences(
                         line=line,
                         match_start=match.start(),
                         comparison=comparison,
+                        local_context=local_context,
                     )
                 )
     return tuple(claims)
@@ -1086,6 +1107,18 @@ def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
         "营业总收入",
     }:
         return "gross_margin"
+    if numerator in {"operating_profit", "营业利润", "经营利润"} and denominator in {
+        "revenue",
+        "operating_revenue",
+        "营业收入",
+    }:
+        return "operating_margin"
+    if numerator in {"profit_before_tax", "total_profit", "税前利润", "利润总额"} and denominator in {
+        "revenue",
+        "operating_revenue",
+        "营业收入",
+    }:
+        return "pre_tax_margin"
     if numerator in {"net_profit", "net_income", "parent_net_profit", "净利润", "归母净利润"} and denominator in {
         "revenue",
         "operating_revenue",
@@ -1726,6 +1759,7 @@ def _matching_percent_occurrences(
         if occurrence.is_percentage_point or not _percent_occurrence_matches_expected(occurrence, expected):
             continue
         line = occurrence.line
+        local_line = occurrence.local_context or line
         direct_primary_value_bound = _line_contains_trusted_value(line, primary)
         derived_sum_formula_bound = operation == "ratio" and _derived_sum_ratio_formula_matches(
             line,
@@ -1776,7 +1810,7 @@ def _matching_percent_occurrences(
         semantic_bound = primary_metric in semantic_metrics
         nearest_heading = _nearest_markdown_heading(occurrence, visible_reply)
         heading_semantic_bound = _line_mentions_reference(nearest_heading, primary)
-        output_bound = any(_compact_semantic_text(alias) in _compact_semantic_text(line) for alias in output_aliases)
+        output_bound = any(_compact_semantic_text(alias) in _compact_semantic_text(local_line) for alias in output_aliases)
         if operation in {"yoy", "yoy_growth"}:
             # Both periods share one metric, so one metric label plus a derived
             # term is sufficient; raw equations bind by both operand values.
@@ -1798,13 +1832,15 @@ def _matching_percent_occurrences(
                 continue
         elif operation == "ratio":
             ratio_context = any(
-                term in line.lower()
+                term in local_line.lower()
                 for term in (
                     "占",
                     "集中度",
                     "覆盖率",
                     "比率",
                     "毛利率",
+                    "利润率",
+                    "利益率",
                     "净利率",
                     "资产负债率",
                     "收益率",
@@ -1888,7 +1924,7 @@ def _trace_run_context_matches_percentage_claim(
     operation = str(run.get("operation") or "").strip().lower()
     if operation not in {"yoy", "yoy_growth", "ratio"}:
         return False
-    source_line = occurrence.line or ""
+    source_line = occurrence.local_context or occurrence.line or ""
     clause_boundaries = "，,；;。！？!?|"
     boundary_positions = [
         index
@@ -1944,7 +1980,11 @@ def _trace_run_context_matches_percentage_claim(
     semantic_terms.update(DERIVED_METRIC_REPLY_ALIASES.get(output_metric, ()))
     if operation in {"yoy", "yoy_growth"} and "goodwill" in output_metric:
         semantic_terms.add("商誉")
-    if not any(
+    output_alias_bound = any(
+        _compact_semantic_text(term) and _compact_semantic_text(term) in compact_line
+        for term in DERIVED_METRIC_REPLY_ALIASES.get(output_metric, ())
+    )
+    if not output_alias_bound and not any(
         _compact_semantic_text(term) and _compact_semantic_text(term) in compact_line
         for term in semantic_terms
     ):
@@ -1953,7 +1993,23 @@ def _trace_run_context_matches_percentage_claim(
         return any(term in line for term in ("同比", "增长", "增幅", "增加", "减少", "上升", "下降", "变化", "变动"))
     return any(
         term in line.lower()
-        for term in ("占", "占比", "比例", "百分比", "集中度", "覆盖率", "比率", "毛利率", "净利率", "收益率", "回报率", "ratio", "/")
+        for term in (
+            "占",
+            "占比",
+            "比例",
+            "百分比",
+            "集中度",
+            "覆盖率",
+            "比率",
+            "毛利率",
+            "利润率",
+            "利益率",
+            "净利率",
+            "收益率",
+            "回报率",
+            "ratio",
+            "/",
+        )
     )
 
 
@@ -2353,6 +2409,8 @@ def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, 
         return True
     known_pairs = {
         "gross_margin": ({"gross_profit"}, {"revenue", "operating_revenue", "total_operating_revenue"}),
+        "operating_margin": ({"operating_profit"}, {"revenue", "operating_revenue"}),
+        "pre_tax_margin": ({"profit_before_tax", "total_profit"}, {"revenue", "operating_revenue"}),
         "net_margin": ({"net_profit", "net_income", "parent_net_profit"}, {"revenue", "operating_revenue"}),
         "debt_to_asset_ratio": ({"total_liabilities"}, {"total_assets"}),
         "return_on_equity": ({"net_profit", "net_income", "parent_net_profit"}, {"shareholders_equity"}),

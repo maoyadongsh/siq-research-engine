@@ -1104,3 +1104,52 @@ def test_reply_has_requested_metric_evidence_ignores_metrics_outside_reference_l
         postgres_requested_metric_terms=lambda message: ["净利润"],
         normalize_financial_text=normalize,
     )
+
+
+def test_sec_xbrl_reference_sanitizer_removes_foreign_pdf_links_and_untrusted_rows():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm"
+    rio_task = "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd"
+    reply = "\n".join(
+        (
+            "## 引用来源",
+            f"[1] source_type=wiki_metrics, metric=Revenues, period=2026-01-25, task_id={rio_task}, pdf_page=未返回, table_index=未返回, source_url={sec_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenues，[打开披露原文]({sec_url}#f-72)",
+            f"[2] source_type=wiki_metrics, metric=利润表核心数据, task_id={rio_task}, pdf_page=223, table_index=258, source_url={sec_url}, source_anchor=对应 xbrl fact anchor, xbrl_tag=us-gaap:CostOfRevenue，[打开PDF定位页223](/api/pdf_page/{rio_task}/223)",
+        )
+    )
+    trusted = (
+        {
+            "source_type": "wiki_metrics",
+            "file": "reports/2026-10-K/metrics/financial_data.json",
+            "metric": "operating_revenue",
+            "metric_name": "Revenues",
+            "period": "2026-01-25",
+            "value": "215938000000",
+            "raw_value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "run-nvda-2026",
+            "task_id": "NVDA-10-K-0001045810-26-000021",
+            "evidence_id": "nvda-revenue-2026",
+            "evidence_source_type": "sec_xbrl_fact",
+            "source_url": sec_url,
+            "source_anchor": "f-72",
+            "xbrl_tag": "us-gaap:Revenues",
+        },
+    )
+
+    sanitized = citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        trusted,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert rio_task not in sanitized
+    assert "pdf_page=223" not in sanitized
+    assert "table_index=258" not in sanitized
+    assert "打开PDF定位页" not in sanitized
+    assert "source_anchor=f-72" in sanitized
+    assert "task_id=NVDA-10-K-0001045810-26-000021" in sanitized
+    assert sanitized.count("source_type=wiki_metrics") == 1

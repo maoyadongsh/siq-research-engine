@@ -918,6 +918,29 @@ def test_negated_yoy_wording_does_not_trigger_operations():
     assert guard._required_calculator_operations("", note) == frozenset()
 
 
+def test_per_capita_evidence_gap_does_not_trigger_operation():
+    note = (
+        "当前底稿不含员工总人数或人均薪酬等结构化字段，"
+        "因此无法计算人均营收，必须显式留白。"
+    )
+
+    assert not guard._reply_has_derived_financial_metric(note)
+    assert guard._required_calculator_operations("分析丰田汽车的人才战略", note) == frozenset()
+
+
+def test_slash_separated_person_keywords_do_not_trigger_per_capita_operation():
+    note = "定向检索员工/人才/研发的定性字段，避免未匹配等同于字段不存在。"
+
+    assert not guard._reply_has_derived_financial_metric(note)
+    assert guard._required_calculator_operations("分析丰田汽车的人才战略", note) == frozenset()
+
+
+def test_explicit_per_capita_request_still_requires_operation():
+    note = "当前底稿未返回员工总人数，因此无法计算人均营收。"
+
+    assert guard._required_calculator_operations("请计算人均营收", note) == frozenset({"per_capita"})
+
+
 @pytest.mark.parametrize(
     "wording",
     (
@@ -1403,6 +1426,54 @@ def test_mixed_validation_report_keeps_successful_items_visible():
     assert "与 goodwill_net 一致" in displayed
     assert "⚠️" in displayed
     assert "指标：goodwill_to_equity_ratio" in displayed
+
+
+def test_validation_report_dedupes_identical_calculator_runs_for_display():
+    duplicate_run = {
+        "tool": "financial_calculator.py",
+        "operation": "ratio",
+        "metric": "current_assets_ratio",
+        "period": "2025-03-31",
+        "inputs": {
+            "numerator": {
+                "metric": "current_assets",
+                "value": "37078676",
+                "unit": "JPY million",
+                "evidence_id": "trusted:current-assets",
+            },
+            "denominator": {
+                "metric": "total_assets",
+                "value": "93601350",
+                "unit": "JPY million",
+                "evidence_id": "trusted:total-assets",
+            },
+        },
+        "result": {"ratio": "0.396133987383729", "percent": "39.6133987383729"},
+    }
+    distinct_run = {
+        **duplicate_run,
+        "metric": "debt_to_asset_ratio",
+        "inputs": {
+            "numerator": {
+                "metric": "total_liabilities",
+                "value": "56722437",
+                "unit": "JPY million",
+                "evidence_id": "trusted:liabilities",
+            },
+            "denominator": duplicate_run["inputs"]["denominator"],
+        },
+        "result": {"ratio": "0.606000201920165", "percent": "60.6000201920165"},
+    }
+
+    displayed = guard.append_financial_validation_report(
+        "## 结论\n- 财务分析。",
+        runs=(duplicate_run, duplicate_run.copy(), distinct_run),
+        allowed=True,
+    )
+
+    assert "状态：2/2 项通过" in displayed
+    assert displayed.count("current_assets / total_assets") == 1
+    assert displayed.count("total_liabilities / total_assets") == 1
 
 
 def test_strict_validation_failure_appends_full_validation_report(monkeypatch):

@@ -6,6 +6,14 @@ import { EmptyState, PageHeader, PageSection, PageShell, StatusBadge, Surface } 
 import { Button } from '@/components/ui/button'
 import { fetchDeal, fetchDealStatus } from '@/lib/dealApi'
 import type { DealDetailResponse, DealStatusComponent, DealStatusResponse } from '@/lib/dealTypes'
+import {
+  dealComponentLabel,
+  dealComponentMessage,
+  dealNextActionLabel,
+  dealStatusLabel,
+  dealWarningLabel,
+  formatDealTime,
+} from '@/features/primary-market/dealDisplay'
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === '') return '未设置'
@@ -24,8 +32,8 @@ function statusTone(status?: string | null): 'neutral' | 'info' | 'success' | 'w
 
 function compactList(values?: string[], limit = 2) {
   if (!Array.isArray(values) || values.length === 0) return ''
-  const shown = values.slice(0, limit).join(', ')
-  return values.length > limit ? `${shown} +${values.length - limit}` : shown
+  const shown = values.slice(0, limit).map(dealWarningLabel).join('、')
+  return values.length > limit ? `${shown}，另有 ${values.length - limit} 项` : shown
 }
 
 function componentPath(dealId: string, href?: string | null) {
@@ -59,7 +67,7 @@ export default function DealWorkspace() {
           setStatusData(statusResult.value)
         } else {
           setStatusData(null)
-          setStatusError(statusResult.reason instanceof Error ? statusResult.reason.message : 'Deal Status 加载失败')
+          setStatusError(statusResult.reason instanceof Error ? statusResult.reason.message : '项目状态加载失败')
         }
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -83,7 +91,7 @@ export default function DealWorkspace() {
     <PageShell variant="secondary" className="space-y-5">
       <PageHeader
         icon={BriefcaseBusiness}
-        eyebrow="Deal Workspace"
+        eyebrow="一级市场项目"
         title={summary?.company_name || dealId || '交易项目'}
         description="一级市场项目包、投委会阶段和归档材料的只读工作台。"
         actions={
@@ -123,21 +131,21 @@ export default function DealWorkspace() {
             <Surface kind="card">
               <p className="text-sm text-text-muted">状态</p>
               <div className="mt-2">
-                <StatusBadge tone={statusTone(summary.status)}>{valueText(summary.status)}</StatusBadge>
+                <StatusBadge tone={statusTone(summary.status)}>{dealStatusLabel(summary.status)}</StatusBadge>
               </div>
             </Surface>
             <Surface kind="card">
               <p className="text-sm text-text-muted">投决</p>
               <p className="mt-1 text-lg font-semibold text-text">
-                {summary.final_decision ? `${summary.final_decision}${typeof summary.final_score === 'number' ? ` · ${summary.final_score}` : ''}` : '未生成'}
+                {summary.final_decision ? `${dealStatusLabel(summary.final_decision)}${typeof summary.final_score === 'number' ? ` · ${summary.final_score}` : ''}` : '未生成'}
               </p>
             </Surface>
           </div>
 
           <PageSection
-            title="Deal Status"
-            description={statusData ? `Generated: ${valueText(statusData.generated_at)}` : '聚合 preflight、R1-R4 和审计链状态。'}
-            actions={statusData ? <StatusBadge tone={statusTone(statusData.status)}>{valueText(statusData.status)}</StatusBadge> : null}
+            title="项目状态"
+            description={statusData ? `更新时间：${formatDealTime(statusData.generated_at)}` : '汇总前置校验、R1-R4 和审计链状态。'}
+            actions={statusData ? <StatusBadge tone={statusTone(statusData.status)}>{dealStatusLabel(statusData.status)}</StatusBadge> : null}
           >
             {statusError ? (
               <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm text-text">
@@ -148,19 +156,19 @@ export default function DealWorkspace() {
               <div className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-3">
                   <Surface kind="muted" padding="sm">
-                    <p className="text-xs text-text-muted">Ready</p>
+                    <p className="text-xs text-text-muted">推进条件</p>
                     <div className="mt-2">
                       <StatusBadge tone={statusData.ready_for_next_action ? 'success' : 'warning'}>
-                        {statusData.ready_for_next_action ? 'ready' : 'blocked'}
+                        {statusData.ready_for_next_action ? '可以推进' : '暂时阻断'}
                       </StatusBadge>
                     </div>
                   </Surface>
                   <Surface kind="muted" padding="sm">
-                    <p className="text-xs text-text-muted">Next Action</p>
-                    <p className="mt-1 break-all font-semibold text-text">{valueText(statusData.next_action)}</p>
+                    <p className="text-xs text-text-muted">下一步</p>
+                    <p className="mt-1 break-words font-semibold text-text">{dealNextActionLabel(statusData.next_action)}</p>
                   </Surface>
                   <Surface kind="muted" padding="sm">
-                    <p className="text-xs text-text-muted">Blocking</p>
+                    <p className="text-xs text-text-muted">阻断项</p>
                     <p className="mt-1 text-2xl font-semibold text-text">{statusData.counts?.blocking ?? 0}</p>
                   </Surface>
                 </div>
@@ -171,12 +179,12 @@ export default function DealWorkspace() {
                       <Surface kind="row" padding="sm" className="h-full">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="font-semibold text-text">{valueText(component.label || component.id)}</p>
-                            <p className="mt-1 text-xs text-text-muted">{valueText(component.message)}</p>
+                            <p className="font-semibold text-text">{dealComponentLabel(component)}</p>
+                            <p className="mt-1 text-xs leading-5 text-text-muted">{dealComponentMessage(component)}</p>
                           </div>
-                          <StatusBadge tone={statusTone(component.status)}>{valueText(component.status)}</StatusBadge>
+                          <StatusBadge tone={statusTone(component.status)}>{dealStatusLabel(component.status)}</StatusBadge>
                         </div>
-                        {component.blocking ? <p className="mt-2 text-xs font-medium text-warning">blocking</p> : null}
+                        {component.blocking ? <p className="mt-2 text-xs font-medium text-warning">阻断中</p> : null}
                         {compactList(component.warnings) ? (
                           <p className="mt-2 break-words text-xs text-text-muted">{compactList(component.warnings)}</p>
                         ) : null}
@@ -193,7 +201,7 @@ export default function DealWorkspace() {
                 </div>
               </div>
             ) : (
-              <EmptyState title="暂无 Deal Status" description="项目详情仍可继续查看。" size="sm" />
+              <EmptyState title="暂无项目状态" description="项目详情仍可继续查看。" size="sm" />
             )}
           </PageSection>
 
@@ -220,9 +228,9 @@ export default function DealWorkspace() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold text-text">{phase}</p>
-                      <p className="mt-1 text-xs text-text-muted">{valueText(info.status)}</p>
+                      <p className="mt-1 text-xs text-text-muted">{dealStatusLabel(String(info.status || ''))}</p>
                     </div>
-                    <StatusBadge tone={statusTone(String(info.status || ''))}>{valueText(info.status)}</StatusBadge>
+                    <StatusBadge tone={statusTone(String(info.status || ''))}>{dealStatusLabel(String(info.status || ''))}</StatusBadge>
                   </div>
                 </Surface>
               )) : (
@@ -234,13 +242,13 @@ export default function DealWorkspace() {
           <PageSection title="快捷入口">
             <div className="primary-market-shortcut-grid grid gap-3 md:grid-cols-3 xl:grid-cols-7">
               {[
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/data-room`, title: 'Data Room', desc: '上传和管理项目文档', icon: FolderOpen },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/evidence`, title: 'Evidence', desc: '查看和构建证据包', icon: FileSearch },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/agents`, title: 'Agents', desc: '查看 IC profile 状态', icon: UsersRound },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/workflow`, title: 'Workflow', desc: '查看 R0-R4 状态', icon: GitBranch },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/reports`, title: 'Reports', desc: '查看报告与产物索引', icon: FileJson },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/decision`, title: 'Decision', desc: '查看最终投决报告', icon: FileText },
-                { to: `/deals/${encodeURIComponent(summary.deal_id)}/audit`, title: 'Audit', desc: '查看审计事件链', icon: ShieldCheck },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/data-room`, title: '材料中心', desc: '上传和管理项目文档', icon: FolderOpen },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/evidence`, title: '证据中心', desc: '查看和构建证据包', icon: FileSearch },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/agents`, title: '智能体', desc: '查看投委会智能体状态', icon: UsersRound },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/workflow`, title: '工作流', desc: '查看 R0-R4 状态', icon: GitBranch },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/reports`, title: '报告中心', desc: '查看报告与产物索引', icon: FileJson },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/decision`, title: '投决结果', desc: '查看最终投决报告', icon: FileText },
+                { to: `/deals/${encodeURIComponent(summary.deal_id)}/audit`, title: '审计记录', desc: '查看审计事件链', icon: ShieldCheck },
               ].map((item) => {
                 const Icon = item.icon
                 return (
@@ -255,9 +263,14 @@ export default function DealWorkspace() {
           </PageSection>
 
           <PageSection title="项目包索引">
-            <pre className="max-h-72 overflow-auto rounded-lg bg-muted/60 p-3 text-xs text-text-muted">
-              {JSON.stringify(data.manifest, null, 2)}
-            </pre>
+            <details className="rounded-xl border border-border bg-card">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-text">
+                查看原始项目包数据
+              </summary>
+              <pre className="max-h-72 overflow-auto border-t border-border p-4 text-xs text-text-muted">
+                {JSON.stringify(data.manifest, null, 2)}
+              </pre>
+            </details>
           </PageSection>
         </>
       )}

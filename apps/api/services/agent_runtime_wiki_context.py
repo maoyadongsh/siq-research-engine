@@ -624,6 +624,7 @@ def should_consider_wiki_fulltext_fallback(
     context: Any | None = None,
     *,
     fallback_terms: Sequence[str],
+    generic_terms: set[str] | tuple[str, ...] = (),
     is_general_assistant_request: Callable[[str], bool],
     resolve_company_dir: Callable[[str, Any | None], Path | None],
     context_company: Callable[[Any | None], dict[str, Any]],
@@ -640,6 +641,10 @@ def should_consider_wiki_fulltext_fallback(
     ):
         return True
     company = context_company(context)
+    aliases = agent_runtime_fallback_contexts._company_aliases("", company)
+    terms = agent_runtime_fallback_contexts._fallback_search_terms(message, aliases, tuple(fallback_terms))
+    if agent_runtime_fallback_contexts._specific_fulltext_terms(terms, generic_terms):
+        return True
     return bool(company and any(term in text for term in ("多少", "数据", "情况", "如何", "怎么样", "说明", "披露")))
 
 
@@ -731,6 +736,7 @@ def wiki_fulltext_fallback_result(
         message,
         context,
         fallback_terms=fallback_terms,
+        generic_terms=generic_terms,
         is_general_assistant_request=is_general_assistant_request,
         resolve_company_dir=resolve_company_dir,
         context_company=context_company,

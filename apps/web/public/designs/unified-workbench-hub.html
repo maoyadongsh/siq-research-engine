@@ -315,13 +315,76 @@
     }
     .primary-titlebar {
       display: grid;
-      grid-template-columns: 220px minmax(520px, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       gap: 12px;
       margin-bottom: 8px;
     }
-    .primary-titlebar .metrics { margin-top: 0; }
     .primary-titlebar h1 { font-size: 25px; }
+    .primary-command {
+      display: grid;
+      grid-template-columns: minmax(275px, .9fr) minmax(430px, 1.55fr) minmax(235px, .75fr);
+      gap: 8px;
+    }
+    .priority-list { padding: 1px 12px 9px; }
+    .priority-item {
+      display: grid;
+      grid-template-columns: 5px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 57px;
+      border-bottom: 1px solid #eaf0f6;
+    }
+    .priority-item:last-child { border-bottom: 0; }
+    .priority-mark { width: 5px; height: 28px; border-radius: 999px; background: #c8d7e7; }
+    .priority-item.is-blocked .priority-mark { background: #e9a93a; }
+    .priority-item.is-active .priority-mark { background: var(--blue); }
+    .priority-item strong { display: block; margin-bottom: 3px; font-size: 13px; }
+    .priority-item small { color: var(--muted); font-size: 11px; }
+    .entry-list { padding: 1px 12px 9px; }
+    .entry-link {
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 48px;
+      border-bottom: 1px solid #eaf0f6;
+    }
+    .entry-link:last-child { border-bottom: 0; }
+    .entry-link strong { display: block; font-size: 12px; }
+    .entry-link small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .entry-link .glyph { width: 28px; height: 28px; }
+    .project-overview { margin-top: 8px; padding-bottom: 10px; }
+    .portfolio-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .portfolio-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+    .portfolio-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      padding: 10px 12px 0;
+    }
+    .portfolio-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      min-height: 104px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: #fff;
+    }
+    .portfolio-card:hover { border-color: #8fc3f7; }
+    .portfolio-card h3 { margin: 0 0 3px; font-size: 14px; }
+    .portfolio-card p { margin: 0; color: var(--muted); font-size: 11px; }
+    .portfolio-card .next-step { grid-column: 1 / -1; padding-top: 8px; border-top: 1px solid #eaf0f6; }
+    .portfolio-card .next-step strong { display: block; margin-top: 2px; font-size: 12px; }
     .project-card { padding: 11px 12px; }
     .project-card .company-name { font-size: 21px; }
     .project-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
@@ -414,8 +477,9 @@
       .ribbon-label { grid-column: 1 / -1; }
       .primary-summary { grid-template-columns: 1fr 1fr; }
       .primary-summary > :first-child { grid-column: 1 / -1; }
-      .primary-titlebar { grid-template-columns: 1fr auto; }
-      .primary-titlebar .metrics { grid-column: 1 / -1; grid-row: 2; }
+      .primary-command { grid-template-columns: 1fr 1fr; }
+      .primary-command > :first-child { grid-column: 1 / -1; }
+      .portfolio-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 640px) {
@@ -445,7 +509,10 @@
       .primary-nav-grid { grid-template-columns: repeat(2, 1fr); }
       .primary-nav-card:first-child { grid-column: 1 / -1; }
       .primary-titlebar { grid-template-columns: 1fr auto; gap: 8px; }
-      .primary-titlebar .metrics { grid-template-columns: repeat(3, 1fr) !important; }
+      .primary-command { grid-template-columns: 1fr; }
+      .primary-command > :first-child { grid-column: auto; }
+      .portfolio-head { align-items: flex-start; flex-direction: column; }
+      .portfolio-grid { grid-template-columns: 1fr; }
       .project-table { overflow-x: auto; }
       .mobile-nav { display: block; height: 48px; }
     }
@@ -550,17 +617,10 @@
             <div class="eyebrow">一级市场</div>
             <h1>项目工作平台</h1>
           </div>
-          <section class="metrics" aria-label="一级市场项目统计" style="grid-template-columns: repeat(5, 1fr);">
-            <div class="metric"><small>项目总数</small><strong>6</strong></div>
-            <div class="metric"><small>进行中</small><strong>2</strong></div>
-            <div class="metric"><small>阻断中</small><strong>1</strong></div>
-            <div class="metric"><small>待确认</small><strong>3</strong></div>
-            <div class="metric"><small>可推进</small><strong>2</strong></div>
-          </section>
           <a class="button primary" href="/deals">+新建项目</a>
         </div>
 
-        <div class="primary-summary">
+        <div class="primary-command">
           <section class="panel project-card">
             <div class="muted small">当前项目</div>
             <div class="company-name">雨树机器人</div>
@@ -571,37 +631,34 @@
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><h2>当前项目待办</h2><span class="muted small">5 项</span></div>
-            <div class="list">
-              <div class="list-row"><span class="number">1</span><div><strong>补齐客户合同和收入凭证</strong><small>材料中心 · 高优先级</small></div><span class="pill amber">阻断</span></div>
-              <div class="list-row"><span class="number">2</span><div><strong>复核估值模型的增长率假设</strong><small>投研决策 · 待人工确认</small></div><span class="pill blue">处理</span></div>
-              <div class="list-row"><span class="number">3</span><div><strong>确认尽调问题清单的责任人</strong><small>项目管理 · 今日</small></div><span class="pill">查看</span></div>
+            <div class="panel-head"><h2>本周推进</h2><span class="muted small">按优先级排序</span></div>
+            <div class="priority-list">
+              <a class="priority-item is-blocked" href="/primary-market/materials?dealId=DEAL-YUSHU-2026-001"><span class="priority-mark"></span><div><strong>补齐客户合同和收入凭证</strong><small>材料完整性 78% · 阻断投决准备</small></div><span class="pill amber">今天</span></a>
+              <a class="priority-item is-active" href="/primary-market/meeting?dealId=DEAL-YUSHU-2026-001"><span class="priority-mark"></span><div><strong>复核估值模型的增长率假设</strong><small>等待投资经理确认 · 会议前完成</small></div><span class="pill blue">处理中</span></a>
+              <a class="priority-item" href="/deals/DEAL-YUSHU-2026-001"><span class="priority-mark"></span><div><strong>确认尽调问题清单责任人</strong><small>3 个问题尚未分派 · 明日到期</small></div><span class="pill">分派</span></a>
             </div>
           </section>
           <section class="panel">
-            <div class="panel-head"><h2>流程门禁</h2><span class="pill amber">1 阻断</span></div>
-            <div class="gate-list">
-              <div class="gate"><span>材料完整性</span><span class="pill amber">78%</span></div>
-              <div class="gate"><span>证据入库</span><span class="pill green">通过</span></div>
-              <div class="gate"><span>投决准备度</span><span class="pill blue">待确认</span></div>
-              <div class="gate"><span>风险复核</span><span class="pill amber">4 项</span></div>
+            <div class="panel-head"><h2>项目入口</h2><span class="muted small">雨树机器人</span></div>
+            <div class="entry-list">
+              <a class="entry-link" href="/deals/DEAL-YUSHU-2026-001"><span class="glyph">项</span><div><strong>项目管理</strong><small>阶段、负责人和进度</small></div><span>→</span></a>
+              <a class="entry-link" href="/primary-market/materials?dealId=DEAL-YUSHU-2026-001"><span class="glyph">材</span><div><strong>材料中心</strong><small>文件、证据与数据</small></div><span>→</span></a>
+              <a class="entry-link" href="/primary-market/meeting?dealId=DEAL-YUSHU-2026-001"><span class="glyph">决</span><div><strong>投研决策</strong><small>问答、会议与意见</small></div><span>→</span></a>
+              <a class="entry-link" href="/primary-market/post-investment?dealId=DEAL-YUSHU-2026-001"><span class="glyph">后</span><div><strong>投后管理</strong><small>指标与重大事项</small></div><span>→</span></a>
             </div>
           </section>
         </div>
 
-        <nav class="primary-nav-grid" aria-label="一级市场功能入口">
-          <a class="primary-nav-card" href="/primary-market"><span class="glyph">工</span><strong>工作平台</strong><p>统一查看项目状态、门禁和待办</p></a>
-          <a class="primary-nav-card" href="/deals"><span class="glyph">项</span><strong>项目管理</strong><p>项目列表、阶段、负责人与进度</p></a>
-          <a class="primary-nav-card" href="/primary-market/materials?dealId=DEAL-YUSHU-2026-001"><span class="glyph">材</span><strong>材料中心</strong><p>文件归集、解析、证据和数据入库</p></a>
-          <a class="primary-nav-card" href="/primary-market/meeting?dealId=DEAL-YUSHU-2026-001"><span class="glyph">决</span><strong>投研决策</strong><p>项目问答、评审、会议与投决意见</p></a>
-          <a class="primary-nav-card" href="/primary-market/post-investment?dealId=DEAL-YUSHU-2026-001"><span class="glyph">后</span><strong>投后管理</strong><p>经营指标、重大事项与投后跟踪</p></a>
-        </nav>
-
-        <section class="panel project-table">
-          <div class="panel-head"><h2>项目列表</h2><a class="muted small" href="/deals">查看全部 →</a></div>
-          <div class="table-head"><span>项目</span><span>行业 / 阶段</span><span>当前节点</span><span>材料</span><span>更新</span><span></span></div>
-          <div class="table-row"><div><strong>雨树机器人</strong><br><span class="muted small">DEAL-YUSHU-2026-001</span></div><span>机器人 · Pre-IPO</span><span class="pill blue">尽调中</span><span>78%</span><span>07/18 10:26</span><a class="button" href="/deals/DEAL-YUSHU-2026-001">进入</a></div>
-          <div class="table-row"><div><strong>Acme 先进制造</strong><br><span class="muted small">DEAL-ACME-2026</span></div><span>制造 · 成长期</span><span class="pill amber">待补件</span><span>61%</span><span>07/17 18:42</span><a class="button" href="/deals/DEAL-ACME-2026">进入</a></div>
+        <section class="panel project-overview">
+          <div class="portfolio-head">
+            <div><h2>项目组合</h2><span class="muted small">只展示需要关注或最近更新的项目</span></div>
+            <div class="portfolio-summary"><span class="pill blue">进行中 2</span><span class="pill amber">阻断 1</span><span class="pill">待确认 3</span><a class="pill" href="/deals">全部项目 →</a></div>
+          </div>
+          <div class="portfolio-grid">
+            <a class="portfolio-card" href="/deals/DEAL-YUSHU-2026-001"><div><h3>雨树机器人</h3><p>机器人 · Pre-IPO</p></div><span class="pill blue">尽调中</span><div class="next-step"><p>下一步</p><strong>补齐客户合同与收入凭证</strong></div></a>
+            <a class="portfolio-card" href="/deals/DEAL-ACME-2026"><div><h3>Acme 先进制造</h3><p>先进制造 · 成长期</p></div><span class="pill amber">待补件</span><div class="next-step"><p>下一步</p><strong>补充核心设备采购合同</strong></div></a>
+            <a class="portfolio-card" href="/deals"><div><h3>星河医疗</h3><p>医疗器械 · A 轮</p></div><span class="pill green">可推进</span><div class="next-step"><p>下一步</p><strong>安排管理层访谈与产品演示</strong></div></a>
+          </div>
         </section>
         <div class="mobile-nav"></div>
       </section>

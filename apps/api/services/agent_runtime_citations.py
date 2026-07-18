@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
@@ -199,6 +199,79 @@ def _primary_data_source_ref(
             f"xbrl_tag={xbrl_tag or '未返回'}, [打开披露原文]({target})"
         )
     return prefix + (f"{structured}, " if structured else "") + locator
+
+
+def sanitize_sec_xbrl_reference_lines(
+    reply: str,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+    *,
+    table_source_links: Callable[[Any, Any, Any], str],
+) -> str:
+    """Rebuild SEC citation lines from server-trusted XBRL facts only."""
+
+    trusted: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for item in trusted_evidence or ():
+        if not isinstance(item, Mapping):
+            continue
+        source_url = str(item.get("source_url") or "").strip()
+        source_anchor = str(item.get("source_anchor") or "").strip()
+        if not re.match(r"^https://(?:www\.)?sec\.gov/", source_url, re.IGNORECASE) or not source_anchor:
+            continue
+        trusted[(source_url, source_anchor)] = item
+    if not trusted:
+        return reply
+
+    output: list[str] = []
+    emitted: set[tuple[str, str]] = set()
+    reference_index = 0
+    for raw_line in (reply or "").splitlines():
+        if "source_type=" not in raw_line or "sec.gov/" not in raw_line.lower():
+            output.append(raw_line)
+            continue
+        fields = _extract_source_fields_shared(raw_line)
+        key = (
+            str(fields.get("source_url") or "").strip(),
+            str(fields.get("source_anchor") or "").strip(),
+        )
+        item = trusted.get(key)
+        if item is None or key in emitted:
+            continue
+        emitted.add(key)
+        reference_index += 1
+        output.append(
+            _primary_data_source_ref(
+                reference_index,
+                source_type="wiki_metrics",
+                file=str(item.get("file") or ""),
+                metric=str(item.get("metric_name") or item.get("metric") or ""),
+                period=item.get("period"),
+                task_id=item.get("task_id"),
+                pdf_page=item.get("pdf_page"),
+                table_index=item.get("table_index"),
+                md_line=item.get("md_line"),
+                table_source_links=table_source_links,
+                statement_type=item.get("statement_type"),
+                canonical_name=item.get("canonical_name") or item.get("metric"),
+                metric_name=item.get("metric_name"),
+                value=item.get("value"),
+                raw_value=item.get("raw_value"),
+                unit=item.get("unit"),
+                currency=item.get("currency"),
+                scale=item.get("scale"),
+                market=item.get("market"),
+                company_id=item.get("company_id"),
+                report_id=item.get("report_id"),
+                filing_id=item.get("filing_id"),
+                parse_run_id=item.get("parse_run_id"),
+                evidence_id=item.get("evidence_id"),
+                quote=item.get("quote"),
+                evidence_source_type=item.get("evidence_source_type"),
+                source_url=item.get("source_url"),
+                source_anchor=item.get("source_anchor"),
+                xbrl_tag=item.get("xbrl_tag"),
+            )
+        )
+    return "\n".join(output)
 
 
 def _reference_value(value: Any) -> str:

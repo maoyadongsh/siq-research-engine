@@ -10,6 +10,50 @@ from services import agent_chat_runtime as runtime, hermes_client
 SH_BANK_TASK_ID = "fb07089b-9570-4902-bf20-eb38578f2b76"
 
 
+def test_us_task_scope_rejects_foreign_pdf_but_other_markets_keep_existing_behavior(monkeypatch, tmp_path):
+    task_id = "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd"
+    result_dir = tmp_path / task_id
+    result_dir.mkdir()
+    (result_dir / "result.md").write_text("Rio Tinto", encoding="utf-8")
+    (result_dir / "quality_report.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "filename": "Rio-Tinto-plc_EU_RIO_2025-12-31_年报.pdf",
+                "market": "EU",
+            }
+        ),
+        encoding="utf-8",
+    )
+    company_dir = tmp_path / "NVDA-NVIDIA-CORP"
+    company_dir.mkdir()
+    monkeypatch.setattr(runtime, "_resolve_company_dirs", lambda *_args, **_kwargs: [company_dir])
+    monkeypatch.setattr(runtime, "_company_wiki_contains_task_id", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(runtime, "_pdf2md_task_result_dir", lambda _task_id: result_dir)
+
+    us_context = {
+        "company": {"market": "US", "name": "NVIDIA CORP", "code": "NVDA"},
+        "research_identity": {
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "run-nvda-2026",
+        },
+    }
+    eu_context = {
+        "company": {"market": "EU", "name": "NVIDIA CORP", "code": "NVDA"},
+        "research_identity": {
+            "market": "EU",
+            "company_id": "EU:NVDA",
+            "filing_id": "EU:NVDA:2025",
+            "parse_run_id": "run-eu-2025",
+        },
+    }
+
+    assert not runtime._task_id_matches_research_context(task_id, "分析英伟达", us_context)
+    assert runtime._task_id_matches_research_context(task_id, "分析英伟达", eu_context)
+
+
 class _FakePgCursor:
     def __enter__(self):
         return self

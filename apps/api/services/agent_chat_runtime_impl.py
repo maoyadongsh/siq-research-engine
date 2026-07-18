@@ -3573,6 +3573,7 @@ def _should_consider_wiki_fulltext_fallback(message: str, context: Any | None = 
         message,
         context,
         fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
+        generic_terms=REPORT_FULLTEXT_GENERIC_TERMS,
         is_general_assistant_request=_is_general_assistant_request,
         resolve_company_dir=_resolve_company_dir,
         context_company=_context_company,
@@ -6107,6 +6108,12 @@ def enforce_financial_evidence_contract(
     reply = strip_guardrail_diagnostics(reply)
     resolved_context = _resolved_research_context(message, context)
     trusted_evidence = _trusted_financial_calculation_evidence(message, resolved_context)
+    if str(agent_runtime_context.research_identity(resolved_context).get("market") or "").upper() == "US":
+        reply = agent_runtime_citations.sanitize_sec_xbrl_reference_lines(
+            reply,
+            trusted_evidence,
+            table_source_links=_table_source_links,
+        )
     reply = _append_missing_calculation_evidence_locators(reply, trusted_evidence)
     baseline_events = list(resolved_context.get("_audit_fallback_events") or [])
     guarded_reply = agent_runtime_financial_guard.enforce_financial_evidence_contract(

@@ -11,9 +11,44 @@ def test_financial_evidence_decimal_preserves_numeric_zero():
     assert _decimal(0.0) == 0
 
 
+def test_financial_evidence_decimal_accepts_pdf_triangle_negative_sign():
+    assert _decimal("△4,189,736") == -4189736
+
+
 def test_financial_evidence_period_parses_year_before_chinese_text():
     assert _period("2025年度合并") == "2025"
     assert _period("截至2025年末") == "2025"
+
+
+def test_statement_row_evidence_falls_back_when_normalized_value_is_none():
+    identity = {
+        "market": "JP",
+        "company_id": "JP:7203",
+        "filing_id": "JP:7203:2025-annual:task-toyota",
+        "parse_run_id": "JP:task-toyota",
+    }
+    rows = [
+        {
+            "metric_key": "operating_revenue",
+            "metric_name": "営業収益合計",
+            "period": "2025-03-31",
+            "normalized_value": None,
+            "raw_value": "48,036,704",
+            "unit": "JPY million",
+            "report_id": "2025-annual",
+            "task_id": "task-toyota",
+            "pdf_page": 127,
+            "table_index": 112,
+        }
+    ]
+
+    evidence = build_trusted_statement_row_evidence(rows, expected_identity=identity)
+
+    assert len(evidence) == 1
+    assert evidence[0]["value"] == "48036704"
+    assert evidence[0]["unit"] == "JPY million"
+    assert evidence[0]["market"] == "JP"
+    assert evidence[0]["task_id"] == "task-toyota"
 
 
 IDENTITY = {

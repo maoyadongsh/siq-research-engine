@@ -197,6 +197,10 @@
 .chat-rendered-assistant {
   font-size: .9375rem;
 }
+.chat-rendered strong {
+  font-family: inherit;
+  font-weight: 600;
+}
 .chat-rendered > :first-child { margin-top: 0; }
 .chat-rendered > :last-child { margin-bottom: 0; }
 .chat-paragraph {
