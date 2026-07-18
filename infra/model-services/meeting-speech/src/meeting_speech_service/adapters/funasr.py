@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import sys
 from pathlib import Path
 from threading import Lock
@@ -142,6 +143,7 @@ class FunASREngine(SpeechEngine):
         )
         self._state = "initializing"
         self._reason_code: str | None = None
+        self._core_degradation_reason_code: str | None = None
         self._online_model: Any = None
         self._final_model: Any = None
         self._vad_model: Any = None
@@ -182,6 +184,9 @@ class FunASREngine(SpeechEngine):
             elif self._speaker_reason_code is not None:
                 self._state = "degraded"
                 self._reason_code = self._speaker_reason_code
+            elif self._core_degradation_reason_code is not None:
+                self._state = "degraded"
+                self._reason_code = self._core_degradation_reason_code
             else:
                 self._state = "ready"
                 self._reason_code = None
@@ -204,6 +209,7 @@ class FunASREngine(SpeechEngine):
                 if self._speaker_model is not None and not self._speaker_timed_out
                 else ("disabled" if not self._speaker_required else "unavailable"),
                 "speaker_mode": self._speaker_adapter,
+                "runtime_device": self._device,
                 "embedding_endpoint": "ready"
                 if self._embedding_endpoint_enabled and self._speaker_model is not None and not self._speaker_timed_out
                 else ("disabled" if not self._embedding_endpoint_enabled else "unavailable"),
@@ -318,16 +324,37 @@ class FunASREngine(SpeechEngine):
         except (ImportError, FileNotFoundError) as exc:
             raise AdapterUnavailable("FUNASR_IMPORT_FAILED") from exc
 
-        self._online_model = AutoModel(
+        try:
+            self._load_core_models(AutoModel, self._device)
+        except Exception as exc:
+            if not self._should_retry_on_cpu(exc):
+                raise
+            self._release_loaded_models()
+            self._device = "cpu"
+            self._core_degradation_reason_code = "FUNASR_CUDA_OOM_CPU_FALLBACK"
+            self._load_core_models(AutoModel, self._device)
+        if self._speaker_required:
+            try:
+                self._speaker_model = AutoModel(
+                    model=self._speaker_model_ref,
+                    device=self._device,
+                    disable_update=True,
+                )
+            except Exception:
+                self._speaker_model = None
+                self._speaker_reason_code = "FUNASR_SPEAKER_LOAD_FAILED"
+
+    def _load_core_models(self, auto_model: Any, device: str) -> None:
+        self._online_model = auto_model(
             model=self._online_model_ref,
-            device=self._device,
+            device=device,
             disable_update=True,
         )
         if self._finalizer_mode == "local":
-            self._final_model = AutoModel(
+            self._final_model = auto_model(
                 model=self._final_model_ref,
                 punc_model=self._punctuation_model_ref or None,
-                device=self._device,
+                device=device,
                 disable_update=True,
             )
         else:
@@ -343,21 +370,42 @@ class FunASREngine(SpeechEngine):
                 speaker_hints_enabled=self._http_finalizer_speaker_hints_enabled,
             )
             self._http_finalizer.probe()
-        self._vad_model = AutoModel(
+        self._vad_model = auto_model(
             model=self._vad_model_ref,
-            device=self._device,
+            device=device,
             disable_update=True,
         )
-        if self._speaker_required:
-            try:
-                self._speaker_model = AutoModel(
-                    model=self._speaker_model_ref,
-                    device=self._device,
-                    disable_update=True,
-                )
-            except Exception:
-                self._speaker_model = None
-                self._speaker_reason_code = "FUNASR_SPEAKER_LOAD_FAILED"
+
+    def _should_retry_on_cpu(self, error: Exception) -> bool:
+        if not self._device.lower().startswith("cuda"):
+            return False
+        current: BaseException | None = error
+        while current is not None:
+            text = f"{type(current).__name__}: {current}".lower()
+            if (
+                "out of memory" in text
+                and ("cuda" in text or "accelerator" in text or "memoryallocation" in text)
+            ):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
+
+    def _release_loaded_models(self) -> None:
+        if self._http_finalizer is not None:
+            self._http_finalizer.close()
+        self._online_model = None
+        self._final_model = None
+        self._vad_model = None
+        self._http_finalizer = None
+        self._speaker_model = None
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     def run_online(self, samples: np.ndarray, cache: dict[str, object], *, is_final: bool, hotword: str | None) -> Any:
         kwargs: dict[str, object] = {
