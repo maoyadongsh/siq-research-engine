@@ -48,7 +48,14 @@ CANONICAL_METRIC_ALIASES = {
     "operating_margin": ("营业利润率", "营业利益率", "经营利润率", "operating margin"),
     "pre_tax_margin": ("税前利润率", "税前利益率", "利润总额率", "pre-tax margin", "pretax margin"),
     "net_margin": ("净利率", "净利润率", "net margin"),
+    "parent_net_profit_ratio": ("归母占比", "归母 / 当期利益", "归属母公司占比", "母公司所有者占比"),
     "debt_to_asset_ratio": ("资产负债率", "debt-to-asset ratio", "debt to asset ratio"),
+    "current_assets_ratio": ("流动资产", "流动资产/资产", "current assets ratio"),
+    "non_current_assets_ratio": ("非流动资产", "非流动资产/资产", "non-current assets ratio"),
+    "current_liabilities_ratio": ("流动负债", "流动负债/负债", "current liabilities ratio"),
+    "non_current_liabilities_ratio": ("非流动负债", "非流动负债/负债", "non-current liabilities ratio"),
+    "total_equity_ratio": ("资本/资产", "权益/资产", "资本合计", "total equity ratio"),
+    "total_liabilities_ratio": ("负债/资产", "负债合计", "total liabilities ratio"),
     "net_interest_margin": ("净息差", "净利息收益率", "net interest margin", "NIM"),
     "non_performing_loan_ratio": ("不良贷款率", "不良率", "NPL ratio"),
     "return_on_equity": ("净资产收益率", "股本回报率", "return on equity", "ROE"),
@@ -897,7 +904,14 @@ DERIVED_METRIC_REPLY_ALIASES = {
     "operating_margin": ("营业利润率", "营业利益率", "经营利润率", "operating margin"),
     "pre_tax_margin": ("税前利润率", "税前利益率", "利润总额率", "pre-tax margin", "pretax margin"),
     "net_margin": ("净利率", "净利润率", "net margin"),
+    "parent_net_profit_ratio": ("归母占比", "归母 / 当期利益", "归属母公司占比", "母公司所有者占比"),
     "debt_to_asset_ratio": ("资产负债率", "debt-to-asset ratio", "debt to asset ratio"),
+    "current_assets_ratio": ("流动资产", "流动资产/资产", "current assets ratio"),
+    "non_current_assets_ratio": ("非流动资产", "非流动资产/资产", "non-current assets ratio"),
+    "current_liabilities_ratio": ("流动负债", "流动负债/负债", "current liabilities ratio"),
+    "non_current_liabilities_ratio": ("非流动负债", "非流动负债/负债", "non-current liabilities ratio"),
+    "total_equity_ratio": ("资本/资产", "权益/资产", "资本合计", "total equity ratio"),
+    "total_liabilities_ratio": ("负债/资产", "负债合计", "total liabilities ratio"),
     "return_on_equity": ("净资产收益率", "股本回报率", "roe", "return on equity"),
     "return_on_assets": ("总资产收益率", "资产回报率", "roa", "return on assets"),
     "net_interest_margin": ("净息差", "净利息收益率", "nim", "net interest margin"),
@@ -1125,6 +1139,12 @@ def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
         "营业收入",
     }:
         return "net_margin"
+    if numerator in {"parent_net_profit", "net_profit_attributable_to_parent", "归母净利润"} and denominator in {
+        "net_profit",
+        "net_income",
+        "当期利益",
+    }:
+        return "parent_net_profit_ratio"
     if numerator in {"total_liabilities", "liabilities", "负债合计", "总负债"} and denominator in {
         "total_assets",
         "assets",
@@ -1132,6 +1152,24 @@ def _ratio_trace_metric(inputs: Mapping[str, Any]) -> str:
         "总资产",
     }:
         return "debt_to_asset_ratio"
+    if numerator in {"current_assets", "流动资产"} and denominator in {"total_assets", "assets", "total_liabilities_and_equity"}:
+        return "current_assets_ratio"
+    if numerator in {"non_current_assets", "非流动资产"} and denominator in {"total_assets", "assets", "total_liabilities_and_equity"}:
+        return "non_current_assets_ratio"
+    if numerator in {"current_liabilities", "流动负债"} and denominator in {"total_liabilities", "liabilities"}:
+        return "current_liabilities_ratio"
+    if numerator in {"non_current_liabilities", "非流动负债"} and denominator in {"total_liabilities", "liabilities"}:
+        return "non_current_liabilities_ratio"
+    if numerator in {"total_equity", "shareholders_equity", "资本合计", "权益合计"} and denominator in {
+        "total_assets",
+        "assets",
+        "total_liabilities_and_equity",
+    }:
+        return "total_equity_ratio"
+    if numerator in {"total_liabilities", "liabilities", "负债合计", "总负债"} and denominator in {
+        "total_liabilities_and_equity",
+    }:
+        return "total_liabilities_ratio"
     return f"{numerator}_ratio"
 
 
@@ -1810,7 +1848,17 @@ def _matching_percent_occurrences(
         semantic_bound = primary_metric in semantic_metrics
         nearest_heading = _nearest_markdown_heading(occurrence, visible_reply)
         heading_semantic_bound = _line_mentions_reference(nearest_heading, primary)
-        output_bound = any(_compact_semantic_text(alias) in _compact_semantic_text(local_line) for alias in output_aliases)
+        compact_local_line = _compact_semantic_text(local_line)
+        output_bound = any(_compact_semantic_text(alias) in compact_local_line for alias in output_aliases)
+        if not output_bound and output_metric in {
+            "current_assets_ratio",
+            "non_current_assets_ratio",
+            "current_liabilities_ratio",
+            "non_current_liabilities_ratio",
+        }:
+            output_bound = _line_mentions_reference(local_line, primary)
+        if not output_bound and output_metric == "non_current_liabilities_ratio":
+            output_bound = "非流动" in local_line and "负债" in occurrence.line[: occurrence.match_start]
         if operation in {"yoy", "yoy_growth"}:
             # Both periods share one metric, so one metric label plus a derived
             # term is sufficient; raw equations bind by both operand values.
@@ -1831,7 +1879,15 @@ def _matching_percent_occurrences(
             ):
                 continue
         elif operation == "ratio":
-            ratio_context = any(
+            statement_structure_ratio = output_metric in {
+                "current_assets_ratio",
+                "non_current_assets_ratio",
+                "current_liabilities_ratio",
+                "non_current_liabilities_ratio",
+            }
+            ratio_context = (
+                output_bound and statement_structure_ratio
+            ) or any(
                 term in local_line.lower()
                 for term in (
                     "占",
@@ -1991,6 +2047,10 @@ def _trace_run_context_matches_percentage_claim(
         return False
     if operation in {"yoy", "yoy_growth"}:
         return any(term in line for term in ("同比", "增长", "增幅", "增加", "减少", "上升", "下降", "变化", "变动"))
+    if output_alias_bound and not any(
+        term in line for term in ("同比", "环比", "增长", "增幅", "增加", "减少", "上升", "下降", "变化", "变动")
+    ):
+        return True
     return any(
         term in line.lower()
         for term in (
@@ -2412,7 +2472,14 @@ def _ratio_pair_allowed(numerator: Mapping[str, Any], denominator: Mapping[str, 
         "operating_margin": ({"operating_profit"}, {"revenue", "operating_revenue"}),
         "pre_tax_margin": ({"profit_before_tax", "total_profit"}, {"revenue", "operating_revenue"}),
         "net_margin": ({"net_profit", "net_income", "parent_net_profit"}, {"revenue", "operating_revenue"}),
+        "parent_net_profit_ratio": ({"parent_net_profit", "net_profit_attributable_to_parent"}, {"net_profit", "net_income"}),
         "debt_to_asset_ratio": ({"total_liabilities"}, {"total_assets"}),
+        "current_assets_ratio": ({"current_assets"}, {"total_assets", "total_liabilities_and_equity"}),
+        "non_current_assets_ratio": ({"non_current_assets"}, {"total_assets", "total_liabilities_and_equity"}),
+        "current_liabilities_ratio": ({"current_liabilities"}, {"total_liabilities"}),
+        "non_current_liabilities_ratio": ({"non_current_liabilities"}, {"total_liabilities"}),
+        "total_equity_ratio": ({"total_equity", "shareholders_equity"}, {"total_assets", "total_liabilities_and_equity"}),
+        "total_liabilities_ratio": ({"total_liabilities"}, {"total_liabilities_and_equity"}),
         "return_on_equity": ({"net_profit", "net_income", "parent_net_profit"}, {"shareholders_equity"}),
         "return_on_assets": ({"net_profit", "net_income", "parent_net_profit"}, {"total_assets"}),
     }
@@ -2913,12 +2980,27 @@ def validate_calculation_traces(
             if evidence_bound_results and occurrence.is_percentage_point
             else candidate_results
         )
+        complement_candidates = (
+            [
+                Decimal("1") - result
+                for run, result in evidence_bound_results
+                if str(run.get("metric") or "") == "parent_net_profit_ratio"
+                and int(run.get("display_line_number") or 0) == occurrence.line_number
+            ]
+            if evidence_bound_results
+            and any(term in occurrence.local_context for term in ("少数股东", "少数股东损益", "非控股", "non-controlling"))
+            else []
+        )
         difference_match = occurrence.is_percentage_point and any(
             _percent_occurrence_matches_expected(occurrence, left - right)
             for left in difference_candidates
             for right in difference_candidates
         )
-        if not (direct_match or difference_match):
+        complement_match = any(
+            _percent_occurrence_matches_expected(occurrence, result)
+            for result in complement_candidates
+        )
+        if not (direct_match or difference_match or complement_match):
             related_runs = [
                 run
                 for run, _result in evidence_bound_results

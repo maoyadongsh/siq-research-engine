@@ -40,6 +40,10 @@ _FULLTEXT_SEARCH_NOISE_TERMS = (
     "报告",
     "年报",
     "年度报告",
+    "年报里",
+    "年报中",
+    "报告里",
+    "报告中",
     "中的",
     "里面的",
     "里的",
@@ -188,11 +192,30 @@ def _remove_company_aliases(text: str, aliases: list[str]) -> str:
     return output
 
 
+def _fulltext_token_terms(token: str) -> list[str]:
+    text = token.strip()
+    if len(text) < 2 or re.fullmatch(r"20\d{2}", text):
+        return []
+    terms = [text]
+    split_chars = "".join(
+        re.escape(term)
+        for term in _FULLTEXT_SEARCH_NOISE_TERMS
+        if len(term) == 1
+    )
+    if split_chars:
+        terms.extend(
+            part
+            for part in re.split(f"[{split_chars}]+", text)
+            if len(part) >= 2 and not re.fullmatch(r"20\d{2}", part)
+        )
+    return terms
+
+
 def _fallback_search_terms(message: str, aliases: list[str], fallback_terms: tuple[str, ...]) -> list[str]:
     text = _remove_company_aliases(message, aliases)
-    for pattern in (r"20\d{2}\s*年(?:度)?(?:年报|年度报告|报告)?", r"[?？!！。.,，;；:：]"):
+    for pattern in (r"20\d{2}\s*(?:年度报告|年度|年报|报告|年)(?:里的|中的|里|中)?", r"[?？!！。.,，;；:：]"):
         text = re.sub(pattern, " ", text)
-    for term in _FULLTEXT_SEARCH_NOISE_TERMS:
+    for term in sorted((term for term in _FULLTEXT_SEARCH_NOISE_TERMS if len(term) > 1), key=len, reverse=True):
         text = text.replace(term, " ")
 
     terms: list[str] = []
@@ -201,8 +224,7 @@ def _fallback_search_terms(message: str, aliases: list[str], fallback_terms: tup
         if _normalize_search_text(term) in normalized_message:
             terms.append(str(term))
     for token in re.findall(r"[\u4e00-\u9fffA-Za-z0-9%\.]{2,24}", text):
-        if len(token) >= 2 and not re.fullmatch(r"20\d{2}", token):
-            terms.append(token)
+        terms.extend(_fulltext_token_terms(token))
     terms = [term.strip() for term in terms if term and term.strip()]
     return sorted(dict.fromkeys(terms), key=len, reverse=True)[:8]
 

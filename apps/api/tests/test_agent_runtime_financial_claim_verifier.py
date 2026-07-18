@@ -1025,6 +1025,119 @@ def test_evidence_recompute_binds_each_yoy_percentage_to_nearest_metric():
     assert blocked.reason == "trace_unstructured"
 
 
+def _trusted_ratio_fact(metric: str, metric_name: str, value: str, evidence_id: str) -> dict:
+    return {
+        "source_type": "trusted_wiki_table_cell",
+        "metric": metric,
+        "canonical_name": metric,
+        "metric_name": metric_name,
+        "aliases": [metric_name, metric],
+        "period": "2025-03-31",
+        "period_key": "2025-03-31",
+        "value": value,
+        "raw_value": value,
+        "unit": "JPY million",
+        "evidence_id": evidence_id,
+        "quote": f"{metric_name} {value}",
+        "task_id": "task-jp-ratio",
+        "pdf_page": 127,
+        "table_index": 112,
+        "financial_scope": "consolidated",
+        "source_lineage": "jp-three-statements",
+        "market": "JP",
+        "company_id": "JP:7203",
+        "filing_id": "JP:7203:2025-annual",
+        "parse_run_id": "JP:task-jp-ratio",
+    }
+
+
+def _trusted_ratio_source_line(evidence: dict) -> str:
+    return (
+        f"[S-{evidence['evidence_id']}] source_type=wiki_metrics market={evidence['market']} "
+        f"company_id={evidence['company_id']} filing_id={evidence['filing_id']} "
+        f"parse_run_id={evidence['parse_run_id']} task_id={evidence['task_id']} "
+        f"pdf_page={evidence['pdf_page']} table_index={evidence['table_index']} "
+        f"evidence_id={evidence['evidence_id']} quote=\"{evidence['quote']}\""
+    )
+
+
+JP_IDENTITY = {
+    "market": "JP",
+    "company_id": "JP:7203",
+    "filing_id": "JP:7203:2025-annual",
+    "parse_run_id": "JP:task-jp-ratio",
+}
+
+
+def test_evidence_recompute_binds_multiple_profit_margins_on_same_line():
+    evidence = (
+        _trusted_ratio_fact("operating_revenue", "営業収益合計", "48036704", "rev-2025"),
+        _trusted_ratio_fact("operating_profit", "営業利益", "4795586", "op-2025"),
+        _trusted_ratio_fact("total_profit", "税引前利益", "6414590", "pretax-2025"),
+        _trusted_ratio_fact("parent_net_profit", "親会社の所有者", "4765086", "parent-2025"),
+        _trusted_ratio_fact("net_profit", "当期利益", "4789755", "net-2025"),
+    )
+    reply = (
+        "盈利质量：营业利益率 9.98%；税前利益率 13.35%；归母净利率 9.92%；"
+        "当期利益中归属母公司占比 99.48%，少数股东损益 0.52%。"
+        "\n"
+        + "\n".join(_trusted_ratio_source_line(item) for item in evidence)
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=JP_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert {run["metric"] for run in result.runs} >= {
+        "operating_margin",
+        "pre_tax_margin",
+        "net_margin",
+        "parent_net_profit_ratio",
+    }
+
+
+def test_evidence_recompute_binds_statement_structure_ratios_on_same_line():
+    evidence = (
+        _trusted_ratio_fact("total_assets", "資産合計", "93601350", "assets-2025"),
+        _trusted_ratio_fact("total_liabilities", "負債合計", "56722437", "liabilities-2025"),
+        _trusted_ratio_fact("total_equity", "資本合計", "36878913", "equity-2025"),
+        _trusted_ratio_fact("current_assets", "流動資産合計", "37078676", "current-assets-2025"),
+        _trusted_ratio_fact("non_current_assets", "非流動資産合計", "56522674", "noncurrent-assets-2025"),
+        _trusted_ratio_fact("current_liabilities", "流動負債合計", "29434220", "current-liabilities-2025"),
+        _trusted_ratio_fact("non_current_liabilities", "非流動負債合計", "27288217", "noncurrent-liabilities-2025"),
+    )
+    reply = (
+        "资本结构：资产合计 93,601,350 百万日元、负债合计 56,722,437 百万日元、"
+        "资本合计 36,878,913 百万日元，资本/资产 39.40%、负债/资产 60.60%；"
+        "流动资产 39.61%、非流动资产 60.39%；流动负债占负债合计 51.89%、非流动 48.11%。"
+        "\n"
+        + "\n".join(_trusted_ratio_source_line(item) for item in evidence)
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=JP_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"ratio"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert {run["metric"] for run in result.runs} >= {
+        "total_equity_ratio",
+        "debt_to_asset_ratio",
+        "current_assets_ratio",
+        "non_current_assets_ratio",
+        "current_liabilities_ratio",
+        "non_current_liabilities_ratio",
+    }
+
+
 @pytest.mark.parametrize(
     "reply_line",
     (

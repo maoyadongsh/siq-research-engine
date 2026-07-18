@@ -14,7 +14,36 @@ IDENTITY_SELECTION_FIELDS = ("company_id", "filing_id", "parse_run_id")
 PDF_MARKETS = {"CN", "HK", "JP", "KR", "EU"}
 PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
     {
-        "triggers": ("员工", "人员", "人才", "人效", "职工", "雇员", "僱員", "人力", "工龄"),
+        "triggers": (
+            "人才",
+            "人才战略",
+            "人才策略",
+            "人的资本",
+            "人力资本",
+            "human capital",
+            "talent",
+        ),
+        "terms": {
+            "HK": ("人才", "人力資本", "human capital", "talent", "development", "training"),
+            "JP": ("人的資本", "人材育成", "人材戦略", "人材", "人財"),
+            "KR": ("인적자본", "인재", "인재육성", "인재전략"),
+            "EU": ("human capital", "talent", "people strategy", "training", "development"),
+        },
+    },
+    {
+        "triggers": (
+            "员工",
+            "人员",
+            "人效",
+            "职工",
+            "雇员",
+            "僱員",
+            "人力",
+            "工龄",
+            "employee",
+            "workforce",
+            "headcount",
+        ),
         "terms": {
             "HK": ("僱員", "雇員", "員工", "employee", "staff", "workforce", "headcount"),
             "JP": ("従業員", "社員", "人員", "平均勤続年数", "employee", "workforce"),
@@ -32,7 +61,7 @@ PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "triggers": ("研发", "研究开发", "研究与开发", "研发费用", "研发投入", "技术创新"),
+        "triggers": ("研发", "研究开发", "研究与开发", "研发费用", "研发投入", "技术创新", "research", "development", "r&d"),
         "terms": {
             "HK": ("research and development", "R&D", "研發", "研发"),
             "JP": ("研究開発", "研究開発費", "R&D"),
@@ -41,7 +70,7 @@ PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "triggers": ("分部", "业务构成", "收入构成", "地区构成", "产品构成", "业务板块"),
+        "triggers": ("分部", "业务构成", "收入构成", "地区构成", "产品构成", "业务板块", "segment", "revenue mix"),
         "terms": {
             "HK": ("segment", "分部", "地區", "產品", "revenue by segment"),
             "JP": ("セグメント", "事業別", "地域別", "売上収益"),
@@ -50,7 +79,7 @@ PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "triggers": ("董事会", "董事", "治理", "委员会", "独立董事", "监事"),
+        "triggers": ("董事会", "董事", "治理", "委员会", "独立董事", "监事", "board", "governance", "committee"),
         "terms": {
             "HK": ("board of directors", "董事會", "董事", "corporate governance", "committee"),
             "JP": ("取締役", "取締役会", "コーポレートガバナンス", "委員会"),
@@ -59,7 +88,7 @@ PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "triggers": ("分红", "股息", "派息", "股利", "回购", "股份回购"),
+        "triggers": ("分红", "股息", "派息", "股利", "回购", "股份回购", "dividend", "buyback", "repurchase"),
         "terms": {
             "HK": ("dividend", "股息", "派息", "share repurchase"),
             "JP": ("配当", "配当金", "自己株式", "株主還元"),
@@ -68,7 +97,7 @@ PDF_MARKET_QUERY_LEXICON: tuple[dict[str, Any], ...] = (
         },
     },
     {
-        "triggers": ("风险", "诉讼", "处罚", "合规", "监管", "或有事项"),
+        "triggers": ("风险", "诉讼", "处罚", "合规", "监管", "或有事项", "risk", "litigation", "compliance"),
         "terms": {
             "HK": ("risk", "litigation", "penalty", "compliance", "contingent"),
             "JP": ("リスク", "訴訟", "法令遵守", "偶発債務"),
@@ -95,7 +124,7 @@ def expand_pdf_market_query_terms(message: str, market: str) -> list[str]:
     normalized = re.sub(r"\s+", "", message or "").lower()
     output: list[str] = []
     for group in PDF_MARKET_QUERY_LEXICON:
-        if not any(str(trigger).lower() in normalized for trigger in group["triggers"]):
+        if not any(re.sub(r"\s+", "", str(trigger or "")).lower() in normalized for trigger in group["triggers"]):
             continue
         output.extend(str(term) for term in group["terms"].get(market, ()))
     return list(dict.fromkeys(output))
@@ -107,12 +136,29 @@ def pdf_market_intent_bonus(message: str, market: str, text: str) -> int:
     haystack = str(text or "").lower()
     market = str(market or "").upper()
     anchors: list[str] = []
-    if any(term in query for term in ("员工", "人员", "人才", "职工", "雇员", "僱員", "工龄")):
+    if any(
+        term in query
+        for term in (
+            "员工",
+            "人员",
+            "人才",
+            "人的资本",
+            "人力资本",
+            "humancapital",
+            "talent",
+            "employee",
+            "workforce",
+            "职工",
+            "雇员",
+            "僱員",
+            "工龄",
+        )
+    ):
         anchors = {
             "HK": ["number of employees", "total workforce", "headcount", "employees by"],
-            "JP": ["従業員数", "平均勤続年数", "平均年間給与"],
+            "JP": ["人的資本", "人材育成", "人材戦略", "従業員数", "平均勤続年数", "平均年間給与"],
             "KR": ["직원 수", "직원수", "평균근속연수", "성별합계"],
-            "EU": ["number of employees", "total number of employees", "total group employees", "headcount", "breakdown of total employees"],
+            "EU": ["human capital", "talent", "number of employees", "total number of employees", "total group employees", "headcount", "breakdown of total employees"],
         }.get(market, [])
     elif any(term in query for term in ("研发", "研究开发", "研究与开发", "技术创新")):
         anchors = {"JP": ["研究開発費"], "KR": ["연구개발비"], "HK": ["research and development"], "EU": ["research and development"]}.get(market, [])
@@ -800,7 +846,7 @@ def wiki_fulltext_fallback_result(
     rows = indexed_evidence_rows(
         company_dir,
         report_id,
-        terms,
+        specific_terms,
         message=message,
         market=market,
         read_json_file=read_json_file,
@@ -825,15 +871,17 @@ def wiki_fulltext_fallback_result(
             )
             for index, line in enumerate(lines, start=1)
         ]
-        scored_lines = [(score, index, line) for score, index, line in scored_lines if score > 0]
+        scored_lines = [
+            (score, index, line)
+            for score, index, line in scored_lines
+            if score > 0 and agent_runtime_fallback_contexts._line_matches_any_term(line, specific_terms)
+        ]
         scored_lines.sort(key=lambda item: (-item[0], item[1]))
         seen_lines: set[int] = set()
         for score, line_number, line in scored_lines[: max_snippets * 2]:
             if len(rows) >= max_snippets:
                 break
             if any(abs(line_number - seen) <= 1 for seen in seen_lines):
-                continue
-            if not agent_runtime_fallback_contexts._line_matches_any_term(line, specific_terms):
                 continue
             seen_lines.add(line_number)
             table = agent_runtime_fallback_contexts._nearest_table_meta(tables, line_number)

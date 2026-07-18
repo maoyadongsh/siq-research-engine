@@ -614,6 +614,95 @@ def test_wiki_fulltext_fallback_matches_multiword_financial_term(tmp_path):
     )
 
 
+def test_wiki_fulltext_fallback_considers_specific_user_keyword(tmp_path):
+    company_dir = tmp_path / "7203-Toyota-Motor-Corporation"
+    company_dir.mkdir()
+
+    assert wiki_context.should_consider_wiki_fulltext_fallback(
+        "丰田 2025 年报里机器视觉怎么披露？",
+        None,
+        fallback_terms=("报告", "披露"),
+        generic_terms={"报告", "披露"},
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {"company_short_name": "丰田"},
+    )
+
+
+def test_wiki_fulltext_fallback_keeps_legacy_generic_company_trigger(tmp_path):
+    company_dir = tmp_path / "7203-Toyota-Motor-Corporation"
+    company_dir.mkdir()
+
+    assert wiki_context.should_consider_wiki_fulltext_fallback(
+        "丰田 2025 年报情况",
+        None,
+        fallback_terms=("报告", "情况"),
+        generic_terms={"报告", "情况"},
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {"company_short_name": "丰田"},
+    )
+
+
+def test_wiki_fulltext_fallback_uses_specific_keyword_from_report_md(tmp_path):
+    company_dir = tmp_path / "7203-Toyota-Motor-Corporation"
+    report_dir = company_dir / "reports" / "2025-annual"
+    report_dir.mkdir(parents=True)
+    (company_dir / "company.json").write_text(
+        json.dumps({"market": "JP", "company_short_name": "丰田", "company_id": "JP:7203"}),
+        encoding="utf-8",
+    )
+    (report_dir / "report.md").write_text(
+        "\n".join(
+            [
+                "[PDF_PAGE: 12]",
+                "# 机器视觉",
+                "机器视觉系统用于质量检查和生产效率提升。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = wiki_context.wiki_fulltext_fallback_result(
+        "丰田 2025 年报里机器视觉怎么披露？",
+        None,
+        fallback_terms=("报告", "披露"),
+        generic_terms={"报告", "披露"},
+        max_snippets=3,
+        snippet_chars=200,
+        is_general_assistant_request=lambda _message: False,
+        resolve_company_dir=lambda _message, _context: company_dir,
+        context_company=lambda _context: {"company_short_name": "丰田"},
+        read_json_file=_read_json_file,
+        primary_report_for_company=lambda _company_dir, _message, _context: {
+            "report_id": "2025-annual",
+            "task_id": "task-jp-2025",
+        },
+    )
+
+    assert result is not None
+    assert "机器视觉" in result["terms"]
+    assert "机器视觉系统" in result["rows"][0]["snippet"]
+
+
+def test_wiki_fulltext_fallback_keeps_phrase_and_split_keyword_candidates():
+    terms = wiki_context.agent_runtime_fallback_contexts._fallback_search_terms(
+        "丰田 2025 年报里人的资本怎么披露？",
+        ["丰田"],
+        ("报告", "披露"),
+    )
+
+    assert "人的资本" in terms
+    assert "资本" in terms
+
+
+def test_pdf_market_query_terms_expand_non_chinese_aliases():
+    terms = wiki_context.expand_pdf_market_query_terms("Toyota human capital", "JP")
+
+    assert "人的資本" in terms
+    assert "人材" in terms
+
+
 def test_render_wiki_fulltext_fallback_context_uses_evidence_links():
     rendered = wiki_context.render_wiki_fulltext_fallback_context(
         {
