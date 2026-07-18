@@ -43,17 +43,20 @@ theme:
 nav:
   - 首页: index.md
   - 产品:
-      - 项目定位: product/overview.md
+      - 产品概览: product/overview.md
       - 能力矩阵: product/capabilities.md
       - 技术栈: product/tech-stack.md
   - 架构:
-      - 产品架构: architecture/overview.md
-      - 仓库地图: architecture/modules.md
-      - 二级市场智能体集群: architecture/secondary-market.md
-      - 一级市场 IC 智能体集群: architecture/primary-market.md
-      - 应用中心: architecture/app-center.md
-      - 拟人化记忆系统: architecture/memory.md
-      - OpenShell 安全运行面: architecture/openshell.md
+      - 整体视角:
+          - 整体架构: architecture/overview.md
+          - 仓库地图: architecture/modules.md
+      - 业务集群:
+          - 二级市场智能体集群: architecture/secondary-market.md
+          - 一级市场 IC 智能体集群: architecture/primary-market.md
+          - 应用中心: architecture/app-center.md
+      - 横切能力:
+          - 拟人化记忆系统: architecture/memory.md
+          - OpenShell 安全运行面: architecture/openshell.md
   - 使用:
       - 快速启动: usage/quickstart.md
       - 环境变量: usage/environment.md
