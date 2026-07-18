@@ -1,15 +1,743 @@
 {
   "approval": {
-    "reviewed_by": "user-authorized-codex-closeout",
-    "status": "approved"
+    "reviewed_by": null,
+    "status": "pending-human-review"
   },
   "baseline_commit": "6727ce3441f2415c7e6dbc65f78c9e1983941168",
   "baseline_snapshot_sha256": "bf72d31d4fe4a2b4be384d0ba985ef72c3817e93aaed7520e05f80a38a277781",
-  "candidate_contract_sha256": "e45d7eb8eab724fd90766aad077f2ada78c0469ca9ffee674019563b8f5398b6",
+  "candidate_contract_sha256": "63b19fbe93fc6b8dd321aa53190ffec028c21e7f304454e2f17f558231338f2a",
   "contract_schema_version": "siq.meeting.contract-baseline.v1",
   "differences": [
     {
-      "after_sha256": "82a72eb10c4b76ee267a189520d23fe79bf8036d1162e1562d70b9c8e840ec66",
+      "after_sha256": "c31dad37557c41d7854174bd8006a5900acc230acdbf9ecbef61850c54162b7e",
+      "before_sha256": "79296363a09c5034e46880f9cc66cd5e42189961ade94298938fdfc10855d4cc",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1shared~1rules~1financial_calculation_contract.md"
+    },
+    {
+      "after_sha256": "34631909f68d164786c7316c4f8d7270b588f091d4c5c92e28981e6d6210d77a",
+      "before_sha256": "13f04456544471b8124269d82cab9d81f0fb7f2d737370569747b2ab3d78bea9",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1shared~1scripts~1local_citations.py"
+    },
+    {
+      "after_sha256": "7774d74c3d7f56cce8b79685f639de289f4809a4197758bb6cbaa0669383475f",
+      "before_sha256": "d7fb17eea182046e3dc0a4992853d5d1320d620017759ed14a4386c2cbe13fdd",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1shared~1scripts~1pg_query.py"
+    },
+    {
+      "after_sha256": "9aa6b4cf088bffe7987bfef815d47bda8a234a8e26c043f39d37cff0ec41660c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1AGENTS.md"
+    },
+    {
+      "after_sha256": "a2e9f6243f98e319e30a9f78a1d27e8b9df8838c2ddc398f784b461e3b25c93a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1BOOTSTRAP.md"
+    },
+    {
+      "after_sha256": "bd86e3164f71dd20f25b1499887079c33cbd997eae261e29806d316f263433fa",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1HEARTBEAT.md"
+    },
+    {
+      "after_sha256": "fab135f0e0857af138820e55be4e69bb4f3486bcac9aaa08a15e19f722349613",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1IDENTITY.md"
+    },
+    {
+      "after_sha256": "bbecfca71b78ba025749764c6274e9ee62be58a44d01e92e8e96a751bc59fb93",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1README.md"
+    },
+    {
+      "after_sha256": "717fcdeb6077ea2928add797fd0f8cc521b2b4f49bcc4343667bfd8027618ccb",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1SOUL.md"
+    },
+    {
+      "after_sha256": "5eb974729f70e4c6a09ef35a999590bc920c44a8a446efcd828c9873f3453b85",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1TOOLS.md"
+    },
+    {
+      "after_sha256": "1d05b5b1f88f5518b9ead0237fe0a6e207b99f09d0be7de7da7f69d53988b1e4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1USER.md"
+    },
+    {
+      "after_sha256": "922685ca9986496416daf6a62d85d2382b20309390e22262f01aeee80daf6a26",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1config.yaml"
+    },
+    {
+      "after_sha256": "c0ac6a723b8dfc5d50283dda714184c2cadef65ea8967f16089a442b572b8c30",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1profile.yaml"
+    },
+    {
+      "after_sha256": "c2a6624419720007467f4413acbf486e5447fbce239f4d998950f54732fe7073",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1analyst_writing_contract.md"
+    },
+    {
+      "after_sha256": "dc49374edffbe6ef095178f67111531e771fb8fb2363fe43a40ef226c692876b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1chart_design.md"
+    },
+    {
+      "after_sha256": "8024e9931d458c3eefc535ce7fb6c1a1e21a3b71a5d098b592f05baf9b9e7b18",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1citation_contract.md"
+    },
+    {
+      "after_sha256": "3c8b982a1f576bcad8e43fd271c1194d8e2ee06bb47e30f08f13bb908f1aba9c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1data_sources.md"
+    },
+    {
+      "after_sha256": "b14b1aafbe4bb7156b605f9d116b207704837c8810f3dbbbac198c223cd5d142",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1models_and_output.md"
+    },
+    {
+      "after_sha256": "282032fbc2e58a7c61c4db223df89b8b29ea7666f169885045dd94d6ed2fc031",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1operations.md"
+    },
+    {
+      "after_sha256": "522830610b879c1a561238ef1cdf229893cd14dd598eee1ab657c55813efa050",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1quality_gate.md"
+    },
+    {
+      "after_sha256": "c2e363016a908336a8bbd3bfa23bb09580372dd783c7e9cc571312a79a38c60f",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1rules~1report_workflow.md"
+    },
+    {
+      "after_sha256": "511d45bd903f50a4121b0bcfe7452a53d57eba4c14c27fb871b33c165d73c0de",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1analysis_bundle_renderer.py"
+    },
+    {
+      "after_sha256": "4838df516bfbbdac40bb14af60542eedd67a64218205b3002231b3303cf34b82",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1analysis_input_bundle.py"
+    },
+    {
+      "after_sha256": "396aca2ef218e1a419218e0007aaf99c84a0a75b5f8294d05915adcee39cf18d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1analysis_market_policy.py"
+    },
+    {
+      "after_sha256": "2f0a6506722a2c801342402fa088440fe775fcc85b34cfe4e8cfae1942b4fe51",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1financial_chart_design.py"
+    },
+    {
+      "after_sha256": "f430e2581b814e733f17e58e4e82023e9dc2a94c133cce64edf442253b47d192",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1formal_research_packs.py"
+    },
+    {
+      "after_sha256": "e6fe51c59d7cbc5996659d852ab27a1154ae6efb7b571c920277a0eea87ba8f7",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1generate_research_packs.py"
+    },
+    {
+      "after_sha256": "852a3e9d734c7c06c201aaab97a7eb0d51fdfc52d1e0e32c31487e9192db2fb4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1generate_section_drafts.py"
+    },
+    {
+      "after_sha256": "155460017424a7ad650c5375e862651b7938e1476ae3ab9af314a4a25963279f",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1html_renderer_v2.py"
+    },
+    {
+      "after_sha256": "be43a089a6a39b59cbb0e40f5ab4f95e3c5ad5ef4607c5fed426b65e8bd6d373",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1industry_research_builder.py"
+    },
+    {
+      "after_sha256": "f369df2c535c0033958040723d584156bf4e0a8c685b8868ca95f6fb8b73bad3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1input_adapters~1__init__.py"
+    },
+    {
+      "after_sha256": "c1e4e844a6dab612022382ee05ed326079c0abef7f054b6c25bb82418f57c4e2",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1input_adapters~1base.py"
+    },
+    {
+      "after_sha256": "b42639b1e5d8d1a27f765bcf4d9340e35cc349aac3cd1dc9fdf230ff1b1c63a1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1input_adapters~1pdf_market.py"
+    },
+    {
+      "after_sha256": "f6c06ac52ac9e6524ecfad4e4e5758b842f7350c420a0e2ac2273440a39e5281",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1input_adapters~1sec_ixbrl.py"
+    },
+    {
+      "after_sha256": "3822d0fe7cc694592575af0820a1b62f65173dbf95a537f5ae9167ea6dff2df4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1maintain_profile.py"
+    },
+    {
+      "after_sha256": "98a1674ed71b01076a777d8d646bd413ee0f82ea0a31fc51944c69772b3e487e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1market_snapshot_builder.py"
+    },
+    {
+      "after_sha256": "07b1b0fc9e9545701ec51c6010366453aee4e46e54cff2b6a43409ae12940e86",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1merge_research_packs.py"
+    },
+    {
+      "after_sha256": "1ef264cf66a9578f5346963073d9a66de54f77c41ed737f05fde59e5df2af207",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1overseas_report_template.py"
+    },
+    {
+      "after_sha256": "720dd76243af612832a6142e875fecdd6b6f3cab70246ed422481a1671eac9df",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1peer_metrics_builder.py"
+    },
+    {
+      "after_sha256": "7f108adaac7087d8bd5adacb1103e6130fea2bea166fad787cfb08b279a3e3ce",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1provenance_utils.py"
+    },
+    {
+      "after_sha256": "ecba994376adabacf4b113deb62bd08480f6fdf3e4d50ba760d64f621161e9de",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1qualitative_evidence_builder.py"
+    },
+    {
+      "after_sha256": "22622ea59b4525aeb430fb2899a6fe52f42c686b98b82b0905c2c385c6fa259e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1recover_report_from_workdir.py"
+    },
+    {
+      "after_sha256": "e6f9f560893073a10afe9fcff5541d82a2ebde002632593bb396f09350a4d9ee",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1render_report_from_checkpoint.py"
+    },
+    {
+      "after_sha256": "ee6c2d12d02a1d7f9c462c05a7cf97892641945fc9b9f382831964b100000c10",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1renderer_assets.py"
+    },
+    {
+      "after_sha256": "37f99a3b7147e08d1b1ed7bd9c133c2b7cab8cfab0b25a9e99ca5d7620af656b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1renderer_sections.py"
+    },
+    {
+      "after_sha256": "ff1016d4ac9a6b0584631a23c7dae2e982472db8daa59b26cd088431d55d80e0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1renderer_svg_charts.py"
+    },
+    {
+      "after_sha256": "49971410d0dd681f9245d6af4f122c6dccb7dce7ff94a9df8fff71ccc03625fb",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1repair_overseas_analysis_html.py"
+    },
+    {
+      "after_sha256": "691d0b78367463a5fa4ae5488a5ae51bd146ebc125fa04a2d607333162f6d846",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1repair_report_citations.py"
+    },
+    {
+      "after_sha256": "11de6f4371f74bde3e3914d3469ae12cdf0a8acb230356110e4aefd276001f62",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1resolve_company.py"
+    },
+    {
+      "after_sha256": "d06994b452b9245733a12849086bc8b0ca80283010300c76880677d434928c59",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1run_analysis_report.py"
+    },
+    {
+      "after_sha256": "43c8df488121ea3b3cfef536ac867e820518c1df76a93c8a190633672f9e2888",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1run_research_subagents.py"
+    },
+    {
+      "after_sha256": "a6296354e5114dc03f7a2483cd0e21b4107219e31bcd08fd1ba6870e0eca30ce",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1siq_cli.py"
+    },
+    {
+      "after_sha256": "1042ffacd966f9ddc6a9876fe81cd9daadff7d5d20ebb7a0ff1dd67dda4dd34d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1upgrade_legacy_report_to_v11.py"
+    },
+    {
+      "after_sha256": "8a70d821987c3f79deafd752699f4afa0d7faec487b86fba516ca8cb4dc080e9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1validate_report_quality.py"
+    },
+    {
+      "after_sha256": "c7b9b73b95aae8e3ccb02b6c9ccc1051ef7d6db375ccbec399d98bdf6125faaf",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1validate_research_packs.py"
+    },
+    {
+      "after_sha256": "3111bc13fd974c4807b0b5f16c1244aaa994f643c1520c6ba1be89cde4b8d5e3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1scripts~1wiki_data_accessor.py"
+    },
+    {
+      "after_sha256": "2fa6b2ccbe7a1ff8085c5f9c8602ae87a1da13add05f597f2f6090dd3aff67d7",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1business_strategy_researcher.md"
+    },
+    {
+      "after_sha256": "5fd050c655dccf5f8343cb6c181853b9cd5d5308b39ccebc19c59c9382588ea0",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1chart_visual_designer.md"
+    },
+    {
+      "after_sha256": "74c7a0c16c35b54a1b33fb8a4faac17abba7415f1315e295ef6ac09fcd385f0d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1editor_in_chief.md"
+    },
+    {
+      "after_sha256": "cf40dc296a3cf01d2bb0f8c619a07901d6805cabeee6eb8da92033a223a4e243",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1evidence_curator.md"
+    },
+    {
+      "after_sha256": "a8f36a8d9c4621618004637e96142c33f5a0be40f8f752054021f2f469040927",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1financial_modeler.md"
+    },
+    {
+      "after_sha256": "033f63abbf86f3c5e86f506350fa4b0dc6dff096f69f22264ec1c1c06117f720",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1governance_risk_researcher.md"
+    },
+    {
+      "after_sha256": "c37451e1f38c280af9b8a9443f99b7899b7b38738c98c5bcb77ee0af3feefbb8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1subagents~1industry_peer_researcher.md"
+    },
+    {
+      "after_sha256": "bf8e504f944e88a0e600a78839b1e1d0e4a096723d52bf4c0509cf9fe24a1469",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1chapter14_enhanced.md"
+    },
+    {
+      "after_sha256": "a93f8592c7a0e5bf60824af355c497251d82b01d64c8f7feb2fcb33ce7eae1d5",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1chapter_diagnostic_card.md"
+    },
+    {
+      "after_sha256": "c82101cf7ca495d55c6e63de3d90a445b26dcfb4a48fe6ef93994ece618cbf97",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1investor_quick_read.md"
+    },
+    {
+      "after_sha256": "157cd931fd007587a39b226e6cfc7bb21447b6d06a3fbe47f5b5f962bcc1b3c3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1research_pack.schema.json"
+    },
+    {
+      "after_sha256": "fed98972344643241aecd8bdedb220bfa65e41e6cc082c0cc02239481cdc8c71",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1section_drafts.schema.json"
+    },
+    {
+      "after_sha256": "7e0491f930c889d8ad91ec8654946e1f3dc85b9b81d247819f3a436cdec98739",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1siq_analysis_report_v1.1.json"
+    },
+    {
+      "after_sha256": "14236bd66390772f6b3e42708d256a101b1c63d3cd037e95742191165e746f35",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1templates~1siq_analysis_report_v1.1.md"
+    },
+    {
+      "after_sha256": "c10bf6c1d461f3e9b10ddfd8dcf62f7c6954a3302bd7592c7a6f2cbee6ad0bff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_analysis_input_adapters.py"
+    },
+    {
+      "after_sha256": "aef91a41fd22d0e9c30987c97cb5270b83a1ae2bbc0a128330a3e13eb86d2152",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_analysis_market_policy.py"
+    },
+    {
+      "after_sha256": "08a0183f9fa1159285b6404632b944aa95360742622418e4db5c482fb217200c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_html_renderer_v2_balance_charts.py"
+    },
+    {
+      "after_sha256": "7fda7af705d432e67d1d515c2899368cdd39ffd7ebec26c09d3cf5c467d904d9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_html_renderer_v2_cashflow.py"
+    },
+    {
+      "after_sha256": "69f2f0317342fb19e9c98c5cb380ca17d0d7a94b10ddd90c27a4ddac983e1e25",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_html_renderer_v2_income_bridge.py"
+    },
+    {
+      "after_sha256": "67af3d5d8207f1e58f795c996ea8dc4c1f2af61a057628017d66755a3837309c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_html_renderer_v2_structure.py"
+    },
+    {
+      "after_sha256": "f389958b33dda450e7f3a06a08b9a310d45303d2478fce53dc4f38018771ea91",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_html_renderer_v2_summary_toc.py"
+    },
+    {
+      "after_sha256": "2de92f67d10cd679d3d2db923b0884eb216a88ff0a87fe700cb0aea06926c2cf",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_overseas_report_template.py"
+    },
+    {
+      "after_sha256": "4eda6393894f632707c8f188a5750ed7d86a1b32b5853d874f9388c2bb142799",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_peer_metrics_sanity.py"
+    },
+    {
+      "after_sha256": "8fb7da923a235b88d24f4782b986497b467ffb74c648e41b108cc31d37e7f6b1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_repair_overseas_analysis_html.py"
+    },
+    {
+      "after_sha256": "b07c0dc28e0fa70e224a74dac6c4269c824472e6d9a1910a62db8333e1f5dfd7",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_report_quality_factcheck_gate.py"
+    },
+    {
+      "after_sha256": "32e8988dc93e7363eeaf5be843c956726e3a02e5a1000f5ca04e045b4b26ba60",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis_multi_market~1tests~1test_research_pack_contracts.py"
+    },
+    {
+      "after_sha256": "8657faaa6482b9270b6fa69e48dbdc64fd08d1b1f28071c7d21cc6bb9d4b4979",
+      "before_sha256": "d303d7a49f0940971e221feef9b2a97c210c24c3eb8fb6a92b619c8a241d1d21",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis~1rules~1data_sources.md"
+    },
+    {
+      "after_sha256": "c8349fcca5b5f45286bc2df0215f3cfd155dcc610f1b232582b9bb0e4c911e67",
+      "before_sha256": "1c42aaf24b52c478b3f8c2fd89b21d4f7b1e4466178c13fcbf28308de86ad583",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis~1scripts~1run_analysis_report.py"
+    },
+    {
+      "after_sha256": "beebd895b07392b96e0eac8c02161835080e651f1a72f0e07fe8512d53a23140",
+      "before_sha256": "8a70d821987c3f79deafd752699f4afa0d7faec487b86fba516ca8cb4dc080e9",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis~1scripts~1validate_report_quality.py"
+    },
+    {
+      "after_sha256": "1d2a99609703bcc97164827f30ab5005ca68b0bb9a64f834db751e575502be59",
+      "before_sha256": "b07c0dc28e0fa70e224a74dac6c4269c824472e6d9a1910a62db8333e1f5dfd7",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_analysis~1tests~1test_report_quality_factcheck_gate.py"
+    },
+    {
+      "after_sha256": "5af4a1e6654e58a955e48c30a75e6ed5f9d3405eb3a2c1064a31755c92f54afd",
+      "before_sha256": "87863e2344577034b6d4c72537a927cfa8f282d4471566d8c73d77ad3cf068f5",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_assistant~1SOUL.md"
+    },
+    {
+      "after_sha256": "4df0f5a88ca925c56a864cf5301b6de53fc453a7387cf7e6ddd16fb86649af53",
+      "before_sha256": "5fda9c4f3e632e2d55f60550a2db28e2b77d6733d0f1c9e48c0d0aa02e46023a",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_assistant~1rules~1OPERATING_RULES.md"
+    },
+    {
+      "after_sha256": "33ea2e552ac8fcd26d3b218b4c820bb3ba102eeb9479f18e3f75aea67d81ed0a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1AGENTS.md"
+    },
+    {
+      "after_sha256": "66649864492f6b86e6fe04933879b09a35bffea36f871bdc704de53f6182d256",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1BOOTSTRAP.md"
+    },
+    {
+      "after_sha256": "5086d517186e6137cae9001211119b150f92d68adeb74f302728b7854c9fa728",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1HEARTBEAT.md"
+    },
+    {
+      "after_sha256": "d618a1c1cff6728eb491d7a0ec8c4607e6f9a3f218acbc385a37dddf5c129bfc",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1IDENTITY.md"
+    },
+    {
+      "after_sha256": "a15a403d069ffb78024c334c90f1fa0a9c1284bc493c29bd91d3bb788ab299aa",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1README.md"
+    },
+    {
+      "after_sha256": "e35f22a8ef775e2e97b277b5dac984a07c8bf78b1484d8cd80878497e5a0c3d2",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1SOUL.md"
+    },
+    {
+      "after_sha256": "14742da7491e6bf5b88129094850f11f26d9fe8a62467d41dcaea8071523876e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1TOOLS.md"
+    },
+    {
+      "after_sha256": "0e6dc4826ae4dc76cac5f96ff397fbaf4f7eb9592d66b3e1f930727ff765a071",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1USER.md"
+    },
+    {
+      "after_sha256": "a8fb868aa346cc4d96936e39a68c8a6279eb8d84d3bc32af2b756b77853ac981",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1config.yaml"
+    },
+    {
+      "after_sha256": "2c5bdd133f1dc5f74b5884ea5b9d7aca202bbd9f028203f751e09933da44196e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1factcheck_cli.py"
+    },
+    {
+      "after_sha256": "b0f7a0b99796a1787762c45d3561efbb85e9df85792197867fc508623d60abfc",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1factcheck_engine.py"
+    },
+    {
+      "after_sha256": "6e48e0f3bc5fc08557ebf628c51b7e2aa5b2259a95e1420e3f05d9d9e32d0c1f",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1generate_factcheck_html.py"
+    },
+    {
+      "after_sha256": "e97c54585d8fb2cbd35c9c7f1ad3a5c55f4fede49c4e4876998e4c106562dac4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1market_factcheck_engine.py"
+    },
+    {
+      "after_sha256": "966353996c20597ff626c741116fca73a60e62ff4fab35952a3c99b642d88cb9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1regression_check.py"
+    },
+    {
+      "after_sha256": "4ad61feed3d2663bb673a5bd17c4239fc598b36b33d429cd1a0a98c6148ac3d5",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker_multi_market~1scripts~1wiki_data_accessor.py"
+    },
+    {
+      "after_sha256": "55e03088037d1bec580b84128960130171bf4e63ee8865e93d6025511a90c3d5",
+      "before_sha256": "f5879afa10339525d5033e1c70a2c9fa1a138a2e0e70db319b19844e2573f405",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_factchecker~1scripts~1factcheck_cli.py"
+    },
+    {
+      "after_sha256": "322b5280518c216ffede72b3acc8d74d3b2af968902a6513efa4f86d0d1c4d2f",
       "before_sha256": "639058c998860eee891663b24b04fec315496002186e8bf761d72934c8a2b87d",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -23,7 +751,14 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_chairman~1KNOWLEDGE_BASE.md"
     },
     {
-      "after_sha256": "1af1b7574e66ac4af0dac43ff081035dd08a3e2e208e9c28e96a284a41a18f4d",
+      "after_sha256": "a53513bee384121bde19774e2ee31190e9b3afd33bc726aca29e305de365599f",
+      "before_sha256": "3c68c09c3a4f8af9df582768767d616ffd35996f021dc2c94636bad818b24da5",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_chairman~1config.yaml"
+    },
+    {
+      "after_sha256": "678f18ed069fc9eccbd95c9c4bac683ffa77ef6f244e491d274b874c72d22190",
       "before_sha256": "66d09bdad617868f0c4d38c51829f45405794d3f9288e94154b797136b82636d",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -37,14 +772,35 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_finance_auditor~1STARTUP_CHECKLIST.md"
     },
     {
-      "after_sha256": "726bcd722d2f00220b1eb696130cda73824b165aa1d6bc8b4c451207e1fe5018",
+      "after_sha256": "4db221afd74ecbe13df19916a0dbdfefee1f6136a27f77618f9d80d429d985f0",
+      "before_sha256": "5e83350e52e94f0b8f7b38876bc24ba14806769f5510a7c8eab615215d89c514",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_finance_auditor~1config.yaml"
+    },
+    {
+      "after_sha256": "277076a3666a0201a62feb8ed764b2f2e9715cc039ae36adc8c4c537d44977fd",
       "before_sha256": "ab6de91be5cd5828d017b43bde2f30624eea68748357dcc455dfb89e33308f8d",
       "change": "changed",
       "contract": "hermes_profiles",
       "path": "/files/agents~1hermes~1profiles~1siq_ic_legal_scanner~1AGENTS.md"
     },
     {
-      "after_sha256": "8dd6b1deb5726de0390aa2082afb885887e9e070ecbabaefb10bd3eb67254735",
+      "after_sha256": "2138bdb8803118d9a21b6b9e8564ed445e119cc30f157e946191315643587b83",
+      "before_sha256": "42dd0cd7ba3f4a5d01559171198ca5a2a862b9de52fa6ce78f2a52e25ab73ffe",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_legal_scanner~1SOUL.md"
+    },
+    {
+      "after_sha256": "ac850ad08f4ac7a85617b3af8b6488f347335bf9140d50ff6606329e85ffc03a",
+      "before_sha256": "0f4cc5ab74cc7cd7e707c0323ba3a33d18745c9e09627d8e59ad208c474a4572",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_legal_scanner~1config.yaml"
+    },
+    {
+      "after_sha256": "5ccc1bd97dd1e50db42f4a8cc80cd52e553aeaf7d04f012d5ff7041970fd28bb",
       "before_sha256": "05925095db91c17019b6fc552b823fc49355a48db33490a0162bead0856221a4",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -72,7 +828,14 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1TOOLS.md"
     },
     {
-      "after_sha256": "361f4bd8e326f77177c9c5c0271b439a858ccf261ef438838fbb8fea2958e3a7",
+      "after_sha256": "9f10c885a132f3fa5cef50a04dcdc7ed1d611816f3d4ac879e517edc381934c4",
+      "before_sha256": "123120db6c06062ae60dc38f7ba5e8ff9eb0b1a21ad0310fc5d982e7612bff84",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_master_coordinator~1config.yaml"
+    },
+    {
+      "after_sha256": "eee0a25225068d42425daf289de6d60210cea583ca830863315b313ec2cf5d86",
       "before_sha256": "128324463e3f2f0632540859198b525ddf061faac1bdac97d05157ea44029929",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -86,14 +849,28 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_risk_controller~1STARTUP_PROTOCOL.md"
     },
     {
-      "after_sha256": "e13610d0f58a9f66855f22a2e5ff4ece64bce0510f8f0f83660337d45555b907",
+      "after_sha256": "3f8c12fb59f614777ed9e76ac1cbe55b1e156c4314546dcdad245e2674ea13bc",
+      "before_sha256": "81952b780827bd2f380640182cf3334201310f1e2bc944b1cca5d64fb97652ca",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_risk_controller~1config.yaml"
+    },
+    {
+      "after_sha256": "aeaaebc69f4c06a00186a60ced7440d03fcf064f2a303e4e21382d22f6691272",
       "before_sha256": "929da0dbf2fa0331d6659419c66f08048cf885fe4fcbf0d51cd62bbbffde8b50",
       "change": "changed",
       "contract": "hermes_profiles",
       "path": "/files/agents~1hermes~1profiles~1siq_ic_sector_expert~1AGENTS.md"
     },
     {
-      "after_sha256": "0b4913a407b0bad64a24b0ecae4fd890c4ba02a31bd8156aaca7a4b6d8e4f618",
+      "after_sha256": "fae1bb7ad12d954dcfd1a234918aaf8f7d4d9a929f5f667815044bf0a957c176",
+      "before_sha256": "a17ba610aa5656458c67b76909d2a69d6901c2c735125b4cd544f19b6ade138c",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_sector_expert~1config.yaml"
+    },
+    {
+      "after_sha256": "9268f85694547052cd20867de500d08e073a2d5cd9c1787d5801c1902161c11f",
       "before_sha256": "5e3111d5b81a15ba53fa83e5093e4c28e73ca5e774ba15faf710f9a7dbd3d07b",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -205,14 +982,14 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1contracts~1siq_ic_workflow_run_v1.schema.json"
     },
     {
-      "after_sha256": "2ed83fe966c0f72538bf1bb849d2560f8cec63110bf0365a6075151ead9d0199",
+      "after_sha256": "213ed284eec5daeaa153cb09524113320acfa8accd1fc08fc68835aba7a0f54e",
       "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "change": "added",
       "contract": "hermes_profiles",
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1golden_case_manifest.json"
     },
     {
-      "after_sha256": "00428f0aaa3dd699e8db464f04cd4a2d462aba24e3548e2444ffb595a9290e1e",
+      "after_sha256": "d69e922ebcd7043444949b7270319b222ccbc9b0b5edfa5365eb498e5ce4b35a",
       "before_sha256": "95de30cc2decbb35dffdd6b6804262540d6e7025d7b5756a88324fbe788d2094",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -289,6 +1066,27 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1openclaw_script_migration_matrix.json"
     },
     {
+      "after_sha256": "21746ed48abd81e207dd3fa3e136af3f970f42f7e0b441d6a0b341067359ebaa",
+      "before_sha256": "106e299912463ca3731c04155b7d1c347d8afe73b18a74f7bea8d4574824bf4d",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1skills~1README.md"
+    },
+    {
+      "after_sha256": "f18391ae2ecd15b76bc134ac36a54219568d1745f0ce38f56152e491a684b5ed",
+      "before_sha256": "5da13ffb8cb79377e4c6d9e4cbdda6163b997a042b667d0347f7515f39df1454",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1skills~1due-diligence-analyst~1README.md"
+    },
+    {
+      "after_sha256": "87e6ffb3b7cea51867d0e09e75412e70955e5d98b6099eccb26e91dc5d261f2c",
+      "before_sha256": "88aa759fa541108d037a63160b8cccad84b8f4ef738a29dd309c77e39d93391a",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1skills~1mckinsey-research~1README.md"
+    },
+    {
       "after_sha256": "bc5014738151fc5ca68da4a309d0d71cbcc7e23c041c5851483193fa5da14af1",
       "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "change": "added",
@@ -345,11 +1143,18 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1R4_CHAIRMAN_DECISION.md"
     },
     {
-      "after_sha256": "65a6c838f48784fc03f902d87daf904b135de7e5f2c13a2998e897e566455661",
+      "after_sha256": "28696f22c335628103c736598c21deca9e0c933d08557bdacd13ba8eaf7c9f5c",
       "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "change": "added",
       "contract": "hermes_profiles",
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1tasks~1README.md"
+    },
+    {
+      "after_sha256": "47206b0b18fa3bc66d9897bddf051cdefe5f7bd492df64806173f891702cd6c8",
+      "before_sha256": "db1c485e0ce9cd87fc337dbcb8425ae320661abc7ab4785e71fb596007403faf",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1templates~1README.md"
     },
     {
       "after_sha256": "39e50f3b53c31e0b810276a4832959a216597403320fd4bb5b6e234ac9d38197",
@@ -359,7 +1164,7 @@
       "path": "/files/agents~1hermes~1profiles~1siq_ic_shared~1templates~1RETRIEVAL_MANDATORY_RULE.md"
     },
     {
-      "after_sha256": "720ab1a35d65efdce455f9882494184abd46e4aaae56445adcc0e650cd4e0252",
+      "after_sha256": "2477b39cfbeb4d02bfdedbeec94cb57a7577cd58b0c7274bbbfaebb9d0510bf7",
       "before_sha256": "9597e57927035d9c858edf8abb08fda2a5ad982ffdde9129cae111e9403a795e",
       "change": "changed",
       "contract": "hermes_profiles",
@@ -371,6 +1176,230 @@
       "change": "changed",
       "contract": "hermes_profiles",
       "path": "/files/agents~1hermes~1profiles~1siq_ic_strategist~1SOUL.md"
+    },
+    {
+      "after_sha256": "edd7b075994277fc6acbc1cd8db615b52a2cb34554d1a53d53fb96031981030f",
+      "before_sha256": "14744c64f5b4755d647a0633343da2bc6e0076a0965ec96dc71b9c9037d6ac70",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_ic_strategist~1config.yaml"
+    },
+    {
+      "after_sha256": "32da5170b20a1b78f9d5e53e9c262952e210c04799f8ea05dd7fa259c58eefef",
+      "before_sha256": "8207e35d2f522c051d7142cf09a69f2245a9aca6d5ff9dee81974bb8fbedf494",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_legal~1SOUL.md"
+    },
+    {
+      "after_sha256": "cdd90755e6fd3f0de20ced68d6743ea76528957f1b4a4ef9e11df0455346b292",
+      "before_sha256": "46d15534ae408cf78e0cf6248d0aae88567a90541fb0a828131ccf077c782b77",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_legal~1scripts~1validate_legal_opinion.py"
+    },
+    {
+      "after_sha256": "f8dbfff012705d0bcbc7b4443923b613afbd7e34d47854bb34ea0dc8915a591f",
+      "before_sha256": "0213c6b3db59bc4b397268a1d7a128a516509fb0a8ba0e250a663c8b57c2fe45",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_legal~1templates~1legal_opinion_v1.md"
+    },
+    {
+      "after_sha256": "0e3ff5ad4fb1bc31bec0a824c53054af0b58c99dab034036814edb3a5e3f2bfd",
+      "before_sha256": "8862b924d161c006f5fb483ba47756f65b51312c69fd470364dde5bf4e633cc2",
+      "change": "changed",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_legal~1tests~1test_validate_legal_opinion.py"
+    },
+    {
+      "after_sha256": "0da66fe3af9bffd0a871b7e7e10dcff317249c907801c6b811e8046cb7a5617b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1AGENTS.md"
+    },
+    {
+      "after_sha256": "c4486d9af0a5e01d46145dfd2414129ddfdd783ad4e6482d7d31a45ac161edb1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1BOOTSTRAP.md"
+    },
+    {
+      "after_sha256": "2a7f7ce61d1e0be03d26b560fd5fa5d22e4992691c53048f30767167fadca1ad",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1HEARTBEAT.md"
+    },
+    {
+      "after_sha256": "bfa322a04d7df5f17830e99ae212e16887c6c3b7406e2c3c4680a6c4accc5162",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1IDENTITY.md"
+    },
+    {
+      "after_sha256": "4514cadc5165a8eba9500c942ae55fdd5ef9cb35ecc31c5402ba72b1f8523f0d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1README.md"
+    },
+    {
+      "after_sha256": "d52076e859bc1ec4fba84cf9a659633abbb2703514b3aedb05cdc273b2152e15",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1SOUL.md"
+    },
+    {
+      "after_sha256": "20e2623d2242a61f486d3de0136ebed937eae5f2109db228c29fdfb57bb88c48",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1TOOLS.md"
+    },
+    {
+      "after_sha256": "ff36a9d5fdd608a755e113c63ad89d83bab5b8deb8de4ba9bff04d1806ff3c01",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1USER.md"
+    },
+    {
+      "after_sha256": "97c618e69e05e8ea0b5534b938c106192424c11da90ee12fc053248376b0a7b4",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1__init__.py"
+    },
+    {
+      "after_sha256": "312b27ac840fc2cf696d6e8d7a24447f46fa1d32588bf3829cb1ddd2133e6086",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1agent.py"
+    },
+    {
+      "after_sha256": "2125221dab53561a6d572b2f053a550b0e9e1c3f9b06166677d649da65c5c467",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1config.yaml"
+    },
+    {
+      "after_sha256": "7ca959dbc2796c88159d4a7deb2537291b120807272f0fb064f1bdd9e28ef786",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1models.py"
+    },
+    {
+      "after_sha256": "9e9e3a33fab698e1d7e81f52c14161b3c41486d0e0f345ae8b6e6a921a0d14ac",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1__init__.py"
+    },
+    {
+      "after_sha256": "b42a0d0d3868fc3dd2d75d50f4847e47a7fd03d4e5443aaf6db5b2795a252c5b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1alert_trigger.py"
+    },
+    {
+      "after_sha256": "7ceb08a908c7c9f7109af7d2cbd86e497c61b1aeddb55349869d8d52e106f1cd",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1item_extractor.py"
+    },
+    {
+      "after_sha256": "c7d85f697b241f5e7449e370d881dfe6f9e1f1c00a42a0e78180069edec438b1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1metric_tracker.py"
+    },
+    {
+      "after_sha256": "1febd8e65edb4dbd97a5d77fdd9db7daa9647712b04b8f8ddedabd1cc1744326",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1report_updater.py"
+    },
+    {
+      "after_sha256": "b7da96f3c6e8748dfc40e59b8c64e1e5e8ee64460a192fad53cb864c1de0afe8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1modules~1sentiment_monitor.py"
+    },
+    {
+      "after_sha256": "4e2ebd5d144a34b75f402ea04c32280446709ee6a7c8edcaf7504dadddb5c484",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1profile.yaml"
+    },
+    {
+      "after_sha256": "7159eef30c9d7a342c9cf8ca461312901604857c6cbda786e2cdcfc1a1c99cc3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1schemas.py"
+    },
+    {
+      "after_sha256": "4108461348d12f6b8da74bbc97ee4310f0e3129aea63ff511501cfde54e90a4e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "hermes_profiles",
+      "path": "/files/agents~1hermes~1profiles~1siq_tracking_multi_market~1tests~1test_alert_recommendations.py"
+    },
+    {
+      "after_sha256": "aa2225b530ad60da6fddc23f99b956b16890e5cf40573d5870cdcbbf9dcedf6d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_binding_run_id"
+    },
+    {
+      "after_sha256": "aa2225b530ad60da6fddc23f99b956b16890e5cf40573d5870cdcbbf9dcedf6d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_lease_id"
+    },
+    {
+      "after_sha256": "c26bf780afa37e7a81a3c101b1ca22d578d8f6f4fd2ddd18c8e3490794f2cdd1",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_owner_generation"
+    },
+    {
+      "after_sha256": "9ded1d89d8a359f561cff8aa1560aa40a1f21ef0be63e82bf1c5be8ac991da06",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_scope_id"
+    },
+    {
+      "after_sha256": "872a86fed126734fab709f8850359b0eb7b5ab550fc4e2ab05c86e95ed2e53ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_tenant_id"
+    },
+    {
+      "after_sha256": "872a86fed126734fab709f8850359b0eb7b5ab550fc4e2ab05c86e95ed2e53ff",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_database",
+      "path": "/tables/active_run_leases/columns/pool_user_id"
     },
     {
       "after_sha256": "eb6cf3144e0c5f3f1a7d9ec6066c8a5dcb9f926ded483012e1f0e20bd877f52b",
@@ -409,10 +1438,185 @@
     },
     {
       "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/additionalProperties"
+    },
+    {
+      "after_sha256": "32e2462b032be718f7c57b221ed861b8a01fda606383d3285083ec497cb672e6",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/company_key"
+    },
+    {
+      "after_sha256": "8f5bafe2eb002bb13e4d2b938057294ee29509a67090fa9f3484f19e02ac0961",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/deal_id"
+    },
+    {
+      "after_sha256": "4fb79702e1a07dee40fb130785883bc4d499909828a0f518acc4159b56af6aa7",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/domain"
+    },
+    {
+      "after_sha256": "9203983400c68fc249cef5983df2cd89b768d7ba31248f4c1dd8db3e6e1044e8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/profile_id"
+    },
+    {
+      "after_sha256": "d192f2d1bbecb27a29d561ef2faa906ae5195ae9f4765a61550eec7ee1880a32",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/report_id"
+    },
+    {
+      "after_sha256": "a450d372a5fa4fb3263d92a1be689ea749352450f80ab11c7d42c543d28d0463",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/research_target"
+    },
+    {
+      "after_sha256": "f85b7444c8f232da4183422dc3f0dd83d2568e0fd1ab2ebda40be99640ac7a34",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/retrieval_query"
+    },
+    {
+      "after_sha256": "46ad96dcc23488b7b7ccc300b470523102c3cb3d92afdd8736b2e6e37632f019",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/source_report"
+    },
+    {
+      "after_sha256": "9c9daca8333e57061e2e1366aad3b22d7fb0235d6974ef4e019dcd10044ae1ad",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContext/properties/upstream_analysis_artifact_id"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextCompany/additionalProperties"
+    },
+    {
+      "after_sha256": "32e2462b032be718f7c57b221ed861b8a01fda606383d3285083ec497cb672e6",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextCompany/properties/company_key"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextPage/additionalProperties"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextReport/additionalProperties"
+    },
+    {
+      "after_sha256": "ce192588b9c02282e1ad1df0a8a94f52fb8baa7760b18aed8b0012a8c6e99a43",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextReport/properties/artifact_id"
+    },
+    {
+      "after_sha256": "d192f2d1bbecb27a29d561ef2faa906ae5195ae9f4765a61550eec7ee1880a32",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextReport/properties/report_id"
+    },
+    {
+      "after_sha256": "6d90fdc0547b91e0f88553097483f8f22ed269e04e607fc1eb4a59c8ab839729",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextReport/properties/source_family"
+    },
+    {
+      "after_sha256": "ace8392c762b993f5f122845a5cd346b3bbd45ef50b6e19ed22dd589b7a07dc2",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextReport/properties/source_report_id"
+    },
+    {
+      "after_sha256": "4d816017f65274d06582b95876909e5059bbe70bbbfc6ad75745a301bdc1e616",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextResearchTarget"
+    },
+    {
+      "after_sha256": "ca8d06bd962a642ee0822ab41f92f9376157d739d8d4bc1945708264e80ece8d",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatContextSourceReport"
+    },
+    {
+      "after_sha256": "3d7d141875421af420142f46c2cfe2c1ad828c00f28a33b8fd3a4b346ad37cd3",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/ChatRequest/properties/runtime_target"
+    },
+    {
+      "after_sha256": "83f4d8a6b836788ef74b59fc47e159126d47a55f8df9e3086aecad2cb049ae20",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingChatRequest/properties/model_mode"
+    },
+    {
+      "after_sha256": "f85b7444c8f232da4183422dc3f0dd83d2568e0fd1ab2ebda40be99640ac7a34",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingChatRequest/properties/retrieval_query"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingPrepareAllRequest/properties/include_rerank/default"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
       "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
       "change": "changed",
       "contract": "legacy_openapi",
       "path": "/components/schemas/PrimaryMarketMeetingPrepareAllRequest/properties/include_vector/default"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/PrimaryMarketMeetingPrepareRequest/properties/include_rerank/default"
     },
     {
       "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
@@ -455,6 +1659,13 @@
       "change": "added",
       "contract": "legacy_openapi",
       "path": "/components/schemas/SourceReviewRequest"
+    },
+    {
+      "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
+      "before_sha256": "2ed27c1421e6928dbe13dbfdb5c59e1045b30341fe7ebe05700006bc5ac572c0",
+      "change": "changed",
+      "contract": "legacy_openapi",
+      "path": "/components/schemas/StartupRetrievalRequest/properties/include_rerank/default"
     },
     {
       "after_sha256": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74",
@@ -597,6 +1808,13 @@
       "path": "/components/schemas/WorkflowStateSnapshotRequest/properties/r3_skip_reason/default"
     },
     {
+      "after_sha256": "089b5a6e7e6c550254c9e0285cbcfdea2a90c7f958aa335e4fb1af8df68a0ba9",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/DELETE ~1api~1research-universe~1artifacts~1{artifact_id}"
+    },
+    {
       "after_sha256": "cda181120fa6077ad31542952c4dfc6fb3e9da80b30383addc50f5cebfce6cf9",
       "before_sha256": "f674fbb3ceaa8d5f32b3af1f209bdf40a5c1ba20ad257860fea10300434a84c1",
       "change": "changed",
@@ -604,11 +1822,25 @@
       "path": "/operations/GET ~1api~1deals~1{deal_id}~1agents~1{profile_id}~1startup-retrieval/parameters"
     },
     {
+      "after_sha256": "2739712c67a81786a033bbfe8b9c2688b412fa4a10760ea0ff09342a72c52659",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1deals~1{deal_id}~1wiki"
+    },
+    {
       "after_sha256": "1acaccb2f3f32fced1463c1d431958d16a67ce6051d5daba0ba2f71f8a26b83b",
       "before_sha256": "2686c2034bbf76a0121bf22192f903168a3f358566be085e8dc283d683d603c0",
       "change": "changed",
       "contract": "legacy_openapi",
       "path": "/operations/GET ~1api~1deals~1{deal_id}~1workflow~1state/parameters"
+    },
+    {
+      "after_sha256": "9ac29626f7a0b3363da86121b5f42acabd23fb3b3f402278a9901ae021cb30b8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1primary-market~1meeting~1models"
     },
     {
       "after_sha256": "fcebeb1de766a930d75b036baa070c3218950899087ab4a369525332ef0f5d04",
@@ -653,11 +1885,60 @@
       "path": "/operations/GET ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1source~1page~1{page_number}"
     },
     {
+      "after_sha256": "e14376a79333c584b44a54d3b4b5115712508dafe06233b987df613b503e76b8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1research-universe~1artifacts~1{artifact_id}~1content"
+    },
+    {
+      "after_sha256": "06937ad711cdf0558b5d72f6ecebfd915dd3dace7de44c409222a7c3150fba6e",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1research-universe~1companies"
+    },
+    {
+      "after_sha256": "d08194254dcdeebe5c41e7a6a4e6691ea2234e42fa5ec7548265043e7d71b677",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1research-universe~1companies~1{company_key}~1artifacts"
+    },
+    {
+      "after_sha256": "9a26eb32ac6cd1dff6a555cff178464719c8ce9aa0893efbb33ce0c374ef2d60",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1research-universe~1companies~1{company_key}~1reports"
+    },
+    {
+      "after_sha256": "fc7b7f2856c8618062143ca3483e2391a8cc783a908d8f005b26b92a5d87603b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/GET ~1api~1research-universe~1markets"
+    },
+    {
       "after_sha256": "02d93a942c6b8bf85767e89bffd681cd27237ea46737de98f9c542473c734b21",
       "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "change": "added",
       "contract": "legacy_openapi",
       "path": "/operations/GET ~1api~1us-sec~1package"
+    },
+    {
+      "after_sha256": "507a60fa415981dbe465a5f1b1f410cf366a0445852f8cfa96e3045c71371b87",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1deals~1{deal_id}~1evidence~1index-milvus"
+    },
+    {
+      "after_sha256": "4ca44227c506ea96740ad1c55005f22f5e02cf1006dd89bd64ff4fcdcb2d937a",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1deals~1{deal_id}~1wiki~1rebuild"
     },
     {
       "after_sha256": "31bff46b1a4547ba55f1cc4168a96ab34c364fa4a24453da351778153d92277a",
@@ -695,6 +1976,13 @@
       "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1analysis-source~1review"
     },
     {
+      "after_sha256": "ac9acda501ea55c1f5bf6d5d300a30c6e083dd1c0bfd27ac85bc116823b850a8",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "legacy_openapi",
+      "path": "/operations/POST ~1api~1primary-market~1projects~1{deal_id}~1materials~1{document_id}~1parse"
+    },
+    {
       "after_sha256": "a125fa9876ec1267d2f5a9c6e0b06a66b26115098871d6d63a47bdd1ab811d80",
       "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "change": "added",
@@ -716,6 +2004,13 @@
       "path": "/environment_defaults/SIQ_DOCUMENT_PARSER_HEALTH_URL"
     },
     {
+      "after_sha256": "94664180e5190a6c6dc2ba6e2d7944081d2dd0e0151a9ff07f62c8865eeb9389",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_MULTI_MARKET_RESEARCH_ENABLED"
+    },
+    {
       "after_sha256": "ee2114e1edf5443ce462ad99eec6df7de48c37378e7488ac4d2e61e971adcc51",
       "before_sha256": "512d316e48742e06dac56fac2c812ac9667c947ff4236b86c9adaaf039006d75",
       "change": "changed",
@@ -723,18 +2018,60 @@
       "path": "/environment_defaults/SIQ_PDF2MD_HEALTH_URL"
     },
     {
-      "after_sha256": "12c30c6aeb22b2912996ebab1590890a259b153e3f8594d2c57ff4b2c1c9112c",
+      "after_sha256": "d5437a189aeda6e136fbdb082a26d7bab92dd356106001ea6b01ab5bada7875b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_PRIMARY_MARKET_MILVUS_INDEX_ENABLED"
+    },
+    {
+      "after_sha256": "d5437a189aeda6e136fbdb082a26d7bab92dd356106001ea6b01ab5bada7875b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_RERANK_ENABLED"
+    },
+    {
+      "after_sha256": "94664180e5190a6c6dc2ba6e2d7944081d2dd0e0151a9ff07f62c8865eeb9389",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_US_SEC_ANALYSIS_ENABLED"
+    },
+    {
+      "after_sha256": "d5437a189aeda6e136fbdb082a26d7bab92dd356106001ea6b01ab5bada7875b",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/environment_defaults/SIQ_VECTOR_RETRIEVAL_ENABLED"
+    },
+    {
+      "after_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "before_sha256": "b8fa9d9eac55b3cb6c270abe1bc5b17e91064ec159f6e13794c4d4dd5d824a2c",
-      "change": "changed",
+      "change": "removed",
       "contract": "runtime_metadata",
       "path": "/startup/health_checks/PDF \u89e3\u6790\u670d\u52a1"
     },
     {
-      "after_sha256": "3a1fc46f580139c559a2a0072070b151c09fe93e54fc6bb6933dc77fb66f0426",
+      "after_sha256": "b8fa9d9eac55b3cb6c270abe1bc5b17e91064ec159f6e13794c4d4dd5d824a2c",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/startup/health_checks/PDF \u89e3\u6790\u670d\u52a1\u8fdb\u7a0b"
+    },
+    {
+      "after_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
       "before_sha256": "c8d6420eecb346511f32777f4663d6983fcf0838b33d922c066468daa6d32418",
-      "change": "changed",
+      "change": "removed",
       "contract": "runtime_metadata",
       "path": "/startup/health_checks/\u901a\u7528\u6587\u6863\u89e3\u6790\u670d\u52a1"
+    },
+    {
+      "after_sha256": "c8d6420eecb346511f32777f4663d6983fcf0838b33d922c066468daa6d32418",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/startup/health_checks/\u901a\u7528\u6587\u6863\u89e3\u6790\u670d\u52a1\u8fdb\u7a0b"
     },
     {
       "after_sha256": "f62648a25933ed40bc64ad6d2cc69a288a1b985762af471519b2972dbe428a07",
@@ -742,9 +2079,16 @@
       "change": "added",
       "contract": "runtime_metadata",
       "path": "/systemd_units/hermes-gateway-siq-ic@.service"
+    },
+    {
+      "after_sha256": "fedf891e785a588a0d7ed8591ceabca2ebaae1afe2ef09bb70677fb31411ff36",
+      "before_sha256": "e692b815a9c6614105cf7f63a8020c05c5cd5aea698ad67ca1b357fd0c10dec4",
+      "change": "added",
+      "contract": "runtime_metadata",
+      "path": "/systemd_units/siq-funasr-vllm.service"
     }
   ],
-  "justification": "The exact legacy deltas are intentional high-risk closeout changes reviewed by contract path and before/after digest; generic patterns remain forbidden.",
+  "justification": "Current master already contains reviewed non-meeting API/profile contract changes; refresh exact hashes so the meeting additive gate compares against the committed candidate state.",
   "normalization": {
     "allowed_profile_addition_prefixes": [
       "agents/hermes/profiles/siq_meeting/",
@@ -764,7 +2108,7 @@
       "meeting_"
     ]
   },
-  "review_scope": "Primary-market IC contracts, parser readiness, runtime coordination, and additive non-meeting API surfaces",
-  "reviewed_candidate_commit": "679d456fe3c8e8ce8e3e1d003453cd8f221e7357",
+  "review_scope": "Refresh approved non-meeting legacy delta for current master contracts",
+  "reviewed_candidate_commit": "2503c0c192567c7d8363d27a9d80b73f5b104eb9",
   "schema_version": "siq.meeting.contract-approved-delta.v1"
 }

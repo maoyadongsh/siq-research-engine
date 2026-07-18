@@ -1,11 +1,12 @@
 # DEAL-PMIC-MATERIAL-RISK-2026
 
-仅用于合成评测。这是输入候选，不是 golden 结果。它不包含 Hermes 输出、factcheck 结果、人工确认或质量批准。
+SYNTHETIC EVALUATION ONLY. This is an input candidate, not a golden result.
+It contains no Hermes output, factcheck result, human confirmation, or quality approval.
 
-- Golden case：`GOLDEN-PMIC-MATERIAL-RISK`
-- 预期行为：`material_legal_and_financial_risk`
+- Golden case: `GOLDEN-PMIC-MATERIAL-RISK`
+- Expected behavior: `material_legal_and_financial_risk`
 
-重新生成或校验所有独立候选输入：
+Regenerate or verify all independent candidate inputs with:
 
 ```bash
 python eval_datasets/primary_market_ic_real_smoke/generate_golden_suite_fixtures.py

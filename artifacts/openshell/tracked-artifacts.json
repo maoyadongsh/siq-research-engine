@@ -165,8 +165,8 @@
     {
       "classification": "public_document",
       "path": "var/openshell/README.md",
-      "sha256": "dbb0ccc8bdfd857df00ffd35daa0ff3815f7cd36422b33685ad46d13e2f7aa24",
-      "size_bytes": 1944
+      "sha256": "da2c077021ab8c009c4f4cac4aead1b82ce8e00e271297520635ed20040714aa",
+      "size_bytes": 2361
     },
     {
       "classification": "sanitized_manifest",
