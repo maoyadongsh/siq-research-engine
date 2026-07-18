@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - master
-      - feat/docs-site
+      - main
+      - 'feat/**'
     paths:
       - 'docs/site/**'
       - 'mkdocs.yml'
@@ -40,13 +41,23 @@ jobs:
             mkdocs==1.6.1 \
             mkdocs-material==9.5.49
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
       - name: Build documentation
         run: mkdocs build --strict
 
-      - name: Upload artifact
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mkdocs-site
+          path: ./site
+          retention-days: 14
+
+      - name: Setup Pages
+        id: setup-pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+
+      - name: Upload Pages artifact
+        if: steps.setup-pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./site
@@ -55,6 +66,7 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
