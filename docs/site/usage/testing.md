@@ -44,6 +44,6 @@ cd packages/market-contracts && uv run python -m pytest tests
 
 | 测试资产 | 当前数量 | 覆盖重点 |
 | --- | --- | --- |
-| Python 测试文件 | 469 | API、parser、market services、contracts、db imports、Hermes、OpenShell、model-services |
+| Python 测试文件 | 492 | API、parser、market services、contracts、db imports、Hermes、OpenShell、model-services |
 | TypeScript/Playwright/Node 测试文件 | 115 | Web 路由、工作台交互、meeting 前端协议、E2E smoke、iOS capture 合同 |
-| Shell 脚本 | 69 | 启动、运维、OpenShell、Hermes、模型服务和 smoke 入口 |
+| Shell 脚本 | 80 | 启动、运维、OpenShell、Hermes、模型服务和 smoke 入口 |

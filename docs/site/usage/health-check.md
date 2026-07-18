@@ -29,11 +29,11 @@ python3 scripts/openshell/check_v06_completion.py --json
 | 15010 | `/api/ready` | 通用文档解析服务 |
 | 18000 | `/health` | 市场报告 finder 服务 |
 | 18020 | `/healthz` | 市场规则服务 |
-| 18642 | `/health` | 模型服务（节点 1） |
-| 18649 | `/health` | 模型服务（节点 2） |
-| 18650 | `/health` | 模型服务（节点 3） |
-| 18651 | `/health` | 模型服务（节点 4） |
-| 18652 | `/health` | 模型服务（节点 5） |
+| 18642 | `/health` | Hermes Assistant 网关 |
+| 18649 | `/health` | Hermes Factchecker 网关 |
+| 18650 | `/health` | Hermes Tracking 网关 |
+| 18651 | `/health` | Hermes Analysis 网关 |
+| 18652 | `/health` | Hermes Legal 网关 |
 
 ## OpenShell 门禁检查
 

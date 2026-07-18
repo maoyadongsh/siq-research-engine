@@ -45,6 +45,8 @@ graph TB
     Hermes --> OpenShell
     Contracts --> Imports
     API --> Imports
+    Ops -.-> API
+    Ops -.-> Hermes
     API --> ModelServices
     Hermes --> ModelServices
 

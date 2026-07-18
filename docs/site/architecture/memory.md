@@ -82,12 +82,22 @@ graph LR
     E --> P[(evidence package)]
     E --> D[(PostgreSQL 事实)]
     E --> S[(原始材料)]
-    C & R --> Judge[智能体判断]
-    P & D & S --> Judge
+    C & R --> MemMerged[记忆输入]
+    P & D & S --> EviMerged[证据输入]
+    MemMerged --> Judge[智能体判断]
+    EviMerged --> Judge
     Judge --> Output[结论]
     
+    style Q fill:#fff,stroke:#000,color:#000
     style M fill:#f5f5f5,stroke:#000,color:#000
-    style E fill:#fff,stroke:#000,color:#000
+    style E fill:#f5f5f5,stroke:#000,color:#000
+    style C fill:#fff,stroke:#000,color:#000
+    style R fill:#fff,stroke:#000,color:#000
+    style P fill:#f5f5f5,stroke:#000,color:#000
+    style D fill:#f5f5f5,stroke:#000,color:#000
+    style S fill:#f5f5f5,stroke:#000,color:#000
+    style MemMerged fill:#fff,stroke:#000,color:#000
+    style EviMerged fill:#fff,stroke:#000,color:#000
     style Judge fill:#f5f5f5,stroke:#000,color:#000
     style Output fill:#fff,stroke:#000,color:#000
 ```

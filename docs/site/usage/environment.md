@@ -15,7 +15,7 @@ SIQ Research Engine 通过环境变量统一管理各服务的运行态路径、
 | SIQ_DOCUMENT_PARSER_API_BASE | http://127.0.0.1:15010 | 通用文档解析服务地址 |
 | SIQ_REPORT_FINDER_BASE | http://127.0.0.1:18000 | 官方披露下载服务地址 |
 | SIQ_MARKET_REPORT_RULES_BASE | http://127.0.0.1:18020 | 市场规则服务地址 |
-| SIQ_HERMES_HOME | $SIQ_DATA_ROOT/hermes/home | Hermes runtime home |
+| SIQ_HERMES_HOME | $SIQ_RUNTIME_ROOT/hermes/home | Hermes runtime home |
 | SIQ_HERMES_RUNTIME | host | 默认仍为 Host；OpenShell 正式门禁通过前不自动切流 |
 | SIQ_START_OPENSHELL_GATEWAY | 1 | 随主项目启动或复用 SIQ 专用 OpenShell gateway |
 | SIQ_START_OPENSHELL_BROKERS | auto | reader secret 存在时启动/复用 brokers |

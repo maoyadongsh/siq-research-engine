@@ -51,17 +51,34 @@ graph TB
         G4[系统管理]
     end
 
-    A1 & A2 & A3 & A4 & A5 --> B1 & B2 & B3
-    B1 & B2 & B3 --> C1
+    A1 --> B1
+    A2 --> B2
+    A3 --> B3
+    A4 --> B1
+    A5 --> B1
+    B1 --> C1
+    B2 --> C1
+    B3 --> C1
     B4 --> C3
     C1 --> C2
     C1 --> C3
-    C1 & C2 & C3 & C4 --> D1
-    D1 --> D2 & D3 & D4
+    C1 --> D1
+    C2 --> D1
+    C3 --> D1
+    C4 --> D1
+    D1 --> D2
+    D1 --> D3
+    D1 --> D4
+    D1 --> D5
     D5 --> F1
     F1 --> F2
-    F1 --> E1 & E2
-    E1 & E2 --> G1 & G2 & G3 & G4
+    F1 --> E1
+    F1 --> E2
+    E1 --> G1
+    E1 --> G2
+    E2 --> G2
+    E2 --> G3
+    E1 --> G4
 
     style Inputs fill:#f5f5f5,stroke:#000,color:#000
     style AppCenter fill:#fff,stroke:#000,color:#000
@@ -159,9 +176,18 @@ graph LR
         S4[审计语言<br/>source page/table/line]
     end
 
-    P1[二级市场] --> Shared
-    P2[一级市场] --> Shared
-    P3[应用中心] --> Shared
+    P1[二级市场] --> S1
+    P1 --> S2
+    P1 --> S3
+    P1 --> S4
+    P2[一级市场] --> S1
+    P2 --> S2
+    P2 --> S3
+    P2 --> S4
+    P3[应用中心] --> S1
+    P3 --> S2
+    P3 --> S3
+    P3 --> S4
 
     style Shared fill:#f5f5f5,stroke:#000,color:#000
     style P1 fill:#fff,stroke:#000,color:#000

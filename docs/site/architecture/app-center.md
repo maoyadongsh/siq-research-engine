@@ -19,7 +19,6 @@ graph TB
         I1[PDF/Office/HTML]
         I2[财报PDF]
         I3[会议音频]
-        I4[文档/纪要/披露片段]
     end
 
     subgraph AppCenter["应用中心"]
@@ -44,16 +43,24 @@ graph TB
     I1 --> A1
     I2 --> A2
     I3 --> A3
-    A1 & A2 & A3 --> S4
     A1 --> S1
+    A1 --> S4
     A2 --> S2
+    A2 --> S4
     A3 --> S3
-    S1 & S2 & S3 & S4 --> C1 & C2
+    A3 --> S4
+    S1 --> BizMerged[业务输入]
+    S2 --> BizMerged
+    S3 --> BizMerged
+    S4 --> BizMerged
+    BizMerged --> C1
+    BizMerged --> C2
 
     style Inputs fill:#f5f5f5,stroke:#000,color:#000
     style AppCenter fill:#fff,stroke:#000,color:#000
     style Storage fill:#f5f5f5,stroke:#000,color:#000
     style Consumers fill:#fff,stroke:#000,color:#000
+    style BizMerged fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 每个应用的价值
