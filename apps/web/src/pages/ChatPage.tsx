@@ -235,6 +235,7 @@ export default function ChatPage() {
                 <AgentFairy state={messageFairyState(msg)} size="xl" label="当前助手状态" />
               </div>
             )}
+            renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress ?? activeProgress} /> : null}
             listClassName="chat-page-message-list mx-auto w-full"
           />
         </>
