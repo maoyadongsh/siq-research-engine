@@ -11,6 +11,51 @@
 | 会议转写 | `apps/api` meeting routers、`infra/model-services/meeting-speech` | Web `/meetings` | 把业绩说明会、路演、投委会会议等音视频转写成结构化纪要，区分发言人、问答轮次，并对接向量化与跟踪 |
 | 向量入库 | `scripts/vector-index/milvus-ingestion` | Web `/vector-ingest` | 把解析后的段落、纪要、披露片段按统一口径写入 Milvus，维护与 PostgreSQL 的双向指针，支撑语义检索与证据回溯 |
 
+## 应用中心与业务集群的关系
+
+```mermaid
+graph TB
+    subgraph Inputs["输入材料"]
+        I1[PDF/Office/HTML]
+        I2[财报PDF]
+        I3[会议音频]
+        I4[文档/纪要/披露片段]
+    end
+
+    subgraph AppCenter["应用中心"]
+        A1[文档解析<br/>document-parser]
+        A2[财报PDF解析<br/>pdf-parser]
+        A3[会议转写<br/>meeting-speech]
+        A4[向量入库<br/>milvus-ingestion]
+    end
+
+    subgraph Storage["知识沉淀"]
+        S1[(结构化段落<br/>+版式/表格/标题)]
+        S2[(科目/附注<br/>+quality gates)]
+        S3[(发言人/问答轮次<br/>+纪要)]
+        S4[(Milvus 语义索引<br/>+PostgreSQL 双向指针)]
+    end
+
+    subgraph Consumers["业务集群"]
+        C1[二级市场<br/>analysis/factcheck/tracking/legal]
+        C2[一级市场 IC<br/>chairman/strategy/sector/finance/legal/risk]
+    end
+
+    I1 --> A1
+    I2 --> A2
+    I3 --> A3
+    A1 & A2 & A3 --> S4
+    A1 --> S1
+    A2 --> S2
+    A3 --> S3
+    S1 & S2 & S3 & S4 --> C1 & C2
+
+    style Inputs fill:#f5f5f5,stroke:#000,color:#000
+    style AppCenter fill:#fff,stroke:#000,color:#000
+    style Storage fill:#f5f5f5,stroke:#000,color:#000
+    style Consumers fill:#fff,stroke:#000,color:#000
+```
+
 ## 每个应用的价值
 
 - **文档解析**：统一了上游材料的入口格式，让下游业务智能体不需要关心原始文件是 Word 还是 PDF，只需要消费结构化段落和元数据。

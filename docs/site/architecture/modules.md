@@ -1,5 +1,75 @@
 # 仓库地图
 
+```mermaid
+graph TB
+    subgraph Apps["apps/"]
+        Web["web<br/>前端工作台"]
+        API["api<br/>控制面后端"]
+        PdfParser["pdf-parser<br/>财报PDF解析"]
+        DocParser["document-parser<br/>通用文档解析"]
+        IosCapture["ios-meeting-capture<br/>iOS会议采集"]
+    end
+
+    subgraph Services["services/"]
+        Finder["market-report-finder<br/>官方披露搜索"]
+        Rules["market-report-rules<br/>多市场规则"]
+    end
+
+    subgraph Packages["packages/"]
+        Contracts["market-contracts<br/>共享合同"]
+    end
+
+    subgraph Agents["agents/"]
+        Hermes["hermes<br/>智能体profiles"]
+    end
+
+    subgraph Db["db/"]
+        Imports["imports<br/>PostgreSQL导入"]
+    end
+
+    subgraph Infra["infra/"]
+        ModelServices["model-services<br/>模型服务"]
+        OpenShell["openshell<br/>安全运行面"]
+    end
+
+    subgraph Scripts["scripts/"]
+        Ops["运维/批处理/评测"]
+    end
+
+    Web --> API
+    API --> PdfParser & DocParser
+    API --> Finder & Rules
+    Finder & Rules --> Contracts
+    PdfParser & DocParser --> Contracts
+    API --> Hermes
+    Hermes --> OpenShell
+    Contracts --> Imports
+    API --> Imports
+    API --> ModelServices
+    Hermes --> ModelServices
+
+    style Apps fill:#f5f5f5,stroke:#000,color:#000
+    style Services fill:#fff,stroke:#000,color:#000
+    style Packages fill:#f5f5f5,stroke:#000,color:#000
+    style Agents fill:#fff,stroke:#000,color:#000
+    style Db fill:#f5f5f5,stroke:#000,color:#000
+    style Infra fill:#fff,stroke:#000,color:#000
+    style Scripts fill:#f5f5f5,stroke:#000,color:#000
+    style Web fill:#fff,stroke:#000,color:#000
+    style API fill:#f5f5f5,stroke:#000,color:#000
+    style PdfParser fill:#fff,stroke:#000,color:#000
+    style DocParser fill:#f5f5f5,stroke:#000,color:#000
+    style IosCapture fill:#fff,stroke:#000,color:#000
+    style Finder fill:#f5f5f5,stroke:#000,color:#000
+    style Rules fill:#fff,stroke:#000,color:#000
+    style Contracts fill:#f5f5f5,stroke:#000,color:#000
+    style Hermes fill:#fff,stroke:#000,color:#000
+    style Imports fill:#f5f5f5,stroke:#000,color:#000
+    style ModelServices fill:#fff,stroke:#000,color:#000
+    style OpenShell fill:#f5f5f5,stroke:#000,color:#000
+    style Ops fill:#fff,stroke:#000,color:#000
+```
+
 | 路径 | 职责 |
 | --- | --- |
 | `apps/web` | Web 工作台，承载二级市场、一级市场、应用中心和系统管理 |

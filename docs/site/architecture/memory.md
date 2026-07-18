@@ -11,6 +11,37 @@ SIQ 的智能体记忆不是简单聊天摘要，而是让研究助手具备"长
 | PostgreSQL 权威长期记忆 | 用户明确偏好、纠错、项目结论、IC 阶段产物、权限、来源和有效期 | 作为可审计、可删除、可授权的长期记忆账本 |
 | Milvus 语义索引 | profile 知识 chunk、动态 memory item 向量、scope metadata | 用于语义召回和泛化检索，可从权威层重建 |
 
+```mermaid
+graph TB
+    subgraph Runtime["运行时（短期）"]
+        L1[Hermes 原生记忆<br/>会话/响应/checkpoint]
+        L2[本地临时任务记忆<br/>工作目录/草稿/临时artifacts]
+    end
+
+    subgraph LongTerm["长期（可审计）"]
+        L3[(PostgreSQL 权威长期记忆<br/>偏好/纠错/项目结论/IC产物)]
+        L4[(Milvus 语义索引<br/>profile 知识/memory item 向量)]
+    end
+
+    User[用户对话] --> L1
+    L1 --> L2
+    L2 -->|写入权威| L3
+    L3 -->|向量化| L4
+    L4 -->|语义召回| L1
+    L3 -->|按需全量召回| L1
+
+    L3 -.->|可重建| L4
+    L4 -.->|失效后| L3
+
+    style Runtime fill:#f5f5f5,stroke:#000,color:#000
+    style LongTerm fill:#fff,stroke:#000,color:#000
+    style User fill:#f5f5f5,stroke:#000,color:#000
+    style L1 fill:#fff,stroke:#000,color:#000
+    style L2 fill:#fff,stroke:#000,color:#000
+    style L3 fill:#f5f5f5,stroke:#000,color:#000
+    style L4 fill:#f5f5f5,stroke:#000,color:#000
+```
+
 ## 关键能力
 
 ### 1. 拟人化连续性
@@ -39,3 +70,26 @@ SIQ 的智能体记忆不是简单聊天摘要，而是让研究助手具备"长
 - **user_private**（用户私有）：仅对当前用户可见的偏好、纠错和协作履历
 - **project_shared**（项目共享）：项目范围内共享的结论、上下文和协作约定
 - **system_shared**（系统共享）：跨项目和用户共享的系统级知识、模板和规范
+
+## 记忆与证据的关系
+
+```mermaid
+graph LR
+    Q[用户问题] --> M{记忆召回}
+    M -->|连续性/上下文| C[历史偏好/纠错/项目上下文]
+    M -->|半衰期衰减| R[近期经验优先]
+    Q --> E{证据查询}
+    E --> P[(evidence package)]
+    E --> D[(PostgreSQL 事实)]
+    E --> S[(原始材料)]
+    C & R --> Judge[智能体判断]
+    P & D & S --> Judge
+    Judge --> Output[结论]
+    
+    style M fill:#f5f5f5,stroke:#000,color:#000
+    style E fill:#fff,stroke:#000,color:#000
+    style Judge fill:#f5f5f5,stroke:#000,color:#000
+    style Output fill:#fff,stroke:#000,color:#000
+```
+
+**记忆提供连续性，证据决定事实。当记忆与证据冲突时，以证据为准。**

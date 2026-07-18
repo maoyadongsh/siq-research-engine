@@ -24,6 +24,48 @@
 | R3 | 争议讨论 | 争议点清单、各方立场、未决问题与跟进项 | 全部岗位（由 `siq_ic_master_coordinator` 主持） |
 | R4 | 投委会决策 | 投资决议、条件清单、跟踪项、风险阈值 | `siq_ic_chairman`、`siq_ic_risk_controller` |
 
+## R0-R4 阶段流转
+
+```mermaid
+stateDiagram-v2
+    [*] --> R0: 项目启动
+    R0 --> R1: 立项书/清单/时间线就绪
+    R1 --> R2: 材料入库结构化
+    R2 --> R3: 各岗位分析完成
+    R3 --> R4: 争议清单/立场明确
+    R4 --> [*]: 投资决议/条件/跟踪项
+
+    note right of R0
+        siq_ic_master_coordinator
+        产出: 立项书、尽调清单
+    end note
+
+    note right of R1
+        siq_ic_master_coordinator
+        siq_ic_finance_auditor
+        siq_ic_legal_scanner
+    end note
+
+    note right of R2
+        siq_ic_sector_expert
+        siq_ic_finance_auditor
+        siq_ic_legal_scanner
+        siq_ic_strategist
+        siq_ic_risk_controller
+    end note
+
+    note right of R3
+        全部岗位
+        由 coordinator 主持
+    end note
+
+    note right of R4
+        siq_ic_chairman
+        siq_ic_risk_controller
+        产出: 决议/条件/阈值
+    end note
+```
+
 ## 核心价值
 
 一级市场 IC 智能体集群的核心价值在于：把尽调和投委会从散落文档、口头判断，转成可回放、可签核、可复核的决策链。

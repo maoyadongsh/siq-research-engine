@@ -17,15 +17,24 @@
 
 ## 典型闭环
 
-```text
-官方披露下载
-   -> 财报解析（apps/pdf-parser, apps/document-parser）
-   -> quality gates（结构校验 / 字段校验 / 数值一致性）
-   -> PostgreSQL + Milvus + Wiki（事实与向量沉淀）
-   -> analysis（siq_analysis / siq_analysis_multi_market）
-   -> factcheck（siq_factchecker / siq_factchecker_multi_market）
-   -> tracking / legal（siq_tracking, siq_legal）
-   -> 可回溯报告（每一条结论可下钻到原始披露段落）
+```mermaid
+graph LR
+    A[官方披露下载] --> B[财报解析<br/>apps/pdf-parser<br/>apps/document-parser]
+    B --> C[quality gates<br/>结构/字段/数值一致性]
+    C --> D[(PostgreSQL + Milvus + Wiki<br/>事实与向量沉淀)]
+    D --> E[siq_analysis<br/>siq_analysis_multi_market]
+    E --> F[siq_factchecker<br/>siq_factchecker_multi_market]
+    F --> G[siq_tracking<br/>siq_legal]
+    G --> H[可回溯报告<br/>每条结论可下钻到原始披露段落]
+
+    style A fill:#fff,stroke:#000,color:#000
+    style B fill:#f5f5f5,stroke:#000,color:#000
+    style C fill:#fff,stroke:#000,color:#000
+    style D fill:#f5f5f5,stroke:#000,color:#000
+    style E fill:#fff,stroke:#000,color:#000
+    style F fill:#f5f5f5,stroke:#000,color:#000
+    style G fill:#fff,stroke:#000,color:#000
+    style H fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 岗位合同说明

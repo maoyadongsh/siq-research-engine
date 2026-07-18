@@ -1,20 +1,75 @@
 # 产品架构
 
-```text
-官方披露 / 尽调材料 / 会议音频 / 本地文档 / URL
-  -> 应用中心
-       document-parser / pdf-parser / meeting speech / vector ingest
-  -> 证据层
-       LLM Wiki evidence package / PostgreSQL / Milvus / artifacts
-  -> 控制面
-       apps/api / 鉴权 / 任务 / 来源访问 / 记忆 / 运行面选择
-  -> 智能体集群
-       二级市场 analysis/factcheck/tracking/legal/assistant
-       一级市场 IC chairman/strategy/sector/finance/legal/risk/coordinator
-  -> NVIDIA OpenShell 安全运行面
-       网关 / 沙箱 / Provider / Broker / 策略 / 灰度 / 回滚
-  -> Web 工作台
-       二级市场 / 一级市场 / 应用中心 / 系统管理
+## 整体架构
+
+```mermaid
+graph TB
+    subgraph Inputs["输入层"]
+        A1[官方披露<br/>CN/HK/US/EU/JP/KR]
+        A2[尽调材料<br/>BP/财务模型/合同/访谈]
+        A3[会议音频<br/>实时/导入]
+        A4[本地文档<br/>PDF/Office/HTML/图片]
+        A5[URL]
+    end
+
+    subgraph AppCenter["应用中心（材料生产）"]
+        B1[document-parser<br/>通用文档解析]
+        B2[pdf-parser<br/>财报PDF解析]
+        B3[meeting speech<br/>会议转写]
+        B4[vector ingest<br/>向量入库]
+    end
+
+    subgraph Evidence["证据层（事实底座）"]
+        C1[(LLM Wiki<br/>evidence package)]
+        C2[(PostgreSQL<br/>结构化索引)]
+        C3[(Milvus<br/>语义索引)]
+        C4[(artifacts<br/>构建产物)]
+    end
+
+    subgraph ControlPlane["控制面 apps/api"]
+        D1[鉴权/任务/SSE]
+        D2[source access]
+        D3[Deal OS]
+        D4[记忆服务]
+        D5[运行面选择]
+    end
+
+    subgraph Agents["智能体集群 agents/hermes"]
+        E1[二级市场<br/>analysis/factcheck<br/>tracking/legal/assistant]
+        E2[一级市场 IC<br/>chairman/strategy/sector<br/>finance/legal/risk]
+    end
+
+    subgraph OpenShell["NVIDIA OpenShell 安全运行面"]
+        F1[网关/沙箱/Provider]
+        F2[Broker/策略/灰度/回滚]
+    end
+
+    subgraph Web["Web 工作台 apps/web"]
+        G1[二级市场]
+        G2[一级市场]
+        G3[应用中心]
+        G4[系统管理]
+    end
+
+    A1 & A2 & A3 & A4 & A5 --> B1 & B2 & B3
+    B1 & B2 & B3 --> C1
+    B4 --> C3
+    C1 --> C2
+    C1 --> C3
+    C1 & C2 & C3 & C4 --> D1
+    D1 --> D2 & D3 & D4
+    D5 --> F1
+    F1 --> F2
+    F1 --> E1 & E2
+    E1 & E2 --> G1 & G2 & G3 & G4
+
+    style Inputs fill:#f5f5f5,stroke:#000,color:#000
+    style AppCenter fill:#fff,stroke:#000,color:#000
+    style Evidence fill:#f5f5f5,stroke:#000,color:#000
+    style ControlPlane fill:#fff,stroke:#000,color:#000
+    style Agents fill:#f5f5f5,stroke:#000,color:#000
+    style OpenShell fill:#fff,stroke:#000,color:#000
+    style Web fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 五层架构
@@ -65,16 +120,23 @@
 ## 数据流
 
 ```mermaid
-graph LR
-    A[官方披露] --> B[应用中心]
-    C[尽调材料] --> B
-    D[会议音频] --> B
-    B --> E[证据层]
-    E --> F[控制面]
-    F --> G[智能体集群]
-    G --> H[Web 工作台]
-    F --> I[OpenShell 运行面]
-    I --> G
+sequenceDiagram
+    participant Input as 输入材料
+    participant App as 应用中心
+    participant Evidence as 证据层
+    participant Control as 控制面
+    participant Shell as OpenShell
+    participant Agent as 智能体集群
+    participant Web as Web 工作台
+
+    Input->>App: 官方披露/材料/音频/文档
+    App->>Evidence: 解析 + quality gates
+    Evidence->>Control: 事实层就绪
+    Control->>Shell: 运行面选择 + 公司上下文
+    Shell->>Agent: 沙箱代际 + 资源租约
+    Agent->>Evidence: 读取证据 + 写入结论
+    Agent->>Web: SSE 流式输出
+    Web->>Control: 用户交互 + 任务编排
 ```
 
 ## 跨层共享
@@ -87,3 +149,22 @@ graph LR
 - 同一个审计语言（source page/table/line、artifact hash）
 
 二级市场的披露证据、一级市场的尽调材料、会议陈述、智能体判断和最终决策可以在同一套 evidence / source / memory 体系中互相引用。
+
+```mermaid
+graph LR
+    subgraph Shared["跨层共享"]
+        S1[事实层<br/>evidence package]
+        S2[权限模型<br/>user_private / project_shared / system_shared]
+        S3[质量门禁<br/>warning/fail package]
+        S4[审计语言<br/>source page/table/line]
+    end
+
+    P1[二级市场] --> Shared
+    P2[一级市场] --> Shared
+    P3[应用中心] --> Shared
+
+    style Shared fill:#f5f5f5,stroke:#000,color:#000
+    style P1 fill:#fff,stroke:#000,color:#000
+    style P2 fill:#fff,stroke:#000,color:#000
+    style P3 fill:#fff,stroke:#000,color:#000
+```
