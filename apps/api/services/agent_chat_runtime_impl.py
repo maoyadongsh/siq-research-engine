@@ -6296,6 +6296,15 @@ def _compact_financial_validation_sections_for_display(draft: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", content).strip()
 
 
+def _financial_validation_cards_for_display(validation: str) -> str:
+    cards = []
+    for match in _FINANCIAL_VALIDATION_SECTION_RE.finditer(validation or ""):
+        card = _compact_financial_validation_sections_for_display(match.group(0))
+        if card:
+            cards.append(card)
+    return "\n\n".join(cards)
+
+
 def _compact_financial_validation_failure(validation_failure: str) -> str:
     diagnostic = validation_failure or ""
     reason_match = re.search(r"(?m)^calculation_trace_reason=(\S+)\s*$", diagnostic)
@@ -6337,7 +6346,13 @@ def _reply_with_financial_validation_failures(draft: str, validation_failure: st
 def _reply_with_financial_repair_suggestion(draft: str, validation_failure: str) -> str:
     """Legacy fallback: preserve the draft and fold diagnostics into one card."""
 
-    original = normalize_evidence_trace_for_display(draft).strip()
+    original = _strip_verbose_financial_validation_sections(
+        normalize_evidence_trace_for_display(draft)
+    )
+    original = _strip_inline_financial_evidence_labels_for_display(original)
+    validation_cards = _financial_validation_cards_for_display(validation_failure)
+    if validation_cards:
+        return f"{original}\n\n{validation_cards}".strip()
     failure = _compact_financial_validation_failure(validation_failure)
     return f"{original}\n\n## 计算器校验（存在待核对项）\n{failure}".strip()
 

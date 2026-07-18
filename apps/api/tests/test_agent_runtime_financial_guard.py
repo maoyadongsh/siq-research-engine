@@ -1362,6 +1362,123 @@ def test_successful_validation_summary_does_not_duplicate_existing_sections():
     assert "全部通过" in displayed
 
 
+def test_mixed_validation_report_keeps_successful_items_visible():
+    displayed = guard.append_financial_validation_report(
+        "## 结论\n- 商誉分析结果。",
+        runs=(
+            {
+                "tool": "financial_calculator.py",
+                "operation": "ratio",
+                "metric": "goodwill_to_total_assets_ratio",
+                "inputs": {
+                    "numerator": {"metric": "goodwill_net", "value": "1183", "unit": "RMB million"},
+                    "denominator": {"metric": "total_assets", "value": "985000", "unit": "RMB million"},
+                },
+                "result": {"percent": "0.1201015228426396"},
+            },
+            {
+                "tool": "financial_reconciliation_validator.py",
+                "operation": "goodwill_reconciliation",
+                "inputs": {
+                    "gross": {"metric": "goodwill_gross", "value": "1282", "unit": "RMB million"},
+                    "allowance": {
+                        "metric": "goodwill_impairment_allowance",
+                        "value": "99",
+                        "unit": "RMB million",
+                    },
+                    "net": {"metric": "goodwill_net", "value": "1183", "unit": "RMB million"},
+                },
+                "result": {"net": "1183 RMB million"},
+            },
+        ),
+        allowed=False,
+        reason="trace_result_mismatch",
+        failures=({"metric": "goodwill_to_equity_ratio"},),
+    )
+
+    assert "## 计算器校验（存在待核对项）" in displayed
+    assert "✅" in displayed
+    assert "goodwill_net / total_assets" in displayed
+    assert "## 勾稽校验（存在待核对项）" in displayed
+    assert "与 goodwill_net 一致" in displayed
+    assert "⚠️" in displayed
+    assert "指标：goodwill_to_equity_ratio" in displayed
+
+
+def test_strict_validation_failure_appends_full_validation_report(monkeypatch):
+    monkeypatch.setattr(
+        guard,
+        "validate_calculation_traces",
+        lambda *_args, **_kwargs: type(
+            "Validation",
+            (),
+            {
+                "checked": True,
+                "allowed": False,
+                "reason": "trace_result_mismatch",
+                "runs": (
+                    {
+                        "tool": "financial_calculator.py",
+                        "operation": "ratio",
+                        "metric": "goodwill_to_total_assets_ratio",
+                        "inputs": {
+                            "numerator": {
+                                "metric": "goodwill_net",
+                                "value": "1183",
+                                "unit": "RMB million",
+                            },
+                            "denominator": {
+                                "metric": "total_assets",
+                                "value": "985000",
+                                "unit": "RMB million",
+                            },
+                        },
+                        "result": {"percent": "0.1201015228426396"},
+                    },
+                    {
+                        "tool": "financial_reconciliation_validator.py",
+                        "operation": "goodwill_reconciliation",
+                        "inputs": {
+                            "gross": {
+                                "metric": "goodwill_gross",
+                                "value": "1282",
+                                "unit": "RMB million",
+                            },
+                            "allowance": {
+                                "metric": "goodwill_impairment_allowance",
+                                "value": "99",
+                                "unit": "RMB million",
+                            },
+                            "net": {
+                                "metric": "goodwill_net",
+                                "value": "1183",
+                                "unit": "RMB million",
+                            },
+                        },
+                        "result": {"net": "1183 RMB million"},
+                    },
+                ),
+                "failures": ({"metric": "goodwill_to_equity_ratio"},),
+            },
+        )(),
+    )
+
+    displayed = guard.enforce_financial_evidence_contract(
+        "分析商誉占比和勾稽关系",
+        None,
+        "## 结论\n- 原回答。\n\n## 计算器校验\n- trace。\n\nsource_type=wiki_metrics",
+        deps=_deps(),
+        strict_validation=True,
+    )
+
+    assert "原回答" not in displayed
+    assert "## 计算器校验（存在待核对项）" in displayed
+    assert "✅" in displayed
+    assert "goodwill_net / total_assets" in displayed
+    assert "## 勾稽校验（存在待核对项）" in displayed
+    assert "⚠️" in displayed
+
+
 def test_runtime_wrapper_uses_impl_financial_tool_paths(monkeypatch, tmp_path):
     from services import agent_chat_runtime as runtime
 

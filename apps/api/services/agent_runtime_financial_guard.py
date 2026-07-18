@@ -983,8 +983,6 @@ def append_financial_validation_report(
     if calculator_runs or (not allowed and reason != "reconciliation_trace_missing"):
         lines = [_calculation_run_summary(run) for run in calculator_runs]
         if not allowed:
-            lines = [line.replace("✅ ", "🔎 已检测：", 1) for line in lines]
-        if not allowed:
             lines.extend(_failure_summary(reason, failure) for failure in (failures or ({},)))
         status = "全部通过" if allowed else "存在待核对项"
         summary = (
@@ -998,8 +996,6 @@ def append_financial_validation_report(
         )
     if reconciliation_runs or reason == "reconciliation_trace_missing":
         lines = [_reconciliation_run_summary(run) for run in reconciliation_runs]
-        if not allowed:
-            lines = [line.replace("✅ ", "🔎 已检测：", 1) for line in lines]
         if not allowed:
             lines.append(_failure_summary(reason, failures[0] if failures else None))
         status = "全部通过" if allowed else "存在待核对项"
@@ -1125,7 +1121,13 @@ def enforce_financial_evidence_contract(
                 calculation_trace.reason
             ):
                 return _observation_reply(reply, diagnostic)
-            return diagnostic
+            return append_financial_validation_report(
+                diagnostic,
+                runs=calculation_trace.runs,
+                allowed=False,
+                reason=reason,
+                failures=calculation_trace.failures,
+            )
         return append_financial_validation_report(
             reply,
             runs=calculation_trace.runs,
@@ -1157,10 +1159,6 @@ def enforce_financial_evidence_contract(
             ),
         )
         if not claim_verification.allowed:
-            if strict_validation:
-                # A deterministic evidence mismatch is known-bad financial data,
-                # so the user-facing runtime must not deliver or persist it.
-                return build_financial_claim_mismatch_guardrail_reply(claim_verification)
             failures = tuple(
                 {
                     "metric": violation.metric,
@@ -1171,6 +1169,16 @@ def enforce_financial_evidence_contract(
                 }
                 for violation in claim_verification.violations[:5]
             )
+            if strict_validation:
+                # A deterministic evidence mismatch is known-bad financial data,
+                # so the user-facing runtime must not deliver or persist it.
+                return append_financial_validation_report(
+                    build_financial_claim_mismatch_guardrail_reply(claim_verification),
+                    runs=calculation_trace.runs,
+                    allowed=False,
+                    reason="trace_evidence_mismatch",
+                    failures=failures,
+                )
             return append_financial_validation_report(
                 reply,
                 runs=calculation_trace.runs,

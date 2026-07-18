@@ -865,6 +865,34 @@ def test_financial_repair_suggestion_keeps_streamed_draft_without_second_rewrite
     assert "guardrail_status=blocked" not in reply
 
 
+def test_financial_repair_suggestion_preserves_full_validation_cards():
+    reply = runtime._reply_with_financial_repair_suggestion(
+        "## 结论\n- 原始高质量回答。\n\n"
+        "## 计算器校验\ntrace_id=model-authored\nstatus: ok",
+        "## 计算校验无效\n"
+        "guardrail_status=blocked\n"
+        "calculation_trace_reason=trace_claim_result_mismatch\n\n"
+        "## 计算器校验（存在待核对项）\n"
+        "- 状态：2 项运行记录已检测，至少 1 项待核对。\n"
+        "- ✅ goodwill_net / total_assets：11.83 ÷ 9602.07 = 0.12%\n"
+        "- ✅ goodwill_net：1183122320.47 元 = 11.8312232047 亿元\n"
+        "- ⚠️ 正文值与确定性重算结果不一致。\n\n"
+        "## 勾稽校验（存在待核对项）\n"
+        "- 状态：1 项运行记录已检测，至少 1 项待核对。\n"
+        "- ✅ 12.82 − 0.99 = 11.83；与 goodwill_net 一致\n"
+        "- ⚠️ 缺少可验证的勾稽运行记录。",
+    )
+
+    assert "原始高质量回答" in reply
+    assert "## 计算器校验（存在待核对项）" in reply
+    assert "goodwill_net / total_assets" in reply
+    assert reply.count("✅") == 3
+    assert reply.count("⚠️") == 2
+    assert "## 勾稽校验（存在待核对项）" in reply
+    assert "trace_id=model-authored" not in reply
+    assert "guardrail_status=blocked" not in reply
+
+
 def test_financial_repair_prompt_requires_readable_single_unit_output():
     prompt = runtime._financial_repair_run_input(
         message="分析商誉",
