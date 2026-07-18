@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pip install mkdocs==1.6.1 mkdocs-material==9.5.49 && mkdocs build --strict",
+  "outputDirectory": "site",
+  "installCommand": "echo \"Dependencies installed via buildCommand\"",
+  "framework": null,
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "github": {
+    "silent": true
+  }
+}
