@@ -64,3 +64,50 @@
   color: var(--md-default-fg-color);
   opacity: 0.6;
 }
+
+/* Mermaid theme-aware palette: black-and-white in both light and dark modes. */
+:root {
+  --mermaid-font-family: var(--md-text-font-family, "Noto Sans SC");
+  --mermaid-edge-color: #000000;
+  --mermaid-node-bg-color: #ffffff;
+  --mermaid-node-text-color: #000000;
+  --mermaid-line-color: #000000;
+  --mermaid-primary-color: #ffffff;
+  --mermaid-secondary-color: #000000;
+  --mermaid-tertiary-color: #f5f5f5;
+  --mermaid-primary-text-color: #000000;
+  --mermaid-secondary-text-color: #ffffff;
+  --mermaid-tertiary-text-color: #000000;
+  --mermaid-label-bg-color: #ffffff;
+  --mermaid-label-text-color: #000000;
+}
+
+[data-md-color-scheme="slate"] {
+  --mermaid-edge-color: #ffffff;
+  --mermaid-node-bg-color: #1a1a1a;
+  --mermaid-node-text-color: #ffffff;
+  --mermaid-line-color: #ffffff;
+  --mermaid-primary-color: #1a1a1a;
+  --mermaid-secondary-color: #ffffff;
+  --mermaid-tertiary-color: #0d0d0d;
+  --mermaid-primary-text-color: #ffffff;
+  --mermaid-secondary-text-color: #000000;
+  --mermaid-tertiary-text-color: #ffffff;
+  --mermaid-label-bg-color: #1a1a1a;
+  --mermaid-label-text-color: #ffffff;
+}
+
+.mermaid svg { background-color: transparent; }
+.mermaid .node rect,
+.mermaid .node circle,
+.mermaid .node ellipse,
+.mermaid .node polygon,
+.mermaid .node path { fill: var(--mermaid-node-bg-color); stroke: var(--mermaid-line-color); }
+.mermaid .nodeLabel { color: var(--mermaid-node-text-color); background-color: var(--mermaid-node-bg-color); }
+.mermaid .edgeLabel { background-color: var(--mermaid-label-bg-color); color: var(--mermaid-label-text-color); }
+.mermaid .cluster rect { fill: var(--mermaid-tertiary-color); stroke: var(--mermaid-line-color); }
+.mermaid .cluster text { fill: var(--mermaid-node-text-color); }
+.mermaid .edgePaths path,
+.mermaid .edge-thickness-normal { stroke: var(--mermaid-edge-color); }
+.mermaid .arrowheadPath { fill: var(--mermaid-edge-color); stroke: var(--mermaid-edge-color); }
+.mermaid text { color: var(--mermaid-node-text-color); fill: var(--mermaid-node-text-color); }

@@ -80,13 +80,6 @@ graph TB
     E2 --> G3
     E1 --> G4
 
-    style Inputs fill:#f5f5f5,stroke:#000,color:#000
-    style AppCenter fill:#fff,stroke:#000,color:#000
-    style Evidence fill:#f5f5f5,stroke:#000,color:#000
-    style ControlPlane fill:#fff,stroke:#000,color:#000
-    style Agents fill:#f5f5f5,stroke:#000,color:#000
-    style OpenShell fill:#fff,stroke:#000,color:#000
-    style Web fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 五层架构
@@ -189,8 +182,4 @@ graph LR
     P3 --> S3
     P3 --> S4
 
-    style Shared fill:#f5f5f5,stroke:#000,color:#000
-    style P1 fill:#fff,stroke:#000,color:#000
-    style P2 fill:#fff,stroke:#000,color:#000
-    style P3 fill:#fff,stroke:#000,color:#000
 ```

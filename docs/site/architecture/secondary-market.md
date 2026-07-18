@@ -27,14 +27,6 @@ graph LR
     F --> G[siq_tracking<br/>siq_legal]
     G --> H[可回溯报告<br/>每条结论可下钻到原始披露段落]
 
-    style A fill:#fff,stroke:#000,color:#000
-    style B fill:#f5f5f5,stroke:#000,color:#000
-    style C fill:#fff,stroke:#000,color:#000
-    style D fill:#f5f5f5,stroke:#000,color:#000
-    style E fill:#fff,stroke:#000,color:#000
-    style F fill:#f5f5f5,stroke:#000,color:#000
-    style G fill:#fff,stroke:#000,color:#000
-    style H fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 岗位合同说明

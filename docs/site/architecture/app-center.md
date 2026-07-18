@@ -56,11 +56,6 @@ graph TB
     BizMerged --> C1
     BizMerged --> C2
 
-    style Inputs fill:#f5f5f5,stroke:#000,color:#000
-    style AppCenter fill:#fff,stroke:#000,color:#000
-    style Storage fill:#f5f5f5,stroke:#000,color:#000
-    style Consumers fill:#fff,stroke:#000,color:#000
-    style BizMerged fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 每个应用的价值

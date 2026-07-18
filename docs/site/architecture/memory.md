@@ -33,13 +33,6 @@ graph TB
     L3 -.->|可重建| L4
     L4 -.->|失效后| L3
 
-    style Runtime fill:#f5f5f5,stroke:#000,color:#000
-    style LongTerm fill:#fff,stroke:#000,color:#000
-    style User fill:#f5f5f5,stroke:#000,color:#000
-    style L1 fill:#fff,stroke:#000,color:#000
-    style L2 fill:#fff,stroke:#000,color:#000
-    style L3 fill:#f5f5f5,stroke:#000,color:#000
-    style L4 fill:#f5f5f5,stroke:#000,color:#000
 ```
 
 ## 关键能力
@@ -88,18 +81,6 @@ graph LR
     EviMerged --> Judge
     Judge --> Output[结论]
     
-    style Q fill:#fff,stroke:#000,color:#000
-    style M fill:#f5f5f5,stroke:#000,color:#000
-    style E fill:#f5f5f5,stroke:#000,color:#000
-    style C fill:#fff,stroke:#000,color:#000
-    style R fill:#fff,stroke:#000,color:#000
-    style P fill:#f5f5f5,stroke:#000,color:#000
-    style D fill:#f5f5f5,stroke:#000,color:#000
-    style S fill:#f5f5f5,stroke:#000,color:#000
-    style MemMerged fill:#fff,stroke:#000,color:#000
-    style EviMerged fill:#fff,stroke:#000,color:#000
-    style Judge fill:#f5f5f5,stroke:#000,color:#000
-    style Output fill:#fff,stroke:#000,color:#000
 ```
 
 **记忆提供连续性，证据决定事实。当记忆与证据冲突时，以证据为准。**

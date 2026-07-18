@@ -50,26 +50,6 @@ graph TB
     API --> ModelServices
     Hermes --> ModelServices
 
-    style Apps fill:#f5f5f5,stroke:#000,color:#000
-    style Services fill:#fff,stroke:#000,color:#000
-    style Packages fill:#f5f5f5,stroke:#000,color:#000
-    style Agents fill:#fff,stroke:#000,color:#000
-    style Db fill:#f5f5f5,stroke:#000,color:#000
-    style Infra fill:#fff,stroke:#000,color:#000
-    style Scripts fill:#f5f5f5,stroke:#000,color:#000
-    style Web fill:#fff,stroke:#000,color:#000
-    style API fill:#f5f5f5,stroke:#000,color:#000
-    style PdfParser fill:#fff,stroke:#000,color:#000
-    style DocParser fill:#f5f5f5,stroke:#000,color:#000
-    style IosCapture fill:#fff,stroke:#000,color:#000
-    style Finder fill:#f5f5f5,stroke:#000,color:#000
-    style Rules fill:#fff,stroke:#000,color:#000
-    style Contracts fill:#f5f5f5,stroke:#000,color:#000
-    style Hermes fill:#fff,stroke:#000,color:#000
-    style Imports fill:#f5f5f5,stroke:#000,color:#000
-    style ModelServices fill:#fff,stroke:#000,color:#000
-    style OpenShell fill:#f5f5f5,stroke:#000,color:#000
-    style Ops fill:#fff,stroke:#000,color:#000
 ```
 
 | 路径 | 职责 |
