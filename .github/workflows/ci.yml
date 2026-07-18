@@ -110,7 +110,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Filesystem security scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           scan-type: fs
           scan-ref: .
