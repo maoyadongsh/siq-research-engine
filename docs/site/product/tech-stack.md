@@ -1,5 +1,67 @@
 # 技术栈
 
+## 技术栈分层
+
+SIQ 按"前端 / 控制面 / 解析面 / 市场服务 / 数据层 / 智能体 / 运行面"七层选型。下方分层图展示各层主要组件与跨层依赖关系。
+
+```mermaid
+graph TB
+    subgraph L1["① 前端 apps/web"]
+        F1[React 19 + Router 7]
+        F2[Vite 8 + TS 6]
+        F3[Tailwind 4 + Radix UI]
+    end
+
+    subgraph L2["② 控制面 apps/api"]
+        C1[FastAPI + SQLModel]
+        C2[SSE Starlette + Uvicorn]
+        C3[Redis + JWT/cookie]
+    end
+
+    subgraph L3["③ 解析面"]
+        P1[Flask + pypdf<br/>apps/pdf-parser]
+        P2[MinerU bridge + VLM<br/>apps/document-parser]
+        P3[table relation + schema extraction]
+    end
+
+    subgraph L4["④ 市场服务 services/"]
+        M1[market-report-finder<br/>官方披露搜索]
+        M2[market-report-rules<br/>市场规则 + load plan]
+        M3[packages/market-contracts<br/>共享合同]
+    end
+
+    subgraph L5["⑤ 数据层"]
+        D1[(PostgreSQL<br/>权威事实账本)]
+        D2[(SQLite<br/>本地存储)]
+        D3[(Milvus<br/>语义索引)]
+        D4[(LLM Wiki<br/>文件型证据包)]
+    end
+
+    subgraph L6["⑥ 智能体 agents/hermes"]
+        A1[5 个二级市场 profiles]
+        A2[7 个一级市场 IC profiles]
+        A3[reranker + memory]
+    end
+
+    subgraph L7["⑦ 运行面 GPU/OpenShell"]
+        O1[NVIDIA OpenShell v0.0.83]
+        O2[vLLM + BYOC 沙箱]
+        O3[Nemotron / Gemma / Qwen]
+    end
+
+    L1 --> L2
+    L2 --> L3
+    L2 --> L4
+    L2 --> L5
+    L3 --> L5
+    L4 --> L5
+    L4 --> M3
+    L2 --> L6
+    L6 --> L7
+    L6 --> L5
+    L3 --> M3
+```
+
 ## 全栈选型一览
 
 | 层 | 选型 | 作用 |
