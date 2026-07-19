@@ -2087,12 +2087,15 @@ def _plain_line_values(line: str) -> tuple[Decimal, ...]:
     return tuple(values)
 
 
-def _display_amount_tolerance(value_text: str, unit: str, target: float) -> float:
+def _display_amount_tolerance(value_text: str, unit: str, target: float, metric: str = "") -> float:
     decimals = len(value_text.rsplit(".", 1)[1]) if "." in value_text else 0
     multiplier = _unit_multiplier(unit)
     quantum = (multiplier[1] if multiplier else 1.0) * (10.0 ** (-decimals))
     floating_slack = max(1e-9, math.ulp(float(target)) * 4)
-    return quantum / 2.0 + floating_slack
+    tolerance = quantum / 2.0 + floating_slack
+    if str(metric or "").endswith("_absolute_change"):
+        tolerance = max(tolerance, quantum + floating_slack)
+    return tolerance
 
 
 def _claim_fact_value_distance(
@@ -2545,7 +2548,12 @@ def materialize_evidence_bound_calculation_runs(
 
     if not expected_operations or "normalize_amount" in expected_operations:
         for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, evidence):
-            tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+            tolerance = _display_amount_tolerance(
+                claim.value_text,
+                claim.unit,
+                fact.normalized_value,
+                fact.metric,
+            )
             if _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) > tolerance:
                 continue
             inputs = {"amount": _trusted_trace_input(reference, "amount")}
@@ -3036,7 +3044,9 @@ def validate_calculation_traces(
                 and isinstance(run.get("inputs", {}).get("amount"), Mapping)
                 and str(run.get("inputs", {}).get("amount", {}).get("evidence_id") or "") == evidence_id
             ]
-            tolerance = Decimal(str(_display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)))
+            tolerance = Decimal(
+                str(_display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value, fact.metric))
+            )
             claimed = Decimal(str(claim.normalized_value))
             if not any(
                 expected is not None and _claim_fact_value_distance(claimed, expected, fact.metric) <= tolerance
@@ -3851,7 +3861,8 @@ def _fact_for_amount(
             candidate
             for candidate in semantic_candidates
             if candidate[3].metric.endswith("_absolute_change")
-            and candidate[1] <= _display_amount_tolerance(value_text, unit, candidate[3].normalized_value)
+            and candidate[1]
+            <= _display_amount_tolerance(value_text, unit, candidate[3].normalized_value, candidate[3].metric)
         ]
         if change_candidates:
             return min(change_candidates, key=lambda item: (item[0], item[1], item[2]))[3]
@@ -4616,7 +4627,9 @@ def _extract_claims(
                         normalized_value,
                         change_fact.normalized_value,
                         change_fact.metric,
-                    ) <= _display_amount_tolerance(match.group("value"), unit, change_fact.normalized_value):
+                    ) <= _display_amount_tolerance(
+                        match.group("value"), unit, change_fact.normalized_value, change_fact.metric
+                    ):
                         fact = change_fact
                 explicit_value = normalize_financial_minus_signs(match.group("value")).strip()
                 if (
@@ -4647,6 +4660,7 @@ def _extract_claims(
                             match.group("value"),
                             unit,
                             signed_change_fact.normalized_value,
+                            signed_change_fact.metric,
                         ):
                             fact = signed_change_fact
                 resolved_facts[match_index] = fact
@@ -4764,11 +4778,7 @@ def _evidence_bound_unit_normalization_claims(
         if not candidates:
             continue
         distance, fact, reference = min(candidates, key=lambda item: item[0])
-        tolerance = _display_amount_tolerance(
-            claim.value_text,
-            claim.unit,
-            fact.normalized_value,
-        )
+        tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value, fact.metric)
         if distance > tolerance:
             # In a long multi-metric sentence, a broad metric phrase can
             # outscore the local subject even though the converted amount is
@@ -4809,6 +4819,7 @@ def _evidence_bound_unit_normalization_claims(
                     claim.value_text,
                     claim.unit,
                     alternate.normalized_value,
+                    alternate.metric,
                 ):
                     exact_value_candidates.append(
                         (alternate_distance, alternate, alternate_reference)
@@ -4860,7 +4871,7 @@ def _matches_evidence(claim: NumericClaim, fact: EvidenceFact) -> bool:
         fact_tokens = _period_tokens(fact.period)
         if not _period_tokens_compatible(claim.period_tokens, fact_tokens):
             return False
-    tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+    tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value, fact.metric)
     return _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) <= tolerance
 
 
@@ -4881,7 +4892,7 @@ def _violation_reason(claim: NumericClaim, fact: EvidenceFact) -> str:
             return "period_mismatch"
     if not _change_direction_matches(claim, fact):
         return "direction_mismatch"
-    tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+    tolerance = _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value, fact.metric)
     if _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) > tolerance:
         return "value_mismatch"
     return "claim_mismatch"
@@ -5017,7 +5028,7 @@ def verify_financial_claims(
             ]
             claim_value = Decimal(str(abs(claim.normalized_value)))
             tolerance = Decimal(
-                str(_display_amount_tolerance(claim.value_text, claim.unit, claim.normalized_value))
+                str(_display_amount_tolerance(claim.value_text, claim.unit, claim.normalized_value, claim.metric))
             )
             aggregate_fact_match = any(
                 abs(sum(parts, Decimal("0")) - claim_value) <= tolerance
@@ -5045,7 +5056,7 @@ def verify_financial_claims(
                 fact.normalized_value,
                 fact.metric,
             )
-            <= _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value)
+            <= _display_amount_tolerance(claim.value_text, claim.unit, fact.normalized_value, fact.metric)
             for fact in facts
         ):
             # The deterministic calculator has already validated the line's

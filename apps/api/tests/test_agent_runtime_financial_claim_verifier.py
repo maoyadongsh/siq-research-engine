@@ -3936,6 +3936,57 @@ def test_claim_verifier_binds_signed_decrease_to_positive_absolute_change_eviden
     assert result.claims[0].normalized_value < 0
 
 
+def test_calculation_trace_accepts_absolute_change_rounding_gap_in_billion_display():
+    evidence = (
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_gross",
+                "商誉账面原值",
+                "2024-12-31",
+                "1302999061.44",
+                "saic-gross-2024",
+                ("商誉账面原值", "商誉原值", "账面原值"),
+            ),
+            "unit": "元",
+        },
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_gross",
+                "商誉账面原值",
+                "2025-12-31",
+                "1282085915.36",
+                "saic-gross-2025",
+                ("商誉账面原值", "商誉原值", "账面原值"),
+            ),
+            "unit": "元",
+        },
+        {
+            **_trusted_period_goodwill_fact(
+                "goodwill_gross_absolute_change",
+                "商誉账面原值变动额",
+                "2025-12-31",
+                "20913146.08",
+                "saic-gross-change-2025",
+                ("商誉账面原值变动", "商誉原值变动", "本期减少", "绝对变动"),
+            ),
+            "change_direction": "decrease",
+            "unit": "元",
+        },
+    )
+    source = "[D1] source_type=wiki_document_links task_id=task-midea pdf_page=206 table_index=163 md_line=4325"
+
+    result = validate_calculation_traces(
+        f"商誉原值变动 = 12.8208592 亿元 − 13.0299906 亿元 = **‑0.2091314 亿元**。\n{source}",
+        expected_identity=MIDEA_IDENTITY,
+        require_calculator=True,
+        expected_operations=frozenset({"normalize_amount"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert any(run["metric"] == "goodwill_gross_absolute_change" for run in result.runs)
+
+
 @pytest.mark.parametrize(
     "claim",
     (
