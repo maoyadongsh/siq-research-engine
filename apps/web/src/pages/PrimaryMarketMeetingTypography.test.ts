@@ -19,6 +19,7 @@ test('primary and secondary market chat windows share the centered message layou
 test('secondary market chat keeps streaming task status card in assistant message', () => {
   assert.match(secondaryChatSource, /const activeProgress = activeAssistant\?\.progress \?\?/)
   assert.match(secondaryChatSource, /renderProgress=\{\(msg\) => msg\.streaming \? <AgentProgressCard progress=\{msg\.progress \?\? activeProgress\} \/> : null\}/)
+  assert.doesNotMatch(secondaryChatSource, /chat-page-active-progress/)
 })
 
 test('shared chat typography keeps assistant prose readable and headings visibly hierarchical', () => {

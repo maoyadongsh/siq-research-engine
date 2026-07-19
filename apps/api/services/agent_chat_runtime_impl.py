@@ -5859,6 +5859,8 @@ def build_postgres_fallback_context(message: str, context: Any | None = None) ->
 
 
 def _needs_financial_evidence_contract(message: str, context: Any | None = None) -> bool:
+    if _is_runtime_connectivity_question(message):
+        return False
     return (
         _is_human_efficiency_query(message)
         or _is_statement_query(message)

@@ -215,30 +215,23 @@ export default function ChatPage() {
         />
       }
       messages={
-        <>
-          {activeProgress ? (
-            <div className="chat-page-active-progress mx-auto mb-3 w-full max-w-3xl" role="status" aria-label="智能体执行状态">
-              <AgentProgressCard progress={activeProgress} />
+        <ChatMessageList
+          messages={messages}
+          endRef={messagesEnd}
+          auditTraceApiPrefix="/api"
+          emptyAvatar={<AgentFairy state={fairyState} size="xl" className="mb-4" />}
+          emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。支持数据查询、趋势分析、对比研究等。"
+          quickQuestions={quickQuestions}
+          notice={historyNotice}
+          onCopyMessage={copyMessage}
+          renderStreamingAvatar={(msg) => (
+            <div className="pointer-events-none mr-3 mt-auto -mb-2 shrink-0 self-end">
+              <AgentFairy state={messageFairyState(msg)} size="xl" label="当前助手状态" />
             </div>
-          ) : null}
-          <ChatMessageList
-            messages={messages}
-            endRef={messagesEnd}
-            auditTraceApiPrefix="/api"
-            emptyAvatar={<AgentFairy state={fairyState} size="xl" className="mb-4" />}
-            emptyDescription="你好！我是财报分析助手，可以回答关于已入库财报的问题。支持数据查询、趋势分析、对比研究等。"
-            quickQuestions={quickQuestions}
-            notice={historyNotice}
-            onCopyMessage={copyMessage}
-            renderStreamingAvatar={(msg) => (
-              <div className="pointer-events-none mr-3 mt-auto -mb-2 shrink-0 self-end">
-                <AgentFairy state={messageFairyState(msg)} size="xl" label="当前助手状态" />
-              </div>
-            )}
-            renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress ?? activeProgress} /> : null}
-            listClassName="chat-page-message-list mx-auto w-full"
-          />
-        </>
+          )}
+          renderProgress={(msg) => msg.streaming ? <AgentProgressCard progress={msg.progress ?? activeProgress} /> : null}
+          listClassName="chat-page-message-list mx-auto w-full"
+        />
       }
       messagesClassName="chat-page-messages flex-1 overflow-y-auto px-4 py-4 sm:px-5 lg:px-6"
       composer={

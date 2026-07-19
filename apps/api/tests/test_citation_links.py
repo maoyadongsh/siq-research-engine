@@ -544,6 +544,57 @@ def test_goodwill_book_value_resolves_to_balance_sheet_main_statement():
     assert first_ref["table_index"] == 84
 
 
+def test_system_meta_citation_drops_pdf_locators_and_clickable_links(monkeypatch):
+    task_id = "9d052a75-941a-4a77-be83-addb46dae2ea"
+    text = f"""我使用的是 nemotron_3_nano_omni 模型。
+
+## 引用来源
+
+[1] source_type=system, file=meta, metric=model_name, period=current, task_id={task_id}, pdf_page=1, table_index=0, md_line=0, [系统信息](https://arthurmao.synology.me:9391)，[打开PDF定位页1](https://arthurmao.synology.me:9391/api/pdf_page/{task_id}/1?format=html)，[查看定位页1来源](https://arthurmao.synology.me:9391/api/source/{task_id}/page/1?format=html)
+"""
+
+    monkeypatch.setattr(citation_links, "_get_enrich_citation_line", lambda: None)
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "source_type=system" in cleaned
+    assert "file=meta" in cleaned
+    assert "metric=model_name" in cleaned
+    assert "period=current" in cleaned
+    assert "系统信息" in cleaned
+    assert "task_id=" not in cleaned
+    assert "pdf_page=" not in cleaned
+    assert "table_index=" not in cleaned
+    assert "md_line=" not in cleaned
+    assert "/api/pdf_page/" not in cleaned
+    assert "/api/source/" not in cleaned
+    assert "](https://" not in cleaned
+
+
+def test_company_pdf_citation_keeps_locators_and_links(monkeypatch):
+    task_id = "11111111-1111-1111-1111-111111111199"
+    text = f"""上汽集团营业收入如下。
+
+## 引用来源
+
+[1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=利润表核心数据, period=2025-annual, task_id={task_id}, pdf_page=72, table_index=88, md_line=1904。
+"""
+
+    monkeypatch.setattr(citation_links, "_get_enrich_citation_line", lambda: None)
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setattr(citation_links, "_create_source_access_token", lambda source_task_id: f"token-{source_task_id}")
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "source_type=wiki_metrics" in cleaned
+    assert f"task_id={task_id}" in cleaned
+    assert "pdf_page=72" in cleaned
+    assert "table_index=88" in cleaned
+    assert f"https://public.example/api/pdf_page/{task_id}/72?format=html&source_token=" in cleaned
+    assert f"https://public.example/api/source/{task_id}/page/72?format=html&source_token=" in cleaned
+    assert f"https://public.example/api/source/{task_id}/table/88?format=html&source_token=" in cleaned
+
+
 def test_cash_flow_document_link_citation_is_corrected_to_main_statement():
     text = """请评估上汽集团现金流。
 

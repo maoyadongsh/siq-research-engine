@@ -54,6 +54,7 @@ CITATION_LINE_RE = re.compile(r"^\s*(\[(?:D)?[0-9]+\]).*$", re.IGNORECASE)
 MARKDOWN_API_LINK_RE = re.compile(
     r"\]\((?P<url>(?:https?://[^)\s]+)?/api/(?:pdf_page|source)/[^)\s]+)\)"
 )
+MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((?:https?://[^)\s]+|/api/[^)\s]+)\)")
 TRACE_LINK_RE = re.compile(r"[，,、\s]*\[[^\]]*(?:PDF|页来源|来源|表格|可读表格)[^\]]*\]\((?:https?://[^)\s]+|/api/(?:pdf_page|source)/[^)\s]+)\)")
 BARE_TRACE_LINK_RE = re.compile(
     r"[，,、\s]*(?:打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*)"
@@ -61,6 +62,35 @@ BARE_TRACE_LINK_RE = re.compile(
 )
 CITATION_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?引用来源[:：]?\s*$")
 OPEN_LINK_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?可打开来源链接[:：]?\s*$")
+SOURCE_TYPE_FIELD_RE = re.compile(r"\bsource_type=([^,，。;；\n]+)")
+FILE_FIELD_RE = re.compile(r"\bfile=([^,，。;；\n]+)")
+NON_DOCUMENT_SOURCE_TYPES = {
+    "system",
+    "meta",
+    "runtime",
+    "runtime_meta",
+    "runtime_config",
+    "system_meta",
+}
+NON_DOCUMENT_FILES = {
+    "meta",
+    "runtime",
+    "system",
+    "system/meta",
+    "runtime/meta",
+}
+NON_DOCUMENT_LOCATOR_FIELDS = (
+    "task_id",
+    "pdf_page",
+    "pdf_page_number",
+    "printed_page",
+    "printed_page_number",
+    "table_index",
+    "md_line",
+    "source_url",
+    "source_anchor",
+    "xbrl_tag",
+)
 
 
 def _public_origin() -> str:
@@ -127,6 +157,36 @@ def _strip_trace_links(line: str) -> str:
 
 def _strip_bare_trace_links(line: str) -> str:
     cleaned = BARE_TRACE_LINK_RE.sub("", line)
+    return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
+
+
+def _field_value(line: str, pattern: re.Pattern[str]) -> str:
+    match = pattern.search(line)
+    return match.group(1).strip().strip("`\"'").casefold() if match else ""
+
+
+def _is_non_document_citation_line(line: str) -> bool:
+    source_type = _field_value(line, SOURCE_TYPE_FIELD_RE)
+    file_value = _field_value(line, FILE_FIELD_RE)
+    return source_type in NON_DOCUMENT_SOURCE_TYPES or file_value in NON_DOCUMENT_FILES
+
+
+def _strip_citation_field(line: str, field: str) -> str:
+    pattern = re.compile(
+        rf"(?P<prefix>\s*[,，]\s*|\s+)\b{re.escape(field)}=[^,，。;；\n]+",
+        re.IGNORECASE,
+    )
+    return pattern.sub("", line)
+
+
+def _strip_non_document_citation_locators(line: str) -> str:
+    """Remove PDF/company locator affordances from system/runtime metadata citations."""
+    cleaned = MARKDOWN_LINK_RE.sub(r"\1", _strip_trace_links(line))
+    for field in NON_DOCUMENT_LOCATOR_FIELDS:
+        cleaned = _strip_citation_field(cleaned, field)
+    cleaned = re.sub(r"\s+([,，。.;；])", r"\1", cleaned)
+    cleaned = re.sub(r"([,，])\s*([,，])+", r"\1", cleaned)
+    cleaned = re.sub(r"[，,、\s]+([。.;；])$", r"\1", cleaned)
     return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
 
 
@@ -210,6 +270,11 @@ def append_missing_pdf_source_links(text: str) -> str:
     changed = False
     for line in text.splitlines():
         if CITATION_LINE_RE.match(line):
+            if _is_non_document_citation_line(line):
+                stripped = _strip_non_document_citation_locators(line)
+                changed = changed or stripped != line
+                enriched_lines.append(stripped)
+                continue
             stripped = _strip_bare_trace_links(line)
             if enrich_citation_line:
                 stripped = _strip_trace_links(stripped)
@@ -234,6 +299,11 @@ def append_missing_pdf_source_links(text: str) -> str:
         citation = CITATION_LINE_RE.match(line)
         if not citation:
             output_lines.append(line)
+            continue
+        if _is_non_document_citation_line(line):
+            cleaned = _strip_non_document_citation_locators(line)
+            changed = changed or cleaned != line
+            output_lines.append(cleaned)
             continue
 
         task_match = TASK_ID_RE.search(line)
