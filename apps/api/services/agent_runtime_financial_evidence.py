@@ -259,6 +259,50 @@ def _source_lineage(table: Mapping[str, Any], result: Mapping[str, Any]) -> str:
     return _stable_id("source-lineage", task_id, report_id, table_index, md_line)
 
 
+def _group_decimal(value: Decimal, places: int | None = None) -> str:
+    if places is not None:
+        value = value.quantize(Decimal(1).scaleb(-places))
+    text = format(value, f".{places}f") if places is not None else format(value, "f")
+    if places is None and "." in text:
+        text = text.rstrip("0").rstrip(".")
+    text = text or "0"
+    sign = "-" if text.startswith("-") else ""
+    if sign:
+        text = text[1:]
+    integer, dot, fraction = text.partition(".")
+    grouped = f"{int(integer):,}" if integer else "0"
+    return f"{sign}{grouped}{dot}{fraction}" if dot else f"{sign}{grouped}"
+
+
+def _us_sec_usd_display_fields(
+    *,
+    value: Decimal,
+    unit: str,
+    identity: Mapping[str, str],
+    source_url: str,
+    evidence_source_type: Any,
+) -> dict[str, Any]:
+    if identity.get("market") != "US":
+        return {}
+    if str(unit or "").strip().upper() != "USD":
+        return {}
+    source_type = str(evidence_source_type or "").strip().lower()
+    if source_type != "sec_xbrl_fact" and "sec.gov" not in source_url.lower():
+        return {}
+    billion = value / Decimal("1000000000")
+    hundred_million = value / Decimal("100000000")
+    display_raw = f"{_group_decimal(value)} USD"
+    display_billion = f"{_decimal_text(billion)} billion USD"
+    display_100m = f"{_group_decimal(hundred_million, 2)} 亿美元"
+    return {
+        "display_raw": display_raw,
+        "display_billion": display_billion,
+        "display_100m": display_100m,
+        "display_100m_unit": "亿美元",
+        "display_values": (display_raw, display_billion, display_100m),
+    }
+
+
 def _identity(expected_identity: Mapping[str, Any] | None) -> dict[str, str]:
     values = {field: str((expected_identity or {}).get(field) or "").strip() for field in IDENTITY_FIELDS}
     return values if all(values.values()) else {}
@@ -855,6 +899,15 @@ def build_trusted_statement_row_evidence(
         ):
             if field_value not in (None, ""):
                 record[key] = field_value
+        record.update(
+            _us_sec_usd_display_fields(
+                value=value,
+                unit=unit,
+                identity=identity,
+                source_url=source_url,
+                evidence_source_type=row.get("evidence_source_type"),
+            )
+        )
         evidence.append(record)
     return tuple((*evidence, *_change_evidence(evidence, identity)))
 
@@ -873,7 +926,10 @@ _AMOUNT_UNIT_TO_BASE = {
 def _decimal_text(value: Decimal, places: int | None = None) -> str:
     if places is not None:
         value = value.quantize(Decimal(1).scaleb(-places))
-    return format(value, "f").rstrip("0").rstrip(".") or "0"
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def render_deterministic_calculation_pack(
@@ -882,7 +938,32 @@ def render_deterministic_calculation_pack(
     """Render backend-owned display values before the model writes prose."""
 
     rows: list[str] = []
+    us_sec_rows: list[str] = []
     for item in evidence:
+        display_raw = str(item.get("display_raw") or "").strip()
+        display_billion = str(item.get("display_billion") or "").strip()
+        display_100m = str(item.get("display_100m") or "").strip()
+        if display_raw and display_billion and display_100m:
+            metric = str(item.get("metric") or "")
+            metric_name = str(item.get("metric_name") or metric)
+            period = str(item.get("period") or "")
+            evidence_id = str(item.get("evidence_id") or "")
+            calculation_id = "calc:" + hashlib.sha256(
+                f"{evidence_id}|display-us-sec-units-v1".encode("utf-8")
+            ).hexdigest()[:16]
+            us_sec_rows.append(
+                "| {calculation_id} | {metric} | {metric_name} | {period} | {raw} | {billion} | "
+                "{hundred_million} | {evidence_id} |".format(
+                    calculation_id=calculation_id,
+                    metric=metric,
+                    metric_name=metric_name,
+                    period=period,
+                    raw=display_raw,
+                    billion=display_billion,
+                    hundred_million=display_100m,
+                    evidence_id=evidence_id,
+                )
+            )
         unit = str(item.get("unit") or "")
         multiplier = _AMOUNT_UNIT_TO_BASE.get(unit)
         if multiplier is None:
@@ -917,22 +998,46 @@ def render_deterministic_calculation_pack(
             )
         )
     if not rows:
+        if us_sec_rows:
+            return "\n".join(
+                [
+                    "## 后端确定性财务结果包",
+                    "以下换算由后端在模型生成前完成，是本轮派生金额的唯一允许来源。",
+                    "- 正文不得自行移动小数点、重新换算或改变项目归属。",
+                    "- 本表是机器校验上下文，不是回答模板；正文不得提及结果包、calculation_id、evidence_id 或校验运行过程。",
+                    "- 美股 SEC/XBRL 金额默认优先复制“原始 USD”或“billion USD”列；只有复制“亿美元”列时才可写中文亿美元，不得把 billion 数字直接改成亿。",
+                    "- 使用派生金额时必须保持本表数值和单位，并在内部句末标注对应 `[calc:...]`；该标签会在展示前移除。",
+                    "- 结果包没有覆盖的派生金额不得输出；可保留原始披露值并说明未计算。",
+                    "| calculation_id | metric | 项目 | period | 原始 USD | billion USD | 亿美元 | evidence_id |",
+                    "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
+                    *us_sec_rows,
+                ]
+            )
         return None
-    return "\n".join(
-        [
+    lines = [
             "## 后端确定性财务结果包",
             "以下换算由后端在模型生成前完成，是本轮派生金额的唯一允许来源。",
             "- 正文不得自行移动小数点、重新换算或改变项目归属。",
             "- 本表是机器校验上下文，不是回答模板；正文不得提及结果包、calculation_id、evidence_id 或校验运行过程。",
-            "- 每个判断只选一种最易读单位：亿元级余额优先用亿元，较小变动可用万元；不要在同一句重复元、万元、亿元三套口径。",
+            "- 人民币金额每个判断只选一种最易读单位：亿元级余额优先用亿元，较小变动可用万元；不要在同一句重复元、万元、亿元三套口径。",
             "- 精确原始值集中放在一张关键数据表即可，结论与勾稽说明不要重复抄表。",
             "- 使用派生金额时必须保持本表数值和单位，并在内部句末标注对应 `[calc:...]`；该标签会在展示前移除。",
             "- 结果包没有覆盖的派生金额不得输出；可保留原始披露值并说明未计算。",
             "| calculation_id | metric | 项目/方向 | period | 原始口径 | 万元 | 亿元 | evidence_id |",
             "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
             *rows,
-        ]
-    )
+    ]
+    if us_sec_rows:
+        lines.extend(
+            [
+                "",
+                "- 美股 SEC/XBRL 金额默认优先复制“原始 USD”或“billion USD”列；只有复制“亿美元”列时才可写中文亿美元，不得把 billion 数字直接改成亿。",
+                "| calculation_id | metric | 项目 | period | 原始 USD | billion USD | 亿美元 | evidence_id |",
+                "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
+                *us_sec_rows,
+            ]
+        )
+    return "\n".join(lines)
 
 
 __all__ = [

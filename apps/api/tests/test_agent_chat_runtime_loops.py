@@ -1415,6 +1415,18 @@ def test_goodwill_mixed_query_injects_main_statement_and_note_contexts():
     assert "所有金额换算、变动额及其项目归属只能逐字采用结果包" in prompt
 
 
+def test_us_financial_prompt_prefers_usd_or_billion_usd_not_hundred_million_guess():
+    prompt = runtime.build_session_contextual_input(
+        "分析英伟达 2026 年营收",
+        profile="siq_assistant",
+        session_id="us-sec-unit-display-contract-test",
+    )
+
+    assert "美股 SEC/XBRL 金额优先保留原始 USD 或后端结果包中的 billion USD" in prompt
+    assert "美股 SEC/XBRL 金额默认优先复制“原始 USD”或“billion USD”列" in prompt
+    assert "不得把 billion 数字直接改成亿" in prompt
+
+
 def test_goodwill_mixed_query_guard_adds_missing_main_statement_source(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     cited = (

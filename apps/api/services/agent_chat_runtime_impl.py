@@ -4018,7 +4018,7 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
         "以下是后端从本地 Wiki 三大表 `three_statements.json` 提取的核心数据底稿。模型可以润色、概括和解释数据本质，但不得改写任何 `raw_value`、期间、单位、公司、report_id、task_id、pdf_page、table_index、md_line 或来源路径。",
         "输出要求：",
         "- 回答先讲三大表透视出的经营本质，例如增长、盈利、现金流含金量、资产负债结构；再给关键数据表格。",
-        "- 所有关键数字必须来自下方底稿；如果要换算成亿元/百分比，只能作为补充表述，并同时保留下方原始披露值。",
+        "- 所有关键数字必须来自下方底稿；如果要做金额单位归一或百分比，只能复制后端确定性结果包/计算器输出作为补充表述，并同时保留下方原始披露值。",
         "- `## 引用来源` 必须保留每张相关表的 `source_type/file/task_id/pdf_page/table_index/md_line` 和可打开链接。",
         f"- 公司: {result.get('company_name')} / 市场 {result.get('market')} / 代码 {result.get('stock_code')} / "
         f"company_id={result.get('company_id')} / report_id={result.get('report_id')} / 默认单位={result.get('unit') or '按科目披露'}",
@@ -4028,6 +4028,11 @@ def _render_three_statement_context(result: dict[str, Any]) -> str:
         "",
         "## 三大表核心底稿",
     ]
+    if str(result.get("market") or "").upper() == "US":
+        lines.insert(
+            7,
+            "- 美股 SEC/XBRL 金额优先保留原始 USD 或后端结果包中的 billion USD；不要把 215,938,000,000 USD 自行改写成 215.938 亿美元。",
+        )
     for statement_type in ("income_statement", "cash_flow_statement", "balance_sheet"):
         statement_rows = [row for row in rows if row.get("statement_type") == statement_type]
         if not statement_rows:

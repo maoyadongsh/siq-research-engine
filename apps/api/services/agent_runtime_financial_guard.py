@@ -912,6 +912,13 @@ def _display_trace_input(item: Any) -> str:
     return f"{value} {unit}".strip()
 
 
+def _display_trace_unit_100m(item: Any) -> str:
+    if not isinstance(item, Mapping):
+        return "亿元"
+    currency = str(item.get("currency") or "").strip().upper()
+    return "亿美元" if currency == "USD" else "亿元"
+
+
 def _display_trace_metric(item: Any, fallback: str) -> str:
     if not isinstance(item, Mapping):
         return fallback
@@ -953,7 +960,11 @@ def _calculation_run_summary(run: Mapping[str, Any]) -> str:
     if operation == "normalize_amount":
         amount = inputs.get("amount")
         normalized = result.get("native_100m_value")
-        normalized_text = f"{normalized} 亿元" if normalized not in (None, "") else "换算结果已通过"
+        normalized_text = (
+            f"{normalized} {str(result.get('native_100m_unit') or _display_trace_unit_100m(amount)).strip()}"
+            if normalized not in (None, "")
+            else "换算结果已通过"
+        )
         return f"✅ {_display_trace_metric(amount, metric)}：{_display_trace_input(amount)} = {normalized_text}"
     if operation == "cagr":
         return (
@@ -1053,9 +1064,11 @@ def _failure_summary(reason: str, failure: Mapping[str, Any] | None = None) -> s
     elif failure.get("expected_normalized_value") not in (None, ""):
         details.append(f"后端重算：{failure['expected_normalized_value']}")
     elif failure.get("evidence_value") not in (None, ""):
-        details.append(
-            f"证据值：{failure['evidence_value']}{failure.get('evidence_unit') or ''}"
-        )
+        details.append(f"证据值：{failure['evidence_value']}{failure.get('evidence_unit') or ''}")
+    if failure.get("evidence_display_values"):
+        display_values = failure["evidence_display_values"]
+        if isinstance(display_values, (list, tuple)) and display_values:
+            details.append(f"正确口径：{' / '.join(str(item) for item in display_values)}")
     suffix = f"；{'；'.join(details)}" if details else ""
     return f"⚠️ {label}{suffix}。建议核对对应公式、输入口径和引用来源。"
 

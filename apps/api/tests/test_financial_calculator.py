@@ -36,6 +36,18 @@ def test_hk_dollar_symbol_is_not_thousand_unit():
     assert calculator.plain(money.base_value) == "100"
 
 
+def test_currency_prefixed_english_scale_units_are_preserved():
+    calculator = load_calculator()
+
+    usd_billion = calculator.build_money("215.938", "USD billion", "USD")
+    jpy_million = calculator.build_money("48036704", "JPY million", "JPY")
+
+    assert calculator.plain(usd_billion.unit_scale) == "1000000000"
+    assert calculator.plain(usd_billion.base_value) == "215938000000"
+    assert calculator.plain(jpy_million.unit_scale) == "1000000"
+    assert calculator.plain(jpy_million.base_value) == "48036704000000"
+
+
 def test_parenthesized_number_with_unit_is_negative():
     calculator = load_calculator()
     money = calculator.build_money("(1,016) 百万欧元", "百万欧元", "EUR")

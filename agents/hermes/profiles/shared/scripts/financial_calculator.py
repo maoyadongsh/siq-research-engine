@@ -169,7 +169,10 @@ def unit_alias_matches(compact_unit: str, alias: str) -> bool:
     if not alias_upper:
         return False
     if re.fullmatch(r"[A-Z0-9$]+", alias_upper):
-        return bool(re.search(rf"(?<![A-Z0-9$]){re.escape(alias_upper)}(?![A-Z0-9$])", compact_unit))
+        return bool(
+            re.search(rf"(?<![A-Z0-9$]){re.escape(alias_upper)}(?![A-Z0-9$])", compact_unit)
+            or compact_unit.endswith(alias_upper)
+        )
     return alias_upper in compact_unit
 
 

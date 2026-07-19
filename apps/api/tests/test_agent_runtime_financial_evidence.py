@@ -3,6 +3,7 @@ from services.agent_runtime_financial_evidence import (
     _period,
     build_trusted_calculation_evidence,
     build_trusted_statement_row_evidence,
+    render_deterministic_calculation_pack,
 )
 
 
@@ -49,6 +50,43 @@ def test_statement_row_evidence_falls_back_when_normalized_value_is_none():
     assert evidence[0]["unit"] == "JPY million"
     assert evidence[0]["market"] == "JP"
     assert evidence[0]["task_id"] == "task-toyota"
+
+
+def test_us_statement_row_evidence_adds_safe_display_values():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "run-nvda-2026",
+    }
+    rows = [
+        {
+            "metric_key": "operating_revenue",
+            "metric_name": "Revenues",
+            "period": "2026-01-25",
+            "normalized_value": "215938000000",
+            "raw_value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "report_id": "2026-10-K-0001045810-26-000021",
+            "task_id": "run-nvda-2026",
+            "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm",
+            "source_anchor": "f-72",
+            "xbrl_tag": "us-gaap:Revenues",
+            "evidence_source_type": "sec_xbrl_fact",
+        }
+    ]
+
+    evidence = build_trusted_statement_row_evidence(rows, expected_identity=identity)
+    pack = render_deterministic_calculation_pack(evidence)
+
+    assert evidence[0]["display_raw"] == "215,938,000,000 USD"
+    assert evidence[0]["display_billion"] == "215.938 billion USD"
+    assert evidence[0]["display_100m"] == "2,159.38 亿美元"
+    assert "美股 SEC/XBRL 金额默认优先复制" in pack
+    assert "215,938,000,000 USD" in pack
+    assert "215.938 billion USD" in pack
+    assert "2,159.38 亿美元" in pack
 
 
 IDENTITY = {

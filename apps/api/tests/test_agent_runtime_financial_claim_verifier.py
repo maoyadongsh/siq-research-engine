@@ -107,6 +107,69 @@ def test_evidence_recompute_materializes_sec_revenue_cagr():
     assert result.runs[0]["trace_origin"] == "backend_evidence_recompute"
 
 
+def test_verifier_rejects_us_revenue_in_wrong_hundred_million_display():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "run-nvda-2026",
+    }
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm"
+    evidence = (
+        {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "operating_revenue",
+            "canonical_name": "operating_revenue",
+            "metric_name": "Revenues",
+            "aliases": ["Revenues", "营收"],
+            "period": "2026-01-25",
+            "period_key": "2026-01-25",
+            "value": "215938000000",
+            "raw_value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "evidence_id": "nvda-revenue-2026",
+            "source_lineage": "nvda-income-statement",
+            "financial_scope": "consolidated",
+            "source_url": source_url,
+            "source_anchor": "f-72",
+            "xbrl_tag": "us-gaap:Revenues",
+            "display_raw": "215,938,000,000 USD",
+            "display_billion": "215.938 billion USD",
+            "display_100m": "2,159.38 亿美元",
+            "display_values": (
+                "215,938,000,000 USD",
+                "215.938 billion USD",
+                "2,159.38 亿美元",
+            ),
+            **identity,
+        },
+    )
+    reply = (
+        "FY2026（2026-01-25）营收为 215.938 亿美元。\n"
+        f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenues"
+    )
+
+    result = verify_financial_claims(reply, trusted_evidence=evidence)
+
+    assert result.allowed is False
+    assert result.violations[0].reason == "value_mismatch"
+    assert result.violations[0].evidence_value == 215938000000.0
+    assert result.violations[0].evidence_display_values == (
+        "215,938,000,000 USD",
+        "215.938 billion USD",
+        "2,159.38 亿美元",
+    )
+
+    correct = verify_financial_claims(
+        "FY2026（2026-01-25）营收为 2,159.38 亿美元。\n"
+        f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenues",
+        trusted_evidence=evidence,
+    )
+
+    assert correct.allowed is True
+
+
 @pytest.mark.parametrize("value", (0, 0.0))
 def test_trace_decimal_preserves_numeric_zero(value):
     assert _trace_decimal(value) == 0

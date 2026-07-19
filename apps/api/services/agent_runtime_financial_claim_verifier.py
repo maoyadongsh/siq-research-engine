@@ -302,6 +302,7 @@ class EvidenceFact:
     change_direction: str = ""
     has_locator: bool = False
     financial_scope: str = ""
+    display_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -344,6 +345,7 @@ class ClaimViolation:
     expected_company_id: str = ""
     expected_filing_id: str = ""
     expected_parse_run_id: str = ""
+    evidence_display_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1411,6 +1413,7 @@ def _trusted_trace_input(reference: Mapping[str, Any], role: str) -> dict[str, A
         "period": _trusted_evidence_period(reference),
         "value": "" if value is None else str(value),
         "unit": str(reference.get("unit") or reference.get("currency") or ""),
+        "currency": _currency_token(reference.get("currency"), reference.get("fact_currency"), reference.get("unit")),
         "scale": reference.get("scale"),
         "evidence_id": str(reference.get("evidence_id") or ""),
     }
@@ -2580,6 +2583,7 @@ def materialize_evidence_bound_calculation_runs(
                     "result": {
                         "native_base_value": str(expected),
                         "native_100m_value": str(expected / Decimal("100000000")),
+                        "native_100m_unit": _native_100m_unit_from_item(inputs["amount"]),
                     },
                     "research_identity": identity,
                     "trace_origin": "backend_evidence_recompute",
@@ -3103,6 +3107,7 @@ def validate_calculation_traces(
                         "evidence_id": evidence_id,
                         "evidence_value": str(fact.value),
                         "evidence_unit": fact.unit,
+                        "evidence_display_values": list(fact.display_values),
                         "line": claim.line,
                     },),
                 )
@@ -3225,6 +3230,11 @@ def _currency_token(*values: Any) -> str:
         if token:
             return token
     return ""
+
+
+def _native_100m_unit_from_item(item: Mapping[str, Any]) -> str:
+    currency = _currency_token(item.get("currency"), item.get("unit"))
+    return "亿美元" if currency == "USD" else "亿元"
 
 
 def _normalized_amount(value: Any, unit: Any, *, scale: Any = None) -> tuple[float, str] | None:
@@ -3601,6 +3611,18 @@ def _references_with_trusted_evidence(
     return _coalesce_identity_free_reference_duplicates([*trusted_references, *remaining])
 
 
+def _reference_display_values(reference: Mapping[str, Any]) -> tuple[str, ...]:
+    values = reference.get("display_values")
+    if isinstance(values, (list, tuple)):
+        return tuple(str(value).strip() for value in values if str(value).strip())
+    output: list[str] = []
+    for field in ("display_raw", "display_billion", "display_100m"):
+        value = str(reference.get(field) or "").strip()
+        if value and value not in output:
+            output.append(value)
+    return tuple(output)
+
+
 def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
     preferred_keys = (
         "source_type",
@@ -3632,6 +3654,11 @@ def _fact_from_reference(reference: Mapping[str, Any]) -> dict[str, Any]:
         "source_url",
         "line_number",
         "financial_scope",
+        "display_raw",
+        "display_billion",
+        "display_100m",
+        "display_100m_unit",
+        "display_values",
     )
     fact = {key: reference[key] for key in preferred_keys if key in reference and reference[key] not in (None, "")}
     if "metric_name" not in fact:
@@ -3683,6 +3710,7 @@ def _reference_facts(
                 change_direction=str(fact.get("change_direction") or ""),
                 has_locator=_has_reviewable_source_locator(reference),
                 financial_scope=str(fact.get("financial_scope") or "").strip().lower(),
+                display_values=_reference_display_values(fact),
             )
         )
     return tuple(facts)
@@ -4960,6 +4988,7 @@ def _identity_violation(reference: Mapping[str, Any], expected: Mapping[str, str
         expected_company_id=expected["company_id"],
         expected_filing_id=expected["filing_id"],
         expected_parse_run_id=expected["parse_run_id"],
+        evidence_display_values=_reference_display_values(reference),
     )
 
 
@@ -5101,6 +5130,7 @@ def verify_financial_claims(
                 company_id=nearest.company_id,
                 filing_id=nearest.filing_id,
                 parse_run_id=nearest.parse_run_id,
+                evidence_display_values=nearest.display_values,
             )
         )
     return ClaimVerificationResult(
@@ -5142,6 +5172,7 @@ def claim_verification_payload(result: ClaimVerificationResult) -> dict[str, Any
                 "expected_company_id": item.expected_company_id,
                 "expected_filing_id": item.expected_filing_id,
                 "expected_parse_run_id": item.expected_parse_run_id,
+                "evidence_display_values": item.evidence_display_values,
             }
             for item in result.violations[:20]
         ],

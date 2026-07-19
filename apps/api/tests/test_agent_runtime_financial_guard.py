@@ -479,6 +479,56 @@ def test_enforce_financial_evidence_contract_blocks_value_mismatch_with_valid_so
     assert "证据值：8382.7亿元" in reply
 
 
+def test_append_financial_validation_report_shows_us_display_values():
+    reply = guard.append_financial_validation_report(
+        "FY2026（2026-01-25）营收为 215.938 亿美元。",
+        runs=(),
+        allowed=False,
+        reason="trace_claim_result_mismatch",
+        failures=(
+            {
+                "metric": "operating_revenue",
+                "claimed_value": "215.938",
+                "claimed_unit": "亿",
+                "evidence_value": "215938000000",
+                "evidence_unit": "USD",
+                "evidence_display_values": (
+                    "215,938,000,000 USD",
+                    "215.938 billion USD",
+                    "2,159.38 亿美元",
+                ),
+            },
+        ),
+    )
+
+    assert "正确口径：215,938,000,000 USD / 215.938 billion USD / 2,159.38 亿美元" in reply
+
+
+def test_successful_normalize_summary_uses_usd_hundred_million_unit():
+    reply = guard.append_financial_validation_report(
+        "FY2026（2026-01-25）营收为 2,159.38 亿美元。",
+        runs=(
+            {
+                "tool": "financial_calculator.py",
+                "operation": "normalize_amount",
+                "metric": "operating_revenue",
+                "inputs": {
+                    "amount": {
+                        "metric": "operating_revenue",
+                        "value": "215938000000",
+                        "unit": "USD",
+                        "currency": "USD",
+                    }
+                },
+                "result": {"native_100m_value": "2159.38", "native_100m_unit": "亿美元"},
+            },
+        ),
+        allowed=True,
+    )
+
+    assert "215938000000 USD = 2159.38 亿美元" in reply
+
+
 def test_enforce_financial_evidence_contract_blocks_period_mismatch_with_valid_source():
     reply = guard.enforce_financial_evidence_contract(
         "工商银行 2025 年营业收入是多少？",
