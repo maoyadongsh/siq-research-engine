@@ -676,6 +676,20 @@ SIQ 不是“一个大模型加一个向量库”，而是在一台 NVIDIA DGX S
 
 上述 `GPU memory target` 是各服务启动时的 vLLM 配额目标，不是固定显存占用，也不能简单相加当作容量承诺。请求长度、并发序列、KV cache、CUDA graph、模型量化和 DGX Spark 统一内存压力都会改变实际驻留与吞吐，生产放量必须用真实 workload 做容量评测。
 
+### 项目内模型启动脚本归档
+
+为避免模型运行能力只存在于工作机 `/home/maoyd/modles_setup/`，上述五个本地模型的启动/管理脚本已经按模型归档到 `infra/model-services/`：
+
+| 模型 | 项目内归档入口 | 必要配套归档 |
+| --- | --- | --- |
+| Nemotron 3 Nano Omni | `infra/model-services/nemotron3/start_nemotron3_nano_omni_vllm.sh` | `Dockerfile.nemotron3-nano-omni-vllm` |
+| MinerU2.5-Pro | `infra/model-services/mineru/MinerU2.5-Pro-2604-1.2B_up.py` | systemd user units 位于 `infra/model-services/systemd-user/` |
+| Qwen3-VL Embedding | `infra/model-services/qwen-vl-retrieval/Qwen3-VL-Embedding-2B_up.py` | 使用 vLLM pooling runner |
+| Qwen3-VL Reranker | `infra/model-services/qwen-vl-retrieval/Qwen3-VL-Reranker-2B_up.py` | `qwen3_vl_reranker_http.py` |
+| FunASR Nano | `infra/model-services/funasr/start_funasr_vllm.sh` | `serve_vllm.py` |
+
+归档文件不包含模型权重、缓存、密钥或运行日志，并保留机器级脚本的环境变量与默认路径。`infra/model-services/launcher-sources.sha256` 固定当前来源摘要；详细映射和校验方法见 `infra/model-services/README.md`。
+
 ### DGX Spark 硬件利用
 
 当前本机采样为 NVIDIA GB10、CUDA `13.0`、aarch64、20 核 ARM CPU 和约 128 GB 统一内存。DGX Spark 的优势不是“单模型跑得动”这一点，而是 CPU、GPU 与大容量统一内存共同承载多模型和数据服务，减少传统离散 GPU 环境下的模型装载门槛与 CPU/GPU 数据搬运压力。

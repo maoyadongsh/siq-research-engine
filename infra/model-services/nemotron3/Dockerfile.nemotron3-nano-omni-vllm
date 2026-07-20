@@ -1,0 +1,4 @@
+FROM vllm/vllm-openai:v0.20.0
+
+# Keep vLLM pinned to the model-card-supported release while adding audio IO.
+RUN python3 -m pip install --no-cache-dir "vllm[audio]==0.20.0"

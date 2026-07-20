@@ -34,7 +34,28 @@
 | Nemotron 3 Nano Omni | `nemotron3/` | OpenAI-compatible vLLM 多模态推理与工具调用服务 |
 | Qwen VL retrieval | `qwen-vl-retrieval/` | embedding 与 reranker 服务 |
 | Gemma4 | `gemma4-26b/` | Gemma4 文本模型启动脚本 |
+| FunASR | `funasr/` | FunASR Nano 独立启动脚本与 HTTP 服务入口归档 |
 | systemd user | `systemd-user/` | 用户级服务定义 |
+
+## README 相关模型启动脚本归档
+
+根 README 引用的本地模型管理脚本已按模型归档在本目录。2026-07-20 归档的五个启动/管理脚本与机器级在用来源逐字节一致；其中 MinerU 与 Qwen3-VL Embedding 原本已经存在于仓库，本次补齐 Nemotron 完整启动脚本、Reranker 修复后的 manager/HTTP wrapper 和 FunASR manager/server。FunASR 配套 `serve_vllm.py` 仅规范化了上游文件的行尾空格，不改变执行逻辑。
+
+| 模型服务 | 机器级在用来源 | 项目内归档 | 配套文件 / 说明 |
+| --- | --- | --- | --- |
+| Nemotron 3 Nano Omni | `/home/maoyd/modles_setup/start_nemotron3_nano_omni_vllm.sh` | `nemotron3/start_nemotron3_nano_omni_vllm.sh` | 同目录归档 `Dockerfile.nemotron3-nano-omni-vllm`，固定 vLLM 0.20 ARM64 构建入口 |
+| MinerU2.5-Pro | `/home/maoyd/modles_setup/MinerU2.5-Pro-2604-1.2B_up.py` | `mineru/MinerU2.5-Pro-2604-1.2B_up.py` | 管理 vLLM 8002 与 MinerU API 8003，外部 Conda/venv 与 python overrides 不复制 |
+| Qwen3-VL Embedding | `/home/maoyd/modles_setup/Qwen3-VL-Embedding-2B_up.py` | `qwen-vl-retrieval/Qwen3-VL-Embedding-2B_up.py` | 独立 pooling Docker manager |
+| Qwen3-VL Reranker | `/home/maoyd/modles_setup/Qwen3-VL-Reranker-2B_up.py` | `qwen-vl-retrieval/Qwen3-VL-Reranker-2B_up.py` | 同目录归档修复后的 `qwen3_vl_reranker_http.py`，包含单 EngineCore 并发保护和 1:N batch |
+| FunASR Nano | `/home/maoyd/modles_setup/start_funasr_vllm.sh` | `funasr/start_funasr_vllm.sh` | 同目录归档 `serve_vllm.py`；完整 FunASR 源码、模型和 Conda 环境仍为外部依赖 |
+
+这些文件是启动与运维逻辑的版本化快照，不包含模型权重、缓存、密钥、PID、日志或真实业务数据。归档保留在用脚本的默认绝对路径，因此适合审计、代码评审和灾备恢复；跨机器部署仍需按目标主机覆盖模型目录、Python/Conda、缓存与端口环境变量。
+
+归档摘要位于 `launcher-sources.sha256`，可从本目录验证：
+
+```bash
+sha256sum -c launcher-sources.sha256
+```
 
 ## DGX Spark 当前并行拓扑
 

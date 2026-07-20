@@ -254,10 +254,9 @@ def test_rerank() -> None:
     payload = {
         "query": "股权代持法律风险",
         "documents": [
-            "股权代持可能涉及隐名股东资格确认、代持协议效力、出资瑕疵与税务风险。",
-            "今天的天气适合外出散步。",
+            {"text": "股权代持可能涉及隐名股东资格确认、代持协议效力、出资瑕疵与税务风险。"},
+            {"text": "今天的天气适合外出散步。"},
         ],
-        "top_k": 2,
     }
     result = post_json(RERANK_URL, payload, timeout=30)
     if not result:
