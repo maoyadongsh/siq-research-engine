@@ -1,0 +1,18 @@
+SIQ Research Engine
+Copyright 2026 maoyadongsh
+
+This product includes software and modified integration materials based on
+NVIDIA OpenShell (https://github.com/NVIDIA/OpenShell), licensed under the
+Apache License, Version 2.0. SIQ pins OpenShell v0.0.83 at commit
+e3d26dd3ae0dee247bbc5db368545832757ac493 and applies locally maintained
+patches. NVIDIA OpenShell did not publish a separate NOTICE file at that
+pinned revision.
+
+This product integrates and modifies Hermes Agent
+(https://github.com/NousResearch/hermes-agent), licensed under the MIT
+License:
+
+Copyright (c) 2025 Nous Research
+
+The corresponding third-party license information and model/service license
+boundaries are documented in THIRD_PARTY_LICENSES.md.
