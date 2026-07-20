@@ -44,6 +44,9 @@ logs/
 tmp/
 *.tmp
 
+# Root-level architecture drafts belong under ignored artifacts/.
+/architecture*.html
+
 # Large runtime or copied external assets
 _external_assets/
 downloads/
