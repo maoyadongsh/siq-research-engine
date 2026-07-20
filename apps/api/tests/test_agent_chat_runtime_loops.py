@@ -1427,6 +1427,65 @@ def test_us_financial_prompt_prefers_usd_or_billion_usd_not_hundred_million_gues
     assert "不得把 billion 数字直接改成亿" in prompt
 
 
+def test_us_net_asset_query_binds_total_equity_sec_anchor_and_calculation_pack():
+    message = "告诉我英伟达的净资产"
+    context = runtime._resolved_research_context(message, None)
+
+    result = runtime._three_statement_core_result(message, context)
+    assert result is not None
+    rows = result["rows"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["metric_key"] == "total_equity"
+    assert row["raw_value"] == "157293000000"
+    assert row["unit"] == "USD"
+    assert row["evidence_source_type"] == "sec_xbrl_fact"
+    assert row["source_anchor"] == "f-211"
+    assert row["source_url"].startswith("https://www.sec.gov/Archives/")
+    assert row["pdf_page"] is None
+    assert row["table_index"] is None
+
+    evidence = runtime._trusted_financial_calculation_evidence(message, context)
+    equity = [
+        item
+        for item in evidence
+        if item.get("metric") == "total_equity" and item.get("period") == "2026-01-25"
+    ]
+    assert len(equity) == 1
+    assert equity[0]["display_billion"] == "157.293 billion USD"
+    assert equity[0]["display_100m"] == "1,572.93 亿美元"
+    pack = runtime.agent_runtime_financial_evidence.render_deterministic_calculation_pack(evidence)
+    assert "157.293 billion USD" in pack
+    assert "1,572.93 亿美元" in pack
+
+
+def test_us_net_asset_answer_uses_sec_anchor_and_successful_calculation_summary():
+    message = "告诉我英伟达的净资产"
+    reply = "\n".join(
+        (
+            "## 结论",
+            "- 英伟达（NVDA）2026 财年期末净资产（股东权益）为 **157.293 billion USD**，折合 **1,572.93 亿美元**。",
+            "",
+            "## 引用来源",
+            "[1] source_type=sec_xbrl_fact, file=document_full.json, metric=total_equity, period=2026-01-25, "
+            "source_anchor=f-211, xbrl_tag=us-gaap:StockholdersEquity",
+        )
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract(message, None, reply)
+
+    assert "guardrail_status=blocked" not in guarded
+    assert "## 计算器校验（全部通过）" in guarded
+    assert "状态：1/1 项通过" in guarded
+    assert "source_url=https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm" in guarded
+    assert "source_anchor=f-211" in guarded
+    assert "task_id=" not in guarded
+    assert "pdf_page=" not in guarded
+    assert "table_index=" not in guarded
+    assert "/api/pdf_page/" not in guarded
+    assert len([line for line in guarded.splitlines() if "source_type=" in line]) == 1
+
+
 def test_goodwill_mixed_query_guard_adds_missing_main_statement_source(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     cited = (

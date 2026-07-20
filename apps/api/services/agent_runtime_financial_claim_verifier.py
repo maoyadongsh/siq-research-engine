@@ -65,6 +65,7 @@ CANONICAL_METRIC_ALIASES = {
     "earnings_per_share": ("每股收益", "EPS", "earnings per share"),
     "total_assets": ("总资产", "资产总计", "total assets"),
     "total_liabilities": ("总负债", "负债合计", "total liabilities"),
+    "total_equity": ("股东权益", "所有者权益", "净资产", "shareholders equity", "stockholders equity", "total equity"),
     "shareholders_equity": ("股东权益", "所有者权益", "shareholders' equity"),
     "parent_shareholders_equity": (
         "归母权益",
@@ -630,20 +631,19 @@ def _trace_visible_locator_matches(
     """Require an internal cell fact to remain reachable from the displayed answer."""
 
     source_url = str(trusted.get("source_url") or "").strip()
-    external_fields = ("source_anchor", "xbrl_tag")
-    if source_url and any(str(trusted.get(field) or "").strip() for field in external_fields):
+    if source_url and any(str(trusted.get(field) or "").strip() for field in ("source_anchor", "xbrl_tag")):
         for reference in visible_references:
             if str(reference.get("source_url") or "").strip() != source_url:
                 continue
-            shared_fields = [
-                field
-                for field in external_fields
-                if str(trusted.get(field) or "").strip() and str(reference.get(field) or "").strip()
-            ]
-            if shared_fields and all(
-                str(trusted.get(field) or "").strip() == str(reference.get(field) or "").strip()
-                for field in shared_fields
-            ):
+            trusted_anchor = str(trusted.get("source_anchor") or "").strip()
+            reference_anchor = str(reference.get("source_anchor") or "").strip()
+            if trusted_anchor and reference_anchor:
+                if trusted_anchor == reference_anchor:
+                    return True
+                continue
+            trusted_xbrl_tag = str(trusted.get("xbrl_tag") or "").strip()
+            reference_xbrl_tag = str(reference.get("xbrl_tag") or "").strip()
+            if trusted_xbrl_tag and reference_xbrl_tag and trusted_xbrl_tag == reference_xbrl_tag:
                 return True
     task_id = str(trusted.get("task_id") or "").strip()
     trusted_locator = {

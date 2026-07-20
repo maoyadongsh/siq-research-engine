@@ -965,7 +965,15 @@ CORE_KEY_METRIC_ALIASES: dict[str, tuple[str, ...]] = {
     "总资产": ("total_assets", "总资产", "资产总额", "资产合计", "资产总计", "total assets"),
     "总负债": ("total_liabilities", "总负债", "total liabilities"),
     "商誉": ("goodwill", "商誉"),
-    "归属于母公司股东权益": ("equity_attributable_parent", "归属于上市公司股东的净资产", "归属于本行股东权益", "净资产"),
+    "归属于母公司股东权益": (
+        "equity_attributable_parent",
+        "total_equity",
+        "shareholders equity",
+        "stockholders equity",
+        "归属于上市公司股东的净资产",
+        "归属于本行股东权益",
+        "净资产",
+    ),
     "每股净资产": ("parent_nav_per_share", "每股净资产"),
 }
 THREE_STATEMENT_CORE_KEYS: dict[str, tuple[str, ...]] = {
@@ -3955,6 +3963,24 @@ def _three_statement_core_result(message: str, context: Any | None = None) -> di
             if any(term and term in row_text for term in requested_norms):
                 matched_rows.append(row)
         if matched_rows:
+            if any(
+                term in requested_norms
+                for term in (
+                    "净资产",
+                    "totalequity",
+                    "equityattributableparent",
+                    "shareholdersequity",
+                    "stockholdersequity",
+                )
+            ):
+                direct_equity_rows = [
+                    row
+                    for row in matched_rows
+                    if str(row.get("metric_key") or "")
+                    in {"total_equity", "equity_attributable_parent", "shareholders_equity"}
+                ]
+                if direct_equity_rows:
+                    matched_rows = direct_equity_rows
             rows = matched_rows
         else:
             return None

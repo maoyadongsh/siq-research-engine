@@ -183,21 +183,29 @@ def _primary_data_source_ref(
         f"[D{index}] source_type={source_type}, file={file or '未返回'}, "
         f"metric={metric or '未返回'}, period={period or '未返回'}, "
     )
-    locator = _source_locator_text(
-        task_id=task_id,
-        pdf_page=pdf_page,
-        table_index=table_index,
-        md_line=md_line,
-        table_source_links=table_source_links,
-    )
     external_url = str(source_url or "").strip()
     external_anchor = str(source_anchor or "").strip()
-    if external_url:
+    is_sec_source = bool(re.match(r"^https://(?:www\.)?sec\.gov/", external_url, re.IGNORECASE))
+    if is_sec_source:
         target = external_url if not external_anchor or "#" in external_url else f"{external_url}#{external_anchor}"
-        locator += (
-            f", source_url={external_url}, source_anchor={external_anchor or '未返回'}, "
+        locator = (
+            f"source_url={external_url}, source_anchor={external_anchor or '未返回'}, "
             f"xbrl_tag={xbrl_tag or '未返回'}, [打开披露原文]({target})"
         )
+    else:
+        locator = _source_locator_text(
+            task_id=task_id,
+            pdf_page=pdf_page,
+            table_index=table_index,
+            md_line=md_line,
+            table_source_links=table_source_links,
+        )
+        if external_url:
+            target = external_url if not external_anchor or "#" in external_url else f"{external_url}#{external_anchor}"
+            locator += (
+                f", source_url={external_url}, source_anchor={external_anchor or '未返回'}, "
+                f"xbrl_tag={xbrl_tag or '未返回'}, [打开披露原文]({target})"
+            )
     return prefix + (f"{structured}, " if structured else "") + locator
 
 
@@ -210,6 +218,8 @@ def sanitize_sec_xbrl_reference_lines(
     """Rebuild SEC citation lines from server-trusted XBRL facts only."""
 
     trusted: dict[tuple[str, str], Mapping[str, Any]] = {}
+    trusted_by_fact: dict[str, Mapping[str, Any]] = {}
+    trusted_by_metric_period: dict[tuple[str, str], Mapping[str, Any]] = {}
     for item in trusted_evidence or ():
         if not isinstance(item, Mapping):
             continue
@@ -218,25 +228,68 @@ def sanitize_sec_xbrl_reference_lines(
         if not re.match(r"^https://(?:www\.)?sec\.gov/", source_url, re.IGNORECASE) or not source_anchor:
             continue
         trusted[(source_url, source_anchor)] = item
+        xbrl_tag = _normalized_source_value(item.get("xbrl_tag") or item.get("source_id") or item.get("evidence_id"))
+        if xbrl_tag:
+            trusted_by_fact.setdefault(xbrl_tag, item)
+        period = _normalized_source_value(item.get("period"))
+        for metric_value in (
+            item.get("metric"),
+            item.get("canonical_name"),
+            item.get("metric_name"),
+            item.get("evidence_id"),
+            item.get("xbrl_tag"),
+        ):
+            metric = _normalized_source_value(metric_value)
+            if metric and period:
+                trusted_by_metric_period.setdefault((metric, period), item)
     if not trusted:
         return reply
 
     output: list[str] = []
-    emitted: set[tuple[str, str]] = set()
+    emitted: set[str] = set()
     reference_index = 0
     for raw_line in (reply or "").splitlines():
-        if "source_type=" not in raw_line or "sec.gov/" not in raw_line.lower():
+        if "source_type=" not in raw_line:
             output.append(raw_line)
             continue
         fields = _extract_source_fields_shared(raw_line)
+        source_type = _normalized_source_value(fields.get("source_type"))
+        evidence_source_type = _normalized_source_value(fields.get("evidence_source_type"))
+        is_sec_line = (
+            "sec.gov/" in raw_line.lower()
+            or source_type == "sec_xbrl_fact"
+            or evidence_source_type == "sec_xbrl_fact"
+        )
+        if not is_sec_line:
+            output.append(raw_line)
+            continue
         key = (
             str(fields.get("source_url") or "").strip(),
             str(fields.get("source_anchor") or "").strip(),
         )
         item = trusted.get(key)
-        if item is None or key in emitted:
+        if item is None:
+            item = trusted_by_fact.get(_normalized_source_value(fields.get("xbrl_tag")))
+        if item is None:
+            period = _normalized_source_value(fields.get("period"))
+            for metric_value in (
+                fields.get("metric"),
+                fields.get("canonical_name"),
+                fields.get("metric_name"),
+                fields.get("evidence_id"),
+            ):
+                item = trusted_by_metric_period.get((_normalized_source_value(metric_value), period))
+                if item is not None:
+                    break
+        if item is None:
             continue
-        emitted.add(key)
+        emitted_key = "|".join(
+            str(item.get(field) or "")
+            for field in ("source_url", "source_anchor", "metric", "period", "evidence_id")
+        )
+        if emitted_key in emitted:
+            continue
+        emitted.add(emitted_key)
         reference_index += 1
         output.append(
             _primary_data_source_ref(
@@ -272,6 +325,10 @@ def sanitize_sec_xbrl_reference_lines(
             )
         )
     return "\n".join(output)
+
+
+def _normalized_source_value(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip().casefold()
 
 
 def _reference_value(value: Any) -> str:
@@ -339,11 +396,18 @@ def _markdown_heading(line: str) -> tuple[int, str] | None:
 
 def _is_reference_line(line: str) -> bool:
     text = (line or "").strip()
+    has_sec_url = re.search(r"\bsource_url=https://(?:www\.)?sec\.gov/\S+", text, re.IGNORECASE)
+    has_sec_anchor = re.search(r"\b(?:source_anchor|xbrl_tag)=[^,\s]+", text)
     return (
         "source_type=" in text
-        and "task_id=" in text
-        and ("pdf_page=" in text or "pdf_page_number=" in text)
-        and "table_index=" in text
+        and (
+            (
+                "task_id=" in text
+                and ("pdf_page=" in text or "pdf_page_number=" in text)
+                and "table_index=" in text
+            )
+            or (has_sec_url and has_sec_anchor)
+        )
         and not text.startswith("|")
     )
 
@@ -359,6 +423,21 @@ def _source_field_value(line: str, field: str) -> str:
 
 
 def _source_reference_key(line: str) -> tuple[str, ...]:
+    source_url = _source_field_value(line, "source_url")
+    source_anchor = _source_field_value(line, "source_anchor")
+    xbrl_tag = _source_field_value(line, "xbrl_tag")
+    if source_url and re.match(r"^https://(?:www\.)?sec\.gov/", source_url, re.IGNORECASE):
+        fields = _extract_source_fields_shared(
+            line,
+            allowed_fields={"metric", "canonical_name", "metric_name", "value", "raw_value", "evidence_id"},
+        )
+        canonical_metric = fields.get("canonical_name") or fields.get("metric_name") or fields.get("metric") or ""
+        return (
+            source_url,
+            source_anchor,
+            xbrl_tag,
+            canonical_metric,
+        )
     task_id = _source_field_value(line, "task_id")
     pdf_page = _source_field_value(line, "pdf_page") or _source_field_value(line, "pdf_page_number")
     table_index = _source_field_value(line, "table_index")

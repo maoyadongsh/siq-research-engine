@@ -1151,5 +1151,136 @@ def test_sec_xbrl_reference_sanitizer_removes_foreign_pdf_links_and_untrusted_ro
     assert "table_index=258" not in sanitized
     assert "打开PDF定位页" not in sanitized
     assert "source_anchor=f-72" in sanitized
-    assert "task_id=NVDA-10-K-0001045810-26-000021" in sanitized
+    assert "task_id=" not in sanitized
     assert sanitized.count("source_type=wiki_metrics") == 1
+
+
+def test_sec_xbrl_reference_sanitizer_rebuilds_model_authored_pdf_locator_without_sec_url():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+    wrong_pdf_task = "7dbc35a7-7626-4e81-810e-5dbb764434e0"
+    reply = "\n".join(
+        (
+            "## 引用来源",
+            f"[1] source_type=sec_xbrl_fact, file=document_full.json, metric=total_equity, period=2026-01-25, task_id={wrong_pdf_task}, pdf_page=137, table_index=165, md_line=4186，[打开PDF定位页137](/api/pdf_page/{wrong_pdf_task}/137)",
+        )
+    )
+    trusted = (
+        {
+            "source_type": "wiki_metrics",
+            "file": "reports/2026-10-K-0001045810-26-000021/metrics/financial_data.json",
+            "metric": "total_equity",
+            "metric_name": "Stockholders Equity",
+            "period": "2026-01-25",
+            "value": "157293000000",
+            "raw_value": "157293000000",
+            "unit": "USD",
+            "currency": "USD",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+            "task_id": "NVDA-10-K-0001045810-26-000021",
+            "evidence_id": "us-gaap:StockholdersEquity",
+            "evidence_source_type": "sec_xbrl_fact",
+            "source_url": sec_url,
+            "source_anchor": "f-211",
+            "xbrl_tag": "us-gaap:StockholdersEquity",
+        },
+    )
+
+    sanitized = citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        trusted,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert wrong_pdf_task not in sanitized
+    assert "task_id=" not in sanitized
+    assert "/api/pdf_page/" not in sanitized
+    assert "pdf_page=137" not in sanitized
+    assert "table_index=165" not in sanitized
+    assert "source_url=https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm" in sanitized
+    assert "source_anchor=f-211" in sanitized
+    assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm#f-211)" in sanitized
+
+
+def test_three_statement_sec_primary_data_ref_uses_html_anchor_without_pdf_locator():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+
+    supplement = citations._render_three_statement_primary_data_supplement(
+        {
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+            "report_id": "2026-10-K-0001045810-26-000021",
+            "rows": [
+                {
+                    "source_type": "wiki_metrics",
+                    "file": "reports/2026-10-K-0001045810-26-000021/metrics/financial_data.json",
+                    "statement_type": "balance_sheet",
+                    "statement_label": "资产负债表",
+                    "metric_key": "total_equity",
+                    "metric_name": "Stockholders Equity",
+                    "period": "2026-01-25",
+                    "raw_value": "157293000000",
+                    "unit": "USD",
+                    "currency": "USD",
+                    "market": "US",
+                    "company_id": "US:0001045810",
+                    "filing_id": "US:0001045810:0001045810-26-000021",
+                    "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+                    "task_id": "9d052a75-941a-4a77-be83-addb46dae2ea",
+                    "evidence_id": "us-gaap:StockholdersEquity",
+                    "evidence_source_type": "sec_xbrl_fact",
+                    "source_url": sec_url,
+                    "source_anchor": "f-211",
+                    "xbrl_tag": "us-gaap:StockholdersEquity",
+                }
+            ],
+        },
+        primary_data_supplement_max_rows=3,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert supplement is not None
+    assert "task_id=" not in supplement
+    assert "pdf_page=" not in supplement
+    assert "table_index=" not in supplement
+    assert "/api/pdf_page/" not in supplement
+    assert "source_url=https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm" in supplement
+    assert "source_anchor=f-211" in supplement
+    assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm#f-211)" in supplement
+
+
+def test_merge_sec_refs_deduplicates_same_html_anchor_with_different_backend_ids():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+    reply = "\n".join(
+        (
+            "## 结论",
+            "净资产为 157.293 billion USD。",
+            "",
+            "## 引用来源",
+            f"[D1] source_type=wiki_metrics, metric=Stockholders Equity, period=2026-01-25, "
+            f"canonical_name=total_equity, value=157293000000, unit=USD, "
+            f"evidence_id=trusted:local, source_url={sec_url}, source_anchor=f-211, "
+            "xbrl_tag=us-gaap:StockholdersEquity, "
+            f"[打开披露原文]({sec_url}#f-211)",
+        )
+    )
+    richer = (
+        f"[D1] source_type=wiki_metrics, metric=资产负债表, period=2026-01-25, "
+        "canonical_name=total_equity, metric_name=Stockholders Equity, value=157293000000, "
+        "raw_value=157293000000, unit=USD, currency=USD, scale=1, market=US, "
+        "company_id=US:0001045810, filing_id=US:0001045810:0001045810-26-000021, "
+        "parse_run_id=7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0, "
+        f"evidence_id=us-gaap:StockholdersEquity, source_url={sec_url}, source_anchor=f-211, "
+        "xbrl_tag=us-gaap:StockholdersEquity, "
+        f"[打开披露原文]({sec_url}#f-211)"
+    )
+
+    merged = citations._merge_refs_into_reference_section(reply, [richer])
+
+    assert merged.count("source_anchor=f-211") == 1
+    assert "currency=USD" in merged
+    assert "evidence_id=us-gaap:StockholdersEquity" in merged

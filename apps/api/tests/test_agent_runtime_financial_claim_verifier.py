@@ -46,6 +46,65 @@ def test_sec_xbrl_external_anchor_is_a_reviewable_trace_locator():
         trusted,
         ({"source_url": source_url, "source_anchor": "f-73", "xbrl_tag": "us-gaap:Revenues"},),
     )
+    assert _trace_visible_locator_matches(
+        trusted,
+        (
+            {
+                "source_url": source_url,
+                "source_anchor": "f-72",
+                "xbrl_tag": "us-gaap:Revenues, [打开披露原文](https://www.sec.gov/Archives/)",
+            },
+        ),
+    )
+
+
+def test_evidence_recompute_materializes_us_sec_unit_normalization_with_html_link_suffix():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+    }
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+    evidence = (
+        {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "total_equity",
+            "canonical_name": "total_equity",
+            "metric_name": "Stockholders Equity",
+            "aliases": ("Stockholders Equity", "total_equity", "净资产", "股东权益"),
+            "period": "2026-01-25",
+            "period_key": "2026-01-25",
+            "value": "157293000000",
+            "raw_value": "157293000000",
+            "unit": "USD",
+            "currency": "USD",
+            "evidence_id": "us-gaap:StockholdersEquity",
+            "source_url": source_url,
+            "source_anchor": "f-211",
+            "xbrl_tag": "us-gaap:StockholdersEquity",
+            **identity,
+        },
+    )
+    reply = (
+        "英伟达（NVDA）2026 财年期末净资产（股东权益）为 157.293 billion USD。\n"
+        f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-211, "
+        f"xbrl_tag=us-gaap:StockholdersEquity, [打开披露原文]({source_url}#f-211)"
+    )
+
+    result = validate_calculation_traces(
+        reply,
+        expected_identity=identity,
+        require_calculator=True,
+        expected_operations=frozenset({"normalize_amount"}),
+        trusted_evidence=evidence,
+    )
+
+    assert result.allowed is True
+    assert len(result.runs) == 1
+    assert result.runs[0]["operation"] == "normalize_amount"
+    assert result.runs[0]["metric"] == "total_equity"
+    assert result.runs[0]["result"]["native_base_value"] == "157293000000.0"
 
 
 def test_evidence_recompute_materializes_sec_revenue_cagr():
@@ -164,6 +223,59 @@ def test_verifier_rejects_us_revenue_in_wrong_hundred_million_display():
     correct = verify_financial_claims(
         "FY2026（2026-01-25）营收为 2,159.38 亿美元。\n"
         f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenues",
+        trusted_evidence=evidence,
+    )
+
+    assert correct.allowed is True
+
+
+def test_verifier_rejects_us_total_equity_in_wrong_hundred_million_display():
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+    evidence = (
+        {
+            "source_type": "trusted_wiki_table_cell",
+            "metric": "total_equity",
+            "canonical_name": "total_equity",
+            "metric_name": "Stockholders Equity",
+            "period": "2026-01-25",
+            "period_key": "2026-01-25",
+            "value": "157293000000",
+            "raw_value": "157293000000",
+            "unit": "USD",
+            "currency": "USD",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+            "evidence_id": "us-gaap:StockholdersEquity",
+            "source_url": source_url,
+            "source_anchor": "f-211",
+            "xbrl_tag": "us-gaap:StockholdersEquity",
+            "display_values": (
+                "157,293,000,000 USD",
+                "157.293 billion USD",
+                "1,572.93 亿美元",
+            ),
+        },
+    )
+    reply = (
+        "英伟达（NVDA）2026 财年期末净资产（股东权益）为 157.293 亿美元（即 157,293 百万美元）。\n"
+        f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-211, xbrl_tag=us-gaap:StockholdersEquity"
+    )
+
+    result = verify_financial_claims(reply, trusted_evidence=evidence)
+
+    assert result.allowed is False
+    assert result.violations[0].reason == "value_mismatch"
+    assert result.violations[0].evidence_display_values == (
+        "157,293,000,000 USD",
+        "157.293 billion USD",
+        "1,572.93 亿美元",
+    )
+
+    correct = verify_financial_claims(
+        "英伟达（NVDA）2026 财年期末净资产（股东权益）为 1,572.93 亿美元。\n"
+        f"[1] source_type=wiki_metrics, source_url={source_url}, source_anchor=f-211, xbrl_tag=us-gaap:StockholdersEquity",
         trusted_evidence=evidence,
     )
 
