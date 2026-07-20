@@ -66,6 +66,7 @@ artifacts/**
 !data/**/.gitkeep
 !var/**/.gitkeep
 !artifacts/**/.gitkeep
+!artifacts/architecture-drafts/**
 **/__pycache__/
 *.py[cod]
 apps/pdf-parser/results/

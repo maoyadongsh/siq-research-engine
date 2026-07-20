@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SIQ Research Engine 系统架构图 v5</title>
+<style>
+  :root {
+    color-scheme: light;
+    background: #dfe5eb;
+    font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-width: 1280px; min-height: 100%; }
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 12px;
+    background: #dfe5eb;
+  }
+  .canvas {
+    position: relative;
+    width: min(calc(100vw - 24px), calc((100vh - 24px) * 16 / 9));
+    aspect-ratio: 16 / 9;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14);
+    overflow: hidden;
+  }
+  .canvas::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 4px;
+    background: linear-gradient(90deg, #2563eb 0%, #0ea5e9 38%, #76b900 100%);
+  }
+  svg { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<main class="canvas" aria-label="SIQ Research Engine 系统架构图">
+<svg viewBox="0 0 1920 1080" role="img" aria-labelledby="diagram-title diagram-description" xmlns="http://www.w3.org/2000/svg">
+  <title id="diagram-title">SIQ Research Engine 系统架构图 v5</title>
+  <desc id="diagram-description">展示材料与事实生产、LLM-Wiki 逻辑检索、职责型 Hermes 智能体、siq_analysis 的 OpenShell 安全运行面、双层财务校验，以及 NVIDIA DGX Spark 上的本地多模型和数据服务协同。</desc>
+
+  <defs>
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="135%">
+      <feDropShadow dx="0" dy="1.2" stdDeviation="2.5" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6f47"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
+    </marker>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0284c7"/>
+    </marker>
+    <style>
+      text { letter-spacing: 0.01em; }
+      .title { font-size: 29px; font-weight: 800; fill: #0b1220; }
+      .subtitle { font-size: 12.5px; fill: #55637a; }
+      .lane-title { font-size: 15px; font-weight: 750; }
+      .box-title { font-size: 13.5px; font-weight: 700; fill: #0b1220; }
+      .box-text { font-size: 11.5px; fill: #3d4a5f; }
+      .small { font-size: 10.5px; fill: #55637a; }
+      .tiny { font-size: 10px; fill: #64748b; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .pill-text { font-size: 10.5px; fill: #1e293b; }
+      .flow { fill: none; stroke: #64748b; stroke-width: 1.8; marker-end: url(#arrow-gray); }
+      .flow-blue { fill: none; stroke: #2563eb; stroke-width: 1.9; marker-end: url(#arrow-blue); }
+      .flow-green { fill: none; stroke: #2f6f47; stroke-width: 2; marker-end: url(#arrow-green); }
+      .flow-amber { fill: none; stroke: #b45309; stroke-width: 1.8; marker-end: url(#arrow-amber); }
+      .flow-cyan { fill: none; stroke: #0284c7; stroke-width: 1.9; stroke-dasharray: 6 5; marker-end: url(#arrow-cyan); }
+      .dash { stroke-dasharray: 5 5; }
+    </style>
+  </defs>
+
+  <!-- Header -->
+  <text id="diagram-title-visible" x="960" y="36" text-anchor="middle" class="title">SIQ Research Engine 系统架构图 <tspan font-size="15" fill="#64748b">v5</tspan></text>
+  <text x="960" y="59" text-anchor="middle" class="subtitle">权威知识导航 · 职责型多智能体 · OpenShell 安全执行 · 双层财务校验 · DGX Spark 多模型协同　|　2026-07-20</text>
+  <line x1="30" y1="68" x2="1890" y2="68" stroke="#e2e8f0" stroke-width="1"/>
+
+  <!-- External inputs / products -->
+  <rect x="30" y="78" width="560" height="84" rx="8" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="50" y="104" class="box-title" fill="#6d28d9">外部材料与官方来源</text>
+  <text x="50" y="126" class="box-text">官方披露：CNINFO · HKEXnews · SEC EDGAR · ESEF · EDINET · DART</text>
+  <text x="50" y="148" class="box-text">一级市场 BP / 合同 / 尽调材料　·　文档 / URL / 图片　·　会议与短语音</text>
+
+  <rect x="625" y="78" width="700" height="84" rx="8" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="645" y="104" class="box-title" fill="#1d4ed8">apps/web · React 19 + Vite + TypeScript · :15173</text>
+  <g class="pill-text">
+    <rect x="645" y="120" width="150" height="26" rx="6" fill="#ffffff" stroke="#93c5fd"/><text x="720" y="137" text-anchor="middle">二级市场投研</text>
+    <rect x="808" y="120" width="150" height="26" rx="6" fill="#ffffff" stroke="#93c5fd"/><text x="883" y="137" text-anchor="middle">一级市场 Deal OS</text>
+    <rect x="971" y="120" width="170" height="26" rx="6" fill="#ffffff" stroke="#93c5fd"/><text x="1056" y="137" text-anchor="middle">文档 / 会议 / 入库</text>
+    <rect x="1154" y="120" width="151" height="26" rx="6" fill="#ffffff" stroke="#93c5fd"/><text x="1230" y="137" text-anchor="middle">系统管理</text>
+  </g>
+
+  <rect x="1360" y="78" width="530" height="84" rx="8" fill="#f0f9ff" stroke="#0ea5e9" stroke-width="1.4" stroke-dasharray="6 4" filter="url(#card-shadow)"/>
+  <text x="1380" y="103" class="box-title" fill="#075985">云端主模型 · StepFun / Step-3.7 Flash</text>
+  <text x="1380" y="126" class="box-text">200k context contract · Hermes custom provider / OpenShell Provider</text>
+  <text x="1380" y="148" class="box-text">Kimi / MiniMax：备用 LLM　·　Tavily：受控搜索 Provider</text>
+
+  <!-- DGX Spark deployment boundary -->
+  <rect x="20" y="184" width="1880" height="864" rx="10" fill="#fbfcfb" stroke="#2f6f47" stroke-width="1.6" stroke-dasharray="8 5"/>
+  <rect x="30" y="171" width="380" height="26" rx="6" fill="#f0fdf4" stroke="#2f6f47" stroke-width="1"/>
+  <text x="46" y="189" font-size="12.5" font-weight="750" fill="#2f6f47">NVIDIA DGX Spark · 本地私有融合部署边界</text>
+
+  <!-- Lane backgrounds -->
+  <rect x="30" y="218" width="580" height="802" rx="8" fill="#f7faf8" stroke="#dbe5de"/>
+  <rect x="625" y="218" width="720" height="802" rx="8" fill="#f7f9fc" stroke="#dbe2ea"/>
+  <rect x="1360" y="218" width="530" height="802" rx="8" fill="#f8f9fb" stroke="#dbe2ea"/>
+
+  <!-- External to local arrows (drawn above lane backgrounds) -->
+  <path d="M310,162 V252" class="flow-amber"/>
+  <text x="322" y="193" class="small" fill="#b45309">材料 / 数据</text>
+  <path d="M975,162 V252" class="flow-blue"/>
+  <text x="988" y="193" class="small" fill="#2563eb">HTTP / SSE</text>
+  <path d="M1625,162 V252" class="flow-cyan" marker-start="url(#arrow-cyan)"/>
+  <text x="1638" y="193" class="small" fill="#0284c7">受控云端调用</text>
+
+  <!-- Lane header chips -->
+  <rect x="30" y="226" width="270" height="26" rx="6" fill="#e6f4f1" stroke="#99d5cc"/>
+  <text x="46" y="244" class="lane-title" fill="#0f766e">A · 材料、事实与知识生产面</text>
+  <rect x="625" y="226" width="290" height="26" rx="6" fill="#e8effc" stroke="#b7c9f2"/>
+  <text x="641" y="244" class="lane-title" fill="#1d4ed8">B · 智能体执行与高精度回答面</text>
+  <rect x="1360" y="226" width="250" height="26" rx="6" fill="#eceff3" stroke="#c3ccd6"/>
+  <text x="1376" y="244" class="lane-title" fill="#334155">C · 本地模型与算力协调面</text>
+
+  <!-- Lane A: acquisition -->
+  <rect x="50" y="260" width="540" height="54" rx="6" fill="#ecfdf5" stroke="#14b8a6" stroke-width="1.3" filter="url(#card-shadow)"/>
+  <text x="65" y="282" class="box-title">官方披露获取与身份冻结</text>
+  <text x="65" y="302" class="box-text">market-report-finder :18000 · 主体解析 · 原文下载 · ResearchIdentity</text>
+
+  <path d="M320,314 V324 H180 V332" class="flow"/>
+  <path d="M320,324 H460 V332" class="flow"/>
+
+  <rect x="50" y="332" width="260" height="62" rx="6" fill="#ecfdf5" stroke="#14b8a6" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="65" y="354" class="box-title">财报专业解析</text>
+  <text x="65" y="374" class="box-text">pdf-parser :15000 · MinerU VLM</text>
+  <text x="65" y="389" class="tiny">表格 / 公式 / reading order / source map</text>
+
+  <rect x="330" y="332" width="260" height="62" rx="6" fill="#ecfdf5" stroke="#14b8a6" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="345" y="354" class="box-title">通用文档解析</text>
+  <text x="345" y="374" class="box-text">document-parser :15010</text>
+  <text x="345" y="389" class="tiny">artifact / table relations / schema extraction</text>
+
+  <rect x="50" y="410" width="260" height="62" rx="6" fill="#ecfdf5" stroke="#14b8a6" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="65" y="432" class="box-title">会议与语音链路</text>
+  <text x="65" y="452" class="box-text">stream gateway :18082 · speech :8901</text>
+  <text x="65" y="467" class="tiny">实时/导入 · VAD · 说话人 · FunASR 精修</text>
+
+  <rect x="330" y="410" width="260" height="62" rx="6" fill="#ecfdf5" stroke="#14b8a6" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="345" y="432" class="box-title">多市场规则与质量门</text>
+  <text x="345" y="452" class="box-text">market-report-rules :18020</text>
+  <text x="345" y="467" class="tiny">extraction · validation · load plan</text>
+
+  <path d="M180,394 V400 H460 V402" class="flow"/>
+  <path d="M460,394 V402" class="flow"/>
+  <path d="M460,472 V482" class="flow-amber"/>
+
+  <rect x="50" y="486" width="540" height="66" rx="6" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="65" y="508" class="box-title" fill="#9a3412">数据生产阶段 · 确定性质量门禁</text>
+  <text x="65" y="528" class="box-text">期间 / 币种 / 单位 · 三表完整性 · 资产负债恒等式 · 现金流桥</text>
+  <text x="65" y="545" class="small">原值-准备-净额勾稽 · warning/fail 阻断 canonical / retrieval，force 必须显式确认</text>
+
+  <path d="M320,552 V562" class="flow-amber"/>
+
+  <!-- Lane A: LLM-Wiki -->
+  <rect x="50" y="566" width="540" height="132" rx="6" fill="#fffbeb" stroke="#d97706" stroke-width="1.6" filter="url(#card-shadow)"/>
+  <text x="65" y="590" class="box-title" fill="#92400e">LLM-Wiki · 权威知识导航</text>
+  <rect x="388" y="576" width="188" height="23" rx="5" fill="#fff7ed" stroke="#f59e0b"/>
+  <text x="482" y="592" text-anchor="middle" font-size="10.5" font-weight="700" fill="#9a3412">不使用 Embedding / Reranker</text>
+  <text x="65" y="616" class="box-text">ResearchIdentity → retrieval_index 主题路由 → facts / claims / relations</text>
+  <text x="65" y="638" class="box-text">note_links / document_links → evidence_id → PDF 页 / 表 / bbox / 原文</text>
+  <text x="65" y="660" class="box-text">知识抽取与对象组织替代固定切片，以逻辑跳转避免期间、单位和口径错配</text>
+  <text x="65" y="682" class="small" fill="#b45309">输入 hash · 稳定 ID · extraction log · 可审计重建</text>
+
+  <path d="M180,698 V708 H180 V716" class="flow-amber"/>
+
+  <rect x="50" y="716" width="260" height="96" rx="6" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="65" y="740" class="box-title">PostgreSQL · :15432</text>
+  <text x="65" y="762" class="box-text">权威结构化索引</text>
+  <text x="65" y="782" class="box-text">Agent memory 长期账本</text>
+  <text x="65" y="801" class="small">精确查询 · ACL · 幂等事务</text>
+
+  <rect x="330" y="716" width="260" height="96" rx="6" fill="#f0fdfa" stroke="#14b8a6" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="345" y="740" class="box-title">Milvus · :19530</text>
+  <text x="345" y="762" class="box-text">独立、可重建语义候选层</text>
+  <text x="345" y="782" class="box-text">vector-ingest + Qwen E/R</text>
+  <text x="345" y="801" class="small">文档 / 法规 / 图片 / 记忆；独立于 Wiki</text>
+
+  <rect x="50" y="828" width="540" height="66" rx="6" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.1" filter="url(#card-shadow)"/>
+  <text x="65" y="852" class="box-title">文件、状态与生成产物</text>
+  <text x="65" y="875" class="box-text"><tspan class="mono">data/</tspan> 原始材料与 Wiki　·　<tspan class="mono">var/</tspan> 运行状态　·　<tspan class="mono">artifacts/</tspan> 评测与脱敏审计产物</text>
+
+  <rect x="50" y="910" width="540" height="92" rx="6" fill="#fff7ed" stroke="#fb923c" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="65" y="934" class="box-title" fill="#9a3412">跨服务高精度数据合同</text>
+  <text x="65" y="956" class="box-text mono">document_full · source_map · quality_report</text>
+  <text x="65" y="978" class="box-text mono">financial_data · financial_checks · normalized_metrics</text>
+  <text x="65" y="996" class="small">原始值、期间、币种、单位、页码、表格、bbox 与 evidence_id 全链保留</text>
+
+  <!-- Lane B: API -->
+  <rect x="645" y="260" width="680" height="74" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="660" y="283" class="box-title" fill="#4338ca">apps/api · FastAPI 控制面 · :18081</text>
+  <g class="pill-text">
+    <rect x="660" y="296" width="114" height="24" rx="6" fill="#ffffff" stroke="#c7d2fe"/><text x="717" y="312" text-anchor="middle">JWT / ACL</text>
+    <rect x="784" y="296" width="114" height="24" rx="6" fill="#ffffff" stroke="#c7d2fe"/><text x="841" y="312" text-anchor="middle">任务 / SSE</text>
+    <rect x="908" y="296" width="124" height="24" rx="6" fill="#ffffff" stroke="#c7d2fe"/><text x="970" y="312" text-anchor="middle">Agent Runtime</text>
+    <rect x="1042" y="296" width="124" height="24" rx="6" fill="#ffffff" stroke="#c7d2fe"/><text x="1104" y="312" text-anchor="middle">Source Access</text>
+    <rect x="1176" y="296" width="134" height="24" rx="6" fill="#ffffff" stroke="#c7d2fe"/><text x="1243" y="312" text-anchor="middle">OpenShell Pool</text>
+  </g>
+
+  <path d="M985,334 V344" class="flow-blue"/>
+
+  <!-- Lane B: agents -->
+  <rect x="645" y="348" width="680" height="174" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="660" y="372" class="box-title" fill="#166534">Hermes 职责型多智能体 · 岗位合同而非人格聊天</text>
+  <text x="660" y="391" class="small">共享同一证据底座；角色职责、禁止行为、工具权限与输出合同相互独立</text>
+
+  <rect x="660" y="402" width="418" height="102" rx="6" fill="#ffffff" stroke="#bbf7d0"/>
+  <text x="674" y="421" font-size="11" font-weight="700" fill="#15803d">二级市场：analysis → factcheck → tracking / legal</text>
+  <g font-size="10.5" fill="#334155">
+    <text x="674" y="443">siq_assistant　通用问答 / 证据定位</text>
+    <rect x="670" y="450" width="394" height="22" rx="5" fill="#ecfccb" stroke="#76b900" stroke-width="1.3"/>
+    <text x="680" y="465" font-weight="750" fill="#365314">siq_analysis　年报经营分析 / 研究报告　·　OpenShell E2E</text>
+    <text x="674" y="488">siq_factchecker　事实 / 计算 / 引用核查　　siq_tracking / siq_legal　持续跟踪与合规</text>
+  </g>
+
+  <rect x="1092" y="402" width="218" height="102" rx="6" fill="#ffffff" stroke="#bbf7d0"/>
+  <text x="1106" y="421" font-size="11" font-weight="700" fill="#15803d">一级市场 Deal OS · R0-R4</text>
+  <text x="1106" y="443" class="small">coordinator · strategist · sector</text>
+  <text x="1106" y="463" class="small">finance · legal · risk · chairman</text>
+  <text x="1106" y="485" class="small">并行专家意见 → 争议收口 → 投决签核</text>
+
+  <!-- Evidence and memory feeds -->
+  <path d="M590,632 H620 V430 H645" class="flow-amber"/>
+  <text x="617" y="518" text-anchor="middle" font-size="10.5" fill="#b45309" transform="rotate(-90 617 518)">权威 facts / evidence</text>
+
+  <!-- siq_analysis to OpenShell -->
+  <path d="M1078,461 H1336 V554 H1318" class="flow-green"/>
+  <text x="1329" y="511" text-anchor="end" class="small" fill="#2f6f47">仅 siq_analysis 已验证路径</text>
+
+  <!-- Lane B: OpenShell -->
+  <rect x="645" y="540" width="680" height="222" rx="6" fill="#f3f8f1" stroke="#76b900" stroke-width="1.8" filter="url(#card-shadow)"/>
+  <text x="660" y="566" class="box-title" fill="#365314">自研 NVIDIA OpenShell + Hermes 安全运行面</text>
+  <text x="660" y="585" class="small">不引入 NemoClaw · 保留 Hermes /v1/runs、SSE、停止、Prompt、工具与报告合同</text>
+  <rect x="1018" y="550" width="292" height="28" rx="6" fill="#ecfccb" stroke="#76b900"/>
+  <text x="1164" y="569" text-anchor="middle" font-size="11" font-weight="750" fill="#365314">siq_analysis 真实前端全链路已跑通</text>
+
+  <g>
+    <rect x="660" y="602" width="150" height="70" rx="6" fill="#ffffff" stroke="#84a98c"/>
+    <text x="674" y="624" class="box-title">Scope / Pool</text>
+    <text x="674" y="644" class="small">公司上下文 · 自动创建</text>
+    <text x="674" y="661" class="small">代际 · lease · fencing</text>
+
+    <rect x="825" y="602" width="150" height="70" rx="6" fill="#ffffff" stroke="#84a98c"/>
+    <text x="839" y="624" class="box-title">OpenShell Gateway</text>
+    <text x="839" y="644" class="small">v0.0.83 · :17671</text>
+    <text x="839" y="661" class="small">策略 · 请求身份 · 恢复</text>
+
+    <rect x="990" y="602" width="150" height="70" rx="6" fill="#ffffff" stroke="#84a98c"/>
+    <text x="1004" y="624" class="box-title">BYOC Hermes</text>
+    <text x="1004" y="644" class="small">Landlock · seccomp</text>
+    <text x="1004" y="661" class="small">7+5 mounts · 只读事实</text>
+
+    <rect x="1155" y="602" width="155" height="70" rx="6" fill="#ffffff" stroke="#84a98c"/>
+    <text x="1169" y="624" class="box-title">受控 I/O</text>
+    <text x="1169" y="644" class="small">Provider / Egress</text>
+    <text x="1169" y="661" class="small">PG / Milvus 只读 Broker</text>
+  </g>
+  <path d="M810,637 H825" class="flow-green"/>
+  <path d="M975,637 H990" class="flow-green"/>
+  <path d="M1140,637 H1155" class="flow-green"/>
+
+  <g font-size="10.5" fill="#334155">
+    <rect x="660" y="686" width="650" height="38" rx="5" fill="#ffffff" stroke="#cbd5c5"/>
+    <text x="675" y="702">固化 Wiki / reports / metrics 只读　·　仅当前公司 analysis 可写　·　跨公司拒写　·　沙箱无真实凭据</text>
+    <text x="675" y="718">终态 + write quiescence 释放　·　runtime origin receipt　·　API 重启恢复　·　idle TTL 回收</text>
+  </g>
+  <text x="660" y="747" class="small">Host 是其他 profile 与未注册 scope 的全局基线；正式全局默认切流仍待 A/B 与人工评审，属于独立发布治理。</text>
+
+  <!-- OpenShell / host to model control -->
+  <path d="M1310,637 H1372 V294 H1380" class="flow-green"/>
+  <text x="1368" y="422" text-anchor="end" class="small" fill="#2f6f47" transform="rotate(-90 1368 422)">模型 / 搜索 / 数据受控路由</text>
+
+  <!-- Lane B: memory and answer guard -->
+  <rect x="645" y="778" width="320" height="136" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.3" filter="url(#card-shadow)"/>
+  <text x="660" y="802" class="box-title" fill="#166534">四层拟人化记忆体系</text>
+  <text x="660" y="824" class="box-text">Hermes 会话 · 本地任务 · PostgreSQL 长期账本</text>
+  <text x="660" y="846" class="box-text">Milvus 可重建语义镜像 · ACL / scope</text>
+  <text x="660" y="868" class="box-text">30 天半衰期 · 全量意图扩大召回</text>
+  <text x="660" y="890" class="small">仍受权限、候选上限与上下文预算保护</text>
+
+  <path d="M590,764 H628 V846 H645" class="flow dash"/>
+  <text x="628" y="793" text-anchor="middle" class="small" transform="rotate(-90 628 793)">PG / Milvus</text>
+  <path d="M805,778 H635 V480 H645" class="flow-green dash"/>
+
+  <rect x="980" y="778" width="345" height="136" rx="6" fill="#fff7ed" stroke="#f59e0b" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="995" y="802" class="box-title" fill="#9a3412">回答阶段 · Answer Guard / Factcheck</text>
+  <text x="995" y="824" class="box-text">ResearchIdentity + trusted evidence 对齐</text>
+  <text x="995" y="846" class="box-text">Decimal 计算器 + 原值/准备/净额勾稽 trace</text>
+  <text x="995" y="868" class="box-text">引用覆盖 · 冲突检查 · source 页/表/bbox 回跳</text>
+  <text x="995" y="890" class="small">缺证据显式降级 / N/A；不以模型流畅度替代校验</text>
+
+  <path d="M1152,762 V770" class="flow-amber"/>
+
+  <rect x="645" y="930" width="680" height="65" rx="6" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.3" filter="url(#card-shadow)"/>
+  <text x="660" y="954" class="box-title" fill="#1d4ed8">可审计交付</text>
+  <text x="660" y="977" class="box-text">SSE 回答 · 研究报告 · 财务 trace · 引用与原文回跳 · 会议纪要 / 行动项 · 运行来源回执</text>
+  <path d="M1152,914 V922" class="flow-blue"/>
+  <path d="M1325,962 H1342 V120 H1325" class="flow-blue"/>
+  <text x="1338" y="486" text-anchor="end" class="small" fill="#2563eb" transform="rotate(-90 1338 486)">answer / report / source jump</text>
+
+  <!-- Lane C: model control -->
+  <rect x="1380" y="260" width="500" height="70" rx="6" fill="#eef2ff" stroke="#6366f1" stroke-width="1.4" filter="url(#card-shadow)"/>
+  <text x="1395" y="283" class="box-title" fill="#4338ca">Hermes Model Control / Router</text>
+  <text x="1395" y="304" class="box-text">StepFun 云端主模型 ↔ Nemotron 本地主模型 · 选择 / 回退 / A-B</text>
+  <text x="1395" y="321" class="small">Host custom provider 与 OpenShell Provider 均保留模型来源和 degraded receipt</text>
+
+  <path d="M1630,330 V338" class="flow"/>
+
+  <rect x="1380" y="342" width="500" height="86" rx="6" fill="#e2e8f0" stroke="#334155" stroke-width="1.6" filter="url(#card-shadow)"/>
+  <text x="1395" y="367" class="box-title">本地主模型 · NVIDIA Nemotron 3 Nano Omni · :8007</text>
+  <text x="1395" y="389" class="box-text">NVFP4 · 262k context contract · prefix cache · max_num_seqs=6</text>
+  <text x="1395" y="411" class="box-text">本地私有问答 / 工具调用 · 原生图片、音频、视频理解</text>
+
+  <!-- Specialist models -->
+  <rect x="1380" y="444" width="240" height="88" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1395" y="467" class="box-title">MinerU2.5-Pro · :8002/8003</text>
+  <text x="1395" y="489" class="box-text">文档版面 / 表格 / 公式 / 图片</text>
+  <text x="1395" y="511" class="small">独立 vLLM + MinerU API</text>
+
+  <rect x="1640" y="444" width="240" height="88" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1655" y="467" class="box-title">Qwen3-VL Embedding · :8013</text>
+  <text x="1655" y="489" class="box-text">文本 / 图片 / 表格 / 记忆向量化</text>
+  <text x="1655" y="511" class="small">1024 维 · Milvus 补充候选</text>
+
+  <rect x="1380" y="548" width="240" height="88" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1395" y="571" class="box-title">Qwen3-VL Reranker · :8001</text>
+  <text x="1395" y="593" class="box-text">向量 / 记忆候选 1:N 精排</text>
+  <text x="1395" y="615" class="small">串行保护 EngineCore · 受控 503 降级</text>
+
+  <rect x="1640" y="548" width="240" height="88" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1655" y="571" class="box-title">FunASR :8899 + Speech :8901</text>
+  <text x="1655" y="593" class="box-text">短语音 / 会议流式 ASR / 句末精修</text>
+  <text x="1655" y="615" class="small">VAD · timestamp · speaker pipeline</text>
+
+  <!-- Concurrency coordination -->
+  <rect x="1380" y="652" width="500" height="112" rx="6" fill="#f0fdf4" stroke="#2f6f47" stroke-width="1.3" filter="url(#card-shadow)"/>
+  <text x="1395" y="676" class="box-title" fill="#166534">单机多模型并行与资源协调</text>
+  <text x="1395" y="698" class="box-text">独立 vLLM / Docker / Conda · 独立端口、缓存、日志、PID 与 health</text>
+  <text x="1395" y="720" class="box-text">GPU memory target：27% / 12% / 8% / 10% / 5%</text>
+  <text x="1395" y="742" class="box-text">continuous batching · bounded tokens/sequences · timeout / queue / backpressure</text>
+  <text x="1395" y="758" class="small">health + 最小推理 + 业务质量分层；单服务故障显式 degraded，不伪装 ready</text>
+
+  <rect x="1380" y="780" width="500" height="110" rx="6" fill="#f8fafc" stroke="#64748b" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1395" y="804" class="box-title">CPU / GPU / 统一内存协同</text>
+  <text x="1395" y="826" class="box-text">GPU：生成 · 原生视觉 · 文档 VLM · embedding · rerank · ASR</text>
+  <text x="1395" y="848" class="box-text">ARM CPU：API · 规则校验 · PostgreSQL · Milvus · 音频 · OpenShell</text>
+  <text x="1395" y="870" class="box-text">128GB 统一内存：模型、KV、DB cache、Milvus segment 与 page cache 统筹</text>
+
+  <rect x="1380" y="906" width="500" height="89" rx="6" fill="#1e293b" stroke="#0f172a" stroke-width="1.2" filter="url(#card-shadow)"/>
+  <text x="1395" y="932" font-size="13px" font-weight="750" fill="#f8fafc">NVIDIA DGX Spark · GB10 Grace Blackwell</text>
+  <text x="1395" y="954" font-size="11.5px" fill="#cbd5e1">aarch64 · CUDA 13 · 20 核 ARM · 128GB 统一内存</text>
+  <text x="1395" y="976" font-size="11.5px" fill="#cbd5e1">本地模型 + PostgreSQL + Milvus + LLM-Wiki + Redis + OpenShell 同机共驻</text>
+
+  <!-- Footer legend -->
+  <line x1="50" y1="1034" x2="92" y2="1034" stroke="#64748b" stroke-width="1.8" marker-end="url(#arrow-gray)"/>
+  <text x="103" y="1038" class="small">请求 / 数据流</text>
+  <line x1="220" y1="1034" x2="262" y2="1034" stroke="#0284c7" stroke-width="1.8" stroke-dasharray="6 5" marker-end="url(#arrow-cyan)"/>
+  <text x="273" y="1038" class="small">云端 / 补充路径</text>
+  <rect x="620" y="1023" width="680" height="22" rx="11" fill="#eef2f7"/>
+  <text x="960" y="1038" text-anchor="middle" font-size="11" font-weight="700" fill="#334155">事实优先级：LLM-Wiki / PostgreSQL / 原始证据 ＞ 可重建 Milvus 候选 ＞ 记忆 ＞ 模型生成</text>
+  <text x="1878" y="1038" text-anchor="end" class="small">模型可替换 · 索引可重建 · 证据合同与审计链保持稳定</text>
+</svg>
+</main>
+</body>
+</html>
