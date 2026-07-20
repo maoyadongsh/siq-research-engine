@@ -1204,6 +1204,54 @@ def test_sec_xbrl_reference_sanitizer_rebuilds_model_authored_pdf_locator_withou
     assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm#f-211)" in sanitized
 
 
+def test_sec_xbrl_reference_sanitizer_drops_pure_foreign_pdf_locator_lines():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+    wrong_pdf_task = "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd"
+    reply = "\n".join(
+        (
+            "## 引用来源",
+            f"[1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=Rio PDF, period=2025-annual, task_id={wrong_pdf_task}, pdf_page=223, table_index=258，[打开PDF定位页223](/api/pdf_page/{wrong_pdf_task}/223)",
+            "[2] source_type=sec_xbrl_fact, file=document_full.json, metric=operating_revenue, period=2026-01-25, xbrl_tag=us-gaap:Revenues",
+        )
+    )
+    trusted = (
+        {
+            "source_type": "wiki_metrics",
+            "file": "reports/2026-10-K-0001045810-26-000021/metrics/financial_data.json",
+            "metric": "operating_revenue",
+            "metric_name": "Revenues",
+            "period": "2026-01-25",
+            "value": "215938000000",
+            "raw_value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:0001045810-26-000021",
+            "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+            "evidence_id": "us-gaap:Revenues",
+            "evidence_source_type": "sec_xbrl_fact",
+            "source_url": sec_url,
+            "source_anchor": "f-72",
+            "xbrl_tag": "us-gaap:Revenues",
+        },
+    )
+
+    sanitized = citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        trusted,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert wrong_pdf_task not in sanitized
+    assert "/api/pdf_page/" not in sanitized
+    assert "task_id=" not in sanitized
+    assert "pdf_page=" not in sanitized
+    assert "table_index=" not in sanitized
+    assert "source_anchor=f-72" in sanitized
+    assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm#f-72)" in sanitized
+
+
 def test_three_statement_sec_primary_data_ref_uses_html_anchor_without_pdf_locator():
     sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
 

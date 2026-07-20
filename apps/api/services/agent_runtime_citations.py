@@ -220,6 +220,7 @@ def sanitize_sec_xbrl_reference_lines(
     trusted: dict[tuple[str, str], Mapping[str, Any]] = {}
     trusted_by_fact: dict[str, Mapping[str, Any]] = {}
     trusted_by_metric_period: dict[tuple[str, str], Mapping[str, Any]] = {}
+    has_us_sec_evidence = False
     for item in trusted_evidence or ():
         if not isinstance(item, Mapping):
             continue
@@ -227,6 +228,7 @@ def sanitize_sec_xbrl_reference_lines(
         source_anchor = str(item.get("source_anchor") or "").strip()
         if not re.match(r"^https://(?:www\.)?sec\.gov/", source_url, re.IGNORECASE) or not source_anchor:
             continue
+        has_us_sec_evidence = True
         trusted[(source_url, source_anchor)] = item
         xbrl_tag = _normalized_source_value(item.get("xbrl_tag") or item.get("source_id") or item.get("evidence_id"))
         if xbrl_tag:
@@ -250,6 +252,8 @@ def sanitize_sec_xbrl_reference_lines(
     reference_index = 0
     for raw_line in (reply or "").splitlines():
         if "source_type=" not in raw_line:
+            if has_us_sec_evidence and _looks_like_us_sec_foreign_pdf_locator(raw_line):
+                continue
             output.append(raw_line)
             continue
         fields = _extract_source_fields_shared(raw_line)
@@ -261,6 +265,8 @@ def sanitize_sec_xbrl_reference_lines(
             or evidence_source_type == "sec_xbrl_fact"
         )
         if not is_sec_line:
+            if has_us_sec_evidence and _looks_like_us_sec_foreign_pdf_locator(raw_line):
+                continue
             output.append(raw_line)
             continue
         key = (
@@ -329,6 +335,15 @@ def sanitize_sec_xbrl_reference_lines(
 
 def _normalized_source_value(value: Any) -> str:
     return re.sub(r"\s+", "", str(value or "")).strip().casefold()
+
+
+def _looks_like_us_sec_foreign_pdf_locator(line: str) -> bool:
+    text = str(line or "")
+    if not text.strip():
+        return False
+    if "/api/pdf_page/" in text or "打开PDF" in text or "pdf_page=" in text or "table_index=" in text:
+        return "task_id=" in text or re.search(r"\b[0-9a-fA-F-]{32,36}\b", text) is not None
+    return bool(re.search(r"\btask_id=[0-9a-fA-F-]{32,36}\b", text))
 
 
 def _reference_value(value: Any) -> str:

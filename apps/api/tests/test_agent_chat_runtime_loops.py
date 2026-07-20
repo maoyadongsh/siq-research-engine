@@ -1486,6 +1486,34 @@ def test_us_net_asset_answer_uses_sec_anchor_and_successful_calculation_summary(
     assert len([line for line in guarded.splitlines() if "source_type=" in line]) == 1
 
 
+def test_us_sec_answer_drops_foreign_pdf_task_before_invalid_task_guard():
+    message = "分析英伟达的营收"
+    wrong_pdf_task = "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd"
+    reply = "\n".join(
+        (
+            "## 结论",
+            "- 英伟达 FY2026 营收为 **215.938 billion USD**，折合 **2,159.38 亿美元**。",
+            "",
+            "## 引用来源",
+            f"[1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=Rio PDF, "
+            f"period=2025-annual, task_id={wrong_pdf_task}, pdf_page=223, table_index=258，"
+            f"[打开PDF定位页223](/api/pdf_page/{wrong_pdf_task}/223)",
+            "[2] source_type=sec_xbrl_fact, file=document_full.json, metric=operating_revenue, "
+            "period=2026-01-25, xbrl_tag=us-gaap:Revenues",
+        )
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract(message, None, reply)
+
+    assert "## 证据链无效" not in guarded
+    assert wrong_pdf_task not in guarded
+    assert "task_id=" not in guarded
+    assert "pdf_page=" not in guarded
+    assert "/api/pdf_page/" not in guarded
+    assert "source_anchor=f-72" in guarded
+    assert "## 计算器校验（全部通过）" in guarded
+
+
 def test_goodwill_mixed_query_guard_adds_missing_main_statement_source(monkeypatch):
     monkeypatch.setenv("SIQ_FINANCIAL_GUARDRAIL_MODE", "warn")
     cited = (
