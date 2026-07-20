@@ -64,7 +64,7 @@ StepFun `step-3.7-flash` 是云端主模型，通过 Hermes custom provider / Op
 ### 2026-07-20 本机核验备注
 
 - Nemotron、MinerU VLM/API、Qwen3-VL Embedding 与 systemd 管理的 FunASR 当前 ready。
-- Qwen3-VL Reranker 容器当前存在，但 health 请求超时，日志中出现过空输出索引异常；调用方必须保留 rerank error/degraded 路径，不能只按容器状态宣称可用。
+- Qwen3-VL Reranker 已修复并发线程同时调用离线 `LLM.score()` 导致 EngineCore 解码线程退出的问题：wrapper 现在以锁保护单引擎调用，并将同批 documents 合并为一次 1:N vLLM score；空/不完整输出改为受控 503。重启后 `/health` 正常、最小排序正确，6 路并发 `/v1/rerank` 全部为 200，当前服务 ready；调用方仍保留 rerank error/degraded 路径。
 - FunASR 的独立 manager 仍按自己的 PID 文件判断，而当前真实进程由 `siq-funasr-vllm.service` 托管；PID 文件陈旧时 manager 会误报。修复前以 systemd 状态和 `8899/openapi.json` 为准。
 - 当前统一内存与 swap 接近满载。多模型同机并行已经成立，但这也意味着峰值任务需要 admission control，不能同时无界放大 256K 生成、PDF 批处理、向量入库和会议 finalization。
 

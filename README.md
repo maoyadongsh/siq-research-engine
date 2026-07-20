@@ -757,12 +757,12 @@ Milvus vector candidates / Agent memory --> Qwen3-VL Reranker
 | Nemotron `8007` | Docker 运行，`/v1/models` 返回 `nemotron_3_nano_omni` 与 `max_model_len=262144` | 本地主模型 ready |
 | MinerU `8002/8003` | systemd user 管理，VLM 与 MinerU API 均报告运行 | 文档解析双层服务 ready |
 | Qwen3-VL Embedding `8013` | Docker 运行，模型 health 正常 | 向量化服务 ready |
-| Qwen3-VL Reranker `8001` | Docker 进程存在，但当前 health 请求超时；近期日志含空输出导致的 rerank 500 | **当前不可视为 ready**；上层会显式降级为未精排候选，需单独修复/重启和回归 |
+| Qwen3-VL Reranker `8001` | Docker/HTTP health 正常，最小相关性排序通过，6 路并发 `/v1/rerank` 全部返回 200 | **服务 ready**；wrapper 以单次 1:N 调用批处理候选，并串行保护同一 vLLM EngineCore；空/不完整输出受控返回 503，上层仍保留未精排降级 |
 | FunASR `8899` | `siq-funasr-vllm.service` active，`/openapi.json` 为 200，近期 ASR 请求成功 | 服务 ready；独立 manager 的 PID 文件已陈旧，脚本 `status` 会误报，运维应以 systemd + HTTP 为准并修复 PID 协调 |
 | PostgreSQL / Milvus / MinIO / Redis | 容器/本机进程与模型并行运行，Milvus standalone health 正常 | 事实、向量、对象与协调服务共同占用统一资源池 |
 | 统一内存 | 约 128 GB online；采样时系统内存与 swap 均接近满载 | 已体现 DGX Spark 的高密度承载能力，同时说明当前容量余量有限，长上下文/批量解析/并发会议必须限流和压测 |
 
-这一采样体现 SIQ 运维判断的三个层次：`process/container exists` 只证明进程存在，HTTP readiness 证明接口可接受请求，真实图片/文档/排序/音频/问答评测才证明模型质量。任何一层失败都不能被“多个模型已经启动”掩盖。
+这一采样体现 SIQ 运维判断的三个层次：`process/container exists` 只证明进程存在，HTTP readiness 证明接口可接受请求，真实图片/文档/排序/音频/问答评测才证明模型质量。任何一层失败都不能被“多个模型已经启动”掩盖。README 记录稳定的部署合同与检查口径，不固化某一次瞬时故障；当前运行状态应通过下方管理命令实时确认。
 
 ### 运维入口
 
