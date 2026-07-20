@@ -51,6 +51,30 @@ market evidence package
 
 这个包的商业价值不在代码量，而在它把“文件夹约定”升级为正式合同。只有合同稳定，质量门禁、导入、检索和智能体引用才能被客户信任。
 
+## 高精度证据语义
+
+本包把“值”和“证据”设计为不可随意拆开的组合。一个可被智能体使用的事实至少要能回答：它属于哪个市场/公司/报告/parse run，原值与规范值是什么，单位与币种是什么，来自 PDF、HTML 还是 XBRL，以及如何回到原位置。
+
+| 合同能力 | 代表实现 | 精度价值 |
+| --- | --- | --- |
+| package 身份 | `evidence_package.py`、stable ID、manifest/hash | 防止文件移动、重跑或多市场目录导致对象串线 |
+| evidence gate | `evidence_gates.py` | 把 source completeness 和 quality status 转成可执行消费门禁 |
+| evidence resolver | `evidence_resolver.py` | 统一解析 PDF page/table/bbox、HTML anchor、XBRL concept/context/unit |
+| value verification | `evidence_value_verification.py` | 验证回答/报告引用的数值确实存在于绑定证据，而非只有链接 |
+| value polarity | `financial_value_polarity.py` | 区分自然借贷/流入流出、括号负数和展示符号，避免重复取反 |
+| normalized fact | `normalized_fact.py` | 保留 raw value、canonical name、period、unit/currency 与 provenance |
+| agent artifact | `agent_artifact.py` | 让报告 claim、引用、质量状态与 ResearchIdentity 可机器校验 |
+
+这套共享语义允许 Milvus 索引被删除重建、PostgreSQL schema 被迁移、renderer 被替换，而不会丢失“哪一个事实支撑哪一句结论”的关系。
+
+## 合同演进原则
+
+- 新字段优先增量兼容；已有 `artifact_id`、evidence ID 和 stable ID 不因展示需求改变。
+- normalized value 永远不能覆盖 raw value；修正需要产生可追踪的新版本或 correction artifact。
+- 市场差异在 adapter/rules 层表达，共享包只保存跨市场都能解释的语义。
+- reader 必须同时支持 summary 和 detail，避免前端为性能读取摘要后误以为证据已完整加载。
+- 合同验证失败时应 fail closed；不能因某个调用方“只想先展示”而跳过 hash 或身份校验。
+
 ## 技术难点
 
 这个包虽然代码量不大，但它是系统协作稳定性的关键点：

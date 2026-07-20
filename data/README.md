@@ -62,3 +62,11 @@
 - 兼容历史路径，但不把新设计全部继续堆到 `data/`。
 - 当服务 README 提到运行态路径时，要明确说明这是“历史兼容默认值”还是“推荐新值”。
 - 任何需要长期共享或评测的数据，都应整理后迁入 `datasets/` 或其他明确目录，而不是直接留在 `data/`。
+
+## 与高精度链路的关系
+
+`data/wiki` 当前承载文件型权威 evidence package，`data/backend`、parser results 和下载目录承载历史兼容运行数据。这里的“权威”指 package 内有 manifest/hash/source/quality 合同，不代表整个 `data/` 目录都应被长期保存。PostgreSQL/Milvus 可从受控 package 重建；临时上传、缓存、日志和模型状态不可反向成为事实源。
+
+`data/wiki/semantic` 保存的是 rule-first 抽取出的 segment/fact/relation/claim、主题路由和主表/附注跳转关系，不是 embedding 向量目录。LLM-Wiki 查询不调用 Qwen3-VL Embedding、Reranker 或 Milvus；`data/milvus` 及向量入库脚本是独立、可重建的补充检索层。
+
+图片、音频、会议、声纹和 Agent memory 具有不同权限与留存义务，不应因为都在本地磁盘就放进同一个可共享目录。新增能力优先使用 `var/` 的运行态边界和服务专属 ACL。

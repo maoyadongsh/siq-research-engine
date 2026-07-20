@@ -45,6 +45,16 @@ agents/hermes/profiles/siq_analysis_multi_market/scripts/run_analysis_report.py 
 
 流水线原子写入 HTML、Markdown、JSON 和 `<artifact_id>.artifact.json`。关键结论必须绑定语义引用；完整证据数组保存在 JSON，HTML/Markdown 仅默认折叠展示核心 claims 使用的可读定位，最多 64 条。源 package 为 warning 或关键分析字段不足时状态保持 `degraded`，不得伪装为 `ready`。
 
+## 多市场高精度约束
+
+境外市场的“同名指标”并不天然同口径。本 profile 在统一 bundle 中仍保留原币、fiscal period、accounting standard、raw value、normalized value 和来源家族：
+
+- SEC/iXBRL 使用 concept/context/unit/HTML anchor，PDF 市场使用 page/table/bbox/Markdown line；renderer 不把两类 locator 强行互换。
+- `ResearchIdentity` 四字段必须完整，且 output sidecar 与 input manifest 一致；任何字段漂移都应阻断生产路由。
+- source package 的 `financial_checks`、quality warning 和 capability flags 进入报告降级逻辑。
+- 比率与派生值仍遵循共享 `Decimal` 计算合同；币种、金额倍率和负数极性不得由 renderer 猜测。
+- HK/US/EU/JP/KR 规则在 market policy 中隔离，跨市场比较必须先声明会计准则与口径限制。
+
 ## 测试
 
 本 profile 的 adapter、market policy 和 renderer 测试位于 `tests/`。API 路由测试还必须证明：

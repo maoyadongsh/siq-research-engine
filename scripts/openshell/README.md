@@ -2,9 +2,22 @@
 
 本目录用于离线 registry/policy 编译、项目本地 toolchain 包装、诊断、灰度和回退命令。
 
-这些脚本支撑的是 SIQ 自研 OpenShell + Hermes 演示/灰度控制面：固定 NVIDIA OpenShell `v0.0.83`，构建 BYOC Hermes 沙箱，管理 SIQ 专用网关、Provider、Broker、公司范围、资源池租约、对话代际、重启恢复、Host 回退、TTL 清理和正式门禁证据。功能口径详见 `docs/siq-openshell-hermes-integration-status.md` 和 `docs/runbooks/openshell/README.md`。
+这些脚本支撑的是 SIQ 自研 OpenShell + Hermes 控制面：固定 NVIDIA OpenShell `v0.0.83`，构建 BYOC Hermes 沙箱，管理 SIQ 专用网关、Provider、Broker、公司范围、资源池租约、对话代际、重启恢复、Host 回退、TTL 清理和正式门禁证据。`siq_analysis` 分析助手已经通过真实前端请求完成端到端验证；功能口径详见 `docs/siq-openshell-hermes-integration-status.md` 和 `docs/runbooks/openshell/README.md`。
 
-当前可宣称的能力是“真实前端流量已验证的演示/灰度运行面”，不是正式生产切流。`check_v06_completion.py` 与正式 A/B 仍是发布边界；任何脚本都不能把灰度链路存活状态升级解释为 `GO`。
+当前可以明确宣称：**`siq_analysis` 的 OpenShell 分析助手全链路已经跑通**，包括 scope 自动创建、真实 Hermes `/v1/runs`、SSE、对话 generation、lease、恢复和 TTL 回收。与此同时，`check_v06_completion.py` 与正式 A/B 仍是“生产质量发布/默认切流”的独立边界；功能跑通不自动等同于发布门 `GO`，发布门 `NO_GO` 也不否定已经完成的功能集成。
+
+## 工具分层
+
+| 工具族 | 作用 | 默认风险姿态 |
+| --- | --- | --- |
+| toolchain/gateway | 固定 `v0.0.83`、patch supervisor、独立 XDG/mTLS/gateway | 只操作 `siq-openshell-dev`，命中其他 gateway 失败关闭 |
+| provider/broker | 校验并 provision 凭据占位、REST policy、只读数据与受控出网 | plan/validate 优先，真实 secret 不写日志或 artifact |
+| scope/pool | 公司范围、对话代际、槽位、租约、隔离、恢复、TTL | owner-only state、单 writer、显式 lifecycle |
+| PoC/canary | observe、wide pilot、canary、真实前端灰度 | 必须显式 NOT_PRODUCTION 确认，不改变正式 readiness |
+| proof/eval | filesystem/network/delete guard、Host/OpenShell A/B、sanitized evidence | 缺证据即 fail closed，不从 mock 推断生产结论 |
+| completion/rollback | 聚合 formal manifests、人工评审与回滚准备 | `GO` 只由固定完成度合同产生 |
+
+脚本的设计目标是把一次复杂安全操作变成可重复、可审计、可回滚的事务。状态文件、锁、reservation、lease 和 manifest 是合同的一部分，不应通过手工删文件“修好”运行面。
 
 所有脚本必须满足：
 

@@ -964,6 +964,8 @@ Idle TTL cleanup: 已验证
 Formal production quality gate: NO_GO
 ```
 
+这里的 `Demo / Canary runtime` 是发布分类，不是功能完成度判断。对 `siq_analysis` 分析助手而言，OpenShell + Hermes 的真实端到端应用已经全面跑通；`NO_GO` 只约束正式生产质量发布、全局默认切流和可发布证据，不否定已经通过真实前端验证的分析助手链路。后续文档应同时保留这两个维度，避免把“功能已完成”和“正式质量门未放行”混写成“集成未完成”。
+
 ---
 
 # 最终评价

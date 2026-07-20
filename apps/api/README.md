@@ -67,6 +67,67 @@ apps/web / external client
 
 API 后端的商业价值在于把底层复杂能力包装成“可卖给研究组织的治理面”：权限、审计、质量阻断、任务状态、文件访问和智能体调用都在同一个控制面闭环中完成。
 
+## 高精度问答控制链
+
+`apps/api` 是 SIQ “极致高精度”真正收口的地方。parser 和 rules 负责生产高质量事实，API 负责保证智能体最终使用的事实、计算与引用没有在最后一公里失真。
+
+```text
+用户问题 / 图片 / 文档 / 语音
+  -> 会话、用户、profile、附件归属校验
+  -> market/company/filing/parse run 身份解析
+  -> LLM-Wiki logical route first / PostgreSQL fallback / independent Milvus semantic retrieval
+  -> 主表与附注按问题类型分路
+  -> Hermes 运行 + 记忆上下文 + 受控工具
+  -> citation normalization / financial trace extraction
+  -> trusted evidence 对齐 + Decimal 重算 + answer audit
+  -> SSE 最终回答、source links、validation cards、runtime receipt
+```
+
+关键实现分工：
+
+| 实现面 | 代表模块 | 保障内容 |
+| --- | --- | --- |
+| 问题与证据上下文 | `agent_runtime_context.py`、`agent_runtime_wiki_context.py`、`agent_runtime_statement_context.py` | 公司/市场/报告身份、三大表与附注路由、上下文预算 |
+| 结构化事实兜底 | `agent_runtime_market_facts.py`、`agent_runtime_postgres_fallback.py` | Wiki 不足时从市场隔离 PostgreSQL agent view 补证，并保留真实 source type |
+| 引用与来源 | `agent_runtime_citations.py`、`agent_runtime_financial_sources.py`、`citation_links.py` | evidence ID、PDF 页码、table/anchor/bbox、受控 source URL |
+| 财务守卫 | `agent_runtime_financial_trace.py`、`agent_runtime_financial_claim_verifier.py`、`agent_runtime_financial_guard.py` | trace schema、证据绑定、单位/币种/期间检查、确定性重算、错误阻断 |
+| 回答审计 | `agent_runtime_answer_audit.py`、`agent_runtime_financial_provenance.py` | 保存最终回答使用过的证据、计算回执、运行信息和失败原因 |
+
+“高精度”在这里不等于强制输出数字。当权威事实、必要期间或计算 trace 不完整时，正确结果是降级、N/A、明确缺口或要求复核，而不是生成一个看似精确的值。
+
+## 记忆控制与事实隔离
+
+API 将长期记忆作为独立的可治理数据域，而不是把历史对话直接拼进 prompt：
+
+- `agent_memory_service.py` 管理权威 PostgreSQL memory item、message、scope、来源、importance/confidence 和 ResearchIdentity。
+- `agent_memory_milvus.py` 管理 Milvus 可重建索引；也保留 pgvector backend 选择，不让向量库成为唯一事实源。
+- 默认召回在 rerank 后应用 30 天半衰期；显式“全量检索/完整历史”请求绕过时间衰减，但仍受 ACL、scope、数量上限和上下文预算保护。
+- `user_private` 需要用户归属；`project_shared` 需要项目/Deal 范围；`system_shared` 仍按 agent group/profile 约束。一级市场缺少 project/deal context 时不创建项目共享记忆。
+- 研究记忆可带完整 `market/company_id/filing_id/parse_run_id`，防止旧报告记忆污染当前报告事实。
+
+记忆只回答“我们之前如何协作、曾经记录了什么”，evidence package 和当前数据库事实才回答“本期披露究竟是什么”。
+
+## 本地多模态接入
+
+| 输入 | API 处理 | 下游 |
+| --- | --- | --- |
+| 图片附件 | 白名单 MIME、大小与所有权校验，保存到受控 chat root；以 OpenAI vision `image_url` data URL 调用本机 `Nemotron 3 Nano Omni` | 返回文字/数字/表格/图表初步分析，随后交给 Hermes 结合问题与证据作答 |
+| PDF/Office/文本附件 | PDF 等待 parser artifact，Office/文本做有界预览，保留本地 artifact 引用 | 文档解析、source map、Hermes 附件上下文 |
+| 短语音 | WebM/OGG/M4A/MP3/WAV/AAC 白名单，FFmpeg 归一为 16 kHz mono WAV，限制 60 秒/10 MiB | FunASR 转写后进入普通聊天，同时保留音频附件归属 |
+| 长会议音频 | 一次性 ticket、WebSocket gateway、持久 frame/segment/event、finalization worker | meeting-speech、Hermes 纪要/行动项、回放与导出 |
+
+图片链路默认 `SIQ_IMAGE_MODEL_BASE_URL=http://127.0.0.1:8007/v1`，本机服务不可用时显式返回 fallback 状态并交给 Hermes，不会把失败吞成空分析。会议链路和普通短语音链路相互隔离，避免一个服务的延迟、权限或留存策略污染另一个入口。
+
+## 双主模型与并发协调
+
+云端 StepFun `step-3.7-flash` 与本地 Nemotron `nemotron_3_nano_omni` 是当前双主模型。`hermes_model_control.py` 负责把设置、用户显式切换、profile config 和 fallback 顺序解析成稳定 provider/model；运行回执保留实际来源。会议任务使用 immutable target snapshot，创建后不受全局设置变化影响。
+
+问答请求可并发准备 LLM-Wiki 逻辑路由命中的精确事实、PostgreSQL 兜底事实、Milvus 向量候选、长期记忆、附件图片分析和文档 artifact；Qwen reranker 只作用于 Milvus/记忆等语义候选，不重排 Wiki 已按身份、主题、对象 ID 和附注关系确定的权威事实。各分支再按证据优先级裁剪和组装，并绑定 session/user/ResearchIdentity，晚到的旧 scope 结果不能覆盖当前请求。上游任一模型/数据服务失败时只降级相应能力，不应把整个请求静默切成无证据聊天。
+
+LLM-Wiki 的 `semantic/retrieval_index.json` 是逻辑查询索引，不是 embedding 索引。API 依次通过公司/报告身份、topic alias、priority files、fact/claim/evidence IDs、`document_links`/`note_links` 和全文 source coordinates 跳转；这一主路径不调用 embedding、reranker 或 Milvus。这样可以避免传统 RAG 切片对跨页表格、报告期、单位和主表/附注关系的破坏。
+
+API 不直接管理 GPU 显存，但通过输入上限、timeout、candidate limit、job/stream 状态、meeting backpressure 和模型 readiness 把 DGX Spark 的并发资源暴露为有界服务。实际容量仍由各独立 vLLM manager 的 context/sequence/token/memory budget 和整机压力测试决定。
+
 ## 技术难点
 
 `apps/api` 的难点不在于定义几十个路由，而在于控制面如何在不破坏下游职责边界的前提下统一系统行为：
@@ -155,6 +216,14 @@ curl -s http://127.0.0.1:18081/api/system/status
 | `SIQ_AUTH_ACCESS_COOKIE_NAME` | `siq_access_token` | access cookie 名称 |
 | `SIQ_AUTH_COOKIE_SAMESITE` | `lax` | cookie SameSite 策略 |
 | `SIQ_AUTH_COOKIE_SECURE` | `0` | HTTPS 公网部署应设为 `1` |
+| `SIQ_IMAGE_MODEL_ENABLED` | `true` | 启用本地原生图片理解 |
+| `SIQ_IMAGE_MODEL_BASE_URL` | `http://127.0.0.1:8007/v1` | Nemotron/OpenAI-compatible vision 地址 |
+| `SIQ_IMAGE_MODEL` | 自动读取 `/models` | 图片模型名，规范部署为 `nemotron_3_nano_omni` |
+| `SIQ_FUNASR_BASE_URL` | `http://127.0.0.1:8899/asr` | Chat 短语音转写服务 |
+| `SIQ_AGENT_MEMORY_ENABLED` | `true` | 长期记忆总开关 |
+| `SIQ_AGENT_MEMORY_TIME_DECAY_HALF_LIFE_DAYS` | `30` | 默认召回时间衰减半衰期 |
+| `SIQ_AGENT_MEMORY_RERANK_ENABLED` | `true` | 记忆候选精排开关 |
+| `SIQ_HERMES_RUNTIME` | `host` | Host/OpenShell 运行面选择；生产门禁前保持 Host |
 
 ## 基础环境与测试情况
 

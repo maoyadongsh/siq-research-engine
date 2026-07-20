@@ -94,6 +94,20 @@ companies/<company_id>/analysis/
 - `research_pack_validation.json`
 - `research_pack_merge_manifest.json`
 
+## 财务精度与质量门禁
+
+深度报告中的财务判断必须同时满足“源事实可引用”和“派生计算可重算”：
+
+| 报告内容 | 最低证据/校验要求 |
+| --- | --- |
+| 三表余额与发生额 | 绑定同一 ResearchIdentity 的 metrics/evidence，保留期间、单位、币种和页表定位 |
+| 同比、占比、CAGR、周转与人均 | 使用 `financial_calculator.py`，保存分子/分母 evidence ID 与结构化 trace |
+| 商誉、应收、存货等净额 | 主表净额 + 附注原值/准备双路召回，使用 reconciliation trace |
+| 风险链与趋势 | 区分事实、模型测算、外部补证与可证伪假设，不能用叙事替代数值缺口 |
+| 图表 | 数据点来自已验证 pack；chart designer 只改变表达，不改变公式、口径或事实 |
+
+报告发布前由 research pack validation、citation/quality gate 和 API answer/report audit 分层检查。某个章节证据不足时允许 `degraded` 或留出待补证项，不允许为了章节完整度伪造数据。
+
 ## 与其他 Agent 的协同关系
 
 - `siq_assistant` 负责轻量问答与解释，可把复杂分析需求引导到 `siq_analysis`。

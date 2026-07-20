@@ -73,3 +73,18 @@
 - 新增角色、阶段或模板时，应先修改 shared policy，再落具体 profile 说明。
 - 若某个角色需要例外规则，应优先扩展 contract，而不是在本地 profile 私自分叉。
 - 这里的内容应保持机器可读和人可读兼顾，便于 API、前端和批处理脚本引用。
+
+## 平台公共能力合同
+
+所有 IC profiles 通过 shared 层统一继承：
+
+| 公共能力 | 统一要求 |
+| --- | --- |
+| 证据 | 材料/页面/表格/会议 cursor/外部来源必须可定位，线索不能伪装成 confirmed fact |
+| 记忆 | 项目上下文默认 `project_shared`，无 deal/project scope 不写入；记忆与新材料冲突时以新证据为准 |
+| 财务 | 派生计算使用确定性 calculator；三表、净额和模型假设保留输入、单位、期间和 discrepancy |
+| 多模态 | 图片/扫描件经 parser/Nemotron 辅助，语音经 stable transcript；原文件和授权边界不被模型输出替代 |
+| 运行面 | Host/OpenShell 共享同一 profile/report contract；runtime receipt 只证明执行来源，不证明结论质量 |
+| 决策 | `confirmed/assumed/unknown/disputed`、证据等级、人工复核和状态迁移必须进入可审计产物 |
+
+这些规则保证主席、战略、行业、财务、法务、风险和协调器能共享同一项目事实层，同时保持岗位独立性和相互制衡。

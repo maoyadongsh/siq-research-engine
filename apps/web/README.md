@@ -60,6 +60,31 @@ OpenShell runtime provenance、Agent memory 注入结果、quality gates 和 sou
 
 Web 工作台的商业价值是把“研究生产线”做成研究员能真实操作的流程：从官方文件到质量复核、从证据包到入库动作、从报告阅读到多角色协作，都不是隐藏在脚本里的能力。
 
+## 高精度证据交互
+
+前端不把 Agent 最终文本当作唯一结果，而是把回答、证据、计算校验和运行状态放在同一任务上下文中：
+
+| 交互 | 用户看到什么 | 防止的问题 |
+| --- | --- | --- |
+| Source 回跳 | PDF 页图、bbox、表格、Markdown 行、SEC HTML anchor/XBRL locator | 引用存在但无法复核原文 |
+| 质量面板 | parser/rules status、coverage、warnings、hash、入库 gate | 低质量 package 被误当成完成 |
+| 财务 validation cards | 公式、输入、结果、pass/warning/error 和来源 | 模型答案中的计算错误被正文掩盖 |
+| 受控报告 iframe | 沙箱化 HTML、只允许 SIQ source link bridge | 报告脚本越权或裸露本地路径 |
+| 请求 scope | task/company/market 切换时取消或忽略过期响应 | 旧请求覆盖新公司、新任务页面 |
+| Runtime receipt | Agent 运行来源与可解释 fallback | Host/OpenShell 结果来源不可追踪 |
+
+研究员可以从一个数字回到表格单元格，也可以从 warning 回到缺失报表或勾稽规则；“能复核”是产品功能，不是后端调试能力。
+
+## 多模态工作台
+
+- Chat 支持图片、PDF、Office 和文本附件；图片由本机 Nemotron 原生理解，文档走 parser artifact，同会话可继续追问历史附件。
+- Chat 支持短语音录入，经 FunASR 转写后进入同一问答链，并保留附件状态。
+- `/documents` 同屏展示文本块、表格、图片、source map 和原页，便于多模态解析复核。
+- `/meetings/*` 支持麦克风/标签页/受控系统音频、实时 partial、stable transcript、说话人、术语、回放、纪要和导出。
+- `/vector-ingest` 承接文本、表格、图片 metadata 和知识库索引，不把向量入库隐藏成离线脚本。
+
+所有媒体资源都通过鉴权 API 或一次性 ticket 访问；前端不直连模型服务，也不把宿主文件路径当下载 URL。
+
 ## 技术难点
 
 Web 工作台的难点不在“页面多”，而在“把复杂研究系统做成可操作产品”：

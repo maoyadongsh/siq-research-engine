@@ -55,6 +55,31 @@ finder / parser 产物
 
 规则服务的商业价值在于把“解析出来的东西看起来像数据”提升为“可以负责任地进入研究数据库的数据”。它明确记录缺口、风险和入库计划，让质控负责人可以管理而不是事后追查污染源。
 
+## 财务勾稽校验引擎
+
+规则服务不只做字段映射。`validation.py` 对每个期间建立 source-aware 的财务桥，并把每条检查转换成可执行 gate contract：
+
+| 检查族 | 典型公式或约束 | 处理策略 |
+| --- | --- | --- |
+| 报表完整性 | 资产负债表、利润表、现金流量表；行业必需指标 | 年报缺失通常升级为 warning/fail，摘要类报告按 form 调整 |
+| 资产负债桥 | 资产=负债+可赎回/临时权益+权益；资产=负债及权益合计 | 支持替代总额桥，避免特殊资本结构被简单误判 |
+| 分项桥 | 总资产=流动+非流动资产；总负债=流动+非流动负债 | 可选桥缺项可 skipped，错误保留 source evidence |
+| 权益与利润桥 | 权益=归母+少数股东；毛利=收入-成本；净利润=税前利润-所得税 | 使用 `Decimal` 与 value polarity，避免符号二次翻转 |
+| 现金流桥 | 净现金变动=经营+投资+融资+汇率影响；期末现金=期初+净变动+汇率影响 | 对未披露 FX 项按明确规则处理，不靠模型补值 |
+| 证据/维度检查 | source locator、accounting standard、dimension scope | 维度事实与 consolidated total 分开，防止 segment fact 顶替主表总额 |
+
+非 A 股来源可能同时存在 PDF 表格、XBRL fact 和 API fact。source-aware bridge 会优先选择来源一致的一组输入，不把不同来源族中“看起来最像”的高置信值任意拼成公式。检查结果带 rule ID、left/right、evidence refs、reason 和 promotion target，可被 API、importer、Milvus 和人工 review 共同消费。
+
+### 风险分级与发布目标
+
+| 严重度 | draft | review | canonical / retrieval / production |
+| --- | --- | --- | --- |
+| hard / fail | allow | review | block |
+| soft / warning | allow | review | review |
+| observe / skipped | allow | allow | allow |
+
+因此 `overall_status=pass` 不是简单的“代码没报错”，而是必需报表、关键事实、财务桥、证据与会计口径共同通过后的可消费状态。
+
 ## 技术难点
 
 规则层的难点不在“写 if/else”，而在于把不同市场的结构化语义隔离且统一表达：

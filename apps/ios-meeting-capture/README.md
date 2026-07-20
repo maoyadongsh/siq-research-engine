@@ -19,6 +19,23 @@
 | 安全删除 | seal、server checkpoint、WAV hash/size、cleanup receipt | 只有服务端具备完整可播放副本后才删除本地证据 |
 | 凭据分层 | Keychain capture token + 内存 user bearer + trusted origin | 后台上传权限与用户控制面权限分离，降低凭据泄漏面 |
 
+## 在多模态智能体体系中的位置
+
+iOS 客户端只负责可靠采集和上传，不在端侧做不可审计的最终转写或纪要：
+
+```text
+iPhone microphone / approved audio route
+  -> native epoch + sequence + local durable chunks
+  -> authenticated native capture API
+  -> server-side manifest/finalization
+  -> meeting-speech / FunASR
+  -> stable transcript + speaker timeline
+  -> Hermes correction/minutes/action items
+  -> project evidence / scoped memory
+```
+
+这种边界让设备断网、锁屏或进程被系统挂起时仍能恢复上传，也让 ASR 模型、Nemotron/其他纪要模型、声纹授权和数据留存都由服务端统一治理。端侧音频不是长期记忆；只有经过稳定化、权限校验和项目归属的 transcript/纪要才可被智能体消费。
+
 ## 技术栈与系统关系
 
 - TypeScript 6：定义 Web/Capacitor 可调用的强类型桥合同。

@@ -36,6 +36,40 @@
 | Gemma4 | `gemma4-26b/` | Gemma4 文本模型启动脚本 |
 | systemd user | `systemd-user/` | 用户级服务定义 |
 
+## DGX Spark 当前并行拓扑
+
+当前部署在同一台 NVIDIA DGX Spark（GB10、aarch64、CUDA 13、约 128 GB 统一内存）上并行运行多个独立模型服务。项目目录保存稳定对接入口，机器级 source-of-truth 管理脚本位于 `/home/maoyd/modles_setup/`：
+
+| 服务 | 管理脚本 | 端口 | 资源/运行隔离 |
+| --- | --- | ---: | --- |
+| Nemotron 3 Nano Omni 本地主模型 | `start_nemotron3_nano_omni_vllm.sh` | `8007` | 固定 vLLM 0.20 ARM64 image、NVFP4、27% GPU memory target、FP8 KV、独立 Docker/cache |
+| MinerU2.5-Pro 文档 VLM | `MinerU2.5-Pro-2604-1.2B_up.py` | `8002` / API `8003` | 12% target、独立 Conda + API venv、systemd user 双服务 |
+| Qwen3-VL Embedding | `Qwen3-VL-Embedding-2B_up.py` | `8013` | 8% target、BF16 pooling、1024 维 Matryoshka、独立 Docker |
+| Qwen3-VL Reranker | `Qwen3-VL-Reranker-2B_up.py` | `8001` | 10% target、8192 context、独立 HTTP wrapper/Docker |
+| FunASR Nano | `start_funasr_vllm.sh` | `8899` | 5% target、BF16/eager、VAD/speaker、独立 Conda/PID/log/systemd |
+
+StepFun `step-3.7-flash` 是云端主模型，通过 Hermes custom provider / OpenShell Provider 接入，与本地 Nemotron 构成双主模型。业务侧不依赖某个启动脚本的进程身份，只依赖 OpenAI-compatible、embedding、rerank、ASR 和 MinerU HTTP 合同。
+
+这些 memory target 是调度上限目标而非静态占用。统一内存同时被模型权重、KV cache、CUDA graph、ARM CPU 进程、PostgreSQL cache、Milvus segment 和文件 page cache 使用，容量规划需要把整机视为一个资源系统。默认模型预算约束、量化与独立进程提供可运行基线；峰值并发、超长上下文和大批量 ingestion 仍需限流、队列和压力测试。
+
+### 并行协同而非模型串联
+
+- 文档入库时，MinerU 负责生成结构 artifact；PostgreSQL load plan、Milvus chunk 准备和质量校验可在 task 层并发推进。
+- 问答时，精确 SQL、LLM-Wiki 逻辑跳转、Milvus、长期记忆和图片理解可以并发执行；Qwen reranker 只精排 Milvus/记忆等向量候选，LLM-Wiki 不使用 embedding/ranker，其按 ResearchIdentity、主题、对象 ID 和主表/附注关系命中的权威事实直接进入证据优先级组装。
+- 语音时，FunASR/meeting-speech 与音频持久化、speaker tracking、Hermes 纪要分离，实时 partial 不阻塞最终高精度窗口。
+- StepFun 与 Nemotron 的切换/fallback 保留模型来源；OpenShell 只控制执行安全，不改变业务证据和输出合同。
+
+独立端口、容器/环境和健康检查形成故障隔离，但也引入版本、端口、显存、超时和启动次序协调成本。`start_all.sh`、systemd user units、Docker health、模型 manager 和 API system status 共同提供运维面。
+
+### 2026-07-20 本机核验备注
+
+- Nemotron、MinerU VLM/API、Qwen3-VL Embedding 与 systemd 管理的 FunASR 当前 ready。
+- Qwen3-VL Reranker 容器当前存在，但 health 请求超时，日志中出现过空输出索引异常；调用方必须保留 rerank error/degraded 路径，不能只按容器状态宣称可用。
+- FunASR 的独立 manager 仍按自己的 PID 文件判断，而当前真实进程由 `siq-funasr-vllm.service` 托管；PID 文件陈旧时 manager 会误报。修复前以 systemd 状态和 `8899/openapi.json` 为准。
+- 当前统一内存与 swap 接近满载。多模型同机并行已经成立，但这也意味着峰值任务需要 admission control，不能同时无界放大 256K 生成、PDF 批处理、向量入库和会议 finalization。
+
+这些是动态运维采样，不替代脚本配置合同；其价值是提醒维护者始终分开检查 process、readiness、最小推理与业务质量。
+
 ## 当前最新状态
 
 | 能力 | 对接模块 | 价值 |
@@ -46,6 +80,32 @@
 | systemd user units | 本地长期运行 | 让模型服务像基础设施一样可启动、可检查、可重启 |
 
 这部分的商业价值是私有化能力：投研材料通常无法随意发送到外部 SaaS，SIQ 通过本地模型服务把解析、检索、生成和 rerank 留在客户控制的机器或内网里。
+
+## 多模态模型协作图
+
+```text
+Chat 图片 -----------------> Nemotron 3 Nano Omni vision ---------> 图片初步分析
+PDF/扫描件/图表 -----------> MinerU + VLM ------------------------> layout/table/figure/source map
+文本/图片 evidence --------> Qwen3-VL Embedding -> Milvus --------> 多模态候选召回
+候选 evidence -------------> Qwen3-VL Reranker -------------------> 精排结果
+Chat 短语音 ---------------> FFmpeg -> FunASR 8899 ---------------> 用户问题文本
+会议 PCM/录音 -------------> meeting-speech/Paraformer/VAD ------> stable transcript
+证据 + 记忆 + transcript --> Hermes + Nemotron/Qwen/Gemma --------> 问答/报告/纪要
+```
+
+这里的关键不是用一个 Omni 模型包办全部任务，而是让模型各自承担可测量的职责：解析模型恢复版面，vision 模型解释图片，embedding/reranker 找证据，ASR 模型恢复语音，LLM/Hermes 组织结论。最终事实仍受 evidence、财务规则和回答审计约束。
+
+## 精度、性能与私有化权衡
+
+| 运行决策 | 主要收益 | 必须控制的风险 |
+| --- | --- | --- |
+| 本地 OpenAI-compatible LLM/VLM | 敏感材料不出内网、API 稳定、模型可替换 | 显存、并发、冷启动、chat template 与模型版本漂移 |
+| NVFP4/FP8 量化 | 降低显存与单位推理成本 | 数值推理、OCR/vision 细节和长上下文质量需独立评测 |
+| 多模型分工 | 每类任务使用更适合的模型 | 端口、健康、超时、fallback 与 trace 需要统一治理 |
+| 本地 embedding/reranker | 低延迟、可控语义检索 | 向量维度、collection schema、模型升级后的全量重建 |
+| 本地 ASR/声纹 | 会议与语音数据不外发 | 授权音频评测、CER/DER、声纹 consent、留存与删除 |
+
+模型健康不能只看进程和 `/models`。vision 至少要做真实图片请求，embedding 要验证维度和归一化，reranker 要检查排序，ASR 要在授权音频上评测，生成模型要验证工具调用、结构化输出和长上下文。
 
 ## 典型用法
 

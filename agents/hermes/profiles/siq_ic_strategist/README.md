@@ -46,6 +46,10 @@
 - 不在缺少基金约束信息时给出绝对匹配结论。
 - 不绕过 shared contract 自行设计报告结构。
 
+## 证据、外部研究与记忆
+
+外部搜索和行业材料必须带来源、发布日期与适用地域，只能补充项目材料，不能覆盖公司/基金的内部 confirmed facts。历史 thesis 和组合偏好可进入 `project_shared`/`system_shared` 记忆并接受时间衰减；当政策、市场窗口或基金约束变化时，应产生新版本判断，而不是修改旧记录。
+
 ## 运行入口
 
 运行目录：`agents/hermes/profiles/siq_ic_strategist`

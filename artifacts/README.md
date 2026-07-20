@@ -63,3 +63,9 @@ OpenShell 参赛证据和日志在移除凭据值及私有业务正文、通过 
 - 保持该目录默认可清理，不把临时输出误当长期资产。
 - 在 README 中始终明确它与 `datasets/`、`eval_datasets/` 和运行态目录的区别。
 - 大量输出应按 run id、日期或任务类型分目录，方便清理和回溯。
+
+## 审计证据要求
+
+高精度、OpenShell、多模态或会议发布证据应同时包含机器可读结果、执行参数摘要、版本/hash、时间、真实/Mock 标记和脱敏状态。只保留截图或一段“passed”文本不足以支持复核。
+
+OpenShell 证据必须经过 tracked allowlist、secret scan 和 sanitized manifest；会议/语音证据不得包含原始客户音频、完整 transcript 或声纹 embedding。`artifacts/` 保存的是证明过程的产物，不是生产事实数据库。

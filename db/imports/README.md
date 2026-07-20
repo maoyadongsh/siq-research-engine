@@ -56,6 +56,22 @@ parser / market package 产物
 
 PostgreSQL 层的商业价值是把文件型证据资产变成可查询、可聚合、可复盘的数据资产，同时不丢失原始 evidence package 的审计坐标。
 
+## 高精度入库防线
+
+PostgreSQL 是权威结构化索引，不是 parser 输出的无条件落点。导入链路按以下顺序保护事实层：
+
+1. 验证 package / `document_full` 身份、市场、公司、报告、parse run 和 artifact hash。
+2. 读取 quality gate；warning/fail 默认拒绝，`--force` 只用于明确的人工覆盖并保留原因。
+3. 将 raw fact、normalized fact、period、unit、currency、scale、accounting standard 与 source locator 分列持久化。
+4. 以市场隔离 schema 和稳定业务键幂等 upsert；同一 filing 的旧 parse run 不得静默与新版本混写。
+5. 事务提交后重新查询关键行数、身份与 hash，确认“命令成功”确实等于“数据可读”。
+
+对 Agent 暴露的 `{schema}.v_agent_financial_facts` 保留 `source_type`、ResearchIdentity、value/raw_value、unit/currency、page/table/bbox、evidence ID、quote、source URL 和 Wiki path。这样 PostgreSQL fallback 能补足 Wiki 查询，而不会伪装成 Wiki 来源。
+
+## 财务与计算边界
+
+Importer 保存 rules 生成的校验结果和事实输入，但不替智能体做自由派生计算。资产负债桥、利润桥和现金流桥在规则层形成 `validation`；同比、占比、人均、CAGR 与附注净额勾稽在回答阶段由确定性工具执行。分层的价值是能区分“源数据不自洽”和“回答公式算错”两类完全不同的质量问题。
+
 ## 典型用法
 
 ### 导入 `document_full.json`

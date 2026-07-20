@@ -57,6 +57,10 @@ companies/<company_id>/factcheck/
 - 不在缺证据时替分析报告补写事实。
 - 不把“无法确认”伪装成“确认有问题”或“确认没问题”。
 
+## 境外市场核查方法
+
+核查时先验证 report artifact 与 package 的 ResearchIdentity，再按来源家族解析 locator。SEC 的 XBRL concept/context/unit 与 HTML anchor、PDF 市场的 page/table/bbox 不可互相伪装。财务 claim 需要重算公式并核对原币、fiscal period、会计准则和 value polarity；package 为 warning/degraded 时，即使正文数字恰好匹配，也不能无条件给出 `approve`。
+
 ## 运行入口
 
 前端入口：`/verify`

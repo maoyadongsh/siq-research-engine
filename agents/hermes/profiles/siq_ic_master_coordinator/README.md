@@ -46,6 +46,12 @@
 - 不把无来源数字或无时间戳判断装配进主席材料。
 - 不私自改写共享工作流 policy。
 
+## 平台能力与审计收口
+
+协调器需要检查的不是“每个委员是否写完一篇文章”，而是每个任务是否绑定项目 scope、材料版本、证据 ID、ResearchIdentity（适用时）、质量门禁和可执行后续动作。`project_shared` 记忆可保存项目约定与已裁定纠错，但不能替代数据房原件；图片/扫描件和会议转写产物只有在 parser/source/meeting cursor 可回放时才可晋升为正式委员证据。
+
+OpenShell 运行回执、模型来源和 Host fallback 原因应作为执行审计的一部分保留，但不参与业务评分。运行安全通过与专家结论质量通过是两道独立门禁。
+
 ## 运行入口
 
 运行目录：`agents/hermes/profiles/siq_ic_master_coordinator`

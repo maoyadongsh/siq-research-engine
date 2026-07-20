@@ -59,6 +59,10 @@ companies/<company_id>/tracking/
 - 不篡改原始分析报告的证据来源或历史版本。
 - 不把暂时的噪音变化包装成已确认的长期趋势。
 
+## 多市场基线与变更检测
+
+每条跟踪项绑定 market/company/filing/parse run、原币口径、fiscal period 和初始 evidence。新披露进入后先验证 package quality 与 identity，再比较指标；SEC XBRL 与 PDF 市场 locator 分别保留。历史记忆帮助召回过去的假设和阈值，但不能把旧币种、旧会计准则或旧 parse run 的数字当作新期事实。
+
 ## 运行入口
 
 前端入口：`/tracking`

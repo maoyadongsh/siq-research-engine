@@ -55,6 +55,32 @@
 
 这个服务的商业价值是把“公司资料包里什么都有”的混乱现实变成统一证据合同。财报、网页、合同、图片和会议材料可以进入同一条治理链，而不是分别做一次性解析。
 
+## 多模态文档事实模型
+
+通用文档不是“纯文本容器”。一个可用于研究的 artifact 同时包含文本、版面、表格、图片、页码和来源关系：
+
+| 证据形态 | 标准产物 | 下游用途 |
+| --- | --- | --- |
+| 文本块 | `blocks.json` / `document_full.json` | 章节阅读、全文检索、问答上下文 |
+| 版面与页码 | `layout.json` / `source_map.json` | page/bbox 回跳、阅读器定位、引用复核 |
+| 表格 | `tables.json` / `table_relations.json` | 结构化抽取、跨页逻辑表、财务或尽调校验 |
+| 图片与图表 | `figures.json`、source image/page endpoint | 本地 VLM/Nemotron 二次识别、图表解读、视觉证据展示 |
+| Schema 抽取 | workflow/package artifact | 合同字段、尽调清单、法规要素等领域结构化结果 |
+
+图片识别结果属于派生解释，原图、页码、bbox 和 hash 仍是权威证据。这样既能利用多模态模型读取扫描件、图表和截图，也不会让模型生成的描述取代原文件。
+
+## 高精度与退化策略
+
+服务通过 provider routing 把不同来源归一到同一 artifact contract，但不掩盖 provider 差异：
+
+- PDF 可桥接专业 `apps/pdf-parser`，并验证 bridge identity、artifact 路径和失败清理。
+- 既有 MinerU 目录可导入，但要重新建立 task、page metadata、quality 与 source map，而不是直接信任外部目录。
+- Office/HTML/URL/图片按各自可恢复程度生成 artifact；缺少页级定位时必须显式反映在 quality 中。
+- table merge、page range、source image 和 batch download 均有独立 contract/test，避免一个巨型 response 隐式改变所有消费者。
+- 上游失败不自动切到低质量 mock；下游只能消费明确完成且 artifact 完整的任务。
+
+这一设计让文档解析精度可分维度评估：文字是否完整、结构是否稳定、表格是否可计算、视觉对象是否保留、来源是否可回跳，而不是只给一个笼统 OCR 分数。
+
 ## 技术难点
 
 通用文档解析的核心难点在于：输入类型很多，但输出合同不能失控。

@@ -97,6 +97,18 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:15175 npm run e2e
 - 可预测的后端数据基线。
 - 不写入仓库的密钥与登录信息。
 
+## 高精度与多模态回归重点
+
+涉及以下功能时，E2E 不应只断言页面“出现了文本”，还要验证身份和证据交互：
+
+- 切换市场/公司/任务后，旧请求结果不能覆盖新 scope；A 股与境外市场任务列表保持隔离。
+- citation/source link 能打开受控页图、表格或 SEC anchor，bbox/active section 与当前 claim 对齐。
+- warning/fail package 需要明确确认才发送 `force=true`，取消确认不得触发入库。
+- financial validation card 在 pass/warning/error 下保留答案正文，并显示公式、输入或缺口状态。
+- 图片、文档和语音附件保持用户归属、格式/大小边界和同会话 follow-up；Mock 只能验证前端协议，真实 Nemotron/FunASR 另做集成测试。
+- meeting partial 不冒充 stable segment，断线重连和 epoch 切换不重复稳定文本。
+- OpenShell/Host runtime receipt 与 fallback 提示可见，但灰度状态不得显示成生产 GO。
+
 ## 维护原则
 
 - smoke tests 优先覆盖最容易影响用户主路径的页面和入口。

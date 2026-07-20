@@ -48,6 +48,19 @@
 
 脚本层的商业价值是可重复性：客户演示、回归评测、批量导入和模型/向量运维都应该能从脚本重跑，而不是依赖某次人工操作。
 
+## 高精度与安全专项工具
+
+| 目标 | 代表入口 | 验证内容 |
+| --- | --- | --- |
+| Agent 记忆 | `scripts/hermes/verify_agent_memory_*` | PostgreSQL/Milvus 双后端、ResearchIdentity、ACL、召回合同 |
+| 财务准确性 | profiles shared calculator/reconciliation + API tests | 单位、币种、负数、同比、比率、原值/准备/净额和 trace |
+| 多市场证据 | `scripts/{hk,jp,kr,eu,us-sec}` | 下载、package、source map、normalized metrics、quality gate |
+| 多模态索引 | `scripts/vector-index/milvus-ingestion` | document/market/image metadata、embedding、collection 合同 |
+| 会议质量 | `scripts/meeting/evaluate_*` | ASR、voiceprint、latency、diarization 和 fail-closed release artifact |
+| OpenShell | `scripts/openshell/check_v06_completion.py` 及 lifecycle/proof 脚本 | policy、provider、broker、scope、pool、A/B、正式 readiness |
+
+专项脚本应输出机器可读 artifact、明确退出码和脱敏证据。协议测试、空夹具或 mock 结果只能证明 contract，不得被引用成真实精度、性能或安全验收结果。
+
 ## 多市场 Wiki 迁移
 
 日本市场旧版 `data/wiki/jp_reports/<ticker>/<year>/<report>_doc/` 只作历史兼容来源。需要把旧包迁入公司级 Wiki 主路径时运行：

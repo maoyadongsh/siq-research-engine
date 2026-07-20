@@ -66,3 +66,18 @@
 5. README、测试和 module metadata 同步更新。
 
 只有当市场模块自身能清晰说明职责、边界和存储语义时，它才算真正接入了 SIQ 的 rules 体系。
+
+## 高精度验收清单
+
+一个新市场只有同时回答以下问题，才算接入了 SIQ 事实生产线，而不是仅能解析样本：
+
+- 公司、filing、报告期和 parse run 是否有稳定且不与其他市场冲突的身份。
+- 年报/中报/摘要、合并/母公司、年度/YTD/QTD 是否能可靠区分。
+- raw value、canonical value、币种、倍率、括号负数和 value polarity 是否分别保留。
+- 主表总额、分部维度、附注明细和 XBRL extension concept 是否不会互相顶替。
+- 资产负债、利润、现金流 bridge 能否在同一 source family 内选择输入，并输出 evidence refs。
+- PDF page/table/bbox、HTML anchor 或 XBRL concept/context/unit 是否能从 normalized fact 回跳。
+- warning/fail 如何影响 draft、review、canonical、retrieval、production 五类 promotion target。
+- package、PostgreSQL view、Milvus metadata 和 Agent ResearchIdentity 是否使用同一市场代码与 stable ID。
+
+只通过字段数量或“能出 JSON”的测试不足以放量；需要 package contract、质量门禁、入库回查和至少一个回答级引用/计算回归共同通过。

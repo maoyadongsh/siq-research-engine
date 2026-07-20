@@ -59,3 +59,9 @@ datasets/market_ingestion/secondary_market_mvp_cases.json
 - 优先稳定、可复现、体积受控。
 - 数据集目录服务测试与文档，不服务临时存储。
 - 样本变更要考虑下游测试和评测的兼容性。
+
+## 高精度数据集要求
+
+解析/问答/财务数据集应尽量包含期望 ResearchIdentity、原始 locator、raw/normalized value、unit/currency/period、quality status 和预期 gate，而不是只保存问题与答案文本。多模态 fixture 还应保存授权说明、图片/音频 hash 和可公开的最小样本；不能把真实客户材料为方便测试直接版本化。
+
+稳定数据集用于证明合同行为，不能代替真实规模、噪声和硬件条件下的生产评测。

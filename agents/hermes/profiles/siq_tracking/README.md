@@ -59,6 +59,12 @@ companies/<company_id>/tracking/
 - 不篡改原始分析报告的证据来源或历史版本。
 - 不把暂时的噪音变化包装成已确认的长期趋势。
 
+## 记忆驱动但证据校准
+
+跟踪 profile 是长期记忆价值最直接的消费者：历史假设、用户纠错和跟踪阈值可按 `user_private` 或 `project_shared` 沉淀，默认召回经过 rerank 与 30 天半衰期，显式全量回顾可绕过衰减。每次新披露到来后，旧记忆只用于定位“过去关心什么”，当前指标、事件和预警是否成立仍由新 evidence package 与确定性计算判断。
+
+当公司、filing 或 parse run 改变时，ResearchIdentity 约束防止旧报告数字被当作本期事实；趋势比较必须明确列出两个期间各自的来源和计算 trace。
+
 ## 运行入口
 
 前端入口：`/tracking`

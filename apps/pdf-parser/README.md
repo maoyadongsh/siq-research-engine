@@ -53,6 +53,32 @@ PDF 披露文件
 
 PDF parser 的商业价值在于把“PDF 年报”变成可复核的证据资产，而不是只产出一份 Markdown。质量状态、表格坐标和财务勾稽共同决定后续能否进入数据库和语义层。
 
+## 高精度解析机制
+
+SIQ 对财报 PDF 采用“多视图一致性”而不是单结果解析。Markdown 适合阅读，content list 适合重建段落/表格顺序，页图与 bbox 适合人工复核，`document_full.json` 适合跨服务消费，任一视图都不能单独代表完整事实。
+
+| 精度层 | 机制 | 结果 |
+| --- | --- | --- |
+| 原始身份 | task、market、源 PDF、result manifest 与 artifact hash 绑定 | 防止任务重跑后引用到旧结果 |
+| 版面恢复 | MinerU/VLM 上游 + page marker + enhanced content list | 保留章节、段落、公式、表格和页序 |
+| 表格恢复 | table index、逻辑表 merge/split、row/cell/bbox、table relation | 跨页表与复杂附注可人工定位和修正 |
+| 多市场适配 | CN/HK/JP/KR/EU/US quality/profile adapter | 不把不同语言、监管格式和报告结构强行套用同一规则 |
+| 质量评估 | coverage、结构完整性、关键 artifact、市场专属 warning | 解析结果以 pass/warning/fail/degraded 表达，不静默乐观 |
+| 可回放纠错 | correction endpoint、修正包、重建脚本和 result contract audit | 人工修正可以沉淀并在重跑后复核 |
+
+页面、表格、bbox、Markdown 行与 artifact hash 的共同存在，是后续问答能做到“回答一句、回跳一处”的基础。图片和图表不会只被丢成占位符：页图/figure 作为多模态证据保留，可由本地 VLM 或 Nemotron 类模型做二次理解，但模型描述不会覆盖原始 source locator。
+
+## 财务抽取与勾稽校验
+
+`financial_data.json` 保存抽取事实，`financial_checks.json` 保存检查结果，二者不能合并成一个“看起来正确”的结果文件。抽取时重点保留：
+
+- 原始文本与规范值并存，币种、金额倍率、正负号、括号负数、期间起止和审计口径分开处理。
+- QTD/YTD、当期/上期、期末/期初不靠列位置猜测，而由市场 profile、表头和 source metadata 共同判断。
+- 三大表是否齐全、关键指标是否缺失、source locator 是否完整进入质量报告。
+- parser 侧校验只证明 artifact 内部自洽；跨市场 canonical rule、正式报表桥和回答级计算守卫由 `services/market-report-rules` 与 `apps/api` 继续完成。
+
+因此解析成功不等于可入库，更不等于可直接用于投资结论。只有通过 package quality gate 的产物才能晋升到 canonical/retrieval/production。
+
 ## 技术难点
 
 `apps/pdf-parser` 的难度不在“把 PDF OCR 出来”，而在“把财报里的结构性事实提出来且可追溯”：

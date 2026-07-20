@@ -125,6 +125,7 @@ Thumbs.db
 # Version the production tracking workflow without exposing Wiki facts or runtime outputs.
 !data/wiki/
 data/wiki/*
+!data/wiki/README.md
 !data/wiki/tracking/
 data/wiki/tracking/*
 !data/wiki/tracking/scripts/
@@ -167,6 +168,7 @@ artifacts/openshell/**
 # Version the production tracking workflow without exposing Wiki facts or runtime outputs.
 !data/wiki/
 data/wiki/*
+!data/wiki/README.md
 !data/wiki/tracking/
 data/wiki/tracking/*
 !data/wiki/tracking/scripts/
