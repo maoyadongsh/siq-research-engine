@@ -1,4 +1,6 @@
 # SIQ Research Engine
+<img width="3840" height="2160" alt="image" src="https://github.com/user-attachments/assets/b81af4d7-7780-4049-9a09-d4150fc38fbd" />
+
 
 SIQ Research Engine 是一套面向投研机构的可审计智能研究生产线。项目把官方披露下载、财报与通用文档解析、结构化证据包、PostgreSQL / Milvus 沉淀、Hermes 多智能体协作，以及 NVIDIA OpenShell 安全运行面组合成一个可复核、可回放、可持续扩展的投研系统。
 
