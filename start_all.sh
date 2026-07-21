@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Cleanup handlers are invoked indirectly through traps.
+# shellcheck disable=SC2317
 set -euo pipefail
 
 # ============================================================
