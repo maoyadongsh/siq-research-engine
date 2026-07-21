@@ -1,0 +1,2414 @@
+{
+  "schema_version": 1,
+  "rule_version": "single_company_subject_rules_v1",
+  "generated_at": "2026-07-07T15:47:35Z",
+  "company_id": "000625-长安汽车",
+  "report_id": "2025-annual",
+  "source": "semantic/note_links.json + reports/<report_id>/report.json tables",
+  "design_note": "This layer stores document navigation edges only. It does not extract or normalize numeric financial data.",
+  "document_link_count": 44,
+  "links": [
+    {
+      "document_link_id": "doclink_000625_2025_annual_000001",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应收账款",
+        "title": "应收账款",
+        "line": 142,
+        "md_line": 142,
+        "pdf_page_number": 8,
+        "table_index": 11,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/8",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/8",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/11"
+      },
+      "target": {
+        "kind": "note",
+        "name": "应收账款按账龄披露",
+        "title": "应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2893,
+        "md_line": 2893,
+        "pdf_page_number": 126,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "unverified",
+        "amount_check_confidence": "low",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000002",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应收账款按账龄披露",
+        "title": "应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2893,
+        "md_line": 2893,
+        "pdf_page_number": 126,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2895,
+        "md_line": 2895,
+        "pdf_page_number": 126,
+        "table_index": 99,
+        "heading": "1、 应收账款按账龄披露",
+        "preview": "账龄 期末余额 上年年末余额 1年以内(含1年) 4,229,226,208.97 3,446,137,716.23 1至2年(含2年) 18,615,201.37 16,222,867.47 2至3年(含3年) 699,218.40 2,555,202.33 3年以上 185,165,040.70 182,615,371.52 小计 4,433,705,669.44 3,647,531,157.55 减:坏账准备 236,861,02",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/99",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "high",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000003",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应收账款",
+        "title": "应收账款",
+        "line": 142,
+        "md_line": 142,
+        "pdf_page_number": 8,
+        "table_index": 11,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/8",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/8",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/11"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2895,
+        "md_line": 2895,
+        "pdf_page_number": 126,
+        "table_index": 99,
+        "heading": "1、 应收账款按账龄披露",
+        "preview": "账龄 期末余额 上年年末余额 1年以内(含1年) 4,229,226,208.97 3,446,137,716.23 1至2年(含2年) 18,615,201.37 16,222,867.47 2至3年(含3年) 699,218.40 2,555,202.33 3年以上 185,165,040.70 182,615,371.52 小计 4,433,705,669.44 3,647,531,157.55 减:坏账准备 236,861,02",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/99",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "high",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000004",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应收账款按账龄披露",
+        "title": "应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2893,
+        "md_line": 2893,
+        "pdf_page_number": 126,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2900,
+        "md_line": 2900,
+        "pdf_page_number": 127,
+        "table_index": 100,
+        "heading": "2、 应收账款按坏账计提方法分类披露",
+        "preview": "类别 期末余额 上年年末余额 账面余额 坏账准备 账面价值 账面余额 坏账准备 账面价值 金额 比例(%) 金额 计提比例(%) 金额 比例(%) 金额 计提比例(%) 按单项计提坏账准备 134,737,278.68 3.04 117,520,250.03 87.22 17,217,028.65 155,418,767.28 4.26 138,122,745.91 88.87 17,296,021.37 按信用风险特征组合计提坏账准备",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/127",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/127",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/100",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000005",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应收账款",
+        "title": "应收账款",
+        "line": 142,
+        "md_line": 142,
+        "pdf_page_number": 8,
+        "table_index": 11,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/8",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/8",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/11"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2900,
+        "md_line": 2900,
+        "pdf_page_number": 127,
+        "table_index": 100,
+        "heading": "2、 应收账款按坏账计提方法分类披露",
+        "preview": "类别 期末余额 上年年末余额 账面余额 坏账准备 账面价值 账面余额 坏账准备 账面价值 金额 比例(%) 金额 计提比例(%) 金额 比例(%) 金额 计提比例(%) 按单项计提坏账准备 134,737,278.68 3.04 117,520,250.03 87.22 17,217,028.65 155,418,767.28 4.26 138,122,745.91 88.87 17,296,021.37 按信用风险特征组合计提坏账准备",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/127",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/127",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/100",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000006",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应收账款按账龄披露",
+        "title": "应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2893,
+        "md_line": 2893,
+        "pdf_page_number": 126,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/126",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/126"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2904,
+        "md_line": 2904,
+        "pdf_page_number": 128,
+        "table_index": 101,
+        "heading": "按信用风险特征组合计提坏账准备的应收账款：",
+        "preview": "名称 期末余额 应收账款 坏账准备 计提比例(%) 1年以内(含1年) 4,156,740,908.72 507,289.10 0.01 1至2年(含2年) 17,756,539.36 275,323.44 1.55 2至3年(含3年) 347,789.36 68,535.73 19.71 3年以上 124,123,153.32 118,489,623.99 95.46 合计 4,298,968,390.76 119,340,772.2",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/128",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/128",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/101",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000007",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应收账款",
+        "title": "应收账款",
+        "line": 142,
+        "md_line": 142,
+        "pdf_page_number": 8,
+        "table_index": 11,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/8",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/8",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/11"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应收账款按账龄披露",
+        "title": "1、 应收账款按账龄披露",
+        "note_title": "应收账款按账龄披露",
+        "line": 2904,
+        "md_line": 2904,
+        "pdf_page_number": 128,
+        "table_index": 101,
+        "heading": "按信用风险特征组合计提坏账准备的应收账款：",
+        "preview": "名称 期末余额 应收账款 坏账准备 计提比例(%) 1年以内(含1年) 4,156,740,908.72 507,289.10 0.01 1至2年(含2年) 17,756,539.36 275,323.44 1.55 2至3年(含3年) 347,789.36 68,535.73 19.71 3年以上 124,123,153.32 118,489,623.99 95.46 合计 4,298,968,390.76 119,340,772.2",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/128",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/128",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/101",
+        "heading_line": 2893,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00001",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000155",
+        "ev_000625_2025_annual_000156"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000008",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "预付款项",
+        "title": "预付款项",
+        "line": 1852,
+        "md_line": 1852,
+        "pdf_page_number": 80,
+        "table_index": 76,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/80",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/80",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/76"
+      },
+      "target": {
+        "kind": "note",
+        "name": "预付款项按账龄列示",
+        "title": "预付款项按账龄列示",
+        "note_title": "预付款项按账龄列示",
+        "line": 2926,
+        "md_line": 2926,
+        "pdf_page_number": 129,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/129",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/129"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00002",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000157",
+        "ev_000625_2025_annual_000158"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000009",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "预付款项按账龄列示",
+        "title": "预付款项按账龄列示",
+        "note_title": "预付款项按账龄列示",
+        "line": 2926,
+        "md_line": 2926,
+        "pdf_page_number": 129,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/129",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/129"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 预付款项按账龄列示",
+        "title": "1、 预付款项按账龄列示",
+        "note_title": "预付款项按账龄列示",
+        "line": 2928,
+        "md_line": 2928,
+        "pdf_page_number": 129,
+        "table_index": 105,
+        "heading": "1、 预付款项按账龄列示",
+        "preview": "账龄 期末余额 上年年末余额 金额 比例(%) 金额 比例(%) 1年以内(含1年) 485,225,383.15 98.56 502,483,902.59 99.05 1至2年(含2年) 3,007,464.47 0.61 4,504,672.39 0.89 2至3年(含3年) 4,024,296.15 0.82 56,190.44 0.01 3年以上 30,000.00 0.01 268,916.65 0.05 合计 492,287",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/129",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/129",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/105",
+        "heading_line": 2926,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00002",
+        "confidence": "high",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000157",
+        "ev_000625_2025_annual_000158"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000010",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "预付款项",
+        "title": "预付款项",
+        "line": 1852,
+        "md_line": 1852,
+        "pdf_page_number": 80,
+        "table_index": 76,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/80",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/80",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/76"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 预付款项按账龄列示",
+        "title": "1、 预付款项按账龄列示",
+        "note_title": "预付款项按账龄列示",
+        "line": 2928,
+        "md_line": 2928,
+        "pdf_page_number": 129,
+        "table_index": 105,
+        "heading": "1、 预付款项按账龄列示",
+        "preview": "账龄 期末余额 上年年末余额 金额 比例(%) 金额 比例(%) 1年以内(含1年) 485,225,383.15 98.56 502,483,902.59 99.05 1至2年(含2年) 3,007,464.47 0.61 4,504,672.39 0.89 2至3年(含3年) 4,024,296.15 0.82 56,190.44 0.01 3年以上 30,000.00 0.01 268,916.65 0.05 合计 492,287",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/129",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/129",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/105",
+        "heading_line": 2926,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00002",
+        "confidence": "high",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000157",
+        "ev_000625_2025_annual_000158"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000011",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "存货",
+        "title": "存货",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "存货的分类和成本",
+        "title": "存货的分类和成本",
+        "note_title": "存货的分类和成本",
+        "line": 2281,
+        "md_line": 2281,
+        "pdf_page_number": 101,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/101",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/101"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00003",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "unverified",
+        "amount_check_confidence": "low",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000159",
+        "ev_000625_2025_annual_000160"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000012",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "长期股权投资",
+        "title": "长期股权投资",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "长期股权投资情况",
+        "title": "长期股权投资情况",
+        "note_title": "长期股权投资情况",
+        "line": 3022,
+        "md_line": 3022,
+        "pdf_page_number": 139,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/139",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/139"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00004",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000161",
+        "ev_000625_2025_annual_000162"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000013",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "长期股权投资情况",
+        "title": "长期股权投资情况",
+        "note_title": "长期股权投资情况",
+        "line": 3022,
+        "md_line": 3022,
+        "pdf_page_number": 139,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/139",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/139"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "长期股权投资情况",
+        "title": "长期股权投资情况",
+        "note_title": "长期股权投资情况",
+        "line": 3024,
+        "md_line": 3024,
+        "pdf_page_number": 139,
+        "table_index": 122,
+        "heading": "1、 长期股权投资情况",
+        "preview": "被投资单位 上年年末余额(账面价值) 减值准备上年年末余额 本期增减变动 期末余额(账面价值) 减值准备期末余额 1.合营企业 南昌市江铃投资有限公司 2,420,750,943.20 242,152,464.18 2,662,903,407.38 长安马自达汽车有限公司 733,965,602.46 -95,953,584.47 638,012,017.99 长安马自达发动机有限公司 806,511,751.50 3,051,468.",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/139",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/139",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/122",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00004",
+        "confidence": "high",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000161",
+        "ev_000625_2025_annual_000162"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000014",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "长期股权投资",
+        "title": "长期股权投资",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "长期股权投资情况",
+        "title": "长期股权投资情况",
+        "note_title": "长期股权投资情况",
+        "line": 3024,
+        "md_line": 3024,
+        "pdf_page_number": 139,
+        "table_index": 122,
+        "heading": "1、 长期股权投资情况",
+        "preview": "被投资单位 上年年末余额(账面价值) 减值准备上年年末余额 本期增减变动 期末余额(账面价值) 减值准备期末余额 1.合营企业 南昌市江铃投资有限公司 2,420,750,943.20 242,152,464.18 2,662,903,407.38 长安马自达汽车有限公司 733,965,602.46 -95,953,584.47 638,012,017.99 长安马自达发动机有限公司 806,511,751.50 3,051,468.",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/139",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/139",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/122",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00004",
+        "confidence": "high",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000161",
+        "ev_000625_2025_annual_000162"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000015",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "固定资产",
+        "title": "固定资产",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "固定资产的确认和初始计量",
+        "title": "固定资产的确认和初始计量",
+        "note_title": "固定资产的确认和初始计量",
+        "line": 2391,
+        "md_line": 2391,
+        "pdf_page_number": 105,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/105",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/105"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00005",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "medium",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000163",
+        "ev_000625_2025_annual_000164"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000016",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "在建工程",
+        "title": "在建工程",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "在建工程及工程物资",
+        "title": "在建工程及工程物资",
+        "note_title": "在建工程及工程物资",
+        "line": 3063,
+        "md_line": 3063,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00006",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000165",
+        "ev_000625_2025_annual_000166"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000017",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "在建工程及工程物资",
+        "title": "在建工程及工程物资",
+        "note_title": "在建工程及工程物资",
+        "line": 3063,
+        "md_line": 3063,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 在建工程及工程物资",
+        "title": "1、 在建工程及工程物资",
+        "note_title": "在建工程及工程物资",
+        "line": 3065,
+        "md_line": 3065,
+        "pdf_page_number": 145,
+        "table_index": 128,
+        "heading": "1、 在建工程及工程物资",
+        "preview": "项目 期末余额 上年年末余额 账面余额 减值准备 账面价值 账面余额 减值准备 账面价值 在建工程 1,056,595,927.21 27,861,352.87 1,028,734,574.34 1,624,245,622.47 27,861,352.87 1,596,384,269.60 合计 1,056,595,927.21 27,861,352.87 1,028,734,574.34 1,624,245,622.47 27,861",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/145",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/145",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/128",
+        "heading_line": 3063,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00006",
+        "confidence": "medium",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000165",
+        "ev_000625_2025_annual_000166"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000018",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "在建工程",
+        "title": "在建工程",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 在建工程及工程物资",
+        "title": "1、 在建工程及工程物资",
+        "note_title": "在建工程及工程物资",
+        "line": 3065,
+        "md_line": 3065,
+        "pdf_page_number": 145,
+        "table_index": 128,
+        "heading": "1、 在建工程及工程物资",
+        "preview": "项目 期末余额 上年年末余额 账面余额 减值准备 账面价值 账面余额 减值准备 账面价值 在建工程 1,056,595,927.21 27,861,352.87 1,028,734,574.34 1,624,245,622.47 27,861,352.87 1,596,384,269.60 合计 1,056,595,927.21 27,861,352.87 1,028,734,574.34 1,624,245,622.47 27,861",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/145",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/145",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/128",
+        "heading_line": 3063,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00006",
+        "confidence": "medium",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000165",
+        "ev_000625_2025_annual_000166"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000019",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "无形资产",
+        "title": "无形资产",
+        "line": 665,
+        "md_line": 665,
+        "pdf_page_number": 24,
+        "table_index": 32,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/24",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/24",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/32"
+      },
+      "target": {
+        "kind": "note",
+        "name": "无形资产的计价方法",
+        "title": "无形资产的计价方法",
+        "note_title": "无形资产的计价方法",
+        "line": 2458,
+        "md_line": 2458,
+        "pdf_page_number": 107,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/107",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/107"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00007",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "no_statement_amount",
+        "amount_check_confidence": "none",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000167",
+        "ev_000625_2025_annual_000168"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000020",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "商誉",
+        "title": "商誉",
+        "line": 1852,
+        "md_line": 1852,
+        "pdf_page_number": 80,
+        "table_index": 76,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/80",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/80",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/76"
+      },
+      "target": {
+        "kind": "note",
+        "name": "商誉变动情况",
+        "title": "商誉变动情况",
+        "note_title": "商誉变动情况",
+        "line": 3098,
+        "md_line": 3098,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00008",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000169",
+        "ev_000625_2025_annual_000170"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000021",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "商誉变动情况",
+        "title": "商誉变动情况",
+        "note_title": "商誉变动情况",
+        "line": 3098,
+        "md_line": 3098,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 商誉变动情况",
+        "title": "1、 商誉变动情况",
+        "note_title": "商誉变动情况",
+        "line": 3100,
+        "md_line": 3100,
+        "pdf_page_number": 151,
+        "table_index": 134,
+        "heading": "1、 商誉变动情况",
+        "preview": "被投资单位名称或形成商誉的事项 上年年末余额 本期增加 本期减少 期末余额 企业合并形成的 其他 处置 其他 账面原值 南京长安汽车有限公司 73,465,335.00 73,465,335.00 河北长安汽车有限公司 9,804,394.00 9,804,394.00 深蓝汽车科技有限公司 1,800,926,049.16 1,800,926,049.16 小计 1,884,195,778.16 1,884,195,778.16 减值",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/151",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/151",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/134",
+        "heading_line": 3098,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00008",
+        "confidence": "medium",
+        "semantic_relation": "composition_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000169",
+        "ev_000625_2025_annual_000170"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000022",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "商誉",
+        "title": "商誉",
+        "line": 1852,
+        "md_line": 1852,
+        "pdf_page_number": 80,
+        "table_index": 76,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/80",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/80",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/76"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 商誉变动情况",
+        "title": "1、 商誉变动情况",
+        "note_title": "商誉变动情况",
+        "line": 3100,
+        "md_line": 3100,
+        "pdf_page_number": 151,
+        "table_index": 134,
+        "heading": "1、 商誉变动情况",
+        "preview": "被投资单位名称或形成商誉的事项 上年年末余额 本期增加 本期减少 期末余额 企业合并形成的 其他 处置 其他 账面原值 南京长安汽车有限公司 73,465,335.00 73,465,335.00 河北长安汽车有限公司 9,804,394.00 9,804,394.00 深蓝汽车科技有限公司 1,800,926,049.16 1,800,926,049.16 小计 1,884,195,778.16 1,884,195,778.16 减值",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/151",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/151",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/134",
+        "heading_line": 3098,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00008",
+        "confidence": "medium",
+        "semantic_relation": "composition_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000169",
+        "ev_000625_2025_annual_000170"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000023",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "短期借款",
+        "title": "短期借款",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "短期借款分类",
+        "title": "短期借款分类",
+        "note_title": "短期借款分类",
+        "line": 3144,
+        "md_line": 3144,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00009",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000171",
+        "ev_000625_2025_annual_000172"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000024",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "短期借款分类",
+        "title": "短期借款分类",
+        "note_title": "短期借款分类",
+        "line": 3144,
+        "md_line": 3144,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 短期借款分类",
+        "title": "1、 短期借款分类",
+        "note_title": "短期借款分类",
+        "line": 3146,
+        "md_line": 3146,
+        "pdf_page_number": 155,
+        "table_index": 143,
+        "heading": "1、 短期借款分类",
+        "preview": "项目 期末余额 上年年末余额 信用借款 512,275,913.93 40,036,055.69 合计 512,275,913.93 40,036,055.69",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/155",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/155",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/143",
+        "heading_line": 3144,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00009",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000171",
+        "ev_000625_2025_annual_000172"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000025",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "短期借款",
+        "title": "短期借款",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 短期借款分类",
+        "title": "1、 短期借款分类",
+        "note_title": "短期借款分类",
+        "line": 3146,
+        "md_line": 3146,
+        "pdf_page_number": 155,
+        "table_index": 143,
+        "heading": "1、 短期借款分类",
+        "preview": "项目 期末余额 上年年末余额 信用借款 512,275,913.93 40,036,055.69 合计 512,275,913.93 40,036,055.69",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/155",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/155",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/143",
+        "heading_line": 3144,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00009",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000171",
+        "ev_000625_2025_annual_000172"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000026",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应付账款",
+        "title": "应付账款",
+        "line": 1865,
+        "md_line": 1865,
+        "pdf_page_number": 81,
+        "table_index": 77,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/81",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/81",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/77"
+      },
+      "target": {
+        "kind": "note",
+        "name": "应付账款列示",
+        "title": "应付账款列示",
+        "note_title": "应付账款列示",
+        "line": 3157,
+        "md_line": 3157,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00010",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000173",
+        "ev_000625_2025_annual_000174"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000027",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应付账款列示",
+        "title": "应付账款列示",
+        "note_title": "应付账款列示",
+        "line": 3157,
+        "md_line": 3157,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应付账款列示",
+        "title": "1、 应付账款列示",
+        "note_title": "应付账款列示",
+        "line": 3159,
+        "md_line": 3159,
+        "pdf_page_number": 155,
+        "table_index": 145,
+        "heading": "1、 应付账款列示",
+        "preview": "项目 期末余额 上年年末余额 应付货款 29,841,076,563.69 43,835,671,129.12 合计 29,841,076,563.69 43,835,671,129.12",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/155",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/155",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/145",
+        "heading_line": 3157,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00010",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000173",
+        "ev_000625_2025_annual_000174"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000028",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应付账款",
+        "title": "应付账款",
+        "line": 1865,
+        "md_line": 1865,
+        "pdf_page_number": 81,
+        "table_index": 77,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/81",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/81",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/77"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 应付账款列示",
+        "title": "1、 应付账款列示",
+        "note_title": "应付账款列示",
+        "line": 3159,
+        "md_line": 3159,
+        "pdf_page_number": 155,
+        "table_index": 145,
+        "heading": "1、 应付账款列示",
+        "preview": "项目 期末余额 上年年末余额 应付货款 29,841,076,563.69 43,835,671,129.12 合计 29,841,076,563.69 43,835,671,129.12",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/155",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/155",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/145",
+        "heading_line": 3157,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00010",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000173",
+        "ev_000625_2025_annual_000174"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000029",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "合同负债",
+        "title": "合同负债",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note",
+        "name": "合同负债情况",
+        "title": "合同负债情况",
+        "note_title": "合同负债情况",
+        "line": 3171,
+        "md_line": 3171,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00011",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000175",
+        "ev_000625_2025_annual_000176"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000030",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "合同负债情况",
+        "title": "合同负债情况",
+        "note_title": "合同负债情况",
+        "line": 3171,
+        "md_line": 3171,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 合同负债情况",
+        "title": "1、 合同负债情况",
+        "note_title": "合同负债情况",
+        "line": 3173,
+        "md_line": 3173,
+        "pdf_page_number": 156,
+        "table_index": 147,
+        "heading": "1、 合同负债情况",
+        "preview": "项目 期末余额 上年年末余额 预收货款 5,356,608,912.37 9,559,537,581.14 预收服务费 1,552,000,145.85 1,328,359,414.35 合计 6,908,609,058.22 10,887,896,995.49",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/156",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/156",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/147",
+        "heading_line": 3171,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00011",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000175",
+        "ev_000625_2025_annual_000176"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000031",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "合同负债",
+        "title": "合同负债",
+        "line": 623,
+        "md_line": 623,
+        "pdf_page_number": 23,
+        "table_index": 28,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/23",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/23",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/28"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 合同负债情况",
+        "title": "1、 合同负债情况",
+        "note_title": "合同负债情况",
+        "line": 3173,
+        "md_line": 3173,
+        "pdf_page_number": 156,
+        "table_index": 147,
+        "heading": "1、 合同负债情况",
+        "preview": "项目 期末余额 上年年末余额 预收货款 5,356,608,912.37 9,559,537,581.14 预收服务费 1,552,000,145.85 1,328,359,414.35 合计 6,908,609,058.22 10,887,896,995.49",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/156",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/156",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/147",
+        "heading_line": 3171,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00011",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000175",
+        "ev_000625_2025_annual_000176"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000032",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应付债券",
+        "title": "应付债券",
+        "line": 1865,
+        "md_line": 1865,
+        "pdf_page_number": 81,
+        "table_index": 77,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/81",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/81",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/77"
+      },
+      "target": {
+        "kind": "note",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3217,
+        "md_line": 3217,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00012",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000177",
+        "ev_000625_2025_annual_000178"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000033",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3217,
+        "md_line": 3217,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3219,
+        "md_line": 3219,
+        "pdf_page_number": 158,
+        "table_index": 157,
+        "heading": "1、 应付债券明细",
+        "preview": "项目 期末余额 上年年末余额 公司债券 999,803,773.56 999,705,660.36 合计 999,803,773.56 999,705,660.36",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/158",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/158",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/157",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00012",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000177",
+        "ev_000625_2025_annual_000178"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000034",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应付债券",
+        "title": "应付债券",
+        "line": 1865,
+        "md_line": 1865,
+        "pdf_page_number": 81,
+        "table_index": 77,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/81",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/81",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/77"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3219,
+        "md_line": 3219,
+        "pdf_page_number": 158,
+        "table_index": 157,
+        "heading": "1、 应付债券明细",
+        "preview": "项目 期末余额 上年年末余额 公司债券 999,803,773.56 999,705,660.36 合计 999,803,773.56 999,705,660.36",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/158",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/158",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/157",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00012",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000177",
+        "ev_000625_2025_annual_000178"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000035",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3217,
+        "md_line": 3217,
+        "pdf_page_number": 140,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/140",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/140"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3223,
+        "md_line": 3223,
+        "pdf_page_number": 159,
+        "table_index": 158,
+        "heading": "2、 应付债券的增减变动（不包括划分为金融负债的优先股、永续债等其他金融工具）",
+        "preview": "债券名称 面值 票面利率 发行日期 债券期限 发行金额 上年年末余额 本期发行 按面值计提利息 溢折价摊销 本期偿还 期末余额 是否违约 科技创新公司债券 1,000,000,000.00 3.00% 2022/12/20 5年 1,000,000,000.00 999,705,660.36 30,000,000.00 98,113.20 30,000,000.00 999,803,773.56 否 合计 1,000,000,000.0",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/159",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/159",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/158",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00012",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000177",
+        "ev_000625_2025_annual_000178"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000036",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "应付债券",
+        "title": "应付债券",
+        "line": 1865,
+        "md_line": 1865,
+        "pdf_page_number": 81,
+        "table_index": 77,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/81",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/81",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/77"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "应付债券明细",
+        "title": "应付债券明细",
+        "note_title": "应付债券明细",
+        "line": 3223,
+        "md_line": 3223,
+        "pdf_page_number": 159,
+        "table_index": 158,
+        "heading": "2、 应付债券的增减变动（不包括划分为金融负债的优先股、永续债等其他金融工具）",
+        "preview": "债券名称 面值 票面利率 发行日期 债券期限 发行金额 上年年末余额 本期发行 按面值计提利息 溢折价摊销 本期偿还 期末余额 是否违约 科技创新公司债券 1,000,000,000.00 3.00% 2022/12/20 5年 1,000,000,000.00 999,705,660.36 30,000,000.00 98,113.20 30,000,000.00 999,803,773.56 否 合计 1,000,000,000.0",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/159",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/159",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/158",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00012",
+        "confidence": "medium",
+        "semantic_relation": "movement_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000177",
+        "ev_000625_2025_annual_000178"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000037",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 96,
+        "md_line": 96,
+        "pdf_page_number": 6,
+        "table_index": 9,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/6",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/6",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/9"
+      },
+      "target": {
+        "kind": "note",
+        "name": "营业收入和营业成本情况",
+        "title": "营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3305,
+        "md_line": 3305
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00013",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000179",
+        "ev_000625_2025_annual_000180"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000038",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入和营业成本情况",
+        "title": "营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3305,
+        "md_line": 3305
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 营业收入和营业成本情况",
+        "title": "1、 营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3307,
+        "md_line": 3307,
+        "pdf_page_number": 165,
+        "table_index": 176,
+        "heading": "1、 营业收入和营业成本情况",
+        "preview": "项目 本期金额 上期金额 收入 成本 收入 成本 主营业务 158,993,495,151.21 135,676,267,009.91 155,996,379,529.44 133,423,991,672.62 其他业务 5,006,308,724.66 2,837,825,632.20 3,736,654,683.81 2,445,031,398.83 合计 163,999,803,875.87 138,514,092,642.11",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/165",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/165",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/176",
+        "heading_line": 3305,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00013",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000179",
+        "ev_000625_2025_annual_000180"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000039",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 96,
+        "md_line": 96,
+        "pdf_page_number": 6,
+        "table_index": 9,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/6",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/6",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/9"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 营业收入和营业成本情况",
+        "title": "1、 营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3307,
+        "md_line": 3307,
+        "pdf_page_number": 165,
+        "table_index": 176,
+        "heading": "1、 营业收入和营业成本情况",
+        "preview": "项目 本期金额 上期金额 收入 成本 收入 成本 主营业务 158,993,495,151.21 135,676,267,009.91 155,996,379,529.44 133,423,991,672.62 其他业务 5,006,308,724.66 2,837,825,632.20 3,736,654,683.81 2,445,031,398.83 合计 163,999,803,875.87 138,514,092,642.11",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/165",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/165",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/176",
+        "heading_line": 3305,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00013",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000179",
+        "ev_000625_2025_annual_000180"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000040",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入和营业成本情况",
+        "title": "营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3305,
+        "md_line": 3305
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 营业收入和营业成本情况",
+        "title": "1、 营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3311,
+        "md_line": 3311,
+        "pdf_page_number": 166,
+        "table_index": 177,
+        "heading": "营业收入明细：",
+        "preview": "项目 本期金额 上期金额 客户合同产生的收入 163,945,439,313.62 159,490,083,620.53 租赁收入 54,364,562.25 242,950,592.72 合计 163,999,803,875.87 159,733,034,213.25",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/166",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/166",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/177",
+        "heading_line": 3305,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00013",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000179",
+        "ev_000625_2025_annual_000180"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000041",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 96,
+        "md_line": 96,
+        "pdf_page_number": 6,
+        "table_index": 9,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/6",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/6",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/9"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 营业收入和营业成本情况",
+        "title": "1、 营业收入和营业成本情况",
+        "note_title": "营业收入和营业成本情况",
+        "line": 3311,
+        "md_line": 3311,
+        "pdf_page_number": 166,
+        "table_index": 177,
+        "heading": "营业收入明细：",
+        "preview": "项目 本期金额 上期金额 客户合同产生的收入 163,945,439,313.62 159,490,083,620.53 租赁收入 54,364,562.25 242,950,592.72 合计 163,999,803,875.87 159,733,034,213.25",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/166",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/166",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/177",
+        "heading_line": 3305,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00013",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000179",
+        "ev_000625_2025_annual_000180"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000042",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "所得税费用",
+        "title": "所得税费用",
+        "line": 1904,
+        "md_line": 1904,
+        "pdf_page_number": 84,
+        "table_index": 80,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/84",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/84",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/80"
+      },
+      "target": {
+        "kind": "note",
+        "name": "所得税费用表",
+        "title": "所得税费用表",
+        "note_title": "所得税费用表",
+        "line": 3373,
+        "md_line": 3373
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_000625_2025_annual_00014",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "high",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000181",
+        "ev_000625_2025_annual_000182"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000043",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "所得税费用表",
+        "title": "所得税费用表",
+        "note_title": "所得税费用表",
+        "line": 3373,
+        "md_line": 3373
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 所得税费用表",
+        "title": "1、 所得税费用表",
+        "note_title": "所得税费用表",
+        "line": 3375,
+        "md_line": 3375,
+        "pdf_page_number": 170,
+        "table_index": 192,
+        "heading": "1、 所得税费用表",
+        "preview": "项目 本期金额 上期金额 当期所得税费用 883,499,738.78 699,569,748.76 递延所得税费用 -193,553,572.52 -46,216,369.36 合计 689,946,166.26 653,353,379.40",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/170",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/170",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/192",
+        "heading_line": 3373,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_000625_2025_annual_00014",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000181",
+        "ev_000625_2025_annual_000182"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_000625_2025_annual_000044",
+      "company_id": "000625-长安汽车",
+      "report_id": "2025-annual",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "所得税费用",
+        "title": "所得税费用",
+        "line": 1904,
+        "md_line": 1904,
+        "pdf_page_number": 84,
+        "table_index": 80,
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/84",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/84",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/80"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "1、 所得税费用表",
+        "title": "1、 所得税费用表",
+        "note_title": "所得税费用表",
+        "line": 3375,
+        "md_line": 3375,
+        "pdf_page_number": 170,
+        "table_index": 192,
+        "heading": "1、 所得税费用表",
+        "preview": "项目 本期金额 上期金额 当期所得税费用 883,499,738.78 699,569,748.76 递延所得税费用 -193,553,572.52 -46,216,369.36 合计 689,946,166.26 653,353,379.40",
+        "open_pdf_page_url": "/api/pdf_page/5f6020e9-269d-4ce4-ab03-d1f543e1280b/170",
+        "open_source_page_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/page/170",
+        "open_source_table_url": "/api/source/5f6020e9-269d-4ce4-ab03-d1f543e1280b/table/192",
+        "heading_line": 3373,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_000625_2025_annual_00014",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_000625_2025_annual_000181",
+        "ev_000625_2025_annual_000182"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    }
+  ],
+  "indexes": {
+    "by_source_name": {
+      "应收账款": [
+        "doclink_000625_2025_annual_000001",
+        "doclink_000625_2025_annual_000003",
+        "doclink_000625_2025_annual_000005",
+        "doclink_000625_2025_annual_000007"
+      ],
+      "应收账款按账龄披露": [
+        "doclink_000625_2025_annual_000002",
+        "doclink_000625_2025_annual_000004",
+        "doclink_000625_2025_annual_000006"
+      ],
+      "预付款项": [
+        "doclink_000625_2025_annual_000008",
+        "doclink_000625_2025_annual_000010"
+      ],
+      "预付款项按账龄列示": [
+        "doclink_000625_2025_annual_000009"
+      ],
+      "存货": [
+        "doclink_000625_2025_annual_000011"
+      ],
+      "长期股权投资": [
+        "doclink_000625_2025_annual_000012",
+        "doclink_000625_2025_annual_000014"
+      ],
+      "长期股权投资情况": [
+        "doclink_000625_2025_annual_000013"
+      ],
+      "固定资产": [
+        "doclink_000625_2025_annual_000015"
+      ],
+      "在建工程": [
+        "doclink_000625_2025_annual_000016",
+        "doclink_000625_2025_annual_000018"
+      ],
+      "在建工程及工程物资": [
+        "doclink_000625_2025_annual_000017"
+      ],
+      "无形资产": [
+        "doclink_000625_2025_annual_000019"
+      ],
+      "商誉": [
+        "doclink_000625_2025_annual_000020",
+        "doclink_000625_2025_annual_000022"
+      ],
+      "商誉变动情况": [
+        "doclink_000625_2025_annual_000021"
+      ],
+      "短期借款": [
+        "doclink_000625_2025_annual_000023",
+        "doclink_000625_2025_annual_000025"
+      ],
+      "短期借款分类": [
+        "doclink_000625_2025_annual_000024"
+      ],
+      "应付账款": [
+        "doclink_000625_2025_annual_000026",
+        "doclink_000625_2025_annual_000028"
+      ],
+      "应付账款列示": [
+        "doclink_000625_2025_annual_000027"
+      ],
+      "合同负债": [
+        "doclink_000625_2025_annual_000029",
+        "doclink_000625_2025_annual_000031"
+      ],
+      "合同负债情况": [
+        "doclink_000625_2025_annual_000030"
+      ],
+      "应付债券": [
+        "doclink_000625_2025_annual_000032",
+        "doclink_000625_2025_annual_000034",
+        "doclink_000625_2025_annual_000036"
+      ],
+      "应付债券明细": [
+        "doclink_000625_2025_annual_000033",
+        "doclink_000625_2025_annual_000035"
+      ],
+      "营业收入": [
+        "doclink_000625_2025_annual_000037",
+        "doclink_000625_2025_annual_000039",
+        "doclink_000625_2025_annual_000041"
+      ],
+      "营业收入和营业成本情况": [
+        "doclink_000625_2025_annual_000038",
+        "doclink_000625_2025_annual_000040"
+      ],
+      "所得税费用": [
+        "doclink_000625_2025_annual_000042",
+        "doclink_000625_2025_annual_000044"
+      ],
+      "所得税费用表": [
+        "doclink_000625_2025_annual_000043"
+      ]
+    },
+    "by_target_title": {
+      "应收账款按账龄披露": [
+        "doclink_000625_2025_annual_000001"
+      ],
+      "1、 应收账款按账龄披露": [
+        "doclink_000625_2025_annual_000002",
+        "doclink_000625_2025_annual_000003",
+        "doclink_000625_2025_annual_000004",
+        "doclink_000625_2025_annual_000005",
+        "doclink_000625_2025_annual_000006",
+        "doclink_000625_2025_annual_000007"
+      ],
+      "预付款项按账龄列示": [
+        "doclink_000625_2025_annual_000008"
+      ],
+      "1、 预付款项按账龄列示": [
+        "doclink_000625_2025_annual_000009",
+        "doclink_000625_2025_annual_000010"
+      ],
+      "存货的分类和成本": [
+        "doclink_000625_2025_annual_000011"
+      ],
+      "长期股权投资情况": [
+        "doclink_000625_2025_annual_000012",
+        "doclink_000625_2025_annual_000013",
+        "doclink_000625_2025_annual_000014"
+      ],
+      "固定资产的确认和初始计量": [
+        "doclink_000625_2025_annual_000015"
+      ],
+      "在建工程及工程物资": [
+        "doclink_000625_2025_annual_000016"
+      ],
+      "1、 在建工程及工程物资": [
+        "doclink_000625_2025_annual_000017",
+        "doclink_000625_2025_annual_000018"
+      ],
+      "无形资产的计价方法": [
+        "doclink_000625_2025_annual_000019"
+      ],
+      "商誉变动情况": [
+        "doclink_000625_2025_annual_000020"
+      ],
+      "1、 商誉变动情况": [
+        "doclink_000625_2025_annual_000021",
+        "doclink_000625_2025_annual_000022"
+      ],
+      "短期借款分类": [
+        "doclink_000625_2025_annual_000023"
+      ],
+      "1、 短期借款分类": [
+        "doclink_000625_2025_annual_000024",
+        "doclink_000625_2025_annual_000025"
+      ],
+      "应付账款列示": [
+        "doclink_000625_2025_annual_000026"
+      ],
+      "1、 应付账款列示": [
+        "doclink_000625_2025_annual_000027",
+        "doclink_000625_2025_annual_000028"
+      ],
+      "合同负债情况": [
+        "doclink_000625_2025_annual_000029"
+      ],
+      "1、 合同负债情况": [
+        "doclink_000625_2025_annual_000030",
+        "doclink_000625_2025_annual_000031"
+      ],
+      "应付债券明细": [
+        "doclink_000625_2025_annual_000032",
+        "doclink_000625_2025_annual_000033",
+        "doclink_000625_2025_annual_000034",
+        "doclink_000625_2025_annual_000035",
+        "doclink_000625_2025_annual_000036"
+      ],
+      "营业收入和营业成本情况": [
+        "doclink_000625_2025_annual_000037"
+      ],
+      "1、 营业收入和营业成本情况": [
+        "doclink_000625_2025_annual_000038",
+        "doclink_000625_2025_annual_000039",
+        "doclink_000625_2025_annual_000040",
+        "doclink_000625_2025_annual_000041"
+      ],
+      "所得税费用表": [
+        "doclink_000625_2025_annual_000042"
+      ],
+      "1、 所得税费用表": [
+        "doclink_000625_2025_annual_000043",
+        "doclink_000625_2025_annual_000044"
+      ]
+    },
+    "by_note_link_id": {
+      "note_000625_2025_annual_00001": [
+        "doclink_000625_2025_annual_000001",
+        "doclink_000625_2025_annual_000002",
+        "doclink_000625_2025_annual_000003",
+        "doclink_000625_2025_annual_000004",
+        "doclink_000625_2025_annual_000005",
+        "doclink_000625_2025_annual_000006",
+        "doclink_000625_2025_annual_000007"
+      ],
+      "note_000625_2025_annual_00002": [
+        "doclink_000625_2025_annual_000008",
+        "doclink_000625_2025_annual_000009",
+        "doclink_000625_2025_annual_000010"
+      ],
+      "note_000625_2025_annual_00003": [
+        "doclink_000625_2025_annual_000011"
+      ],
+      "note_000625_2025_annual_00004": [
+        "doclink_000625_2025_annual_000012",
+        "doclink_000625_2025_annual_000013",
+        "doclink_000625_2025_annual_000014"
+      ],
+      "note_000625_2025_annual_00005": [
+        "doclink_000625_2025_annual_000015"
+      ],
+      "note_000625_2025_annual_00006": [
+        "doclink_000625_2025_annual_000016",
+        "doclink_000625_2025_annual_000017",
+        "doclink_000625_2025_annual_000018"
+      ],
+      "note_000625_2025_annual_00007": [
+        "doclink_000625_2025_annual_000019"
+      ],
+      "note_000625_2025_annual_00008": [
+        "doclink_000625_2025_annual_000020",
+        "doclink_000625_2025_annual_000021",
+        "doclink_000625_2025_annual_000022"
+      ],
+      "note_000625_2025_annual_00009": [
+        "doclink_000625_2025_annual_000023",
+        "doclink_000625_2025_annual_000024",
+        "doclink_000625_2025_annual_000025"
+      ],
+      "note_000625_2025_annual_00010": [
+        "doclink_000625_2025_annual_000026",
+        "doclink_000625_2025_annual_000027",
+        "doclink_000625_2025_annual_000028"
+      ],
+      "note_000625_2025_annual_00011": [
+        "doclink_000625_2025_annual_000029",
+        "doclink_000625_2025_annual_000030",
+        "doclink_000625_2025_annual_000031"
+      ],
+      "note_000625_2025_annual_00012": [
+        "doclink_000625_2025_annual_000032",
+        "doclink_000625_2025_annual_000033",
+        "doclink_000625_2025_annual_000034",
+        "doclink_000625_2025_annual_000035",
+        "doclink_000625_2025_annual_000036"
+      ],
+      "note_000625_2025_annual_00013": [
+        "doclink_000625_2025_annual_000037",
+        "doclink_000625_2025_annual_000038",
+        "doclink_000625_2025_annual_000039",
+        "doclink_000625_2025_annual_000040",
+        "doclink_000625_2025_annual_000041"
+      ],
+      "note_000625_2025_annual_00014": [
+        "doclink_000625_2025_annual_000042",
+        "doclink_000625_2025_annual_000043",
+        "doclink_000625_2025_annual_000044"
+      ]
+    },
+    "by_link_type": {
+      "statement_item_to_note": [
+        "doclink_000625_2025_annual_000001",
+        "doclink_000625_2025_annual_000008",
+        "doclink_000625_2025_annual_000011",
+        "doclink_000625_2025_annual_000012",
+        "doclink_000625_2025_annual_000015",
+        "doclink_000625_2025_annual_000016",
+        "doclink_000625_2025_annual_000019",
+        "doclink_000625_2025_annual_000020",
+        "doclink_000625_2025_annual_000023",
+        "doclink_000625_2025_annual_000026",
+        "doclink_000625_2025_annual_000029",
+        "doclink_000625_2025_annual_000032",
+        "doclink_000625_2025_annual_000037",
+        "doclink_000625_2025_annual_000042"
+      ],
+      "note_to_table": [
+        "doclink_000625_2025_annual_000002",
+        "doclink_000625_2025_annual_000004",
+        "doclink_000625_2025_annual_000006",
+        "doclink_000625_2025_annual_000009",
+        "doclink_000625_2025_annual_000013",
+        "doclink_000625_2025_annual_000017",
+        "doclink_000625_2025_annual_000021",
+        "doclink_000625_2025_annual_000024",
+        "doclink_000625_2025_annual_000027",
+        "doclink_000625_2025_annual_000030",
+        "doclink_000625_2025_annual_000033",
+        "doclink_000625_2025_annual_000035",
+        "doclink_000625_2025_annual_000038",
+        "doclink_000625_2025_annual_000040",
+        "doclink_000625_2025_annual_000043"
+      ],
+      "statement_item_to_note_table": [
+        "doclink_000625_2025_annual_000003",
+        "doclink_000625_2025_annual_000005",
+        "doclink_000625_2025_annual_000007",
+        "doclink_000625_2025_annual_000010",
+        "doclink_000625_2025_annual_000014",
+        "doclink_000625_2025_annual_000018",
+        "doclink_000625_2025_annual_000022",
+        "doclink_000625_2025_annual_000025",
+        "doclink_000625_2025_annual_000028",
+        "doclink_000625_2025_annual_000031",
+        "doclink_000625_2025_annual_000034",
+        "doclink_000625_2025_annual_000036",
+        "doclink_000625_2025_annual_000039",
+        "doclink_000625_2025_annual_000041",
+        "doclink_000625_2025_annual_000044"
+      ]
+    }
+  },
+  "summary": {
+    "by_link_type": {
+      "statement_item_to_note": 14,
+      "note_to_table": 15,
+      "statement_item_to_note_table": 15
+    },
+    "needs_review": []
+  }
+}

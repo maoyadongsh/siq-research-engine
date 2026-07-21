@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "company_id": "600309-万华化学",
+  "stock_code": "600309",
+  "exchange": "SSE",
+  "company_short_name": "万华化学",
+  "company_full_name": "万华化学",
+  "aliases": [
+    "万华化学"
+  ],
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "needs_review",
+      "task_id": "f256875c-dad2-4fbf-9240-ef288fea0b0f",
+      "source_filename": "万华化学_CN_600309_2025-12-31_年报_2026-04-20_manual_52fb0103.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "072de3f7b55d0cdf2bfa98036c0751cf9ee5157163497882b42f7ddd395c5ece",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-07-07T17:05:00Z"
+}

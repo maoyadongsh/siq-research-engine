@@ -646,6 +646,8 @@ def build_source_map(
             "section_id": section["section_id"],
             "html_anchor": section.get("html_anchor"),
             "local_path": f"sections/{section['file']}",
+            "line": 1,
+            "quote_text": section.get("section_title"),
             "source_url": manifest.get("source_url"),
             "target": f"{manifest.get('source_url') or ''}#{section.get('html_anchor') or ''}",
             "raw": section,

@@ -78,7 +78,7 @@ def _write_case_files(tmp_path):
                 "canonical_name": "revenue",
                 "expected_value": "100",
                 "raw_value": "100",
-                "unit": "million",
+                "unit": "HKD million",
                 "currency": "HKD",
                 "fact_currency": "HKD",
                 "required_evidence": True,

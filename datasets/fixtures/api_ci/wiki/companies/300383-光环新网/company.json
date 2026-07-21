@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "company_id": "300383-光环新网",
+  "stock_code": "300383",
+  "exchange": "SZSE",
+  "company_short_name": "光环新网",
+  "company_full_name": "北京光环新网科技股份有限公司",
+  "aliases": [
+    "光环新网",
+    "北京光环新网科技股份有限公司"
+  ],
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "needs_review",
+      "task_id": "b6409cf4-f82a-4496-9d68-3592ebd19a49",
+      "source_filename": "光环新网_CN_300383_2025-12-31_年报_2026-04-28_manual_d1c2cc6f.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "0b92dab8bfdcd5530f75e996ab2d302250c7c80222f95416da9fbf9537df05a2",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-07-07T16:45:35Z"
+}

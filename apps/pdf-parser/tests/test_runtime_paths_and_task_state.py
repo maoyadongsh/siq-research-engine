@@ -1228,6 +1228,16 @@ class AppWrapperCompatibilityTest(unittest.TestCase):
 
 
 class ApiLayerTest(unittest.TestCase):
+    def setUp(self):
+        self._old_db_path = app.DB_PATH
+        self._db_tmpdir = tempfile.TemporaryDirectory()
+        app.DB_PATH = os.path.join(self._db_tmpdir.name, "tasks.db")
+        app._init_db()
+
+    def tearDown(self):
+        app.DB_PATH = self._old_db_path
+        self._db_tmpdir.cleanup()
+
     def test_status_response_freezes_elapsed_time_for_completed_tasks(self):
         task = {
             "task_id": "task-1",

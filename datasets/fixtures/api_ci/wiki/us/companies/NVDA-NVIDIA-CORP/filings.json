@@ -1,0 +1,45 @@
+{
+  "schema_version": "sec_company_filings_v1",
+  "ticker": "NVDA",
+  "count": 2,
+  "items": [
+    {
+      "market": "US",
+      "company_id": "US:0001045810",
+      "filing_id": "US:0001045810:0001045810-26-000021",
+      "report_id": "2026-10-K-0001045810-26-000021",
+      "parse_run_id": "7f18b8806aa317b72a9cb9b1bab5b7f8b06004d9e1894cc79a4dba8bf9e03fb0",
+      "ticker": "NVDA",
+      "company_name": "NVIDIA CORP",
+      "form": "10-K",
+      "report_type": "annual",
+      "fiscal_year": 2026,
+      "period_end": "2026-01-25",
+      "filing_date": "2026-02-25",
+      "published_at": "2026-02-25",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm",
+      "retrieval_status": "ready",
+      "wiki_ready": true,
+      "full_document_status": "ready"
+    },
+    {
+      "market": "US",
+      "company_id": "US:0001045810",
+      "filing_id": "US:0001045810:0001045810-25-000023",
+      "report_id": "2025-10-K-0001045810-25-000023",
+      "parse_run_id": "d7f93d39b8ce77ced35d92d5d937a2a9542d5bfa20ac07f0b8db08be96adab1a",
+      "ticker": "NVDA",
+      "company_name": "NVIDIA CORP",
+      "form": "10-K",
+      "report_type": "annual",
+      "fiscal_year": 2025,
+      "period_end": "2025-01-26",
+      "filing_date": "2025-02-26",
+      "published_at": "2025-02-26",
+      "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581025000023/nvda-20250126.htm",
+      "retrieval_status": "ready",
+      "wiki_ready": true,
+      "full_document_status": "ready"
+    }
+  ]
+}

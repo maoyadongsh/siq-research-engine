@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq_company_catalog_v1",
+  "company_count": 1,
+  "companies": [
+    {
+      "company_id": "US:0001045810",
+      "company_wiki_id": "NVDA-NVIDIA-CORP",
+      "company_path": "companies/NVDA-NVIDIA-CORP",
+      "stock_code": "NVDA",
+      "ticker": "NVDA",
+      "company_short_name": null,
+      "company_name": "NVIDIA CORP",
+      "aliases": [
+        "NVIDIA CORP"
+      ],
+      "market": "US",
+      "status": "ready",
+      "reports": 2
+    }
+  ]
+}

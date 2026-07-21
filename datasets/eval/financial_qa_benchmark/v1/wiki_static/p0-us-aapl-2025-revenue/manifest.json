@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "US",
+  "company_id": "US:0000320193",
+  "filing_id": "US:0000320193:0000320193-25-000079",
+  "ticker": "AAPL",
+  "period_end": "2025-09-27",
+  "source_urls": [
+    "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+  ],
+  "artifact_hashes": {
+    "document_full.json": "407bb7c663782f009eaa957918075daf5fc190eb9457c39893991a1308734a33"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079/parser/document_full.json",
+    "document_sha256": "1b7155da8ebabf3ec523eb68182f6808c1387c52fd0655b1e286c7b605565d35",
+    "manifest_path": "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079/manifest.json",
+    "manifest_sha256": "443e81abda1bd9c83ce8a9ba2d8c8d377866ba2ffd32db03f7e27998ad55b8d4"
+  }
+}

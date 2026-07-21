@@ -122,8 +122,8 @@ from services.hermes_client import (
     create_run,
     discard_run_terminal_result,
     get_run_status,
-    pop_run_terminal_result,
     normalize_runtime_target,
+    pop_run_terminal_result,
     resolve_requested_run_route,
     route_session_id,
     stop_run,
@@ -1180,6 +1180,7 @@ API_TASK_ID_RE = agent_runtime_task_ids.API_TASK_ID_RE
 POSTGRES_FALLBACK_ROW_LIMIT = int(os.environ.get("SIQ_PG_FALLBACK_ROW_LIMIT") or os.environ.get("SIQ_PG_FALLBACK_ROW_LIMIT", "20"))
 COMPANY_ALIAS_OVERRIDES: dict[str, tuple[str, ...]] = {
     "BASF-BASF": ("巴斯夫", "巴斯夫集团", "BASF Group"),
+    "GENBASF-BASF": ("巴斯夫", "巴斯夫集团", "BASF Group"),
     # Common Chinese aliases are not always present in SEC company names.
     # Keep them keyed by stable catalog company_id so market resolution can
     # bind the query before evidence lookup.
@@ -6212,6 +6213,34 @@ def _append_missing_calculation_evidence_locators(
 
     missing_refs: list[str] = []
     seen: set[tuple[str, str, str, str]] = set()
+    statement_labels = {
+        "balance_sheet": "资产负债表",
+        "income_statement": "利润表",
+        "cash_flow_statement": "现金流量表",
+    }
+
+    def statement_label(item: Mapping[str, Any]) -> str:
+        explicit = statement_labels.get(str(item.get("statement_type") or "").strip())
+        if explicit:
+            return explicit
+        metric_text = " ".join(
+            str(item.get(field) or "")
+            for field in ("metric", "metric_name", "canonical_name")
+        ).casefold()
+        if any(term in metric_text for term in ("cash_flow", "现金流", "经营活动")):
+            return "现金流量表"
+        if any(
+            term in metric_text
+            for term in ("revenue", "income", "profit", "营业收入", "营业总收入", "利润")
+        ):
+            return "利润表"
+        if any(
+            term in metric_text
+            for term in ("asset", "liabilit", "equity", "goodwill", "资产", "负债", "权益", "商誉")
+        ):
+            return "资产负债表"
+        return str(item.get("metric_name") or item.get("metric") or "").strip()
+
     for item in trusted_evidence:
         task_id = str(item.get("task_id") or item.get("parse_run_id") or "").strip()
         pdf_page = str(item.get("pdf_page") or item.get("pdf_page_number") or "").strip()
@@ -6238,8 +6267,10 @@ def _append_missing_calculation_evidence_locators(
         ):
             continue
         label = f"C{len(missing_refs) + 1}"
+        metric = statement_label(item)
+        metric_field = f", metric={metric}" if metric else ""
         missing_refs.append(
-            f"[{label}] source_type=wiki_metrics, task_id={task_id}, "
+            f"[{label}] source_type=wiki_metrics{metric_field}, task_id={task_id}, "
             + ", ".join(locator_tokens)
         )
     if not missing_refs:

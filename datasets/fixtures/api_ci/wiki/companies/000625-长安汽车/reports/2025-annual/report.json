@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "000625-长安汽车",
+    "stock_code": "000625",
+    "exchange": "SZSE",
+    "company_short_name": "长安汽车",
+    "company_full_name": "重庆长安汽车股份有限公司",
+    "aliases": [
+      "长安汽车",
+      "重庆长安汽车股份有限公司"
+    ]
+  },
+  "source": {
+    "task_id": "5f6020e9-269d-4ce4-ab03-d1f543e1280b",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 222,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "9cd60a21c6a7c89ed8d6b75e46797005d6d4413a2117e944f8d6b5d5ec1f767c",
+      "document_full_json": "9b761255ce72f51dc33498c2a19a630db63ce4df827478fa024ef0982d99a81c"
+    },
+    "source_filename_metadata": {
+      "source_filename": "长安汽车_CN_000625_2025-12-31_年报_2026-04-10_manual_782b94eb.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "长安汽车",
+      "market": "CN",
+      "stock_code": "000625",
+      "raw_ticker": "000625",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-04-10",
+      "source_id": "manual",
+      "url_hash": "782b94eb",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 513779,
+    "table_count": 395,
+    "image_ref_count": 13,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 63,
+      "pass": 55,
+      "fail": 0,
+      "warning": 3,
+      "skipped": 5
+    },
+    "warnings": [
+      "发现 20 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 101,
+      "line": 2904,
+      "heading": "按信用风险特征组合计提坏账准备的应收账款：",
+      "unit": "",
+      "pdf_page_index": 127,
+      "pdf_page_number": 128,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "名称 期末余额 应收账款 坏账准备 计提比例(%) 1年以内(含1年) 4,156,740,908.72 507,289.10 0.01 1至2年(含2年) 17,756,539.36 275,323.44 1.55 2至3年(含3年) 347,789.36 68,535.73 19.71 3年以上 124,123,153.32 118,489,623.99 95.46 合计 4,298,968,390.76 119,340,772.2",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

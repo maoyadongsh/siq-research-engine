@@ -1,0 +1,6 @@
+{
+  "schema_version": "jp_document_links_v1",
+  "links": [],
+  "note": "JP note relation extraction is deferred; use report.md/document_full fallback.",
+  "generated_at": "2026-07-14T12:13:16Z"
+}

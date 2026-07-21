@@ -1,0 +1,70 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_v1",
+  "identity_scope": "real_company",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "task": {
+    "task_id": "0227f921-3412-433a-890e-862c31c57503",
+    "filename": "ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_issuer_annual_report_06003086.pdf"
+  },
+  "financial_data": {
+    "market": "EU",
+    "company_id": "EU:NL:ASML",
+    "filing_id": "EU:ASML:2025-annual:0227f921-3412-433a-890e-862c31c57503",
+    "report_id": "EU:ASML:2025-annual:0227f921-3412-433a-890e-862c31c57503",
+    "ticker": "ASML",
+    "period_end": "2025-12-31",
+    "reporting_currency": "EUR",
+    "presentation_currency": "EUR",
+    "statements": [
+      {
+        "statement_type": "balance_sheet",
+        "unit": "EUR million",
+        "currency": "EUR",
+        "scale": 1000000,
+        "items": [
+          {
+            "canonical_name": "total_assets",
+            "name": "Total assets",
+            "unit": "EUR million",
+            "currency": "EUR",
+            "fact_currency": "EUR",
+            "scale": 1000000,
+            "values": {
+              "2025-12-31": 50566.6
+            },
+            "raw_values": {
+              "2025-12-31": "50,566.6"
+            },
+            "sources": {
+              "2025-12-31": {
+                "table_index": 88,
+                "line": 14361,
+                "page_number": 278,
+                "bbox": [
+                  6,
+                  207,
+                  494,
+                  846
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 88,
+        "page_number": 278,
+        "bbox": [
+          6,
+          207,
+          494,
+          846
+        ]
+      }
+    ]
+  }
+}

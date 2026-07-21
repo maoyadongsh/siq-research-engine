@@ -1,0 +1,51 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_v1",
+  "identity_scope": "real_company",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "task": {},
+  "financial_data": {
+    "market": "US",
+    "company_id": "US:0000320193",
+    "filing_id": "US:0000320193:0000320193-25-000079",
+    "report_id": "US:0000320193:0000320193-25-000079",
+    "ticker": "AAPL",
+    "period_end": "2025-09-27",
+    "reporting_currency": null,
+    "presentation_currency": null,
+    "statements": [
+      {
+        "statement_type": "xbrl_fact",
+        "unit": "USD",
+        "currency": null,
+        "scale": null,
+        "items": [
+          {
+            "label": "Revenue From Contract With Customer Excluding Assessed Tax",
+            "concept": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "unit": "USD",
+            "values": {
+              "2025-09-27": "416161000000"
+            },
+            "raw_values": {
+              "2025-09-27": "416,161"
+            },
+            "sources": {
+              "2025-09-27": {
+                "html_anchor": "f-78",
+                "table_index": 23,
+                "source_url": "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 23
+      }
+    ]
+  }
+}

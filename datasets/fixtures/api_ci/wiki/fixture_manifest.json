@@ -1,0 +1,61 @@
+{
+  "schema_version": "siq_api_ci_wiki_fixture_v1",
+  "scope": "public_disclosure_test_slices",
+  "contains_original_documents": false,
+  "contains_runtime_databases": false,
+  "companies": [
+    {
+      "company": "companies/600104-上汽集团",
+      "source_company_json_sha256": "e44feb93198791cad22d560ec512f842cb34a8c61ca5aff841a0026ba9855336",
+      "fixture_company_json_sha256": "e44feb93198791cad22d560ec512f842cb34a8c61ca5aff841a0026ba9855336"
+    },
+    {
+      "company": "companies/000333-美的集团",
+      "source_company_json_sha256": "c684303fa15b75a148187c34fd6ee37023847c4d939f1caae5da30d230c9565f",
+      "fixture_company_json_sha256": "c684303fa15b75a148187c34fd6ee37023847c4d939f1caae5da30d230c9565f"
+    },
+    {
+      "company": "companies/601229-上海银行",
+      "source_company_json_sha256": "8684c7c8a44836dd103c1d9e415f9c0f33490b9bdd71ae25122e38867cd75c3c",
+      "fixture_company_json_sha256": "8684c7c8a44836dd103c1d9e415f9c0f33490b9bdd71ae25122e38867cd75c3c"
+    },
+    {
+      "company": "companies/600143-金发科技",
+      "source_company_json_sha256": "928a007d67a2c296d7225890d6e45902d01c0e43ef848f877c2072eb13ee3eaf",
+      "fixture_company_json_sha256": "928a007d67a2c296d7225890d6e45902d01c0e43ef848f877c2072eb13ee3eaf"
+    },
+    {
+      "company": "companies/300383-光环新网",
+      "source_company_json_sha256": "7cf82cc9e7e598c3450f2afa024311c0bdad237dbc06236dc8ffeddddfd17028",
+      "fixture_company_json_sha256": "7cf82cc9e7e598c3450f2afa024311c0bdad237dbc06236dc8ffeddddfd17028"
+    },
+    {
+      "company": "companies/600309-万华化学",
+      "source_company_json_sha256": "d0d18aa22c9c0178b2a5a5254346040de27fcebdf18bb736c5d493dfc31976c2",
+      "fixture_company_json_sha256": "d0d18aa22c9c0178b2a5a5254346040de27fcebdf18bb736c5d493dfc31976c2"
+    },
+    {
+      "company": "companies/000625-长安汽车",
+      "source_company_json_sha256": "7f3cee24f57ea1f450d055913efe99206c9829987f251ef83c761b812575d964",
+      "fixture_company_json_sha256": "7f3cee24f57ea1f450d055913efe99206c9829987f251ef83c761b812575d964"
+    },
+    {
+      "company": "companies/601211-国泰海通",
+      "source_company_json_sha256": "d702e83b8bf3c0df432843d7156f1c3c5b027109d8844f702448c0e66cc59cdf",
+      "fixture_company_json_sha256": "d702e83b8bf3c0df432843d7156f1c3c5b027109d8844f702448c0e66cc59cdf"
+    },
+    {
+      "company": "jp/companies/7203-Toyota-Motor-Corporation",
+      "source_company_json_sha256": "4ed247fd0520cfc64083389fb20d94dd34d349b52156d2cf62381ccc9f0ef5e6",
+      "fixture_company_json_sha256": "4ed247fd0520cfc64083389fb20d94dd34d349b52156d2cf62381ccc9f0ef5e6"
+    },
+    {
+      "company": "companies/GENBASF-BASF",
+      "source_company_json_sha256": "5e862eb39a361a1fd3b7280844ff41485554c915f345f26876aa915d109d784b",
+      "fixture_company_json_sha256": "5e862eb39a361a1fd3b7280844ff41485554c915f345f26876aa915d109d784b"
+    },
+    {
+      "company": "us/companies/NVDA-NVIDIA-CORP"
+    }
+  ]
+}

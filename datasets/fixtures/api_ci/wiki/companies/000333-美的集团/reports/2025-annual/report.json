@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "000333-美的集团",
+    "stock_code": "000333",
+    "exchange": "SZSE",
+    "company_short_name": "美的集团",
+    "company_full_name": "美的集团股份有限公司",
+    "aliases": [
+      "美的集团股份有限公司",
+      "美的集团"
+    ]
+  },
+  "source": {
+    "task_id": "f4dead73-e0de-42b4-b1b7-d8cf217214ee",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 276,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "5f732ca3e5d3aff90211c89eabbad6971d9d4236fab214cca7ae51f72dc69b8d",
+      "document_full_json": "eb008a1a4a0d0173ef1ada5c0c044d0d34dc5ecebdaba376db5eea727349805c"
+    }
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 431217,
+    "table_count": 272,
+    "image_ref_count": 2,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 61,
+      "pass": 41,
+      "fail": 0,
+      "warning": 0,
+      "skipped": 20
+    },
+    "warnings": [
+      "发现 10 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 28,
+      "line": 857,
+      "heading": "单位：万元",
+      "unit": "万元",
+      "pdf_page_index": 56,
+      "pdf_page_number": 57,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "衍生品投资类型 初始投资金额 期初金额 本期公允价值变动损益 计入权益的累计公允价值变动 报告期内购入金额 报告期内售出金额 期末金额 期末投资金额占公司报告期末净资产比例 期货合约 0.0 -4,269.0 0.0 84,837.9 0.0 0.0 80,568.9 0.13% 外汇合约 11,954.8 -72,703.4 214,288.5 -8,310.9 21,051.7 14,723.0 130,469.6 0.21% 交叉",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 39,
+      "line": 1117,
+      "heading": "1、员工数量、专业构成及教育程度",
+      "unit": "",
+      "pdf_page_index": 76,
+      "pdf_page_number": 77,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "报告期末母公司在职员工的数量(人) 927 报告期末主要子公司在职员工的数量(人) 194,813 报告期末在职员工的数量合计(人) 198,570 当期领取薪酬员工总人数(人) 198,570 母公司及主要子公司需承担费用的离退休职工人数(人) 1,241 专业构成 专业构成类别 专业构成人数(人) 制造人员 152,499 销售人员 15,488 研发人员 23,926 财务人员 2,866 行政人员 3,791 合计 198,57",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 57,
+      "line": 1618,
+      "heading": "单位：万元",
+      "unit": "万元",
+      "pdf_page_index": 100,
+      "pdf_page_number": 101,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "公司对外担保情况(不包括对子公司的担保) 担保对象名称 担保额度相关公告披露日期 担保额度 实际发生日期(协议签署日) 实际担保金额 担保类型 担保物 反担保情况 担保期 是否履行完毕 是否为关联方担保 无 报告期内审批的对外担保额度合计(A1) 0 报告期内对外担保实际发生额合计(A2) 0 报告期末已审批的对外担保额度合计(A3) 0 报告期末实际对外担保余额合计(A4) 0 公司对子公司的担保情况 担保对象名称 担保额度相关公告披",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 89,
+      "line": 2497,
+      "heading": "(除特别注明外，金额单位为人民币千元)",
+      "unit": "",
+      "pdf_page_index": 131,
+      "pdf_page_number": 132,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "资产 附注 2025年12月31日合并 2024年12月31日合并 2025年12月31日公司 2024年12月31日公司 流动资产 货币资金 四(1) 85,247,150 140,410,308 23,178,076 18,441,820 交易性金融资产 四(2) 710,717 6,936,113 1,609 4,524,109 衍生金融资产 四(3) 2,223,159 2,449,535 2,688 208,243 应收票据 ",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 90,
+      "line": 2508,
+      "heading": "(除特别注明外，金额单位为人民币千元)",
+      "unit": "",
+      "pdf_page_index": 132,
+      "pdf_page_number": 133,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "负债和股东权益 附注 2025年12月31日合并 2024年12月31日合并 2025年12月31日公司 2024年12月31日公司 流动负债 短期借款 四(27) 43,904,550 31,008,549 10,000,000 1,850,000 吸收存款及同业存放 134,110 137,344 - - 交易性金融负债 四(28) 706,439 873,776 - - 衍生金融负债 四(3) 850,959 2,631,860 ",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 163,
+      "line": 4325,
+      "heading": "[PDF_PAGE: 206]",
+      "unit": "",
+      "pdf_page_index": 205,
+      "pdf_page_number": 206,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "2025年12月31日 2024年12月31日 商誉- KUKA集团 23,435,302 21,415,464 TLSC集团 2,085,854 2,152,719 小天鹅 1,361,306 1,361,306 其他(i) 7,930,808 5,220,530 34,813,270 30,150,019 减:减值准备 (556,411) (569,005) 34,256,859 29,581,014",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 179,
+      "line": 4518,
+      "heading": "(36) 其他流动负债",
+      "unit": "",
+      "pdf_page_index": 213,
+      "pdf_page_number": 214,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "2025年12月31日 2024年12月31日 预提销售返利 52,952,866 55,539,161 其他 39,584,553 34,895,706 92,537,419 90,434,867",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

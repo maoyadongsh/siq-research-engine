@@ -1,0 +1,177 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_v1",
+  "identity_scope": "real_company",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "task": {
+    "task_id": "4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+    "filename": "Samsung-Electronics-Co.,-Ltd_KR_005930_2025-12-31_年报_2026-03-10_dart_public_a4d8816f.pdf"
+  },
+  "financial_data": {
+    "market": "KR",
+    "company_id": "KR:005930",
+    "filing_id": "KR:005930:2025-annual:4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+    "report_id": "KR:005930:2025-annual:4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+    "ticker": "005930",
+    "period_end": "2025-12-31",
+    "reporting_currency": "KRW",
+    "presentation_currency": "KRW",
+    "statements": [
+      {
+        "statement_type": "balance_sheet",
+        "unit": "KRW million",
+        "currency": "KRW",
+        "scale": "1000000",
+        "items": [
+          {
+            "canonical_name": "current_assets",
+            "name": "유동자산",
+            "label": "유동자산",
+            "unit": "KRW million",
+            "currency": "KRW",
+            "fact_currency": "KRW",
+            "scale": "1000000",
+            "values": {
+              "2025-12-31": "247684612"
+            },
+            "raw_values": {
+              "2025-12-31": "247,684,612"
+            },
+            "sources": {
+              "2025-12-31": {
+                "source_type": "dart_pdf_statement_table",
+                "source_id": "kr_table_0067",
+                "page_number": 83,
+                "section": null,
+                "anchor": null,
+                "xpath": null,
+                "html_snippet": null,
+                "rendered_page_number": null,
+                "table_index": 67,
+                "row_index": 2,
+                "column_index": 1,
+                "bbox": [
+                  80,
+                  220,
+                  917,
+                  946
+                ],
+                "xbrl_tag": null,
+                "accession_number": null,
+                "url": null,
+                "path": null,
+                "quote_text": "유동자산 | 247,684,612 | 227,062,266 | 195,936,557",
+                "raw": {
+                  "detected_statement_type": "balance_sheet",
+                  "mixed_statement_summary": false,
+                  "period_columns": {
+                    "1": "2025-12-31",
+                    "2": "2024-12-31",
+                    "3": "2023-12-31"
+                  },
+                  "table": {
+                    "table_index": 67,
+                    "line": 1385,
+                    "rows": 56,
+                    "cells": 224,
+                    "empty_cells": 10,
+                    "empty_ratio": 0.0446,
+                    "numeric_cells": 194,
+                    "numeric_ratio": 0.8661,
+                    "matched_financial_names": [],
+                    "heading": "[PDF_PAGE: 84]",
+                    "unit": "",
+                    "pdf_page_index": 82,
+                    "pdf_page_number": 83,
+                    "printed_page_number": "Page 80",
+                    "pdf_page_source": "content_list_body_exact",
+                    "pdf_page_inference_reason": "",
+                    "source_confidence": "high",
+                    "content_table_source_id": 67,
+                    "bbox": [
+                      80,
+                      220,
+                      917,
+                      946
+                    ],
+                    "source_image_path": "images/6230fe478d42a32993a94a114b444b0e8c2c8fe06cfa360a6a523d55dbee2faf.jpg",
+                    "source_caption": [
+                      "(단위 : 백만원)"
+                    ],
+                    "source_footnote": [],
+                    "table_type": "fact",
+                    "year_binding_required": true,
+                    "report_year": null,
+                    "fact_year": null,
+                    "classification_reasons": [
+                      "fact_keyword",
+                      "numeric_density_high"
+                    ],
+                    "suspect_reasons": [],
+                    "preview": "제 57 기 제 56 기 제 55 기 자산 유동자산 247,684,612 227,062,266 195,936,557 현금및현금성자산 (주4,29) 57,856,378 53,705,579 69,080,893 단기금융상품 (주4,29) 67,965,021 58,909,334 22,690,924 단기상각후원가금융자산 0 0 608,281 단기당기손익-공정가치금융자산 (주4,6,29) 25,715 ",
+                    "near_text": "> ※ 한국채택국제회계기준(K-IFRS)에 따라 작성되었습니다. [△는 부(-)의 값임] ※ 기본주당이익(보통주) 산출근거는 제55기\\~제57기 감사보고서 주석사항을 참고하시기 바랍니다. [PDF_PAGE: 83] # 2. 연결재무제표 2-1. 연결 재무상태표 연결 재무상태표 제 57 기 2025.12.31 현재 제 56 기 2024.12.31 현재 제 55 기 2023.12.31 현재 (단위 : 백만원) [PDF_PAGE: 84]",
+                    "following_text": "[PDF_PAGE: 85] 2-2. 연결 손익계산서 연결 손익계산서 제 57 기 2025.01.01 부터 2025.12.31 까지 제 56 기 2024.01.01 부터 2024.12.31 까지 제 55 기 2023.01.01 부터 2023.12.31 까지 (단위 : 백만원)",
+                    "source": "content_list_body_exact",
+                    "confidence": "high",
+                    "structure": {
+                      "expanded_rows": 56,
+                      "expanded_columns": 4,
+                      "header_row_count": 0,
+                      "has_colspan": false,
+                      "has_rowspan": false,
+                      "multi_level_header_candidate": false,
+                      "header_preview": [
+                        "제 57 기 | 제 56 기 | 제 55 기",
+                        "자산",
+                        "유동자산 | 247,684,612 | 227,062,266 | 195,936,557"
+                      ]
+                    },
+                    "inherited_statement_title": "연결 재무상태표",
+                    "columns": [
+                      {},
+                      {
+                        "period_key": "2025-12-31",
+                        "period_end": "2025-12-31",
+                        "fiscal_period": "FY"
+                      },
+                      {
+                        "period_key": "2024-12-31",
+                        "period_end": "2024-12-31",
+                        "fiscal_period": "FY"
+                      },
+                      {
+                        "period_key": "2023-12-31",
+                        "period_end": "2023-12-31",
+                        "fiscal_period": "FY"
+                      }
+                    ],
+                    "statement_type": "balance_sheet"
+                  },
+                  "row": [
+                    "유동자산",
+                    "247,684,612",
+                    "227,062,266",
+                    "195,936,557"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 67,
+        "page_number": 83,
+        "bbox": [
+          80,
+          220,
+          917,
+          946
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "schema_version": "jp_report_wiki_v1",
+  "identity": {
+    "market": "JP",
+    "company_id": "JP:7203",
+    "company_wiki_id": "7203-Toyota-Motor-Corporation",
+    "ticker": "7203",
+    "company_name": "Toyota Motor Corporation"
+  },
+  "source": {
+    "task_id": "3cd47e45-a485-429e-96bf-e828e4458359",
+    "copied": {
+      "report.md": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/report.md",
+      "document_full.json": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/document_full.json",
+      "artifact_manifest.json": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/artifact_manifest.json"
+    },
+    "source_files": {
+      "result_complete.md": {
+        "sha256": "5b83e02e84003266ee18a8ef9fc1fef5bb07df29f0d143cae6b591f36ea29937"
+      },
+      "document_full.json": {
+        "sha256": "bc32b2cd60dfaf05e5a6492086bf0398fa202d2884e2eca1b16dc35a78abf7f2"
+      },
+      "financial_data.json": {
+        "sha256": "8c81eda121eade1d287b1711c87077ea6f9b23f038a111e17dd1372fa9d4f271"
+      },
+      "financial_checks.json": {
+        "sha256": "0909475086ea7b991dab8c67d7291e398ed417bc8ec6f3ed993910b56a33e874"
+      },
+      "quality_report.json": {
+        "sha256": "2e2adb05fd69083840a18dd9dabc42bd79bc49e1453903e13161c40274c59068"
+      },
+      "table_index.json": {
+        "sha256": "25da0e9b2a9f2e3478f96e82d783c10da56bd47bb1841c3fb3af7def5087dc16"
+      },
+      "table_relations.json": {
+        "sha256": "febd300a963c5ee8599d8258a23129bcc493ee3b839bcab6d1519f0bd0085d1d"
+      },
+      "content_list_enhanced.json": {
+        "sha256": "51ea55fca22fb315d1ec7415c991b9fc5f03c7b85c58b3876f5fc5fc1271746c"
+      },
+      "artifact_manifest.json": {
+        "sha256": "250f6b22c7640e4e37f42f98f627356286377dd7443194740463afef514d9d8d"
+      },
+      "hash_manifest.json": {
+        "sha256": "bdbdae7456d1122c1adbe127931349fb8712e2f43601acb8192cf8c713e3106d"
+      }
+    },
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}"
+  },
+  "status": "ready",
+  "quality_summary": {
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 553,
+      "pass": 489,
+      "fail": 0,
+      "warning": 13,
+      "skipped": 51
+    },
+    "table_count": 450,
+    "markdown_chars": 705827,
+    "warnings": [
+      "发现 20 张可疑表样本，建议逐项打开可视化溯源。"
+    ]
+  }
+}

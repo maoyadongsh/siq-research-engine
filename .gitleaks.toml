@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deterministic SIQ entity and segment identifiers"
+regexes = [
+  '''^rk1_[a-f0-9]{32}$''',
+  '''^0c46a9d66a2761443ed8e4bd157c968ce5cc4b3775d11c9ec9d5ab00a9c4480e$''',
+]

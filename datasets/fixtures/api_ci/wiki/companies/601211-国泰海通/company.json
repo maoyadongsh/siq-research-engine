@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "company_id": "601211-国泰海通",
+  "stock_code": "601211",
+  "exchange": "SSE",
+  "company_short_name": "国泰海通",
+  "company_full_name": "国泰海通证券股份有限公司",
+  "aliases": [
+    "国泰海通",
+    "国泰海通证券股份有限公司"
+  ],
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "needs_review",
+      "task_id": "d5d14a1f-d1e1-41e7-b858-0649e786b0b2",
+      "source_filename": "国泰海通_CN_601211_2025-12-31_年报_2026-03-27_manual_e31bb62d.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "279fc67fdfffe391b63b7f4be1f379f34d9e344ddc19cd62ce5658fc0e5544e2",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-07-07T16:56:47Z"
+}

@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "601229-上海银行",
+    "stock_code": "601229",
+    "exchange": "SSE",
+    "company_short_name": "上海银行",
+    "company_full_name": "上海银行",
+    "aliases": [
+      "上海银行",
+      "上海银行股份有限公司"
+    ]
+  },
+  "source": {
+    "task_id": "fb07089b-9570-4902-bf20-eb38578f2b76",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 303,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "bb4e0f1c27d43310383a17aa8db167468449769cd1d52e1eb861460b69d98b83",
+      "document_full_json": "1b011f2d65d7be9365fc1b23dd21063af7df19867f7fa81683a4c7235127d406"
+    },
+    "source_filename_metadata": {
+      "source_filename": "上海银行_CN_601229_2025-12-31_年报_2026-04-23_manual_ec74b117.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "上海银行",
+      "market": "CN",
+      "stock_code": "601229",
+      "raw_ticker": "601229",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-04-23",
+      "source_id": "manual",
+      "url_hash": "ec74b117",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 526201,
+    "table_count": 297,
+    "image_ref_count": 2,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 61,
+      "pass": 45,
+      "fail": 0,
+      "warning": 1,
+      "skipped": 15
+    },
+    "warnings": [
+      "发现 5 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 90,
+      "line": 2428,
+      "heading": "单位：股",
+      "unit": "股",
+      "pdf_page_index": 133,
+      "pdf_page_number": 134,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "前十名普通股股东(前十名无限售条件流通股股东)持股情况(不含通过转融通出借股份) 股东名称 报告期内增减 期末持股数量 持股比例 持有有限售条件股份数 质押、标记或冻结情况 股东性质 股份种类 上海联和投资有限公司 7,700,000 2,092,800,328 14.73% - - 国有法人 人民币普通股 上海国际港务(集团)股份有限公司 35,037,500 1,213,781,943 8.54% - - 国有法人 人民币普通股 西",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 135,
+      "line": 3665,
+      "heading": "本行",
+      "unit": "",
+      "pdf_page_index": 205,
+      "pdf_page_number": 206,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "2025年12月31日 2024年12月31日 金额 占比(%) 金额 占比(%) 租赁和商务服务业 211,858,759 14.88 223,647,865 16.16 房地产业 122,459,946 8.60 117,340,677 8.48 制造业 111,743,135 7.85 102,471,874 7.41 水利、环境和公共设施管理业 85,995,988 6.04 102,375,343 7.40 批发和零售业 74",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

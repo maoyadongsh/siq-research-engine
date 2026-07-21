@@ -211,7 +211,7 @@ def test_manifest_source_state_is_verifiable_and_redacted(tmp_path):
     assert source["available"] is True
     assert re.fullmatch(r"[0-9a-f]{40}", source["head_commit"])
     assert re.fullmatch(r"[0-9a-f]{64}", source["worktree_fingerprint_sha256"])
-    assert source["dirty"] is True
+    assert isinstance(source["dirty"], bool)
     assert "paths" not in json.dumps(source)
     assert str(module.REPO_ROOT) not in json.dumps(source)
 

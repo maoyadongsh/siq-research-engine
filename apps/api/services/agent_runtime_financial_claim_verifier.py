@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import re
-from itertools import combinations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, localcontext
 from itertools import combinations
@@ -2550,15 +2549,7 @@ def materialize_evidence_bound_calculation_runs(
     seen: set[tuple[str, ...]] = set()
 
     if not expected_operations or "normalize_amount" in expected_operations:
-        for claim, reference, fact in _evidence_bound_unit_normalization_claims(reply, evidence):
-            tolerance = _display_amount_tolerance(
-                claim.value_text,
-                claim.unit,
-                fact.normalized_value,
-                fact.metric,
-            )
-            if _claim_fact_value_distance(claim.normalized_value, fact.normalized_value, fact.metric) > tolerance:
-                continue
+        for claim, reference, _fact in _evidence_bound_unit_normalization_claims(reply, evidence):
             inputs = {"amount": _trusted_trace_input(reference, "amount")}
             expected = _trace_expected_result("normalize_amount", inputs)
             if expected is None:

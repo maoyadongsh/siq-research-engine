@@ -1,0 +1,2160 @@
+{
+  "schema_version": 1,
+  "source": "financial_data.json",
+  "unit": "亿元",
+  "data": {
+    "company": "金发科技",
+    "stock_code": "600143",
+    "metrics": [
+      {
+        "metric_key": "monetary_capital",
+        "metric_name": "货币资金",
+        "raw_value": "4,343,677,001.14",
+        "normalized_value": 43.43677,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "trading_financial_assets",
+        "metric_name": "交易性金融资产",
+        "raw_value": "521,699.87",
+        "normalized_value": 0.005217,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "notes_receivable",
+        "metric_name": "应收票据",
+        "raw_value": "286,015,027.52",
+        "normalized_value": 2.86015,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "accounts_receivable",
+        "metric_name": "应收账款",
+        "raw_value": "8,433,206,838.93",
+        "normalized_value": 84.332068,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "receivable_financing",
+        "metric_name": "应收款项融资",
+        "raw_value": "3,653,870,736.27",
+        "normalized_value": 36.538707,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "prepayments",
+        "metric_name": "预付款项",
+        "raw_value": "642,599,414.97",
+        "normalized_value": 6.425994,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_receivables",
+        "metric_name": "其他应收款",
+        "raw_value": "228,699,717.21",
+        "normalized_value": 2.286997,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "inventory",
+        "metric_name": "存货",
+        "raw_value": "7,916,351,446.34",
+        "normalized_value": 79.163514,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "current_portion_noncurrent_assets",
+        "metric_name": "一年内到期的非流动资产",
+        "raw_value": "22,303,657.91",
+        "normalized_value": 0.223037,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_current_assets",
+        "metric_name": "其他流动资产",
+        "raw_value": "1,395,974,814.22",
+        "normalized_value": 13.959748,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "current_assets",
+        "metric_name": "流动资产合计",
+        "raw_value": "26,923,220,354.38",
+        "normalized_value": 269.232204,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "long_term_equity_investments",
+        "metric_name": "长期股权投资",
+        "raw_value": "857,362,758.98",
+        "normalized_value": 8.573628,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_noncurrent_financial_assets",
+        "metric_name": "其他非流动金融资产",
+        "raw_value": "267,695,126.47",
+        "normalized_value": 2.676951,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "investment_property",
+        "metric_name": "投资性房地产",
+        "raw_value": "1,102,168,747.22",
+        "normalized_value": 11.021687,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "fixed_assets",
+        "metric_name": "固定资产",
+        "raw_value": "25,750,125,068.09",
+        "normalized_value": 257.501251,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "construction_in_progress",
+        "metric_name": "在建工程",
+        "raw_value": "2,685,169,422.87",
+        "normalized_value": 26.851694,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "right_of_use_assets",
+        "metric_name": "使用权资产",
+        "raw_value": "111,939,036.62",
+        "normalized_value": 1.11939,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "intangible_assets",
+        "metric_name": "无形资产",
+        "raw_value": "3,719,251,073.72",
+        "normalized_value": 37.192511,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "goodwill",
+        "metric_name": "商誉",
+        "raw_value": "68,650,896.53",
+        "normalized_value": 0.686509,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "long_term_prepaid_expenses",
+        "metric_name": "长期待摊费用",
+        "raw_value": "491,143,204.04",
+        "normalized_value": 4.911432,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "deferred_tax_assets",
+        "metric_name": "递延所得税资产",
+        "raw_value": "791,247,162.12",
+        "normalized_value": 7.912472,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_noncurrent_assets",
+        "metric_name": "其他非流动资产",
+        "raw_value": "1,296,577,464.41",
+        "normalized_value": 12.965775,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "non_current_assets",
+        "metric_name": "非流动资产合计",
+        "raw_value": "37,144,852,984.83",
+        "normalized_value": 371.44853,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "total_assets",
+        "metric_name": "资产总计",
+        "raw_value": "64,068,073,339.21",
+        "normalized_value": 640.680733,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "short_term_borrowings",
+        "metric_name": "短期借款",
+        "raw_value": "4,537,459,548.20",
+        "normalized_value": 45.374595,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "notes_payable",
+        "metric_name": "应付票据",
+        "raw_value": "2,491,295,769.35",
+        "normalized_value": 24.912958,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "accounts_payable",
+        "metric_name": "应付账款",
+        "raw_value": "9,397,037,045.66",
+        "normalized_value": 93.97037,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "contract_liabilities",
+        "metric_name": "合同负债",
+        "raw_value": "740,333,688.51",
+        "normalized_value": 7.403337,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "employee_benefits_payable",
+        "metric_name": "应付职工薪酬",
+        "raw_value": "692,645,545.59",
+        "normalized_value": 6.926455,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "taxes_payable",
+        "metric_name": "应交税费",
+        "raw_value": "273,698,627.21",
+        "normalized_value": 2.736986,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_payables",
+        "metric_name": "其他应付款",
+        "raw_value": "1,847,771,133.50",
+        "normalized_value": 18.477711,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "current_portion_noncurrent_liabilities",
+        "metric_name": "一年内到期的非流动负债",
+        "raw_value": "2,860,903,207.57",
+        "normalized_value": 28.609032,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_current_liabilities",
+        "metric_name": "其他流动负债",
+        "raw_value": "131,914,347.56",
+        "normalized_value": 1.319143,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "current_liabilities",
+        "metric_name": "流动负债合计",
+        "raw_value": "22,992,509,585.34",
+        "normalized_value": 229.925096,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "long_term_borrowings",
+        "metric_name": "长期借款",
+        "raw_value": "15,915,939,382.75",
+        "normalized_value": 159.159394,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "bonds_payable",
+        "metric_name": "应付债券",
+        "raw_value": "1,000,000,000.00",
+        "normalized_value": 10.0,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "lease_liabilities",
+        "metric_name": "租赁负债",
+        "raw_value": "97,751,650.42",
+        "normalized_value": 0.977517,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "provisions",
+        "metric_name": "预计负债",
+        "raw_value": "5,535,063.00",
+        "normalized_value": 0.055351,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "deferred_tax_liabilities",
+        "metric_name": "递延所得税负债",
+        "raw_value": "367,426,011.04",
+        "normalized_value": 3.67426,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "non_current_liabilities",
+        "metric_name": "非流动负债合计",
+        "raw_value": "18,385,577,389.82",
+        "normalized_value": 183.855774,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "total_liabilities",
+        "metric_name": "负债合计",
+        "raw_value": "41,378,086,975.16",
+        "normalized_value": 413.78087,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "share_capital",
+        "metric_name": "实收资本",
+        "raw_value": "2,634,826,028.00",
+        "normalized_value": 26.34826,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "capital_reserve",
+        "metric_name": "资本公积",
+        "raw_value": "5,257,244,326.98",
+        "normalized_value": 52.572443,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "treasury_shares",
+        "metric_name": "库存股",
+        "raw_value": "451,392,733.51",
+        "normalized_value": 4.513927,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "other_comprehensive_income_bs",
+        "metric_name": "其他综合收益",
+        "raw_value": "-127,515,890.85",
+        "normalized_value": -1.275159,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "surplus_reserve",
+        "metric_name": "盈余公积",
+        "raw_value": "1,324,298,218.10",
+        "normalized_value": 13.242982,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "retained_earnings",
+        "metric_name": "未分配利润",
+        "raw_value": "10,816,279,815.57",
+        "normalized_value": 108.162798,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "equity_attributable_parent",
+        "metric_name": "归属于母公司所有者权益合计",
+        "raw_value": "19,470,985,904.00",
+        "normalized_value": 194.709859,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "minority_interests",
+        "metric_name": "少数股东权益",
+        "raw_value": "3,219,000,460.05",
+        "normalized_value": 32.190005,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "total_equity",
+        "metric_name": "所有者权益合计",
+        "raw_value": "22,689,986,364.05",
+        "normalized_value": 226.899864,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "total_liabilities_and_equity",
+        "metric_name": "负债和所有者权益总计",
+        "raw_value": "64,068,073,339.21",
+        "normalized_value": 640.680733,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2495,
+          "pdf_page": 111,
+          "table_index": 76,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025-12-31",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "balance_sheet",
+        "scope": "consolidated",
+        "period": "2025-12-31"
+      },
+      {
+        "metric_key": "cash_from_sales",
+        "metric_name": "销售商品、提供劳务收到的现金",
+        "raw_value": "61,598,692,014.15",
+        "normalized_value": 615.98692,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_tax_refund",
+        "metric_name": "收到的税费返还",
+        "raw_value": "505,623,631.41",
+        "normalized_value": 5.056236,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_cash_from_operating",
+        "metric_name": "收到其他与经营活动有关的现金",
+        "raw_value": "689,961,359.90",
+        "normalized_value": 6.899614,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_cash_inflow_total",
+        "metric_name": "经营活动现金流入小计",
+        "raw_value": "62,794,277,005.46",
+        "normalized_value": 627.94277,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_purchases",
+        "metric_name": "购买商品、接受劳务支付的现金",
+        "raw_value": "50,656,501,059.12",
+        "normalized_value": 506.565011,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_taxes",
+        "metric_name": "支付的各项税费",
+        "raw_value": "1,302,303,114.87",
+        "normalized_value": 13.023031,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_cash_for_operating",
+        "metric_name": "支付其他与经营活动有关的现金",
+        "raw_value": "1,632,791,673.99",
+        "normalized_value": 16.327917,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_cash_outflow_total",
+        "metric_name": "经营活动现金流出小计",
+        "raw_value": "56,889,815,531.27",
+        "normalized_value": 568.898155,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_cash_flow_net",
+        "metric_name": "经营活动产生的现金流量净额",
+        "raw_value": "5,904,461,474.19",
+        "normalized_value": 59.044615,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_disposal_investments",
+        "metric_name": "收回投资收到的现金",
+        "raw_value": "132,468,964.19",
+        "normalized_value": 1.32469,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_investment_income",
+        "metric_name": "取得投资收益收到的现金",
+        "raw_value": "53,540,338.60",
+        "normalized_value": 0.535403,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_disposal_assets",
+        "metric_name": "处置固定资产、无形资产和其他长期资产收回的现金净额",
+        "raw_value": "13,541,502.86",
+        "normalized_value": 0.135415,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "investing_cash_inflow_total",
+        "metric_name": "投资活动现金流入小计",
+        "raw_value": "199,550,805.65",
+        "normalized_value": 1.995508,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_purchases_investments",
+        "metric_name": "购建固定资产、无形资产和其他长期资产支付的现金",
+        "raw_value": "2,328,154,529.16",
+        "normalized_value": 23.281545,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_investments",
+        "metric_name": "投资支付的现金",
+        "raw_value": "168,940,130.88",
+        "normalized_value": 1.689401,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_cash_for_investing",
+        "metric_name": "支付其他与投资活动有关的现金",
+        "raw_value": "6,006,743.42",
+        "normalized_value": 0.060067,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "investing_cash_outflow_total",
+        "metric_name": "投资活动现金流出小计",
+        "raw_value": "2,503,101,403.46",
+        "normalized_value": 25.031014,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "investing_cash_flow_net",
+        "metric_name": "投资活动产生的现金流量净额",
+        "raw_value": "-2,303,550,597.81",
+        "normalized_value": -23.035506,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_investors",
+        "metric_name": "吸收投资收到的现金",
+        "raw_value": "1,562,397,193.25",
+        "normalized_value": 15.623972,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_from_borrowings",
+        "metric_name": "取得借款收到的现金",
+        "raw_value": "23,019,533,533.12",
+        "normalized_value": 230.195335,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "financing_cash_inflow_total",
+        "metric_name": "筹资活动现金流入小计",
+        "raw_value": "24,581,930,726.37",
+        "normalized_value": 245.819307,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_debt_repayment",
+        "metric_name": "偿还债务支付的现金",
+        "raw_value": "25,904,790,683.37",
+        "normalized_value": 259.047907,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_for_dividends",
+        "metric_name": "分配股利、利润或偿付利息支付的现金",
+        "raw_value": "1,270,135,020.71",
+        "normalized_value": 12.70135,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_cash_for_financing",
+        "metric_name": "支付其他与筹资活动有关的现金",
+        "raw_value": "121,839,521.79",
+        "normalized_value": 1.218395,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "financing_cash_outflow_total",
+        "metric_name": "筹资活动现金流出小计",
+        "raw_value": "27,296,765,225.87",
+        "normalized_value": 272.967652,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "financing_cash_flow_net",
+        "metric_name": "筹资活动产生的现金流量净额",
+        "raw_value": "-2,714,834,499.50",
+        "normalized_value": -27.148345,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "fx_effect_cash",
+        "metric_name": "汇率变动对现金及现金等价物的影响",
+        "raw_value": "-47,495,765.61",
+        "normalized_value": -0.474958,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_equivalents_net_increase",
+        "metric_name": "现金及现金等价物净增加额",
+        "raw_value": "838,580,611.27",
+        "normalized_value": 8.385806,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_equivalents_beginning",
+        "metric_name": "期初现金及现金等价物余额",
+        "raw_value": "3,476,259,376.20",
+        "normalized_value": 34.762594,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "cash_equivalents_ending",
+        "metric_name": "期末现金及现金等价物余额",
+        "raw_value": "4,314,839,987.47",
+        "normalized_value": 43.1484,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2532,
+          "pdf_page": 119,
+          "table_index": 80,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "cash_flow_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "total_operating_revenue",
+        "metric_name": "营业总收入",
+        "raw_value": "65,396,217,598.60",
+        "normalized_value": 653.962176,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_revenue",
+        "metric_name": "营业收入",
+        "raw_value": "65,396,217,598.60",
+        "normalized_value": 653.962176,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_cost",
+        "metric_name": "营业总成本",
+        "raw_value": "63,500,779,581.54",
+        "normalized_value": 635.007796,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_cost",
+        "metric_name": "营业成本",
+        "raw_value": "56,680,133,779.82",
+        "normalized_value": 566.801338,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "taxes_and_surcharges",
+        "metric_name": "税金及附加",
+        "raw_value": "311,891,339.09",
+        "normalized_value": 3.118913,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "sales_expenses",
+        "metric_name": "销售费用",
+        "raw_value": "1,062,091,870.74",
+        "normalized_value": 10.620919,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "administrative_expenses",
+        "metric_name": "管理费用",
+        "raw_value": "1,692,446,100.28",
+        "normalized_value": 16.924461,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "research_expenses",
+        "metric_name": "研发费用",
+        "raw_value": "2,761,132,718.50",
+        "normalized_value": 27.611327,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "financial_expenses",
+        "metric_name": "财务费用",
+        "raw_value": "993,083,773.11",
+        "normalized_value": 9.930838,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "interest_expense",
+        "metric_name": "利息费用",
+        "raw_value": "900,737,151.11",
+        "normalized_value": 9.007372,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "interest_income",
+        "metric_name": "利息收入",
+        "raw_value": "29,401,776.22",
+        "normalized_value": 0.294018,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_income",
+        "metric_name": "其他收益",
+        "raw_value": "477,029,797.20",
+        "normalized_value": 4.770298,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "investment_income",
+        "metric_name": "投资收益",
+        "raw_value": "20,875,322.79",
+        "normalized_value": 0.208753,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "associate_joint_venture_investment_income",
+        "metric_name": "对联营企业和合营企业的投资收益",
+        "raw_value": "11,788,230.39",
+        "normalized_value": 0.117882,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "fair_value_change",
+        "metric_name": "公允价值变动收益",
+        "raw_value": "-32,910,708.36",
+        "normalized_value": -0.329107,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "credit_impairment",
+        "metric_name": "信用减值损失",
+        "raw_value": "-206,545,374.96",
+        "normalized_value": -2.065454,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "asset_impairment",
+        "metric_name": "资产减值损失",
+        "raw_value": "-765,453,845.95",
+        "normalized_value": -7.654538,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "asset_disposal_income",
+        "metric_name": "资产处置收益",
+        "raw_value": "464,655.64",
+        "normalized_value": 0.004647,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "operating_profit",
+        "metric_name": "营业利润",
+        "raw_value": "1,388,897,863.42",
+        "normalized_value": 13.888979,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "non_operating_income",
+        "metric_name": "营业外收入",
+        "raw_value": "14,626,592.63",
+        "normalized_value": 0.146266,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "non_operating_expenses",
+        "metric_name": "营业外支出",
+        "raw_value": "62,290,546.74",
+        "normalized_value": 0.622905,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "total_profit",
+        "metric_name": "利润总额",
+        "raw_value": "1,341,233,909.31",
+        "normalized_value": 13.412339,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "income_tax_expense",
+        "metric_name": "所得税费用",
+        "raw_value": "530,142,842.25",
+        "normalized_value": 5.301428,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "net_profit",
+        "metric_name": "净利润",
+        "raw_value": "811,091,067.06",
+        "normalized_value": 8.110911,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "parent_net_profit",
+        "metric_name": "归属于母公司股东的净利润",
+        "raw_value": "1,149,875,189.68",
+        "normalized_value": 11.498752,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "minority_profit_loss",
+        "metric_name": "少数股东损益",
+        "raw_value": "-338,784,122.62",
+        "normalized_value": -3.387841,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_comprehensive_income",
+        "metric_name": "其他综合收益的税后净额",
+        "raw_value": "-91,661,486.27",
+        "normalized_value": -0.916615,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "other_comprehensive_income",
+        "metric_name": "归属母公司所有者的其他综合收益的税后净额",
+        "raw_value": "-77,118,424.21",
+        "normalized_value": -0.771184,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "minority_other_comprehensive_income",
+        "metric_name": "归属于少数股东的其他综合收益的税后净额",
+        "raw_value": "-14,543,062.06",
+        "normalized_value": -0.145431,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "total_comprehensive_income",
+        "metric_name": "综合收益总额",
+        "raw_value": "719,429,580.79",
+        "normalized_value": 7.194296,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "parent_total_comprehensive_income",
+        "metric_name": "归属于母公司所有者的综合收益总额",
+        "raw_value": "1,072,756,765.47",
+        "normalized_value": 10.727568,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      },
+      {
+        "metric_key": "minority_total_comprehensive_income",
+        "metric_name": "归属于少数股东的综合收益总额",
+        "raw_value": "-353,327,184.68",
+        "normalized_value": -3.533272,
+        "base_scale": 1.0,
+        "unit_hint": "元",
+        "source": {
+          "md_line": 2512,
+          "pdf_page": 116,
+          "table_index": 78,
+          "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+          "period": "2025",
+          "source_kind": "financial_data_statement"
+        },
+        "statement_type": "income_statement",
+        "scope": "consolidated",
+        "period": "2025"
+      }
+    ],
+    "extraction_method": "financial_data_statement_ingest_v1"
+  },
+  "generated_at": "2026-06-05T12:08:57Z"
+}

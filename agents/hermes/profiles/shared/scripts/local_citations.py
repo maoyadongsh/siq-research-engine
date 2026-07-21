@@ -21,7 +21,18 @@ import re
 from pathlib import Path
 from typing import Any
 
-WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
+
+def _default_wiki_base() -> Path:
+    if value := os.environ.get("SIQ_WIKI_ROOT"):
+        return Path(value).expanduser()
+    if value := os.environ.get("SIQ_DATA_ROOT"):
+        return Path(value).expanduser() / "wiki"
+    if value := os.environ.get("SIQ_PROJECT_ROOT"):
+        return Path(value).expanduser() / "data" / "wiki"
+    return Path(__file__).resolve().parents[5] / "data" / "wiki"
+
+
+WIKI_BASE = _default_wiki_base()
 DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",
@@ -300,7 +311,7 @@ def _iter_company_dirs(wiki_base: Path = WIKI_BASE) -> list[Path]:
     if companies_dir.exists():
         for company_dir in companies_dir.iterdir():
             add(company_dir)
-    for market in ("hk", "jp", "kr", "eu"):
+    for market in ("hk", "jp", "kr", "eu", "us"):
         market_companies_dir = wiki_base / market / "companies"
         if not market_companies_dir.exists():
             continue

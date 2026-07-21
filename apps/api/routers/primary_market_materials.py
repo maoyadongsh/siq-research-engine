@@ -508,6 +508,7 @@ def _material_pipeline_response(
 ) -> dict[str, Any]:
     current = primary_market_materials.read_material_parse_status(deal_id, document_id)
     document = current.get("document") if isinstance(current.get("document"), dict) else {}
+    public_document = primary_market_materials.get_primary_market_material(deal_id, document_id)
     package_dir = deal_store.safe_deal_dir(deal_id)
     if wiki is None:
         if document.get("wiki_status") == "failed" and document.get("wiki_receipt_path"):
@@ -611,8 +612,8 @@ def _material_pipeline_response(
         **(base or {}),
         **current,
         "schema_version": "siq_primary_market_material_pipeline_response_v1",
-        "document": document,
-        "material": document,
+        "document": public_document,
+        "material": public_document,
         "wiki": wiki,
         "evidence": evidence_payload,
         "evidence_snapshot": snapshot,

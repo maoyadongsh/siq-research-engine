@@ -1,0 +1,69 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_v1",
+  "identity_scope": "real_company",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "task": {
+    "task_id": "e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+    "filename": "贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf"
+  },
+  "financial_data": {
+    "market": "CN",
+    "company_id": "CN:600519",
+    "filing_id": "CN:600519:2025-annual:e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+    "report_id": "CN:600519:2025-annual:e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+    "ticker": "600519",
+    "period_end": "2025-12-31",
+    "reporting_currency": "CNY",
+    "presentation_currency": "CNY",
+    "statements": [
+      {
+        "statement_type": "balance_sheet",
+        "unit": "元",
+        "currency": "CNY",
+        "scale": 1.0,
+        "items": [
+          {
+            "name": "货币资金",
+            "unit": "元",
+            "currency": "CNY",
+            "fact_currency": "CNY",
+            "scale": 1.0,
+            "values": {
+              "2025-12-31": 51690610946.5
+            },
+            "raw_values": {
+              "2025-12-31": "51,690,610,946.50"
+            },
+            "sources": {
+              "2025-12-31": {
+                "table_index": 71,
+                "line": 1721,
+                "page_number": 56,
+                "bbox": [
+                  137,
+                  807,
+                  902,
+                  912
+                ]
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 71,
+        "page_number": 56,
+        "bbox": [
+          137,
+          807,
+          902,
+          912
+        ]
+      }
+    ]
+  }
+}

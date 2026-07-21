@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "600309-万华化学",
+    "stock_code": "600309",
+    "exchange": "SSE",
+    "company_short_name": "万华化学",
+    "company_full_name": "万华化学",
+    "aliases": [
+      "万华化学"
+    ]
+  },
+  "source": {
+    "task_id": "f256875c-dad2-4fbf-9240-ef288fea0b0f",
+    "schema_versions": {
+      "document_full": 3,
+      "content_list_enhanced": 10,
+      "quality_report": 11,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 229,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "5ecd79359d2634b0bd8aaafc043ffe81a008c6f582b1a751bc3d8a13400a6508",
+      "document_full_json": "4ab2dff3fa4fdf0376a00867e59e8c4549aa1f2242c6146e90141458ca26ae23"
+    },
+    "source_filename_metadata": {
+      "source_filename": "万华化学_CN_600309_2025-12-31_年报_2026-04-20_manual_52fb0103.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "万华化学",
+      "market": "CN",
+      "stock_code": "600309",
+      "raw_ticker": "600309",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-04-20",
+      "source_id": "manual",
+      "url_hash": "52fb0103",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "needs_review",
+  "quality_summary": {
+    "markdown_chars": 396760,
+    "table_count": 264,
+    "image_ref_count": 4,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 61,
+      "pass": 59,
+      "fail": 0,
+      "warning": 0,
+      "skipped": 2
+    },
+    "warnings": [
+      "发现 23 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 52,
+      "line": 1171,
+      "heading": "(一)员工情况",
+      "unit": "",
+      "pdf_page_index": 47,
+      "pdf_page_number": 48,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "母公司在职员工的数量 10,789 主要子公司在职员工的数量 19,983 在职员工的数量合计 30,772 母公司及主要子公司需承担费用的离退休职工人数 293 专业构成 专业构成类别 专业构成人数 生产人员 19,225 销售人员 1,070 技术人员 6,999 财务人员 423 行政人员 3,055 合计 30,772 教育程度 教育程度类别 数量(人) 博士 287 硕士 5,172 本科 7,060 大专 13,914 大专",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 83,
+      "line": 2099,
+      "heading": "[PDF_PAGE: 84]",
+      "unit": "元",
+      "pdf_page_index": 82,
+      "pdf_page_number": 83,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目 附注 2025 年度 2024 年度 一、营业总收入 203,234,573,814.42 182,069,119,160.94 其中:营业收入 七 61 203,234,573,814.42 182,069,119,160.94 利息收入 已赚保费 手续费及佣金收入 二、营业总成本 188,234,545,151.15 165,012,884,882.40 其中:营业成本 七 61 175,569,584,829.32 152,",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 145,
+      "line": 4331,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 156,
+      "pdf_page_number": 157,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目 期初余额 本期增加 本期减少 期末余额 一、短期薪酬 976,115,448.87 10,406,753,810.04 9,413,961,647.20 1,968,907,611.71 二、离职后福利-设定提存计划 28,848,154.72 1,086,167,892.94 1,082,734,554.66 32,281,493.00 合计 1,004,963,603.59 11,492,921,702.98 10,496,6",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

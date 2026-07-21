@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "600143-金发科技",
+    "stock_code": "600143",
+    "exchange": "SSE",
+    "company_short_name": "金发科技",
+    "company_full_name": "金发科技",
+    "aliases": [
+      "金发科技"
+    ]
+  },
+  "source": {
+    "task_id": "23658e24-111e-4399-8c0b-e42c41eeb943",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 281,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "c2d3a0d614e7888a2469f5fd05d20d1d61e7bb372e437114de803c448c629783",
+      "document_full_json": "3625f6b34a4f8e0842952b5a4393c39f78929d7e6e6c41f63a9dc7359873134c"
+    },
+    "source_filename_metadata": {}
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 679408,
+    "table_count": 480,
+    "image_ref_count": 24,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 63,
+      "pass": 59,
+      "fail": 0,
+      "warning": 2,
+      "skipped": 2
+    },
+    "warnings": [
+      "发现 30 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 26,
+      "line": 726,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 28,
+      "pdf_page_number": 29,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目名称 本期期末数 本期期末数占总资产的比例(%) 上期期末数 上期期末数占总资产的比例(%) 本期期末金额较上期期末变动比例(%) 情况说明 交易性金融资产 521,699.87 0.00 35,272,980.01 0.06 -98.52 主要为赎回相关理财产品导致 应收款项融资 3,653,870,736.27 5.70 1,491,265,397.34 2.41 145.02 主要为银承增加导致 应收股利 33,600,000",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    },
+    {
+      "table_index": 47,
+      "line": 1567,
+      "heading": "(一) 员工情况",
+      "unit": "",
+      "pdf_page_index": 67,
+      "pdf_page_number": 68,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "母公司在职员工的数量 2,942 主要子公司在职员工的数量 11,169 在职员工的数量合计 14,111 母公司及主要子公司需承担费用的离退休职工人数 171 专业构成 专业构成类别 专业构成人数 生产人员 8,688 销售人员 975 技术人员 1,642 财务人员 326 行政人员 2,480 合计 14,111 教育程度 教育程度类别 数量(人) 院士(含外籍) 2 国务院特殊津贴专家 6 按学历构成: 博士 260 硕士 1,",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    }
+  ]
+}

@@ -878,7 +878,7 @@ def wiki_fulltext_fallback_result(
         ]
         scored_lines.sort(key=lambda item: (-item[0], item[1]))
         seen_lines: set[int] = set()
-        for score, line_number, line in scored_lines[: max_snippets * 2]:
+        for score, line_number, _line in scored_lines[: max_snippets * 2]:
             if len(rows) >= max_snippets:
                 break
             if any(abs(line_number - seen) <= 1 for seen in seen_lines):
@@ -962,7 +962,17 @@ def wiki_fulltext_fallback_result(
 
     deduped_rows: dict[str, dict[str, Any]] = {}
     for row in rows:
-        snippet_key = re.sub(r"\[PDF_PAGE:\s*\d+\]", "", str(row.get("snippet") or ""))
+        snippet = str(row.get("snippet") or "")
+        matched_lines = [
+            line
+            for line in snippet.splitlines()
+            if agent_runtime_fallback_contexts._line_matches_any_term(line, specific_terms)
+        ]
+        # Parser output can repeat the same disclosure in multiple Markdown
+        # windows. Key on the complete matching line so identical evidence is
+        # returned once without collapsing distinct values that share a term.
+        snippet_key = "\n".join(matched_lines) or snippet
+        snippet_key = re.sub(r"\[PDF_PAGE:\s*\d+\]", "", snippet_key)
         snippet_key = re.sub(r"\s+", "", snippet_key).casefold()
         if not snippet_key:
             snippet_key = repr((row.get("pdf_page"), row.get("table_index"), row.get("md_line")))
