@@ -46,6 +46,7 @@ from services.legal_workflow import (
 )
 from services.session_manager import get_session_manager, keeps_sessions_forever
 from services.tracking_workflow import (
+    TRACKING_WORKFLOW_SENTIMENT_DAILY,
     TrackingWorkflowRequest,
     build_tracking_workflow_request,
     run_tracking_workflow,
@@ -261,6 +262,24 @@ async def _run_tracking_workflow_reply(
     except Exception as exc:
         return f"{TRACKING_WORKFLOW_ERROR_PREFIX}: {exc}"
     return response
+
+
+def _tracking_workflow_progress(workflow_request: TrackingWorkflowRequest) -> dict[str, object]:
+    if workflow_request.workflow_kind == TRACKING_WORKFLOW_SENTIMENT_DAILY:
+        return {
+            "status": "running",
+            "title": "正在生成舆情日报",
+            "detail": "已切换到确定性舆情工作流，正在检索真实来源、生成日报并校验证据链。",
+            "percent": 10,
+            "source": "workflow",
+        }
+    return {
+        "status": "running",
+        "title": "正在生成持续跟踪报告",
+        "detail": "已切换到确定性 tracking 工作流，正在提取跟踪事项、更新指标面板、评估预警并生成 HTML 报告。",
+        "percent": 10,
+        "source": "workflow",
+    }
 
 
 def _legal_workflow_request(
@@ -921,16 +940,7 @@ def create_specialist_agent_router(config: SpecialistAgentConfig) -> APIRouter:
                 )
                 yield {
                     "event": "progress",
-                    "data": json.dumps(
-                        {
-                            "status": "running",
-                            "title": "正在生成持续跟踪报告",
-                            "detail": "已切换到确定性 tracking 工作流，正在提取跟踪事项、更新指标面板、评估预警并生成 HTML 报告。",
-                            "percent": 10,
-                            "source": "workflow",
-                        },
-                        ensure_ascii=False,
-                    ),
+                    "data": json.dumps(_tracking_workflow_progress(tracking_request), ensure_ascii=False),
                 }
                 workflow_response = await _run_tracking_workflow_reply(replace(tracking_request, session_id=session_id))
                 reply, artifact, audit_trace_id = _specialist_workflow_payload(workflow_response)

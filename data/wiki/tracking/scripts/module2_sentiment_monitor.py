@@ -349,7 +349,14 @@ def analyze_sentiment_trend(items: List[Dict]) -> Dict:
     """分析舆情趋势"""
     total = len(items)
     if total == 0:
-        return {"total": 0, "positive": 0, "negative": 0, "neutral": 0, "sentiment_score": 0}
+        return {
+            "total": 0,
+            "positive": 0,
+            "negative": 0,
+            "neutral": 0,
+            "sentiment_score": 0,
+            "trend": "中性",
+        }
 
     positive = sum(1 for item in items if item["sentiment"] == "正面")
     negative = sum(1 for item in items if item["sentiment"] == "负面")
@@ -376,6 +383,60 @@ def analyze_sentiment_trend(items: List[Dict]) -> Dict:
     }
 
 
+def sentiment_evidence_path(report_path: str | Path) -> Path:
+    return Path(report_path).with_suffix(".evidence.json")
+
+
+def _sentiment_evidence_payload(
+    stock_code: str,
+    company_name: str,
+    date: str,
+    items: List[Dict],
+    trend: Dict,
+) -> Dict:
+    citations = []
+    unresolved_evidence_ids = []
+    real_items = [item for item in items if item.get("search_backend")]
+    simulated_items = [item for item in items if item.get("url") == "#"]
+    for item in real_items:
+        evidence_id = str(item.get("id") or "").strip()
+        source_url = str(item.get("url") or "").strip()
+        quote = " ".join(
+            part.strip() for part in (str(item.get("title") or ""), str(item.get("content") or "")) if part.strip()
+        )
+        if not evidence_id or not source_url.startswith(("http://", "https://")) or not quote:
+            unresolved_evidence_ids.append(evidence_id or "missing_evidence_id")
+            continue
+        citations.append(
+            {
+                "source_type": "tracking_web_search",
+                "source_url": source_url,
+                "evidence_id": evidence_id,
+                "quote": quote,
+                "title": item.get("title"),
+                "published_at": item.get("published_at"),
+                "period": item.get("date") or date,
+                "sentiment": item.get("sentiment"),
+                "relevance": item.get("relevance"),
+                "search_backend": item.get("search_backend"),
+            }
+        )
+    source_mode = "real" if real_items else "simulated" if simulated_items else "empty"
+    return {
+        "schema_version": "siq_tracking_sentiment_evidence_v1",
+        "stock_code": stock_code,
+        "company_name": company_name,
+        "report_date": date,
+        "source_mode": source_mode,
+        "summary": trend,
+        "item_count": len(items),
+        "real_item_count": len(real_items),
+        "simulated_item_count": len(simulated_items),
+        "unresolved_evidence_ids": unresolved_evidence_ids,
+        "citations": citations,
+    }
+
+
 def generate_sentiment_report(
     stock_code: str,
     company_name: str,
@@ -393,7 +454,7 @@ def generate_sentiment_report(
 
     output_path = os.path.join(output_dir, f"{date}.md")
 
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(f"# {company_name} ({stock_code}) 舆情日报\n\n")
         f.write(f"> 日期: {date}\n")
         f.write(f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -401,16 +462,18 @@ def generate_sentiment_report(
         # 摘要
         f.write("## 舆情摘要\n\n")
         f.write(f"- **舆情总量**: {trend['total']} 条\n")
-        f.write(f"- **正面**: {trend['positive']} 条 | **负面**: {trend['negative']} 条 | **中性**: {trend['neutral']} 条\n")
+        f.write(
+            f"- **正面**: {trend['positive']} 条 | **负面**: {trend['negative']} 条 | **中性**: {trend['neutral']} 条\n"
+        )
         f.write(f"- **情感得分**: {trend['sentiment_score']} ({trend['trend']})\n\n")
 
         # 情感分布可视化（ASCII）
         f.write("### 情感分布\n\n")
-        max_bar = max(trend['positive'], trend['negative'], trend['neutral'], 1)
+        max_bar = max(trend["positive"], trend["negative"], trend["neutral"], 1)
         bar_width = 30
-        pos_bar = int(trend['positive'] / max_bar * bar_width)
-        neg_bar = int(trend['negative'] / max_bar * bar_width)
-        neu_bar = int(trend['neutral'] / max_bar * bar_width)
+        pos_bar = int(trend["positive"] / max_bar * bar_width)
+        neg_bar = int(trend["negative"] / max_bar * bar_width)
+        neu_bar = int(trend["neutral"] / max_bar * bar_width)
         f.write(f"正面 {'█' * pos_bar}{'░' * (bar_width - pos_bar)} {trend['positive']}\n")
         f.write(f"负面 {'█' * neg_bar}{'░' * (bar_width - neg_bar)} {trend['negative']}\n")
         f.write(f"中性 {'█' * neu_bar}{'░' * (bar_width - neu_bar)} {trend['neutral']}\n\n")
@@ -431,11 +494,14 @@ def generate_sentiment_report(
 
             for item in sentiment_items[:5]:  # 每类最多显示5条
                 f.write(f"**{item['title']}**\n\n")
+                if item.get("id"):
+                    f.write(f"- 证据ID: `{item['id']}`\n")
                 f.write(f"- 来源: {item['source']}\n")
                 f.write(f"- 时间: {item['published_at']}\n")
                 f.write(f"- 内容: {item['content']}\n")
-                if item['url'] != '#':
-                    f.write(f"- 链接: {item['url']}\n")
+                if item["url"] != "#":
+                    source_url = str(item["url"]).replace(" ", "%20").replace(")", "%29")
+                    f.write(f"- 链接: [打开来源]({source_url})\n")
                 f.write(f"- 相关度: {item.get('relevance', 'medium')}\n\n")
 
         # 风险提示
@@ -463,10 +529,50 @@ def generate_sentiment_report(
         else:
             f.write("- ⚠️ 真实舆情数据源未返回结果，本日报未填充模拟数据\n")
             f.write("- 建议配置 Tavily/Exa 或接入公告/新闻源后重跑\n")
+        f.write(f"- 结构化证据: `{date}.evidence.json`\n")
         f.write("\n")
 
+    evidence_payload = _sentiment_evidence_payload(stock_code, company_name, date, items, trend)
+    sentiment_evidence_path(output_path).write_text(
+        json.dumps(evidence_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"✅ 舆情日报已生成: {output_path}")
     return output_path
+
+
+def run_sentiment_monitor_summary(
+    stock_code: str,
+    company_name: str,
+    wiki_base: str = DEFAULT_WIKI_BASE,
+    date: str = None,
+    *,
+    use_search: bool = True,
+    allow_simulated: bool = False,
+) -> Dict:
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    company_dir = str(company_dir_path(wiki_base, stock_code, company_name))
+    sentiment_dir = os.path.join(company_dir, "tracking", "sentiment")
+    items = fetch_real_sentiment(stock_code, company_name, date) if use_search else []
+    if not items and allow_simulated:
+        print("⚠️ 真实舆情不可用，按显式请求使用模拟数据")
+        items = generate_simulated_sentiment(stock_code, company_name, date)
+    elif not items:
+        print("⚠️ 真实舆情数据源未返回结果；未启用模拟舆情")
+
+    report_path = generate_sentiment_report(stock_code, company_name, items, sentiment_dir, date)
+    evidence_path = sentiment_evidence_path(report_path)
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    source_mode = str(evidence.get("source_mode") or "empty")
+    unresolved = evidence.get("unresolved_evidence_ids") or []
+    status = "success" if source_mode == "real" and not unresolved else "partial_success"
+    return {
+        "status": status,
+        "report_path": str(report_path),
+        "evidence_path": str(evidence_path),
+        **evidence,
+    }
 
 
 def run_sentiment_monitor(
@@ -481,28 +587,15 @@ def run_sentiment_monitor(
 
     输出：wiki/tracking/<stock_code>-<company>/sentiment/<date>.md
     """
-    if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
-
-    company_dir = str(company_dir_path(wiki_base, stock_code, company_name))
-    tracking_dir = os.path.join(company_dir, "tracking")
-    sentiment_dir = os.path.join(tracking_dir, "sentiment")
-
-    # 获取舆情数据
-    if use_simulated:
-        items = generate_simulated_sentiment(stock_code, company_name, date)
-        print(f"📝 使用模拟数据生成 {len(items)} 条舆情")
-    else:
-        items = fetch_real_sentiment(stock_code, company_name, date)
-        if not items:
-            print("⚠️ 真实数据源未返回结果；未启用模拟舆情")
-
-    # 生成日报
-    report_path = generate_sentiment_report(
-        stock_code, company_name, items, sentiment_dir, date
+    result = run_sentiment_monitor_summary(
+        stock_code,
+        company_name,
+        wiki_base,
+        date,
+        use_search=not use_simulated,
+        allow_simulated=use_simulated,
     )
-
-    return report_path
+    return str(result["report_path"])
 
 
 def run_sentiment_monitor_with_search(
@@ -520,44 +613,39 @@ def run_sentiment_monitor_with_search(
 
     输出：wiki/tracking/<stock_code>-<company>/sentiment/<date>.md
     """
-    if date is None:
-        date = datetime.now().strftime("%Y-%m-%d")
-
-    company_dir = str(company_dir_path(wiki_base, stock_code, company_name))
-    tracking_dir = os.path.join(company_dir, "tracking")
-    sentiment_dir = os.path.join(tracking_dir, "sentiment")
-
-    # 尝试获取真实舆情数据
-    items = fetch_real_sentiment(stock_code, company_name, date)
-
-    if items:
-        print(f"✅ 通过网络搜索获取 {len(items)} 条真实舆情")
-    elif allow_simulated:
-        print("⚠️ 网络搜索未返回结果，回退到模拟数据")
-        items = generate_simulated_sentiment(stock_code, company_name, date)
-        print(f"📝 使用模拟数据生成 {len(items)} 条舆情")
-    else:
-        print("⚠️ 网络搜索未返回结果；未启用模拟舆情")
-
-    # 生成日报
-    report_path = generate_sentiment_report(
-        stock_code, company_name, items, sentiment_dir, date
+    result = run_sentiment_monitor_summary(
+        stock_code,
+        company_name,
+        wiki_base,
+        date,
+        use_search=True,
+        allow_simulated=allow_simulated,
     )
-
-    return report_path
+    return str(result["report_path"])
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="舆情监控器")
     parser.add_argument("--stock", required=True, help="股票代码")
     parser.add_argument("--company", required=True, help="公司简称")
     parser.add_argument("--date", help="日期 (YYYY-MM-DD)")
     parser.add_argument("--wiki-base", default=DEFAULT_WIKI_BASE, help="wiki 根目录")
     parser.add_argument("--real", action="store_true", help="使用真实数据源")
+    parser.add_argument("--no-search", action="store_true", help="禁用真实数据源搜索")
     parser.add_argument("--allow-simulated", action="store_true", help="允许真实数据不可用时生成模拟舆情")
+    parser.add_argument("--json-summary", action="store_true", help="输出结构化运行摘要")
     args = parser.parse_args()
 
-    run_sentiment_monitor(
-        args.stock, args.company, args.wiki_base, args.date, use_simulated=args.allow_simulated and not args.real
+    result = run_sentiment_monitor_summary(
+        args.stock,
+        args.company,
+        args.wiki_base,
+        args.date,
+        use_search=args.real or not args.no_search,
+        allow_simulated=args.allow_simulated,
     )
+    if args.json_summary:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    raise SystemExit(0 if result["status"] == "success" else 2)

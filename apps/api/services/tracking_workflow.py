@@ -11,6 +11,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from html import escape
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import quote
@@ -42,14 +43,19 @@ logger = logging.getLogger(__name__)
 
 TRACKING_ACTION_RE = re.compile(r"(生成|执行|运行|刷新|重跑|重新生成|产出|创建|做一份|出一份|开启|更新)")
 TRACKING_OBJECT_RE = re.compile(r"(持续跟踪|跟踪报告|跟踪面板|跟踪事项|预警报告|预警面板|tracking)", re.IGNORECASE)
+TRACKING_SENTIMENT_OBJECT_RE = re.compile(r"(舆情日报|舆情报告|sentiment\s*(?:daily|report))", re.IGNORECASE)
 TRACKING_META_QUESTION_RE = re.compile(r"(为什么|为何|原因|怎么没有|没有调用|没调用|没有固化|没固化|如何设计|怎么设计)")
 STOCK_CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 MULTI_MARKET_TRACKING_MARKETS = frozenset({"HK", "US", "EU", "KR", "JP"})
+TRACKING_WORKFLOW_FULL = "full"
+TRACKING_WORKFLOW_SENTIMENT_DAILY = "sentiment_daily"
+RESEARCH_IDENTITY_FIELDS = ("market", "company_id", "filing_id", "parse_run_id")
 
 
 @dataclass(frozen=True)
 class TrackingWorkflowRequest:
     company_query: str
+    workflow_kind: str = TRACKING_WORKFLOW_FULL
     skip_sentiment: bool = False
     use_search: bool = True
     allow_simulated_sentiment: bool = False
@@ -59,6 +65,7 @@ class TrackingWorkflowRequest:
     prompt: str = ""
     session_id: str = ""
     research_context: dict[str, Any] | None = None
+    research_identity: dict[str, str] | None = None
     upstream_analysis_artifact_id: str = ""
 
 
@@ -99,6 +106,45 @@ def _context_market(context: Any | None) -> str:
     ).strip().upper()
 
 
+def _context_research_identity(context: Any | None) -> dict[str, str]:
+    raw = _context_dict(context)
+    target = raw.get("research_target") if isinstance(raw.get("research_target"), Mapping) else {}
+    target_identity = target.get("research_identity") if isinstance(target.get("research_identity"), Mapping) else {}
+    direct_identity = raw.get("research_identity") if isinstance(raw.get("research_identity"), Mapping) else {}
+    company = raw.get("company") if isinstance(raw.get("company"), Mapping) else {}
+    period = raw.get("resolved_period") if isinstance(raw.get("resolved_period"), Mapping) else {}
+    values = {
+        "market": target_identity.get("market")
+        or direct_identity.get("market")
+        or raw.get("market")
+        or company.get("market"),
+        "company_id": (
+            target_identity.get("company_id")
+            or direct_identity.get("company_id")
+            or raw.get("company_id")
+            or company.get("company_id")
+            or company.get("id")
+            or company.get("dir")
+        ),
+        "filing_id": (
+            target_identity.get("filing_id")
+            or direct_identity.get("filing_id")
+            or raw.get("filing_id")
+            or period.get("filing_id")
+        ),
+        "parse_run_id": (
+            target_identity.get("parse_run_id")
+            or direct_identity.get("parse_run_id")
+            or raw.get("parse_run_id")
+            or period.get("parse_run_id")
+        ),
+    }
+    identity = {key: str(value).strip() for key, value in values.items() if str(value or "").strip()}
+    if identity.get("market"):
+        identity["market"] = identity["market"].upper()
+    return identity
+
+
 def _uses_multi_market_tracking(context: Any | None) -> bool:
     return _context_market(context) in MULTI_MARKET_TRACKING_MARKETS
 
@@ -128,7 +174,18 @@ def is_tracking_generation_request(message: str, context: Any | None = None) -> 
     text = (message or "").strip()
     if not text or TRACKING_META_QUESTION_RE.search(text):
         return False
-    return bool(TRACKING_ACTION_RE.search(text) and TRACKING_OBJECT_RE.search(text))
+    return bool(
+        TRACKING_ACTION_RE.search(text)
+        and (TRACKING_OBJECT_RE.search(text) or TRACKING_SENTIMENT_OBJECT_RE.search(text))
+    )
+
+
+def tracking_workflow_kind(message: str) -> str:
+    return (
+        TRACKING_WORKFLOW_SENTIMENT_DAILY
+        if TRACKING_SENTIMENT_OBJECT_RE.search(message or "")
+        else TRACKING_WORKFLOW_FULL
+    )
 
 
 def build_tracking_workflow_request(message: str, context: Any | None = None) -> TrackingWorkflowRequest | None:
@@ -142,14 +199,18 @@ def build_tracking_workflow_request(message: str, context: Any | None = None) ->
     structured_context = raw_context if _has_explicit_non_cn_market(raw_context) else None
     return TrackingWorkflowRequest(
         company_query=company_query,
+        workflow_kind=tracking_workflow_kind(text),
         skip_sentiment=bool(re.search(r"(跳过|不跑|不要|禁用).{0,8}(舆情|sentiment)", text, re.IGNORECASE)),
         use_search=not bool(re.search(r"(禁用|不要|不使用|关闭).{0,8}(搜索|联网|search)", text, re.IGNORECASE)),
-        allow_simulated_sentiment=bool(re.search(r"(允许|使用|启用).{0,8}(模拟舆情|模拟数据|simulated)", text, re.IGNORECASE)),
+        allow_simulated_sentiment=bool(
+            re.search(r"(允许|使用|启用).{0,8}(模拟舆情|模拟数据|simulated)", text, re.IGNORECASE)
+        ),
         cleanup_html=bool(re.search(r"(清理|归档|cleanup).{0,8}(html|HTML|历史报告|旧报告)", text)),
         strict=bool(re.search(r"(严格模式|strict)", text, re.IGNORECASE)),
         update_analysis=bool(re.search(r"(写回|更新|改写).{0,12}(analysis|分析报告|原报告)", text, re.IGNORECASE)),
         prompt=text.strip(),
         research_context=structured_context,
+        research_identity=_context_research_identity(raw_context),
         upstream_analysis_artifact_id=(
             upstream_analysis_artifact_id(raw_context) if structured_context is not None else ""
         ),
@@ -159,6 +220,11 @@ def build_tracking_workflow_request(message: str, context: Any | None = None) ->
 def _tracking_script(*, multi_market: bool = False) -> Path:
     scripts_dir = "scripts_multi_market" if multi_market else "scripts"
     return PROJECT_ROOT / "data" / "wiki" / "tracking" / scripts_dir / "run_all.py"
+
+
+def _tracking_sentiment_script(*, multi_market: bool = False) -> Path:
+    scripts_dir = "scripts_multi_market" if multi_market else "scripts"
+    return PROJECT_ROOT / "data" / "wiki" / "tracking" / scripts_dir / "module2_sentiment_monitor.py"
 
 
 def _load_catalog() -> list[dict[str, Any]]:
@@ -261,12 +327,13 @@ def _wiki_tracking_url(html_path: str | Path | None) -> str:
     try:
         companies_index = parts.index("companies")
         company_dir = parts[companies_index + 1]
+        relative_parts = parts[companies_index + 2 :]
     except (ValueError, IndexError):
         return ""
-    return (
-        f"/api/wiki/companies/{quote(company_dir, safe='')}/tracking/"
-        f"{quote(path.name, safe='')}"
-    )
+    if not relative_parts:
+        return ""
+    relative_url = "/".join(quote(part, safe="") for part in relative_parts)
+    return f"/api/wiki/companies/{quote(company_dir, safe='')}/{relative_url}"
 
 
 def _latest_html_from_manifest(company_dir: Path) -> Path | None:
@@ -296,10 +363,58 @@ def _module_statuses(result: dict[str, Any]) -> str:
     modules = result.get("modules") if isinstance(result.get("modules"), dict) else {}
     if not modules:
         return "未返回"
-    return " ".join(f"{name}={info.get('status', 'unknown')}" for name, info in modules.items() if isinstance(info, dict))
+    return " ".join(
+        f"{name}={info.get('status', 'unknown')}" for name, info in modules.items() if isinstance(info, dict)
+    )
+
+
+def _format_sentiment_daily_reply(result: dict[str, Any]) -> str:
+    ok = bool(result.get("ok"))
+    source_mode = str(result.get("source_mode") or "empty")
+    title = "舆情日报已生成" if ok else "舆情日报生成未完全通过"
+    source_labels = {
+        "real": "真实网络来源",
+        "simulated": "模拟数据（仅供测试）",
+        "empty": "真实来源暂无可用结果",
+    }
+    lines = [
+        f"**{title}**",
+        "",
+        f"- 公司: `{result.get('stock_code') or ''}-{result.get('company_name') or ''}`",
+        f"- 数据状态: `{source_labels.get(source_mode, source_mode)}`",
+    ]
+    summary = result.get("summary") if isinstance(result.get("summary"), Mapping) else {}
+    if ok:
+        lines.extend(
+            [
+                f"- 舆情总量: `{summary.get('total', 0)}`",
+                (
+                    f"- 情感分布: `正面 {summary.get('positive', 0)} / "
+                    f"负面 {summary.get('negative', 0)} / 中性 {summary.get('neutral', 0)}`"
+                ),
+                f"- 情感得分: `{summary.get('sentiment_score', 0)}`",
+                f"- 可核验引用: `{result.get('citation_count', 0)}`",
+            ]
+        )
+        report_url = str(result.get("report_url") or "")
+        if report_url:
+            lines.append(f"- 打开日报: [舆情日报]({report_url})")
+    else:
+        failures = result.get("validation_result", {}).get("failures", [])
+        if failures:
+            lines.append(f"- 未通过项: `{', '.join(str(item) for item in failures)}`")
+    warnings = [str(item) for item in (result.get("degraded_reasons") or []) if str(item).strip()]
+    if warnings:
+        lines.append(f"- 降级原因: `{', '.join(warnings)}`")
+    next_action = str(result.get("next_action") or "").strip()
+    if next_action and not ok:
+        lines.extend(["", f"下一步: {next_action}"])
+    return "\n".join(lines)
 
 
 def format_tracking_workflow_reply(result: dict[str, Any]) -> str:
+    if result.get("workflow_kind") == TRACKING_WORKFLOW_SENTIMENT_DAILY:
+        return _format_sentiment_daily_reply(result)
     status = str(result.get("status") or result.get("stage") or "unknown")
     ok = bool(result.get("ok"))
     title = (
@@ -563,6 +678,306 @@ def _workflow_response(
     return TrackingWorkflowResponse(True, format_tracking_workflow_reply(result), result)
 
 
+def _safe_sentiment_artifact_path(value: Any, company_dir: Path) -> Path | None:
+    if not value:
+        return None
+    candidate = Path(str(value)).expanduser().resolve()
+    expected_root = (company_dir / "tracking" / "sentiment").resolve()
+    try:
+        candidate.relative_to(expected_root)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _sentiment_research_identity(
+    request: TrackingWorkflowRequest,
+    company: Mapping[str, Any],
+    structured_target: Any | None,
+) -> dict[str, str]:
+    if structured_target is not None:
+        return {
+            key: str(value)
+            for key, value in structured_target.package.research_identity.to_dict().items()
+            if value not in (None, "")
+        }
+    identity = dict(request.research_identity or {})
+    identity["market"] = "CN"
+    identity["company_id"] = str(company.get("company_id") or company.get("stock_code") or "")
+    return {key: str(value).strip() for key, value in identity.items() if str(value or "").strip()}
+
+
+def _sentiment_citations(
+    evidence: Mapping[str, Any],
+    research_identity: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    citations = normalize_citations(
+        evidence.get("citations") or [],
+        default_source_type="tracking_web_search",
+    )
+    output = []
+    for citation in citations:
+        source_url = str(citation.get("source_url") or "").strip()
+        evidence_id = str(citation.get("evidence_id") or "").strip()
+        quote_text = str(citation.get("quote") or "").strip()
+        if not source_url.startswith(("http://", "https://")) or not evidence_id or not quote_text:
+            continue
+        enriched = dict(citation)
+        enriched["research_identity"] = dict(research_identity)
+        for field in RESEARCH_IDENTITY_FIELDS:
+            if research_identity.get(field):
+                enriched[field] = research_identity[field]
+        output.append(enriched)
+    return output
+
+
+def _write_sentiment_html(
+    report_path: Path,
+    *,
+    company_name: str,
+    summary: Mapping[str, Any],
+    citations: list[dict[str, Any]],
+) -> Path:
+    report_text = report_path.read_text(encoding="utf-8", errors="replace")
+    source_rows = []
+    for citation in citations:
+        url = escape(str(citation.get("source_url") or ""), quote=True)
+        title = escape(str(citation.get("title") or citation.get("evidence_id") or "来源"))
+        source_rows.append(f'<li><a href="{url}" target="_blank" rel="noreferrer">{title}</a></li>')
+    sources = "".join(source_rows) or "<li>本轮没有可用的真实来源</li>"
+    html_path = report_path.with_suffix(".html")
+    html_path.write_text(
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f"<title>{escape(company_name)} 舆情日报</title>"
+        "<style>body{margin:0;background:#f4f6f8;color:#17202a;font:15px/1.65 system-ui,sans-serif}"
+        "main{max-width:980px;margin:0 auto;padding:32px 20px 56px}h1{font-size:26px;margin:0 0 20px}"
+        ".summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:20px}"
+        ".metric{background:#fff;border:1px solid #d9dee5;border-radius:6px;padding:12px}"
+        ".metric b{display:block;font-size:20px}section{background:#fff;border:1px solid #d9dee5;"
+        "border-radius:6px;padding:18px;margin-top:14px}pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;"
+        "font:14px/1.65 ui-monospace,monospace}a{color:#0969da}ul{padding-left:22px}"
+        "@media(max-width:640px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:20px 12px}}</style>"
+        "</head><body><main>"
+        f"<h1>{escape(company_name)} 舆情日报</h1>"
+        '<div class="summary">'
+        f'<div class="metric">总量<b>{int(summary.get("total") or 0)}</b></div>'
+        f'<div class="metric">正面<b>{int(summary.get("positive") or 0)}</b></div>'
+        f'<div class="metric">负面<b>{int(summary.get("negative") or 0)}</b></div>'
+        f'<div class="metric">中性<b>{int(summary.get("neutral") or 0)}</b></div>'
+        "</div>"
+        f"<section><pre>{escape(report_text)}</pre></section>"
+        f"<section><h2>可核验来源</h2><ul>{sources}</ul></section>"
+        "</main></body></html>\n",
+        encoding="utf-8",
+    )
+    return html_path
+
+
+def _run_sentiment_daily_workflow(
+    request: TrackingWorkflowRequest,
+    *,
+    script: Path,
+    company: Mapping[str, Any],
+    company_dir: Path,
+    stock_code: str,
+    company_name: str,
+    structured_target: Any | None,
+    multi_market: bool,
+    host_degraded_reasons: list[str],
+    timeout: int | float,
+) -> TrackingWorkflowResponse:
+    cmd = [
+        sys.executable,
+        str(script),
+        "--stock",
+        stock_code,
+        "--company",
+        company_name,
+        "--wiki-base",
+        str(WIKI_ROOT),
+        "--json-summary",
+    ]
+    if request.use_search:
+        cmd.append("--real")
+    else:
+        cmd.append("--no-search")
+    if request.allow_simulated_sentiment and structured_target is None:
+        cmd.append("--allow-simulated")
+
+    env = os.environ.copy()
+    env["SIQ_WIKI_ROOT"] = str(WIKI_ROOT)
+    env["SIQ_WIKISET_ROOT"] = str(PROJECT_ROOT / "scripts" / "wiki" / "wikiset")
+    if structured_target is not None:
+        env["SIQ_RESOLVED_COMPANY_DIR"] = str(company_dir)
+    try:
+        completed = run_command(cmd, cwd=PROJECT_ROOT, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired as exc:
+        return _workflow_response(
+            request,
+            {
+                "ok": False,
+                "stage": "timeout",
+                "workflow_kind": TRACKING_WORKFLOW_SENTIMENT_DAILY,
+                "company_query": request.company_query,
+                "stock_code": stock_code,
+                "company_name": company_name,
+                "next_action": f"舆情日报工作流超时: {exc}",
+            },
+        )
+
+    command_summary = _load_stdout_json(completed)
+    report_path = _safe_sentiment_artifact_path(command_summary.get("report_path"), company_dir)
+    evidence_path = _safe_sentiment_artifact_path(command_summary.get("evidence_path"), company_dir)
+    try:
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8")) if evidence_path else {}
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        evidence = {}
+    if not isinstance(evidence, dict):
+        evidence = {}
+
+    research_identity = _sentiment_research_identity(request, company, structured_target)
+    citations = _sentiment_citations(evidence, research_identity)
+    source_mode = str(evidence.get("source_mode") or "empty")
+    summary = evidence.get("summary") if isinstance(evidence.get("summary"), Mapping) else {}
+    unresolved = [str(item) for item in (evidence.get("unresolved_evidence_ids") or [])]
+    real_item_count = int(evidence.get("real_item_count") or 0)
+    identity_complete = all(research_identity.get(field) for field in RESEARCH_IDENTITY_FIELDS)
+    real_evidence_complete = source_mode != "real" or (
+        bool(citations)
+        and len(citations) == real_item_count
+        and not unresolved
+        and all(citation_has_locator(item) for item in citations)
+        and identity_complete
+    )
+    status = str(command_summary.get("status") or "unknown")
+    checks = {
+        "command_completed": completed.returncode in {0, 2},
+        "pipeline_completed": status in {"success", "partial_success"},
+        "report_present": bool(report_path and report_path.is_file()),
+        "evidence_manifest_present": bool(evidence_path and evidence_path.is_file()),
+        "evidence_schema_valid": evidence.get("schema_version") == "siq_tracking_sentiment_evidence_v1",
+        "real_evidence_complete": real_evidence_complete,
+    }
+    failures = [name for name, passed in checks.items() if not passed]
+    degraded_reasons = list(host_degraded_reasons)
+    if source_mode == "empty":
+        degraded_reasons.append("sentiment_source_unavailable")
+    elif source_mode == "simulated":
+        degraded_reasons.append("simulated_sentiment")
+    if unresolved:
+        degraded_reasons.append("sentiment_evidence_incomplete")
+    degraded_reasons = list(dict.fromkeys(degraded_reasons))
+    validation = SpecialistArtifactValidation(
+        ok=not failures,
+        checks=checks,
+        failures=failures,
+        warnings=degraded_reasons,
+    )
+    ok = validation.ok
+    report_url = _wiki_tracking_url(report_path) if ok and not multi_market else ""
+    source_report_path = str(
+        structured_target.analysis_artifact.html_path
+        if structured_target is not None
+        else _latest_analysis_source(company_dir) or ""
+    )
+    artifact = finalize_specialist_artifact(
+        artifact_type="tracking",
+        company_id=str(company.get("company_id") or stock_code),
+        source_report_path=source_report_path,
+        output_path=str(report_path or ""),
+        html_url=report_url,
+        citations=citations,
+        validation_result=validation,
+        profile="siq_tracking_multi_market" if multi_market else "siq_tracking",
+        message=request.prompt or request.company_query,
+        session_id=request.session_id,
+        metadata={
+            "workflow_kind": TRACKING_WORKFLOW_SENTIMENT_DAILY,
+            "source_mode": source_mode,
+            "evidence_path": str(evidence_path or ""),
+            "degraded_reasons": degraded_reasons,
+            "research_identity": research_identity,
+        },
+        specialist_facts={
+            "tracking_facts": citations,
+            "tracking_sentiment_summary": dict(summary),
+        },
+    )
+    artifact_manifest_path = (
+        report_path.with_suffix(".artifact.json")
+        if report_path
+        else company_dir / "tracking" / "sentiment" / "sentiment.artifact.json"
+    )
+    write_specialist_artifact_manifest(artifact, artifact_manifest_path)
+
+    v2_artifact = None
+    v2_manifest_path = None
+    v2_html_path = None
+    if ok and structured_target is not None and report_path is not None:
+        sentiment_html = _write_sentiment_html(
+            report_path,
+            company_name=company_name,
+            summary=summary,
+            citations=citations,
+        )
+        v2_artifact, v2_manifest_path, v2_html_path = publish_agent_artifact_v2(
+            structured_target,
+            artifact_type="tracking",
+            html_path=sentiment_html,
+            status="degraded" if degraded_reasons else "completed",
+            adapter_version="market_tracking_sentiment_v1",
+            citation_count=len(citations),
+            unresolved_count=len(unresolved),
+            warnings=degraded_reasons,
+            metadata={
+                "audit_trace_id": artifact.audit_trace_id,
+                "workflow_kind": TRACKING_WORKFLOW_SENTIMENT_DAILY,
+                "source_mode": source_mode,
+                "evidence_path": str(evidence_path or ""),
+            },
+        )
+        report_url = f"/api/research-universe/artifacts/{v2_artifact.artifact_id}/content"
+
+    result = {
+        **command_summary,
+        "ok": ok,
+        "stage": (
+            v2_artifact.status
+            if v2_artifact is not None
+            else "degraded"
+            if ok and degraded_reasons
+            else "completed"
+            if ok
+            else status or "failed"
+        ),
+        "workflow_kind": TRACKING_WORKFLOW_SENTIMENT_DAILY,
+        "company_query": request.company_query,
+        "stock_code": stock_code,
+        "company_name": company_name,
+        "company_path": str(company_dir),
+        "source_mode": source_mode,
+        "summary": dict(summary),
+        "citation_count": len(citations),
+        "degraded_reasons": degraded_reasons,
+        "report_url": report_url,
+        "artifact": v2_artifact.to_dict() if v2_artifact else artifact.model_dump(),
+        "artifact_manifest_path": str(artifact_manifest_path),
+        "agent_artifact_v2_manifest_path": str(v2_manifest_path or ""),
+        "agent_artifact_v2_html_path": str(v2_html_path or ""),
+        "audit_trace_id": artifact.audit_trace_id,
+        "validation_result": validation.model_dump(),
+        "returncode": completed.returncode,
+        "stdout": (completed.stdout or "").strip()[-4000:],
+        "stderr": (completed.stderr or "").strip()[-4000:],
+        "finished_at": datetime.now().isoformat(),
+    }
+    if not ok:
+        result["report_url"] = ""
+        result["next_action"] = "检查舆情 evidence sidecar、ResearchIdentity 与真实来源 URL 后重试。"
+    return _workflow_response(request, result)
+
+
 def run_tracking_workflow(
     request: TrackingWorkflowRequest,
     *,
@@ -577,18 +992,29 @@ def run_tracking_workflow(
         result = {
             "ok": False,
             "stage": "market_not_supported",
+            "workflow_kind": request.workflow_kind,
             "company_query": request.company_query,
             "next_action": f"当前持续跟踪链路暂不支持市场 {structured_market}。",
         }
         return _workflow_response(request, result)
     multi_market = _uses_multi_market_tracking(request.research_context)
-    script = _tracking_script(multi_market=multi_market)
+    script = (
+        _tracking_sentiment_script(multi_market=multi_market)
+        if request.workflow_kind == TRACKING_WORKFLOW_SENTIMENT_DAILY
+        else _tracking_script(multi_market=multi_market)
+    )
     if not script.is_file():
+        script_name = (
+            "module2_sentiment_monitor.py"
+            if request.workflow_kind == TRACKING_WORKFLOW_SENTIMENT_DAILY
+            else "run_all.py"
+        )
         result = {
             "ok": False,
             "stage": "script_missing",
+            "workflow_kind": request.workflow_kind,
             "company_query": request.company_query,
-            "next_action": "未找到 data/wiki/tracking/scripts/run_all.py，请同步 tracking 生产脚本。",
+            "next_action": f"未找到 data/wiki/tracking/scripts/{script_name}，请同步 tracking 生产脚本。",
         }
         return _workflow_response(request, result)
     structured_target = None
@@ -604,6 +1030,7 @@ def run_tracking_workflow(
             result = {
                 "ok": False,
                 "stage": exc.code,
+                "workflow_kind": request.workflow_kind,
                 "company_query": request.company_query,
                 "next_action": exc.message,
             }
@@ -629,6 +1056,7 @@ def run_tracking_workflow(
             result = {
                 "ok": False,
                 "stage": "company_resolve_failed",
+                "workflow_kind": request.workflow_kind,
                 "company_query": request.company_query,
                 "next_action": "请在当前页面选择公司，或在消息中提供唯一股票代码/company_id。",
             }
@@ -637,6 +1065,19 @@ def run_tracking_workflow(
 
     stock_code = company.get("stock_code") or company.get("company_id") or request.company_query
     company_name = company.get("company_short_name") or stock_code
+    if request.workflow_kind == TRACKING_WORKFLOW_SENTIMENT_DAILY:
+        return _run_sentiment_daily_workflow(
+            request,
+            script=script,
+            company=company,
+            company_dir=company_dir,
+            stock_code=stock_code,
+            company_name=company_name,
+            structured_target=structured_target,
+            multi_market=multi_market,
+            host_degraded_reasons=host_degraded_reasons,
+            timeout=timeout,
+        )
     cmd = [sys.executable, str(script)]
     if structured_target is None:
         cmd.extend(["--stock", stock_code, "--company", company_name])

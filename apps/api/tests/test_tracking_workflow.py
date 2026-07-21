@@ -52,7 +52,31 @@ def _user(user_id: int = 7) -> User:
 
 def test_tracking_generation_intent_excludes_meta_questions():
     assert workflow.is_tracking_generation_request("请为美的集团生成持续跟踪报告") is True
+    assert workflow.is_tracking_generation_request("生成舆情日报") is True
     assert workflow.is_tracking_generation_request("为什么持续跟踪智能体没有固化 run_all 能力？") is False
+
+
+def test_build_sentiment_daily_request_preserves_complete_research_identity():
+    identity = {
+        "market": "CN",
+        "company_id": "600104-上汽集团",
+        "filing_id": "CN:600104-上汽集团:2025-annual",
+        "parse_run_id": "7dbc35a7-7626-4e81-810e-5dbb764434e0",
+    }
+    request = workflow.build_tracking_workflow_request(
+        "生成舆情日报",
+        {
+            "market": "CN",
+            "company": {"dir": "600104-上汽集团", "code": "600104", "name": "上汽集团"},
+            "research_target": {"research_identity": identity},
+        },
+    )
+
+    assert request is not None
+    assert request.workflow_kind == workflow.TRACKING_WORKFLOW_SENTIMENT_DAILY
+    assert request.company_query == "600104-上汽集团"
+    assert request.research_identity == identity
+    assert request.research_context is None
 
 
 def test_build_tracking_request_uses_current_company_context():
@@ -85,6 +109,122 @@ def test_build_tracking_request_keeps_cn_structured_context_on_legacy_path():
     assert request is not None
     assert request.research_context is None
     assert request.upstream_analysis_artifact_id == ""
+
+
+def test_sentiment_report_writes_traceable_evidence_sidecar(tmp_path):
+    module = _load_tracking_script_module("module2_sentiment_monitor.py", "tracking_sentiment_evidence_test")
+    report_path = Path(
+        module.generate_sentiment_report(
+            "600104",
+            "上汽集团",
+            [
+                {
+                    "id": "600104-SENT-2026-07-22-001",
+                    "date": "2026-07-22",
+                    "source": "上汽集团官网",
+                    "title": "上汽集团发布月度产销公告",
+                    "content": "公告披露了最新月度产销数据。",
+                    "sentiment": "中性",
+                    "url": "https://www.saicmotor.com/example",
+                    "published_at": "2026-07-22 09:00",
+                    "relevance": "high",
+                    "search_backend": "tavily",
+                }
+            ],
+            str(tmp_path),
+            "2026-07-22",
+        )
+    )
+    evidence_path = module.sentiment_evidence_path(report_path)
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+
+    assert evidence["schema_version"] == "siq_tracking_sentiment_evidence_v1"
+    assert evidence["source_mode"] == "real"
+    assert evidence["unresolved_evidence_ids"] == []
+    assert evidence["citations"] == [
+        {
+            "source_type": "tracking_web_search",
+            "source_url": "https://www.saicmotor.com/example",
+            "evidence_id": "600104-SENT-2026-07-22-001",
+            "quote": "上汽集团发布月度产销公告 公告披露了最新月度产销数据。",
+            "title": "上汽集团发布月度产销公告",
+            "published_at": "2026-07-22 09:00",
+            "period": "2026-07-22",
+            "sentiment": "中性",
+            "relevance": "high",
+            "search_backend": "tavily",
+        }
+    ]
+    report_text = report_path.read_text(encoding="utf-8")
+    assert "证据ID: `600104-SENT-2026-07-22-001`" in report_text
+    assert "[打开来源](https://www.saicmotor.com/example)" in report_text
+
+
+def test_sentiment_report_empty_result_is_auditable_degraded_artifact(tmp_path):
+    module = _load_tracking_script_module("module2_sentiment_monitor.py", "tracking_sentiment_empty_test")
+
+    result = module.run_sentiment_monitor_summary(
+        "600104",
+        "上汽集团",
+        str(tmp_path),
+        "2026-07-22",
+        use_search=False,
+        allow_simulated=False,
+    )
+
+    assert result["status"] == "partial_success"
+    assert result["source_mode"] == "empty"
+    assert result["summary"] == {
+        "total": 0,
+        "positive": 0,
+        "negative": 0,
+        "neutral": 0,
+        "sentiment_score": 0,
+        "trend": "中性",
+    }
+    assert result["citations"] == []
+    assert Path(result["report_path"]).is_file()
+    assert Path(result["evidence_path"]).is_file()
+
+
+def test_sentiment_evidence_is_revalidated_and_bound_to_resolved_cn_company():
+    request = workflow.TrackingWorkflowRequest(
+        company_query="600104-上汽集团",
+        workflow_kind=workflow.TRACKING_WORKFLOW_SENTIMENT_DAILY,
+        research_identity={
+            "market": "US",
+            "company_id": "forged-company",
+            "filing_id": "CN:600104-上汽集团:2025-annual",
+            "parse_run_id": "parse-run-1",
+        },
+    )
+    identity = workflow._sentiment_research_identity(
+        request,
+        {"company_id": "600104-上汽集团", "stock_code": "600104"},
+        None,
+    )
+    citations = workflow._sentiment_citations(
+        {
+            "citations": [
+                {
+                    "source_url": "javascript:alert(1)",
+                    "evidence_id": "bad",
+                    "quote": "bad",
+                },
+                {
+                    "source_url": "https://www.saicmotor.com/example",
+                    "evidence_id": "600104-SENT-2026-07-22-001",
+                    "quote": "上汽集团发布月度产销公告",
+                },
+            ]
+        },
+        identity,
+    )
+
+    assert identity["market"] == "CN"
+    assert identity["company_id"] == "600104-上汽集团"
+    assert len(citations) == 1
+    assert citations[0]["research_identity"] == identity
 
 
 def test_incomplete_non_cn_tracking_context_fails_closed_without_cn_fallback(monkeypatch, tmp_path):
@@ -139,6 +279,90 @@ def test_unknown_non_cn_tracking_market_is_rejected_before_script_selection(monk
 
     assert response.result["ok"] is False
     assert response.result["stage"] == "market_not_supported"
+
+
+def test_run_sentiment_daily_workflow_uses_server_evidence_and_identity(monkeypatch, tmp_path):
+    script = tmp_path / "module2_sentiment_monitor.py"
+    script.write_text("# sentiment runner\n", encoding="utf-8")
+    wiki_root = tmp_path / "wiki"
+    company_dir = wiki_root / "companies" / "600104-上汽集团"
+    sentiment_dir = company_dir / "tracking" / "sentiment"
+    sentiment_dir.mkdir(parents=True)
+    report_path = sentiment_dir / "2026-07-22.md"
+    evidence_path = sentiment_dir / "2026-07-22.evidence.json"
+    identity = {
+        "market": "CN",
+        "company_id": "600104-上汽集团",
+        "filing_id": "CN:600104-上汽集团:2025-annual",
+        "parse_run_id": "7dbc35a7-7626-4e81-810e-5dbb764434e0",
+    }
+    calls = []
+
+    def fake_run_command(args, *, cwd=None, timeout=None, env=None):
+        calls.append({"args": list(args), "env": env})
+        report_path.write_text("# 上汽集团舆情日报\n", encoding="utf-8")
+        evidence = {
+            "schema_version": "siq_tracking_sentiment_evidence_v1",
+            "source_mode": "real",
+            "summary": {"total": 1, "positive": 0, "negative": 0, "neutral": 1, "sentiment_score": 0},
+            "real_item_count": 1,
+            "unresolved_evidence_ids": [],
+            "citations": [
+                {
+                    "source_type": "tracking_web_search",
+                    "source_url": "https://www.saicmotor.com/example",
+                    "evidence_id": "600104-SENT-2026-07-22-001",
+                    "quote": "上汽集团发布月度产销公告",
+                    "title": "上汽集团发布月度产销公告",
+                    "period": "2026-07-22",
+                }
+            ],
+        }
+        evidence_path.write_text(json.dumps(evidence, ensure_ascii=False), encoding="utf-8")
+        summary = {
+            "status": "success",
+            "report_path": str(report_path),
+            "evidence_path": str(evidence_path),
+        }
+        return subprocess.CompletedProcess(args, 0, stdout=json.dumps(summary, ensure_ascii=False), stderr="")
+
+    monkeypatch.setattr(workflow, "_tracking_sentiment_script", lambda *, multi_market=False: script)
+    monkeypatch.setattr(
+        workflow,
+        "_resolve_company",
+        lambda query: {
+            "company_id": "600104-上汽集团",
+            "stock_code": "600104",
+            "company_short_name": "上汽集团",
+            "company_path": "companies/600104-上汽集团",
+        },
+    )
+    monkeypatch.setattr(workflow, "WIKI_ROOT", wiki_root)
+    monkeypatch.setattr(workflow, "run_command", fake_run_command)
+    request = workflow.build_tracking_workflow_request(
+        "生成舆情日报",
+        {
+            "market": "CN",
+            "company": {"dir": "600104-上汽集团", "code": "600104", "name": "上汽集团"},
+            "research_target": {"research_identity": identity},
+        },
+    )
+    assert request is not None
+
+    response = workflow.run_tracking_workflow(request)
+
+    assert response.result["ok"] is True
+    assert response.result["workflow_kind"] == workflow.TRACKING_WORKFLOW_SENTIMENT_DAILY
+    assert response.result["citation_count"] == 1
+    assert response.result["report_url"].endswith("/tracking/sentiment/2026-07-22.md")
+    assert "舆情日报已生成" in response.reply
+    assert "可核验引用: `1`" in response.reply
+    assert calls and "--json-summary" in calls[0]["args"]
+    assert "--real" in calls[0]["args"]
+    citation = response.result["artifact"]["citations"][0]
+    assert citation["research_identity"] == identity
+    assert {field: citation[field] for field in identity} == identity
+    assert Path(response.result["artifact_manifest_path"]).is_file()
 
 
 def test_run_tracking_workflow_calls_run_all_and_formats_html_link(monkeypatch, tmp_path):
@@ -991,3 +1215,101 @@ def test_tracking_chat_routes_generation_to_workflow(monkeypatch):
         assert payload.artifact == {"artifact_type": "tracking"}
 
     anyio.run(run_case)
+
+
+def test_tracking_sentiment_quick_question_routes_sync_and_stream_to_workflow(monkeypatch):
+    calls = {"collect": 0, "stream": 0, "workflow": 0}
+    saved: list[tuple[str, str | None]] = []
+    trace_id = "aat_abcdef1234567890abcdef1234567890"
+
+    async def noop_quota(*args, **kwargs):
+        return (1, None)
+
+    async def noop_usage(*args, **kwargs):
+        return None
+
+    async def fake_resolve_session(*args, **kwargs):
+        return "user-7-tracking-sentiment-session"
+
+    async def fake_save_message(
+        async_session,
+        role,
+        content,
+        session_id,
+        attachments=None,
+        audit_trace_id=None,
+        **kwargs,
+    ):
+        saved.append((role, audit_trace_id))
+        return SimpleNamespace(id=len(saved), role=role, content=content, session_id=session_id)
+
+    async def fake_collect_chat_reply(*args, **kwargs):
+        calls["collect"] += 1
+        raise AssertionError("Hermes chat should not run for sentiment daily generation")
+
+    async def fake_stream_chat_reply(*args, **kwargs):
+        calls["stream"] += 1
+        raise AssertionError("Hermes stream should not run for sentiment daily generation")
+        yield None
+
+    async def fake_workflow_reply(workflow_request):
+        calls["workflow"] += 1
+        assert workflow_request.workflow_kind == workflow.TRACKING_WORKFLOW_SENTIMENT_DAILY
+        assert workflow_request.session_id == "user-7-tracking-sentiment-session"
+        return SimpleNamespace(
+            reply="舆情日报已生成",
+            result={"artifact": {"artifact_type": "tracking"}, "audit_trace_id": trace_id},
+        )
+
+    async def fake_record_workspace(*args, **kwargs):
+        return {"workspace_synced": True}
+
+    monkeypatch.setattr(agent_user_router, "enforce_quota_or_429_async", noop_quota)
+    monkeypatch.setattr(agent_user_router, "record_usage_async", noop_usage)
+    monkeypatch.setattr(agent_user_router, "resolve_or_create_session", fake_resolve_session)
+    monkeypatch.setattr(agent_user_router, "save_message", fake_save_message)
+    monkeypatch.setattr(agent_user_router, "collect_chat_reply", fake_collect_chat_reply)
+    monkeypatch.setattr(agent_user_router, "stream_chat_reply", fake_stream_chat_reply)
+    monkeypatch.setattr(agent_user_router, "_run_tracking_workflow_reply", fake_workflow_reply)
+    monkeypatch.setattr(agent_user_router, "_record_agent_workspace_artifact_background", fake_record_workspace)
+    monkeypatch.setattr(
+        agent_user_router,
+        "get_session_manager",
+        lambda: SimpleNamespace(increment_message_count=lambda session_id: None),
+    )
+    router = create_specialist_agent_router(
+        SpecialistAgentConfig(prefix="/tracking", tag="tracking", profile="siq_tracking")
+    )
+    sync_endpoint = next(
+        route.endpoint for route in router.routes if route.path.endswith("/chat") and "POST" in route.methods
+    )
+    stream_endpoint = next(route.endpoint for route in router.routes if route.path.endswith("/chat/stream"))
+    request_payload = ChatRequest(
+        message="生成舆情日报",
+        context={"company": {"dir": "600104-上汽集团", "code": "600104", "name": "上汽集团"}},
+    )
+
+    async def run_case():
+        sync_payload = await sync_endpoint(
+            request_payload,
+            current_user=_user(),
+            async_session=SimpleNamespace(),
+        )
+        assert sync_payload.audit_trace_id == trace_id
+        assert sync_payload.artifact == {"artifact_type": "tracking"}
+
+        response = await stream_endpoint(
+            request_payload,
+            request=SimpleNamespace(),
+            current_user=_user(),
+            async_session=SimpleNamespace(),
+        )
+        chunks = [chunk async for chunk in response.body_iterator]
+        progress = next(chunk for chunk in chunks if chunk.get("event") == "progress")
+        done = next(chunk for chunk in chunks if chunk.get("event") == "done")
+        assert json.loads(progress["data"])["title"] == "正在生成舆情日报"
+        assert json.loads(done["data"])["audit_trace_id"] == trace_id
+
+    anyio.run(run_case)
+    assert calls == {"collect": 0, "stream": 0, "workflow": 2}
+    assert saved == [("user", None), ("assistant", trace_id), ("user", None), ("assistant", trace_id)]
