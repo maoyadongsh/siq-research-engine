@@ -111,3 +111,19 @@
 .mermaid .edge-thickness-normal { stroke: var(--mermaid-edge-color); }
 .mermaid .arrowheadPath { fill: var(--mermaid-edge-color); stroke: var(--mermaid-edge-color); }
 .mermaid text { color: var(--mermaid-node-text-color); fill: var(--mermaid-node-text-color); }
+
+/* Architecture diagram: inline SVG fragment embedded via pymdownx.snippets.
+   The SVG carries its own scoped CSS under `.arch-svg`, so we only need to
+   constrain the outer element to a responsive 16:9 box. */
+.arch-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #ffffff;
+}
+[data-md-color-scheme="slate"] .arch-svg {
+  border-color: rgba(255, 255, 255, 0.12);
+}

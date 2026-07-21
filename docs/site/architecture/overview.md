@@ -4,74 +4,9 @@
 
 SIQ 采用"五层 + 双业务集群 + 一运行面"的分层架构。下方主图按数据流向自上而下展示五层之间的主链路：输入材料经过应用中心加工成证据层事实，控制面在此基础上调度智能体集群在安全运行面内执行研究任务，最终在 Web 工作台汇聚成可签核的研究产物。
 
-```mermaid
-graph TB
-    subgraph L1["① 输入层"]
-        I1[官方披露<br/>CN/HK/US/EU/JP/KR]
-        I2[尽调材料<br/>BP/财务/合同/访谈]
-        I3[会议音频<br/>实时/导入]
-        I4[本地文档<br/>PDF/Office/HTML]
-    end
+--8<-- "assets/architecture-v6.svg"
 
-    subgraph L2["② 应用中心（材料生产）"]
-        A1[document-parser<br/>通用文档解析]
-        A2[pdf-parser<br/>财报PDF解析]
-        A3[meeting-speech<br/>会议转写]
-        A4[vector-ingest<br/>向量入库]
-    end
-
-    subgraph L3["③ 证据层（事实底座）"]
-        E1[(LLM Wiki<br/>evidence package)]
-        E2[(PostgreSQL<br/>结构化索引)]
-        E3[(Milvus<br/>语义索引)]
-        E4[(artifacts<br/>构建产物)]
-    end
-
-    subgraph L4["④ 控制面 apps/api"]
-        C1[鉴权/任务/SSE]
-        C2[source access]
-        C3[Deal OS]
-        C4[记忆服务]
-        C5[运行面选择]
-    end
-
-    subgraph L5A["⑤a NVIDIA OpenShell 安全运行面"]
-        S1[网关/沙箱/Provider]
-        S2[Broker/策略/灰度/回滚]
-    end
-
-    subgraph L5B["⑤b 智能体集群 agents/hermes"]
-        B1[二级市场<br/>analysis/factcheck<br/>tracking/legal/assistant]
-        B2[一级市场 IC<br/>chairman/strategist/sector<br/>finance/legal/risk]
-    end
-
-    subgraph L6["⑥ Web 工作台 apps/web"]
-        W1[二级市场]
-        W2[一级市场]
-        W3[应用中心]
-        W4[系统管理]
-    end
-
-    I1 & I4 --> A1
-    I2 --> A2
-    I3 --> A3
-    A1 & A2 & A3 --> E1
-    A1 & A2 & A3 --> A4
-    A4 --> E3
-    E1 <--> E2
-    E1 <--> E3
-    E1 --> E4
-    E1 & E2 & E3 & E4 --> C1
-    C1 --> C2 & C3 & C4 & C5
-    C5 --> S1
-    S1 --> S2
-    S1 --> B1
-    S1 --> B2
-    B1 --> W1
-    B1 --> W4
-    B2 --> W2
-    A1 & A2 & A3 & A4 --> W3
-```
+[源文件](https://github.com/sunbos/siq-research-engine/blob/master/artifacts/architecture-drafts/architecture-v6.html){:target="_blank" rel="noopener"}
 
 ## 五层分层细节
 
