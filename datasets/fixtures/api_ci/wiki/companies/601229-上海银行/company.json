@@ -9,26 +9,8 @@
     "上海银行",
     "上海银行股份有限公司"
   ],
-  "primary_report_id": "2025-quarterly_report",
+  "primary_report_id": "2025-quarterly-report",
   "reports": [
-    {
-      "report_id": "2025-quarterly_report",
-      "report_year": 2025,
-      "report_kind": "quarterly_report",
-      "status": "needs_review",
-      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
-      "source_filename": "上海银行_CN_601229_2025-09-30_三季报_2025-10-30_cninfo_14f98cd8.pdf",
-      "report_md": "reports/2025-quarterly_report/report.md",
-      "report_json": "reports/2025-quarterly_report/report.json",
-      "document_full": "reports/2025-quarterly_report/document_full.json",
-      "artifact_manifest": "reports/2025-quarterly_report/artifact_manifest.json",
-      "artifact_bundle_sha256": "8e38bdcf4a507286b9b9e4e56dc8b2f5ecb56b0d4badf95ab61ea258f2d7d893",
-      "metrics": {
-        "three_statements": "metrics/reports/2025-quarterly_report/three_statements.json",
-        "key_metrics": "metrics/reports/2025-quarterly_report/key_metrics.json",
-        "validation": "metrics/reports/2025-quarterly_report/validation.json"
-      }
-    },
     {
       "report_id": "2025-quarterly-report",
       "report_year": 2025,

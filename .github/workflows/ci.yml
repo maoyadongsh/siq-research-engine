@@ -144,6 +144,7 @@ jobs:
           'jsonschema>=4.23,<5'
           'aiohttp>=3.10,<4'
           'httpx>=0.27,<1'
+          'SQLAlchemy>=2.0,<3'
 
       - name: Check shell entrypoints
         run: |

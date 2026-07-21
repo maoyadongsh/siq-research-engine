@@ -12,6 +12,7 @@ sys.path.insert(
 )
 
 from local_citations import (
+    WIKI_BASE,
     _company_task_index,
     _report_table_records,
     enrich_citation_line,
@@ -359,7 +360,7 @@ def test_report_md_line_uses_markdown_page_anchor():
 
 
 def test_primary_report_prefers_annual_for_shanghai_bank_annual_questions():
-    company_dir = Path("/home/maoyd/wiki/companies/601229-上海银行")
+    company_dir = WIKI_BASE / "companies" / "601229-上海银行"
 
     annual = primary_report(company_dir, query_text="上海银行2025年报前十名普通股股东")
     quarterly = primary_report(company_dir, query_text="上海银行2025三季报营业收入")

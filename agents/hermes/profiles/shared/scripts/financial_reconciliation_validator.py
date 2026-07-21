@@ -6,14 +6,28 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-WIKI_ROOT = Path("/home/maoyd/siq-research-engine/data/wiki")
-SCRIPTS_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
+REPO_ROOT = Path(__file__).resolve().parents[5]
+
+
+def _default_wiki_root() -> Path:
+    if value := os.getenv("SIQ_WIKI_ROOT"):
+        return Path(value).expanduser()
+    if value := os.getenv("SIQ_DATA_ROOT"):
+        return Path(value).expanduser() / "wiki"
+    if value := os.getenv("SIQ_PROJECT_ROOT"):
+        return Path(value).expanduser() / "data" / "wiki"
+    return REPO_ROOT / "data" / "wiki"
+
+
+WIKI_ROOT = _default_wiki_root()
+SCRIPTS_DIR = Path(__file__).resolve().parent
 NOTE_DETAIL_LOOKUP_PATH = SCRIPTS_DIR / "note_detail_lookup.py"
 ZERO_AMOUNT_MARKERS = {"-", "—", "–", "不适用", "N/A", "NA", "nil", "Nil", ""}
 CHINA_GOODWILL_ACCOUNTING_RULES = (
