@@ -887,10 +887,10 @@ PY
 }
 
 set_openshell_analysis_binding_from_json() {
-    local payload=$1 parsed
+    local payload=$1 parsed status
     parsed="$(parse_openshell_analysis_binding_json "$payload")" || return 1
-    IFS=$'\t' read -r OPENSHELL_ANALYSIS_RUN_ID OPENSHELL_ANALYSIS_ACTIVE_PORT _ <<<"$parsed"
-    [[ -n "$OPENSHELL_ANALYSIS_RUN_ID" && -n "$OPENSHELL_ANALYSIS_ACTIVE_PORT" ]]
+    IFS=$'\t' read -r OPENSHELL_ANALYSIS_RUN_ID OPENSHELL_ANALYSIS_ACTIVE_PORT status <<<"$parsed"
+    [[ -n "$OPENSHELL_ANALYSIS_RUN_ID" && -n "$OPENSHELL_ANALYSIS_ACTIVE_PORT" && -n "$status" ]]
 }
 
 probe_openshell_analysis_binding() {
