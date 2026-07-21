@@ -67,7 +67,7 @@ jobs:
           scan_root="$(mktemp -d)"
           git archive --format=tar HEAD | tar -x -C "$scan_root"
           docker run --rm -v "$scan_root:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.24.2 \
-            detect --source=/repo --redact --verbose --no-git
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --verbose --no-git
 
       - name: Docker Compose config
         run: docker compose -f infra/docker/docker-compose.yml --env-file infra/env/local.example config
