@@ -606,6 +606,36 @@ def test_company_pdf_citation_keeps_locators_and_links(monkeypatch):
     assert f"https://public.example/api/source/{task_id}/table/88?format=html&source_token=" in cleaned
 
 
+def test_sec_citation_drops_foreign_pdf_locators_but_keeps_filing_anchor(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    task_id = "dedda13a-f79e-4e80-a5ed-393aa554c1fe"
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    text = (
+        "[4] source_type=wiki_xbrl_facts, file=reports/2025-10-K/xbrl/facts_raw.json, "
+        "metric=RevenueFromContractWithCustomerExcludingAssessedTax, period=FY2025, "
+        f"task_id={task_id}, pdf_page=262, printed_page=97, table_index=162, md_line=9599, "
+        "evidence_source_type=sec_xbrl_fact, "
+        f"source_url={sec_url}, source_anchor=f-72, xbrl_tag=us-gaap:Revenue, "
+        f"[打开披露原文]({sec_url}#f-72)，"
+        f"[打开PDF定位页262](/api/pdf_page/{task_id}/262)，"
+        f"[查看定位页262来源](/api/source/{task_id}/page/262)，"
+        f"[查看可读表格162](/api/source/{task_id}/table/162)"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert f"[打开披露原文]({sec_url}#f-72)" in cleaned
+    assert "source_anchor=f-72" in cleaned
+    assert "evidence_source_type=sec_xbrl_fact" in cleaned
+    assert "task_id=" not in cleaned
+    assert "pdf_page=" not in cleaned
+    assert "printed_page=" not in cleaned
+    assert "table_index=" not in cleaned
+    assert "md_line=" not in cleaned
+    assert "/api/pdf_page/" not in cleaned
+    assert "/api/source/" not in cleaned
+
+
 def test_cash_flow_document_link_citation_is_corrected_to_main_statement():
     text = """请评估上汽集团现金流。
 

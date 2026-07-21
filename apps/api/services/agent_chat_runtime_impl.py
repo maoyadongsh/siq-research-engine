@@ -1184,6 +1184,7 @@ COMPANY_ALIAS_OVERRIDES: dict[str, tuple[str, ...]] = {
     # Common Chinese aliases are not always present in SEC company names.
     # Keep them keyed by stable catalog company_id so market resolution can
     # bind the query before evidence lookup.
+    "US:0000320193": ("苹果", "苹果公司", "Apple", "Apple Inc."),
     "US:0001018724": ("亚马逊", "亚马逊公司", "Amazon", "Amazon.com"),
     "US:0001045810": ("英伟达", "英伟达公司", "NVIDIA", "Nvidia"),
     "KR:005930": ("三星电子", "三星", "Samsung Electronics", "삼성전자"),
@@ -3202,6 +3203,10 @@ def _resolved_research_context(message: str, context: Any | None = None) -> dict
         return output
     company_dir = _resolve_company_dir(message, context)
     if not company_dir:
+        requested_markets = agent_runtime_catalog.requested_catalog_markets(message)
+        if requested_markets == ("US",):
+            output["research_identity"] = {**existing, "market": requested_markets[0]}
+            return agent_runtime_context.context_with_research_identity(output)
         return output
     company = _read_json_file(company_dir / "company.json") or {}
     report = _primary_report_for_company(company_dir, message, output)
@@ -6142,12 +6147,11 @@ def enforce_financial_evidence_contract(
     reply = strip_guardrail_diagnostics(reply)
     resolved_context = _resolved_research_context(message, context)
     trusted_evidence = _trusted_financial_calculation_evidence(message, resolved_context)
-    if str(agent_runtime_context.research_identity(resolved_context).get("market") or "").upper() == "US":
-        reply = agent_runtime_citations.sanitize_sec_xbrl_reference_lines(
-            reply,
-            trusted_evidence,
-            table_source_links=_table_source_links,
-        )
+    reply = agent_runtime_citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        trusted_evidence,
+        table_source_links=_table_source_links,
+    )
     reply = _append_missing_calculation_evidence_locators(reply, trusted_evidence)
     baseline_events = list(resolved_context.get("_audit_fallback_events") or [])
     guarded_reply = agent_runtime_financial_guard.enforce_financial_evidence_contract(

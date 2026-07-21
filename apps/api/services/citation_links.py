@@ -63,7 +63,9 @@ BARE_TRACE_LINK_RE = re.compile(
 CITATION_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?引用来源[:：]?\s*$")
 OPEN_LINK_HEADING_RE = re.compile(r"^\s*(?:#{1,4}\s+)?可打开来源链接[:：]?\s*$")
 SOURCE_TYPE_FIELD_RE = re.compile(r"\bsource_type=([^,，。;；\n]+)")
+EVIDENCE_SOURCE_TYPE_FIELD_RE = re.compile(r"\bevidence_source_type=([^,，。;；\n]+)")
 FILE_FIELD_RE = re.compile(r"\bfile=([^,，。;；\n]+)")
+SEC_GOV_URL_RE = re.compile(r"https://(?:www\.)?sec\.gov/", re.IGNORECASE)
 NON_DOCUMENT_SOURCE_TYPES = {
     "system",
     "meta",
@@ -90,6 +92,15 @@ NON_DOCUMENT_LOCATOR_FIELDS = (
     "source_url",
     "source_anchor",
     "xbrl_tag",
+)
+PDF_DOCUMENT_LOCATOR_FIELDS = (
+    "task_id",
+    "pdf_page",
+    "pdf_page_number",
+    "printed_page",
+    "printed_page_number",
+    "table_index",
+    "md_line",
 )
 
 
@@ -171,6 +182,16 @@ def _is_non_document_citation_line(line: str) -> bool:
     return source_type in NON_DOCUMENT_SOURCE_TYPES or file_value in NON_DOCUMENT_FILES
 
 
+def _is_sec_citation_line(line: str) -> bool:
+    source_type = _field_value(line, SOURCE_TYPE_FIELD_RE)
+    evidence_source_type = _field_value(line, EVIDENCE_SOURCE_TYPE_FIELD_RE)
+    return bool(
+        SEC_GOV_URL_RE.search(line)
+        or source_type.startswith("sec_")
+        or evidence_source_type.startswith("sec_")
+    )
+
+
 def _strip_citation_field(line: str, field: str) -> str:
     pattern = re.compile(
         rf"(?P<prefix>\s*[,，]\s*|\s+)\b{re.escape(field)}=[^,，。;；\n]+",
@@ -188,6 +209,27 @@ def _strip_non_document_citation_locators(line: str) -> str:
     cleaned = re.sub(r"([,，])\s*([,，])+", r"\1", cleaned)
     cleaned = re.sub(r"[，,、\s]+([。.;；])$", r"\1", cleaned)
     return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
+
+
+def _strip_sec_pdf_locators(line: str) -> str:
+    """SEC HTML/iXBRL evidence never has a local PDF locator."""
+    cleaned = _strip_trace_links(line)
+    for field in PDF_DOCUMENT_LOCATOR_FIELDS:
+        cleaned = _strip_citation_field(cleaned, field)
+    cleaned = re.sub(r"\s+([,，。.;；])", r"\1", cleaned)
+    cleaned = re.sub(r"([,，])\s*([,，])+", r"\1", cleaned)
+    cleaned = re.sub(r"[，,、\s]+([。.;；])$", r"\1", cleaned)
+    return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
+
+
+def strip_sec_pdf_locators(text: str) -> str:
+    """Remove impossible PDF affordances from SEC citation lines."""
+    if not text:
+        return text
+    return "\n".join(
+        _strip_sec_pdf_locators(line) if CITATION_LINE_RE.match(line) and _is_sec_citation_line(line) else line
+        for line in text.splitlines()
+    )
 
 
 def _drop_standalone_open_link_blocks(text: str) -> str:
@@ -263,13 +305,16 @@ def append_missing_pdf_source_links(text: str) -> str:
     if not text:
         return text
 
-    text = _drop_standalone_open_link_blocks(text)
+    text = strip_sec_pdf_locators(_drop_standalone_open_link_blocks(text))
 
     enrich_citation_line = _get_enrich_citation_line()
     enriched_lines: list[str] = []
     changed = False
     for line in text.splitlines():
         if CITATION_LINE_RE.match(line):
+            if _is_sec_citation_line(line):
+                enriched_lines.append(_strip_sec_pdf_locators(line))
+                continue
             if _is_non_document_citation_line(line):
                 stripped = _strip_non_document_citation_locators(line)
                 changed = changed or stripped != line
@@ -299,6 +344,11 @@ def append_missing_pdf_source_links(text: str) -> str:
         citation = CITATION_LINE_RE.match(line)
         if not citation:
             output_lines.append(line)
+            continue
+        if _is_sec_citation_line(line):
+            cleaned = _strip_sec_pdf_locators(line)
+            changed = changed or cleaned != line
+            output_lines.append(cleaned)
             continue
         if _is_non_document_citation_line(line):
             cleaned = _strip_non_document_citation_locators(line)

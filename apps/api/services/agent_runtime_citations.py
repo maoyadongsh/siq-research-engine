@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
-from services.citation_links import append_missing_pdf_source_links
+from services.citation_links import append_missing_pdf_source_links, strip_sec_pdf_locators
 
 LATEX_INLINE_SYMBOLS: dict[str, str] = {
     r"\to": "→",
@@ -217,6 +217,7 @@ def sanitize_sec_xbrl_reference_lines(
 ) -> str:
     """Rebuild SEC citation lines from server-trusted XBRL facts only."""
 
+    reply = strip_sec_pdf_locators(reply)
     trusted: dict[tuple[str, str], Mapping[str, Any]] = {}
     trusted_by_fact: dict[str, Mapping[str, Any]] = {}
     trusted_by_metric_period: dict[tuple[str, str], Mapping[str, Any]] = {}

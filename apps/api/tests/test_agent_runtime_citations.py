@@ -1252,6 +1252,31 @@ def test_sec_xbrl_reference_sanitizer_drops_pure_foreign_pdf_locator_lines():
     assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm#f-72)" in sanitized
 
 
+def test_sec_xbrl_reference_sanitizer_strips_pdf_locators_without_trusted_evidence():
+    task_id = "dedda13a-f79e-4e80-a5ed-393aa554c1fe"
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    reply = (
+        "[1] source_type=wiki_xbrl_facts, file=xbrl/facts_raw.json, metric=revenue, period=FY2025, "
+        f"task_id={task_id}, pdf_page=262, table_index=162, md_line=9599, "
+        f"evidence_source_type=sec_xbrl_fact, source_url={sec_url}, source_anchor=f-72, "
+        f"xbrl_tag=us-gaap:Revenue, [打开PDF定位页262](/api/pdf_page/{task_id}/262)"
+    )
+
+    sanitized = citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        (),
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert "source_url=" + sec_url in sanitized
+    assert "source_anchor=f-72" in sanitized
+    assert "task_id=" not in sanitized
+    assert "pdf_page=" not in sanitized
+    assert "table_index=" not in sanitized
+    assert "md_line=" not in sanitized
+    assert "/api/pdf_page/" not in sanitized
+
+
 def test_three_statement_sec_primary_data_ref_uses_html_anchor_without_pdf_locator():
     sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
 

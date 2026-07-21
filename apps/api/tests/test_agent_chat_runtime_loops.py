@@ -2031,7 +2031,6 @@ def test_company_catalog_resolution_uses_market_specific_catalog(tmp_path, monke
                         "company_wiki_id": "AAPL-Apple-Inc",
                         "ticker": "AAPL",
                         "company_name": "Apple Inc.",
-                        "aliases": ["苹果公司"],
                         "company_wiki_path": "data/wiki/us/companies/AAPL-Apple-Inc",
                     }
                 ],
@@ -2053,6 +2052,22 @@ def test_company_catalog_resolution_uses_market_specific_catalog(tmp_path, monke
     assert runtime._resolve_company_dirs("US AAPL revenue") == [company_dir.resolve()]
     assert runtime._resolve_company_dirs("US Apple Inc revenue") == [company_dir.resolve()]
     assert runtime._resolve_company_dirs("请解释 aapple") == []
+
+
+def test_explicit_us_financial_query_without_company_identity_fails_closed(monkeypatch):
+    monkeypatch.setattr(runtime, "_resolve_company_dir", lambda *_args, **_kwargs: None)
+
+    resolved = runtime._resolved_research_context("分析美股市场不存在公司的营收", None)
+    guarded = runtime.enforce_financial_evidence_contract(
+        "分析美股市场不存在公司的营收",
+        None,
+        "该公司营收为 100 亿美元。",
+    )
+
+    assert runtime.agent_runtime_context.research_identity(resolved) == {"market": "US"}
+    assert guarded.startswith("## 研究身份不完整")
+    assert "identity_market=US" in guarded
+    assert "100 亿美元" not in guarded
 
 
 def test_explicit_non_cn_company_resolution_does_not_fall_back_to_cn_local_alias(tmp_path, monkeypatch):
