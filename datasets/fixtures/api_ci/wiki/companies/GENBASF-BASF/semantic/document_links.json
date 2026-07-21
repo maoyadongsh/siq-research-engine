@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "rule_version": "single_company_subject_rules_v1",
+  "generated_at": "2026-06-11T16:33:54Z",
+  "company_id": "GENBASF-BASF",
+  "report_id": "2025-annual",
+  "source": "semantic/note_links.json + reports/<report_id>/report.json tables",
+  "design_note": "This layer stores document navigation edges only. It does not extract or normalize numeric financial data.",
+  "document_link_count": 0,
+  "links": [],
+  "indexes": {
+    "by_source_name": {},
+    "by_target_title": {},
+    "by_note_link_id": {},
+    "by_link_type": {}
+  },
+  "summary": {
+    "by_link_type": {},
+    "needs_review": []
+  }
+}

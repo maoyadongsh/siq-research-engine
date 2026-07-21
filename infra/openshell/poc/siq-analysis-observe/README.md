@@ -1,6 +1,9 @@
 # siq_analysis OpenShell 观察 PoC
 
-> NOT_PRODUCTION / 仅观察。该路径只证明可行性，不得接收 SIQ API 流量，也不能作为 V0.6 生产就绪证据。
+> NOT_PRODUCTION / OBSERVE-ONLY（仅观察）。This isolated PoC must not
+> receive SIQ API traffic. It does not alter `start_all.sh` or the independently
+> selected `siq_analysis` runtime. It does **not** prove report quality and
+> cannot be used as V0.6 production-readiness evidence.
 
 这是通过 OpenShell 运行真实 `siq_analysis` 的最短路径。它使用接近生产形态的 SIQ 镜像和已配置 `siq-minimax-cn-pool` Provider，但有意省略正式任务挂载、Wiki/数据库访问、出网与数据 brokers、Exa 和本地回退就绪要求。
 

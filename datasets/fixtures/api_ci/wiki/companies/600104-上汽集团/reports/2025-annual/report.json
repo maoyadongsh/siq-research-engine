@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "600104-上汽集团",
+    "stock_code": "600104",
+    "exchange": "SSE",
+    "company_short_name": "上汽集团",
+    "company_full_name": "上海汽车集团股份有限公司",
+    "aliases": [
+      "上海汽车集团股份有限公司",
+      "上汽集团"
+    ]
+  },
+  "source": {
+    "task_id": "7dbc35a7-7626-4e81-810e-5dbb764434e0",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 205,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "9b0017d41b8cfe27dd9985063b0a6f58db2e186fef0b1194536119a63ddd7e28",
+      "document_full_json": "a4f5dfa974e9275aaf9c549b2575bd929f8e073cfd576c5bf36714849a0aa53c"
+    },
+    "source_filename_metadata": {
+      "source_filename": "上汽集团_CN_600104_2025-12-31_年报_2026-04-01_manual_180a0748.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "上汽集团",
+      "market": "CN",
+      "stock_code": "600104",
+      "raw_ticker": "600104",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-04-01",
+      "source_id": "manual",
+      "url_hash": "180a0748",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 408216,
+    "table_count": 315,
+    "image_ref_count": 2,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 63,
+      "pass": 57,
+      "fail": 0,
+      "warning": 2,
+      "skipped": 4
+    },
+    "warnings": [
+      "发现 19 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 84,
+      "line": 1840,
+      "heading": "[PDF_PAGE: 66]",
+      "unit": "上海汽车集团股份有限公司",
+      "pdf_page_index": 64,
+      "pdf_page_number": 65,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目 附注 2025年12月31日 2024年12月31日 流动资产: 货币资金 151,046,006,612.38 197,978,171,793.49 结算备付金 拆出资金 交易性金融资产 71,403,768,508.62 62,278,094,659.45 衍生金融资产 应收票据 4,174,952,709.08 5,467,687,054.04 应收账款 82,052,819,101.23 69,667,980,882.72",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 86,
+      "line": 1874,
+      "heading": "[PDF_PAGE: 70]",
+      "unit": "元",
+      "pdf_page_index": 68,
+      "pdf_page_number": 69,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目 附注 2025年度 2024年度 一、营业总收入 656,243,812,081.18 627,589,946,567.69 其中:营业收入 646,152,101,889.30 614,074,061,818.13 利息收入 9,651,526,716.87 12,951,600,479.97 已赚保费 手续费及佣金收入 440,183,475.01 564,284,269.59 二、营业总成本 648,937,963,557.",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 88,
+      "line": 1904,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 71,
+      "pdf_page_number": 72,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "项目 附注 2025年度 2024年度 一、经营活动产生的现金流量: 销售商品、提供劳务收到的现金 510,870,349,097.18 504,874,827,197.18 客户存款和同业存放款项净增加额 2,443,833,513.76 发放贷款和垫款净减少额 17,392,094,739.62 70,142,134,335.66 存放中央银行款项净减少额 629,583,327.43 401,262,450.47 向其他金融机构拆",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 103,
+      "line": 3052,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 109,
+      "pdf_page_number": 110,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "账龄 期末账面余额 期初账面余额 1年以内(含1年) 79,122,693,319.66 65,033,494,924.64 1年以内 79,122,693,319.66 65,033,494,924.64 1至2年 2,326,993,596.17 4,984,973,080.05 2至3年 1,716,790,210.80 1,360,118,562.05 3年以上 1,998,024,765.87 3,315,477,446.60",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 105,
+      "line": 3068,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 109,
+      "pdf_page_number": 110,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "名称 期末余额 账面余额 坏账准备 计提比例(%) 计提理由 单独计提的应收账款 774,281,356.76 532,856,194.08 68.82 经评估,个别认定 合计 774,281,356.76 532,856,194.08 68.82 /",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 165,
+      "line": 4186,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 136,
+      "pdf_page_number": 137,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "被投资单位名称或形成商誉的事项 期初余额 本期增加 本期减少 期末余额 企业合并形成的 处置 华域视觉科技(上海)有限公司(以下简称“华域视觉”) 781,115,081.73 781,115,081.73 上汽通用汽车金融有限责任公司 333,378,433.68 333,378,433.68 上海申沃客车有限公司 53,349,858.83 53,349,858.83 上海新动力汽车科技股份有限公司 6,994,594.88 6,9",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 166,
+      "line": 4196,
+      "heading": "单位：元 币种：人民币",
+      "unit": "元",
+      "pdf_page_index": 136,
+      "pdf_page_number": 137,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "被投资单位名称或形成商誉的事项 期初余额 本期增加 本期减少 期末余额 计提 处置 商誉减值准备 104,788,944.85 5,825,349.96 98,963,594.89 合计 104,788,944.85 5,825,349.96 98,963,594.89",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "GENBASF-BASF",
+    "stock_code": "GENBASF",
+    "exchange": "GENERIC",
+    "company_short_name": "BASF",
+    "company_full_name": "BASF",
+    "aliases": [
+      "BASF"
+    ],
+    "identity_kind": "generic_subject",
+    "identity_route": "generic_non_a_share_wiki_import",
+    "market": "",
+    "security_code": "",
+    "synthetic_stock_code": true
+  },
+  "source": {
+    "task_id": "03690a47-062e-42eb-9ad7-d609a87cf777",
+    "schema_versions": {
+      "document_full": 1,
+      "content_list_enhanced": 8,
+      "quality_report": 10,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 451,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "296cacdbcf330c6e49a016efcbfe6cff22621f3a46a0d0825d777f08028fc957",
+      "document_full_json": "f729394a8e7a1248200d6e1529f06b903f256b09ccd6f7dcc44ea277a0199a53"
+    },
+    "source_filename_metadata": {}
+  },
+  "status": "ready",
+  "quality_summary": {
+    "markdown_chars": 2695856,
+    "table_count": 486,
+    "image_ref_count": 59,
+    "found_financial_tables": [],
+    "financial_overall_status": "skipped",
+    "financial_summary": {
+      "total": 0,
+      "pass": 0,
+      "fail": 0,
+      "warning": 0,
+      "skipped": 0
+    },
+    "warnings": [
+      "财报核心表标题召回偏少，建议检查目录、财务报告章节或启用局部重解析。",
+      "发现 30 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 70,
+      "line": 2437,
+      "heading": "Statement of income",
+      "unit": "",
+      "pdf_page_index": 106,
+      "pdf_page_number": 107,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "Million € 2025 2024 Sales revenue 21,040 21,791 Cost of sales 17,951 18,841 Gross profit on sales 3,089 2,950 Selling expenses 1,908 1,886 General administrative expenses 521 529 Research and development expenses 1,176 1",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    },
+    {
+      "table_index": 145,
+      "line": 5666,
+      "heading": "Statement of income",
+      "unit": "",
+      "pdf_page_index": 301,
+      "pdf_page_number": 302,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "Million € Explanations in Note 2025 2024 restateda Sales revenue [7] 59,657 61,444 Cost of sales [8] -45,298 -46,225 Gross profit on sales 14,359 15,219 Selling expenses [8] -7,514 -7,603 General administrative expenses ",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    },
+    {
+      "table_index": 260,
+      "line": 7420,
+      "heading": "Personnel expenses",
+      "unit": "",
+      "pdf_page_index": 411,
+      "pdf_page_number": 412,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "Million € 2025 2024 Wages and salaries 9,936 9,022 Social security contributions and assistance expenses 1,826 1,665 Pension expenses 538 554 Personnel expenses 12,299 11,241",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    },
+    {
+      "table_index": 261,
+      "line": 7432,
+      "heading": "Number of employees as of December 31",
+      "unit": "",
+      "pdf_page_index": 411,
+      "pdf_page_number": 412,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "2025 2024 Europe 65,073 66,726 of which Germany 48,955 50,602 North America 15,652 15,969 Asia Pacific 21,592 21,971 South America, Africa, Middle East 5,934 7,156 BASF Group 108,251 111,822 of which apprentices and trai",
+      "table_type": "fact",
+      "report_year": null,
+      "fact_year": null
+    }
+  ]
+}

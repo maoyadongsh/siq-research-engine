@@ -126,7 +126,7 @@ def test_web_production_image_uses_runtime_nginx_api_proxy():
     assert "rewrite ^/api/health$ /health break;" in nginx_template
     assert "proxy_pass ${SIQ_BACKEND_URL};" in nginx_template
     assert (
-        "location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|legal|settings|system|"
+        "location ~ ^/api/(auth|eval|v1|chat|wiki|analysis|factchecker|tracking|research-universe|legal|settings|system|"
         "market-report-health|market-reports|us-sec|jobs|downloads|workflow|workspace|documents|deals|"
         "meetings|primary-market|pdf|pdf_page|source)(/|$)"
     ) in nginx_template
@@ -140,7 +140,7 @@ def test_web_production_image_uses_runtime_nginx_api_proxy():
     assert "proxy_set_header Host $http_host;" in nginx_template
     assert "proxy_set_header Host $host;" not in nginx_template
     assert "map $http_x_forwarded_proto $siq_forwarded_proto" in nginx_template
-    assert nginx_template.count("proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;") == 5
+    assert nginx_template.count("proxy_set_header X-Forwarded-Proto $siq_forwarded_proto;") == 6
     assert nginx_template.count("proxy_set_header Upgrade $http_upgrade;") == 2
     assert nginx_template.count("proxy_set_header Connection $connection_upgrade;") == 2
     assert "proxy_set_header X-Forwarded-Proto $scheme;" not in nginx_template

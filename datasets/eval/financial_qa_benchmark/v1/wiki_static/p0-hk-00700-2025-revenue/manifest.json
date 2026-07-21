@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "HK",
+  "company_id": "HK:00700",
+  "filing_id": "HK:00700:12100024",
+  "ticker": "00700",
+  "period_end": "2025-12-31",
+  "source_urls": [
+    "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0409/2026040901231.pdf"
+  ],
+  "artifact_hashes": {
+    "document_full.json": "f78f1b37b46d453010a59847fa5d5bd5710b646795b586044a9a4842f5b033b7"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/hk/companies/00700-TENCENT/reports/2025-annual/document_full.json",
+    "document_sha256": "6c453882bc181791d02e8e74f4cf02f175914f570b8d42c94ccabf72cb1d64d2",
+    "manifest_path": "data/wiki/hk/companies/00700-TENCENT/reports/2025-annual/manifest.json",
+    "manifest_sha256": "43ffb2839881fe256dbbbb6d1872a56818ecb5cbb140d7e0a2091b368426d478"
+  }
+}

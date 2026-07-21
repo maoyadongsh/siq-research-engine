@@ -1,0 +1,72 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_v1",
+  "identity_scope": "real_company",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "task": {
+    "task_id": "eu-vod-2025-authoritative-f27c920e",
+    "filename": "Vodafone-Group-Plc_EU_VOD_2025-03-31_annual_2025-06-06_issuer_annual_report_5b4b49a6.pdf"
+  },
+  "financial_data": {
+    "market": "EU",
+    "company_id": "EU:GB:VOD",
+    "filing_id": "EU:VOD:2025-annual:eu-vod-2025-authoritative-f27c920e",
+    "report_id": "EU:VOD:2025-annual:eu-vod-2025-authoritative-f27c920e",
+    "ticker": "VOD",
+    "period_end": "2025-03-31",
+    "reporting_currency": "EUR",
+    "presentation_currency": "EUR",
+    "statements": [
+      {
+        "statement_type": "income_statement",
+        "unit": "EUR million",
+        "currency": "EUR",
+        "scale": 1000000,
+        "items": [
+          {
+            "canonical_name": "operating_revenue",
+            "name": "Revenue",
+            "unit": "EUR million",
+            "currency": "EUR",
+            "fact_currency": "EUR",
+            "scale": 1000000,
+            "values": {
+              "2025": 37448.0
+            },
+            "raw_values": {
+              "2025": "37,448"
+            },
+            "sources": {
+              "2025": {
+                "table_index": 19,
+                "line": 1625,
+                "pdf_page_number": 21,
+                "bbox": [
+                  502,
+                  206,
+                  944,
+                  731
+                ],
+                "quote_text": "Revenue | 37,448 | 36,717 | 2.0",
+                "page_number": 21
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "content_list_enhanced": {
+    "tables": [
+      {
+        "table_index": 19,
+        "page_number": 21,
+        "bbox": [
+          502,
+          206,
+          944,
+          731
+        ]
+      }
+    ]
+  }
+}

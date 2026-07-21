@@ -1,0 +1,66 @@
+{
+  "schema_version": "jp_company_wiki_v1",
+  "market": "JP",
+  "company_id": "JP:JP:7203",
+  "company_wiki_id": "7203-Toyota-Motor-Corporation",
+  "ticker": "7203",
+  "security_code": "7203",
+  "edinet_code": "JP:7203",
+  "company_name": "Toyota Motor Corporation",
+  "company_name_en": null,
+  "company_name_ja": null,
+  "company_wiki_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation",
+  "currency": "JPY",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "jp_annual_securities_report",
+      "report_type": "年报",
+      "period_end": "2025-03-31",
+      "published_at": "2025-06-18",
+      "status": "ready",
+      "task_id": "3cd47e45-a485-429e-96bf-e828e4458359",
+      "source_filename": "Toyota-Motor-Corporation_JP_7203_2025-03-31_年报_2025-06-18_edinet_f9dd7278.pdf",
+      "source_filename_metadata": {
+        "source_filename": "Toyota-Motor-Corporation_JP_7203_2025-03-31_年报_2025-06-18_edinet_f9dd7278.pdf",
+        "filename_pattern": "<company>_JP_<ticker>_<period_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+        "company_short_name": "Toyota Motor Corporation",
+        "market": "JP",
+        "stock_code": "7203",
+        "raw_ticker": "7203",
+        "report_end": "2025-03-31",
+        "report_type": "年报",
+        "published_at": "2025-06-18",
+        "source_id": "edinet",
+        "url_hash": "f9dd7278",
+        "source": "jp_edinet_report_finder_filename"
+      },
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "manifest": "reports/2025-annual/manifest.json",
+      "package_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual",
+      "retrieval_status": "ready",
+      "wiki_ready": true,
+      "retrieval_issues": [],
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json",
+        "financial_data": "metrics/reports/2025-annual/financial_data.json",
+        "financial_checks": "metrics/reports/2025-annual/financial_checks.json"
+      }
+    },
+    {
+      "report_id": "2025-annual-S100VWVY",
+      "filing_id": "JP:S100VWVY",
+      "report_type": "annual",
+      "fiscal_year": 2025,
+      "period_end": "2025-03-31",
+      "published_at": "2025-06-18",
+      "wiki_report_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual-S100VWVY",
+      "quality_status": "warning"
+    }
+  ]
+}

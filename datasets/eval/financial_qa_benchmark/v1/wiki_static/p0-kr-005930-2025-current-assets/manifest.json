@@ -1,0 +1,19 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "KR",
+  "company_id": "KR:005930",
+  "filing_id": "KR:005930:2025-annual:4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+  "ticker": "005930",
+  "period_end": "2025-12-31",
+  "source_urls": [],
+  "artifact_hashes": {
+    "document_full.json": "93aa070144481dee54cb523d7c403cda609909d465b739f692932194a6a01d7f"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/kr/companies/005930-Samsung-Electronics-Co-Ltd/reports/2025-annual/document_full.json",
+    "document_sha256": "04a7a955c37dbb980aaeed74cb90af30b1bb4fb4c37a66c4897592c21a4fb743",
+    "manifest_path": "data/wiki/kr/companies/005930-Samsung-Electronics-Co-Ltd/reports/2025-annual/manifest.json",
+    "manifest_sha256": "68a27f7e5c9f138b90d0f1de73c229db0f7e32a901f6c582ba75a4a228d32f95"
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "company_id": "601229-上海银行",
+  "stock_code": "601229",
+  "exchange": "SSE",
+  "company_short_name": "上海银行",
+  "company_full_name": "上海银行股份有限公司",
+  "aliases": [
+    "上海银行",
+    "上海银行股份有限公司"
+  ],
+  "primary_report_id": "2025-quarterly_report",
+  "reports": [
+    {
+      "report_id": "2025-quarterly_report",
+      "report_year": 2025,
+      "report_kind": "quarterly_report",
+      "status": "needs_review",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "source_filename": "上海银行_CN_601229_2025-09-30_三季报_2025-10-30_cninfo_14f98cd8.pdf",
+      "report_md": "reports/2025-quarterly_report/report.md",
+      "report_json": "reports/2025-quarterly_report/report.json",
+      "document_full": "reports/2025-quarterly_report/document_full.json",
+      "artifact_manifest": "reports/2025-quarterly_report/artifact_manifest.json",
+      "artifact_bundle_sha256": "8e38bdcf4a507286b9b9e4e56dc8b2f5ecb56b0d4badf95ab61ea258f2d7d893",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-quarterly_report/three_statements.json",
+        "key_metrics": "metrics/reports/2025-quarterly_report/key_metrics.json",
+        "validation": "metrics/reports/2025-quarterly_report/validation.json"
+      }
+    },
+    {
+      "report_id": "2025-quarterly-report",
+      "report_year": 2025,
+      "report_kind": "quarterly_report",
+      "status": "needs_review",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "source_filename": "上海银行_CN_601229_2025-09-30_三季报_2025-10-30_cninfo_14f98cd8.pdf",
+      "report_md": "reports/2025-quarterly-report/report.md",
+      "report_json": "reports/2025-quarterly-report/report.json",
+      "document_full": "reports/2025-quarterly-report/document_full.json",
+      "artifact_manifest": "reports/2025-quarterly-report/artifact_manifest.json",
+      "artifact_bundle_sha256": "7efbc6394beccedfeb6ad1efeabd86a0724cacfc5d9e6eff733d4fe8be35b6b9",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-quarterly-report/three_statements.json",
+        "key_metrics": "metrics/reports/2025-quarterly-report/key_metrics.json",
+        "validation": "metrics/reports/2025-quarterly-report/validation.json"
+      },
+      "source_filename_metadata": {
+        "source_filename": "上海银行_CN_601229_2025-09-30_三季报_2025-10-30_cninfo_14f98cd8.pdf",
+        "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+        "company_short_name": "上海银行",
+        "market": "CN",
+        "stock_code": "601229",
+        "raw_ticker": "601229",
+        "report_end": "2025-09-30",
+        "report_type": "三季报",
+        "published_at": "2025-10-30",
+        "source_id": "cninfo",
+        "url_hash": "14f98cd8",
+        "source": "report_finder_filename"
+      }
+    },
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "ready",
+      "task_id": "fb07089b-9570-4902-bf20-eb38578f2b76",
+      "source_filename": "上海银行_CN_601229_2025-12-31_年报_2026-04-23_manual_ec74b117.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "60509541f702c026f1a84665f73eef0c2e02bff1ffae9f3d5d7d5fef1125a1a0",
+      "source_filename_metadata": {
+        "source_filename": "上海银行_CN_601229_2025-12-31_年报_2026-04-23_manual_ec74b117.pdf",
+        "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+        "company_short_name": "上海银行",
+        "market": "CN",
+        "stock_code": "601229",
+        "raw_ticker": "601229",
+        "report_end": "2025-12-31",
+        "report_type": "年报",
+        "published_at": "2026-04-23",
+        "source_id": "manual",
+        "url_hash": "ec74b117",
+        "source": "report_finder_filename"
+      },
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-quarterly_report": {
+        "three_statements": "metrics/reports/2025-quarterly_report/three_statements.json",
+        "key_metrics": "metrics/reports/2025-quarterly_report/key_metrics.json",
+        "validation": "metrics/reports/2025-quarterly_report/validation.json"
+      },
+      "2025-quarterly-report": {
+        "three_statements": "metrics/reports/2025-quarterly-report/three_statements.json",
+        "key_metrics": "metrics/reports/2025-quarterly-report/key_metrics.json",
+        "validation": "metrics/reports/2025-quarterly-report/validation.json"
+      },
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-07-07T15:28:16Z"
+}

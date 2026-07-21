@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "company_id": "600104-上汽集团",
+  "stock_code": "600104",
+  "exchange": "SSE",
+  "company_short_name": "上汽集团",
+  "company_full_name": "上海汽车集团股份有限公司",
+  "aliases": [
+    "上汽集团",
+    "上海汽车集团股份有限公司"
+  ],
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "ready",
+      "task_id": "7dbc35a7-7626-4e81-810e-5dbb764434e0",
+      "source_filename": "上汽集团_CN_600104_2025-12-31_年报_2026-04-01_manual_180a0748.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "117a3057dd5ce70414a36ac860aad70c8ef5e402c46ff3719b1257c07fa35649",
+      "source_filename_metadata": {
+        "source_filename": "上汽集团_CN_600104_2025-12-31_年报_2026-04-01_manual_180a0748.pdf",
+        "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+        "company_short_name": "上汽集团",
+        "market": "CN",
+        "stock_code": "600104",
+        "raw_ticker": "600104",
+        "report_end": "2025-12-31",
+        "report_type": "年报",
+        "published_at": "2026-04-01",
+        "source_id": "manual",
+        "url_hash": "180a0748",
+        "source": "report_finder_filename"
+      },
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-06-06T12:58:33Z"
+}

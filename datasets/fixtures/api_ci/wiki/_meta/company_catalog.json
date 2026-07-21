@@ -1,0 +1,148 @@
+{
+  "schema_version": "siq_company_catalog_v1",
+  "company_count": 9,
+  "companies": [
+    {
+      "company_id": "000333-美的集团",
+      "company_wiki_id": "000333-美的集团",
+      "company_path": "companies/000333-美的集团",
+      "stock_code": "000333",
+      "ticker": "000333",
+      "company_short_name": "美的集团",
+      "company_name": "美的集团股份有限公司",
+      "aliases": [
+        "美的集团",
+        "美的集团股份有限公司"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "000625-长安汽车",
+      "company_wiki_id": "000625-长安汽车",
+      "company_path": "companies/000625-长安汽车",
+      "stock_code": "000625",
+      "ticker": "000625",
+      "company_short_name": "长安汽车",
+      "company_name": "重庆长安汽车股份有限公司",
+      "aliases": [
+        "长安汽车",
+        "重庆长安汽车股份有限公司"
+      ],
+      "market": "CN",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "300383-光环新网",
+      "company_wiki_id": "300383-光环新网",
+      "company_path": "companies/300383-光环新网",
+      "stock_code": "300383",
+      "ticker": "300383",
+      "company_short_name": "光环新网",
+      "company_name": "北京光环新网科技股份有限公司",
+      "aliases": [
+        "光环新网",
+        "北京光环新网科技股份有限公司"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "600104-上汽集团",
+      "company_wiki_id": "600104-上汽集团",
+      "company_path": "companies/600104-上汽集团",
+      "stock_code": "600104",
+      "ticker": "600104",
+      "company_short_name": "上汽集团",
+      "company_name": "上海汽车集团股份有限公司",
+      "aliases": [
+        "上汽集团",
+        "上海汽车集团股份有限公司"
+      ],
+      "market": "CN",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "600143-金发科技",
+      "company_wiki_id": "600143-金发科技",
+      "company_path": "companies/600143-金发科技",
+      "stock_code": "600143",
+      "ticker": "600143",
+      "company_short_name": "金发科技",
+      "company_name": "金发科技",
+      "aliases": [
+        "金发科技"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "600309-万华化学",
+      "company_wiki_id": "600309-万华化学",
+      "company_path": "companies/600309-万华化学",
+      "stock_code": "600309",
+      "ticker": "600309",
+      "company_short_name": "万华化学",
+      "company_name": "万华化学",
+      "aliases": [
+        "万华化学"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "601211-国泰海通",
+      "company_wiki_id": "601211-国泰海通",
+      "company_path": "companies/601211-国泰海通",
+      "stock_code": "601211",
+      "ticker": "601211",
+      "company_short_name": "国泰海通",
+      "company_name": "国泰海通证券股份有限公司",
+      "aliases": [
+        "国泰海通",
+        "国泰海通证券股份有限公司"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    },
+    {
+      "company_id": "601229-上海银行",
+      "company_wiki_id": "601229-上海银行",
+      "company_path": "companies/601229-上海银行",
+      "stock_code": "601229",
+      "ticker": "601229",
+      "company_short_name": "上海银行",
+      "company_name": "上海银行股份有限公司",
+      "aliases": [
+        "上海银行",
+        "上海银行股份有限公司"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 3
+    },
+    {
+      "company_id": "GENBASF-BASF",
+      "company_wiki_id": "GENBASF-BASF",
+      "company_path": "companies/GENBASF-BASF",
+      "stock_code": "GENBASF",
+      "ticker": "GENBASF",
+      "company_short_name": "BASF",
+      "company_name": "BASF",
+      "aliases": [
+        "BASF",
+        "巴斯夫"
+      ],
+      "market": "",
+      "status": "ready",
+      "reports": 1
+    }
+  ]
+}

@@ -73,8 +73,12 @@ def test_build_factcheck_request_uses_current_analysis_report_context():
     assert request is not None
     assert request.company_query == "600104-上汽集团"
     assert request.report_path is not None
-    assert request.report_path.as_posix().endswith(
-        "data/wiki/companies/600104-上汽集团/analysis/600104-上汽集团-2025-analysis-research-pack.md"
+    assert request.report_path == (
+        workflow.WIKI_ROOT
+        / "companies"
+        / "600104-上汽集团"
+        / "analysis"
+        / "600104-上汽集团-2025-analysis-research-pack.md"
     )
 
 

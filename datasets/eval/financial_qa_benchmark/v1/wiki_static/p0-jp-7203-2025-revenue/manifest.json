@@ -1,0 +1,19 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "JP",
+  "company_id": "JP:7203",
+  "filing_id": "JP:7203:2025-annual:3cd47e45-a485-429e-96bf-e828e4458359",
+  "ticker": "7203",
+  "period_end": "2025-03-31",
+  "source_urls": [],
+  "artifact_hashes": {
+    "document_full.json": "d421bf0377a00c941f2ac967a5e54cb18df81f8dc9fe12703e5261a451032045"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/document_full.json",
+    "document_sha256": "bc32b2cd60dfaf05e5a6492086bf0398fa202d2884e2eca1b16dc35a78abf7f2",
+    "manifest_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/manifest.json",
+    "manifest_sha256": "500947013ca90cced40cf6a76379b0ae6a8cad0872250a0ce1b1045f9e107368"
+  }
+}

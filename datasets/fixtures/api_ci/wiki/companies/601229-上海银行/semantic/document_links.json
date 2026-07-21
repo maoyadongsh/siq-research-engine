@@ -1,0 +1,936 @@
+{
+  "schema_version": 1,
+  "rule_version": "single_company_subject_rules_v1",
+  "generated_at": "2026-07-07T15:28:16Z",
+  "company_id": "601229-上海银行",
+  "report_id": "2025-quarterly_report",
+  "source": "semantic/note_links.json + reports/<report_id>/report.json tables",
+  "design_note": "This layer stores document navigation edges only. It does not extract or normalize numeric financial data.",
+  "document_link_count": 17,
+  "links": [
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000001",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "relation": {
+        "method": "statement_item_to_note_title_alias",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "precision_level": "medium",
+        "amount_check_status": "verified",
+        "amount_check_confidence": "medium",
+        "semantic_relation": "main_statement_to_note",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000002",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 205,
+        "md_line": 205,
+        "pdf_page_number": 15,
+        "table_index": 11,
+        "heading": "资产处置损益",
+        "preview": "本集团 本行 2025年度1-9月 2024年度1-9月 2025年度1-9月 2024年度1-9月 (未经审计) (未经审计) (未经审计) (未经审计) 41,140,492 39,541,807 38,644,668 38,559,896 61,561,099 69,865,037 59,562,654 67,612,522 (36,438,942) (44,876,885) (35,124,980) (43,145,611) 2",
+        "unit": "上海银行股份有限公司",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/11",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "high",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000003",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 205,
+        "md_line": 205,
+        "pdf_page_number": 15,
+        "table_index": 11,
+        "heading": "资产处置损益",
+        "preview": "本集团 本行 2025年度1-9月 2024年度1-9月 2025年度1-9月 2024年度1-9月 (未经审计) (未经审计) (未经审计) (未经审计) 41,140,492 39,541,807 38,644,668 38,559,896 61,561,099 69,865,037 59,562,654 67,612,522 (36,438,942) (44,876,885) (35,124,980) (43,145,611) 2",
+        "unit": "上海银行股份有限公司",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/11",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "high",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "high",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000004",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 208,
+        "md_line": 208,
+        "pdf_page_number": 16,
+        "table_index": 12,
+        "heading": "[PDF_PAGE: 16]",
+        "preview": "二、营业支出 (19,966,116) (18,980,282) (19,320,221) (17,979,935) 税金及附加 (480,675) (479,120) (476,418) (475,292) 业务及管理费 (9,220,421) (9,263,704) (8,824,305) (8,862,959) 信用减值损失 (10,264,903) (9,237,235) (10,019,382) (8,641,516) 其他资",
+        "unit": "人民币千元",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/16",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/16",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/12",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000005",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 208,
+        "md_line": 208,
+        "pdf_page_number": 16,
+        "table_index": 12,
+        "heading": "[PDF_PAGE: 16]",
+        "preview": "二、营业支出 (19,966,116) (18,980,282) (19,320,221) (17,979,935) 税金及附加 (480,675) (479,120) (476,418) (475,292) 业务及管理费 (9,220,421) (9,263,704) (8,824,305) (8,862,959) 信用减值损失 (10,264,903) (9,237,235) (10,019,382) (8,641,516) 其他资",
+        "unit": "人民币千元",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/16",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/16",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/12",
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "impairment_detail",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000006",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 228,
+        "md_line": 228,
+        "pdf_page_number": 18,
+        "table_index": 13,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "客户存款和同业存放款项净增加额 存放中央银行和同业款项净减少额 向中央银行借款净增加额 为交易目的而持有的金融资产净减少额 拆入资金净增加额 收取利息、手续费及佣金的现金 拆出资金净减少额 回购业务资金净增加额 收到其他与经营活动有关的现金 经营活动现金流入小计",
+        "unit": "人民币千元",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/13",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000007",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 228,
+        "md_line": 228,
+        "pdf_page_number": 18,
+        "table_index": 13,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "客户存款和同业存放款项净增加额 存放中央银行和同业款项净减少额 向中央银行借款净增加额 为交易目的而持有的金融资产净减少额 拆入资金净增加额 收取利息、手续费及佣金的现金 拆出资金净减少额 回购业务资金净增加额 收到其他与经营活动有关的现金 经营活动现金流入小计",
+        "unit": "人民币千元",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/13",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000008",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 230,
+        "md_line": 230,
+        "pdf_page_number": 18,
+        "table_index": 14,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "客户贷款及垫款净增加额 向中央银行借款净减少额 客户存款和同业存放款项净减少额 拆出资金净增加额 拆入资金净减少额",
+        "unit": "上海银行股份有限公司",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/14",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000009",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 230,
+        "md_line": 230,
+        "pdf_page_number": 18,
+        "table_index": 14,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "客户贷款及垫款净增加额 向中央银行借款净减少额 客户存款和同业存放款项净减少额 拆出资金净增加额 拆入资金净减少额",
+        "unit": "上海银行股份有限公司",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/14",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000010",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 232,
+        "md_line": 232,
+        "pdf_page_number": 18,
+        "table_index": 15,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "本集团 本行 2025年度1-9月 2024年度1-9月 2025年度1-9月 2024年度1-9月 (未经审计) (未经审计) (未经审计) (未经审计) - 48,297,315 - 45,293,682 3,488,263 16,743,247 4,133,179 16,682,174 17,046,805 - 16,922,067 - - 54,975,777 - 56,413,486 - 6,745,967 - 7,322,2",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/15",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000011",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 232,
+        "md_line": 232,
+        "pdf_page_number": 18,
+        "table_index": 15,
+        "heading": "一、经营活动产生的现金流量",
+        "preview": "本集团 本行 2025年度1-9月 2024年度1-9月 2025年度1-9月 2024年度1-9月 (未经审计) (未经审计) (未经审计) (未经审计) - 48,297,315 - 45,293,682 3,488,263 16,743,247 4,133,179 16,682,174 17,046,805 - 16,922,067 - - 54,975,777 - 56,413,486 - 6,745,967 - 7,322,2",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/18",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/18",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/15",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000012",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 234,
+        "md_line": 234,
+        "pdf_page_number": 19,
+        "table_index": 16,
+        "preview": "返售业务资金净增加额 (10,082,500) (15,376,275) (10,082,500) (15,383,625) 回购业务资金净减少额 (54,646,087) - (39,964,686) - 为交易目的而持有的金融资产净增加额 (40,091,617) - (50,877,369) - 支付利息、手续费及佣金的现金 (33,478,476) (37,227,051) (32,158,230) (35,534,555) 支",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/19",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/19",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/16",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000013",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 234,
+        "md_line": 234,
+        "pdf_page_number": 19,
+        "table_index": 16,
+        "preview": "返售业务资金净增加额 (10,082,500) (15,376,275) (10,082,500) (15,383,625) 回购业务资金净减少额 (54,646,087) - (39,964,686) - 为交易目的而持有的金融资产净增加额 (40,091,617) - (50,877,369) - 支付利息、手续费及佣金的现金 (33,478,476) (37,227,051) (32,158,230) (35,534,555) 支",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/19",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/19",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/16",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000014",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 239,
+        "md_line": 239,
+        "pdf_page_number": 19,
+        "table_index": 17,
+        "heading": "二、投资活动产生的现金流量",
+        "preview": "收回投资收到的现金 547,676,499 459,938,976 545,835,228 458,757,928 取得投资收益收到的现金 37,154,409 32,262,131 35,669,320 31,687,092 处置子公司及其他营业单位收到的现金净额 33,351 - - - 处置固定资产、无形资产和其他长期资产收回的现金净额 40,304 455 40,172 447 投资活动现金流入小计 584,904,563 49",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/19",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/19",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/17",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000015",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 239,
+        "md_line": 239,
+        "pdf_page_number": 19,
+        "table_index": 17,
+        "heading": "二、投资活动产生的现金流量",
+        "preview": "收回投资收到的现金 547,676,499 459,938,976 545,835,228 458,757,928 取得投资收益收到的现金 37,154,409 32,262,131 35,669,320 31,687,092 处置子公司及其他营业单位收到的现金净额 33,351 - - - 处置固定资产、无形资产和其他长期资产收回的现金净额 40,304 455 40,172 447 投资活动现金流入小计 584,904,563 49",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/19",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/19",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/17",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000016",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "note_to_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "note",
+        "name": "营业收入",
+        "title": "营业收入",
+        "note_title": "营业收入",
+        "line": 190,
+        "md_line": 190,
+        "pdf_page_number": 15,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/15",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/15"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 244,
+        "md_line": 244,
+        "pdf_page_number": 20,
+        "table_index": 18,
+        "heading": "三、筹资活动产生的现金流量",
+        "preview": "发行债券收到的现金 669,994,729 715,261,661 663,654,533 714,029,654 筹资活动现金流入小计 669,994,729 715,261,661 663,654,533 714,029,654 偿还债务支付的现金 (532,948,890) (631,236,461) (527,966,502) (628,603,171) 分配股利、利润或偿付利息支付的现金 (10,403,703) (13,06",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/20",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/20",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/18",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_note_section_table_window",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    },
+    {
+      "document_link_id": "doclink_601229_2025_quarterly_report_000017",
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "link_type": "statement_item_to_note_table",
+      "source_layer": "rule",
+      "source": {
+        "kind": "statement_item",
+        "name": "营业收入",
+        "title": "营业收入",
+        "line": 23,
+        "md_line": 23,
+        "pdf_page_number": 2,
+        "table_index": 1,
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+      },
+      "target": {
+        "kind": "note_table",
+        "name": "一、经营活动产生的现金流量",
+        "title": "一、经营活动产生的现金流量",
+        "note_title": "营业收入",
+        "line": 244,
+        "md_line": 244,
+        "pdf_page_number": 20,
+        "table_index": 18,
+        "heading": "三、筹资活动产生的现金流量",
+        "preview": "发行债券收到的现金 669,994,729 715,261,661 663,654,533 714,029,654 筹资活动现金流入小计 669,994,729 715,261,661 663,654,533 714,029,654 偿还债务支付的现金 (532,948,890) (631,236,461) (527,966,502) (628,603,171) 分配股利、利润或偿付利息支付的现金 (10,403,703) (13,06",
+        "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/20",
+        "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/20",
+        "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/18",
+        "heading_line": 226,
+        "source_confidence": "high"
+      },
+      "relation": {
+        "method": "rule_statement_to_note_table_via_note_link",
+        "source_note_link_id": "note_601229_2025_quarterly_report_00001",
+        "confidence": "medium",
+        "semantic_relation": "detail_disclosure",
+        "llm_allowed": true
+      },
+      "evidence_ids": [
+        "ev_601229_2025_quarterly_report_000024",
+        "ev_601229_2025_quarterly_report_000025"
+      ],
+      "confidence": "medium",
+      "needs_review": false
+    }
+  ],
+  "indexes": {
+    "by_source_name": {
+      "营业收入": [
+        "doclink_601229_2025_quarterly_report_000001",
+        "doclink_601229_2025_quarterly_report_000002",
+        "doclink_601229_2025_quarterly_report_000003",
+        "doclink_601229_2025_quarterly_report_000004",
+        "doclink_601229_2025_quarterly_report_000005",
+        "doclink_601229_2025_quarterly_report_000006",
+        "doclink_601229_2025_quarterly_report_000007",
+        "doclink_601229_2025_quarterly_report_000008",
+        "doclink_601229_2025_quarterly_report_000009",
+        "doclink_601229_2025_quarterly_report_000010",
+        "doclink_601229_2025_quarterly_report_000011",
+        "doclink_601229_2025_quarterly_report_000012",
+        "doclink_601229_2025_quarterly_report_000013",
+        "doclink_601229_2025_quarterly_report_000014",
+        "doclink_601229_2025_quarterly_report_000015",
+        "doclink_601229_2025_quarterly_report_000016",
+        "doclink_601229_2025_quarterly_report_000017"
+      ]
+    },
+    "by_target_title": {
+      "营业收入": [
+        "doclink_601229_2025_quarterly_report_000001",
+        "doclink_601229_2025_quarterly_report_000002",
+        "doclink_601229_2025_quarterly_report_000003",
+        "doclink_601229_2025_quarterly_report_000004",
+        "doclink_601229_2025_quarterly_report_000005"
+      ],
+      "一、经营活动产生的现金流量": [
+        "doclink_601229_2025_quarterly_report_000006",
+        "doclink_601229_2025_quarterly_report_000007",
+        "doclink_601229_2025_quarterly_report_000008",
+        "doclink_601229_2025_quarterly_report_000009",
+        "doclink_601229_2025_quarterly_report_000010",
+        "doclink_601229_2025_quarterly_report_000011",
+        "doclink_601229_2025_quarterly_report_000012",
+        "doclink_601229_2025_quarterly_report_000013",
+        "doclink_601229_2025_quarterly_report_000014",
+        "doclink_601229_2025_quarterly_report_000015",
+        "doclink_601229_2025_quarterly_report_000016",
+        "doclink_601229_2025_quarterly_report_000017"
+      ]
+    },
+    "by_note_link_id": {
+      "note_601229_2025_quarterly_report_00001": [
+        "doclink_601229_2025_quarterly_report_000001",
+        "doclink_601229_2025_quarterly_report_000002",
+        "doclink_601229_2025_quarterly_report_000003",
+        "doclink_601229_2025_quarterly_report_000004",
+        "doclink_601229_2025_quarterly_report_000005",
+        "doclink_601229_2025_quarterly_report_000006",
+        "doclink_601229_2025_quarterly_report_000007",
+        "doclink_601229_2025_quarterly_report_000008",
+        "doclink_601229_2025_quarterly_report_000009",
+        "doclink_601229_2025_quarterly_report_000010",
+        "doclink_601229_2025_quarterly_report_000011",
+        "doclink_601229_2025_quarterly_report_000012",
+        "doclink_601229_2025_quarterly_report_000013",
+        "doclink_601229_2025_quarterly_report_000014",
+        "doclink_601229_2025_quarterly_report_000015",
+        "doclink_601229_2025_quarterly_report_000016",
+        "doclink_601229_2025_quarterly_report_000017"
+      ]
+    },
+    "by_link_type": {
+      "statement_item_to_note": [
+        "doclink_601229_2025_quarterly_report_000001"
+      ],
+      "note_to_table": [
+        "doclink_601229_2025_quarterly_report_000002",
+        "doclink_601229_2025_quarterly_report_000004",
+        "doclink_601229_2025_quarterly_report_000006",
+        "doclink_601229_2025_quarterly_report_000008",
+        "doclink_601229_2025_quarterly_report_000010",
+        "doclink_601229_2025_quarterly_report_000012",
+        "doclink_601229_2025_quarterly_report_000014",
+        "doclink_601229_2025_quarterly_report_000016"
+      ],
+      "statement_item_to_note_table": [
+        "doclink_601229_2025_quarterly_report_000003",
+        "doclink_601229_2025_quarterly_report_000005",
+        "doclink_601229_2025_quarterly_report_000007",
+        "doclink_601229_2025_quarterly_report_000009",
+        "doclink_601229_2025_quarterly_report_000011",
+        "doclink_601229_2025_quarterly_report_000013",
+        "doclink_601229_2025_quarterly_report_000015",
+        "doclink_601229_2025_quarterly_report_000017"
+      ]
+    }
+  },
+  "summary": {
+    "by_link_type": {
+      "statement_item_to_note": 1,
+      "note_to_table": 8,
+      "statement_item_to_note_table": 8
+    },
+    "needs_review": []
+  }
+}

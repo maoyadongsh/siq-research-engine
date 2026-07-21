@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "300383-光环新网",
+    "stock_code": "300383",
+    "exchange": "SZSE",
+    "company_short_name": "光环新网",
+    "company_full_name": "北京光环新网科技股份有限公司",
+    "aliases": [
+      "光环新网",
+      "北京光环新网科技股份有限公司"
+    ]
+  },
+  "source": {
+    "task_id": "b6409cf4-f82a-4496-9d68-3592ebd19a49",
+    "schema_versions": {
+      "document_full": 3,
+      "content_list_enhanced": 10,
+      "quality_report": 11,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 245,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "765a8876cd68ed246d12101b5705d20be238332a13c522bc879a9a8845e5c900",
+      "document_full_json": "4913ce2f06262dac9da6522170a7eec60977b0f1cc9d5078f47152bbfe903fb8"
+    },
+    "source_filename_metadata": {
+      "source_filename": "光环新网_CN_300383_2025-12-31_年报_2026-04-28_manual_d1c2cc6f.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "光环新网",
+      "market": "CN",
+      "stock_code": "300383",
+      "raw_ticker": "300383",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-04-28",
+      "source_id": "manual",
+      "url_hash": "d1c2cc6f",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "needs_review",
+  "quality_summary": {
+    "markdown_chars": 470463,
+    "table_count": 288,
+    "image_ref_count": 6,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 62,
+      "pass": 58,
+      "fail": 0,
+      "warning": 1,
+      "skipped": 3
+    },
+    "warnings": [
+      "发现 30 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": [
+    {
+      "table_index": 11,
+      "line": 502,
+      "heading": "[PDF_PAGE: 26]",
+      "unit": "",
+      "pdf_page_index": 23,
+      "pdf_page_number": 24,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "序号 所属公司 软件名称 登记号 证件号 证书取得日期 1 光环新网 基于软件定义的网络控制系统 V1.0 2025SR1367 034 软著登字第 16023232 号 2025 年 7 月 25 日 2 光环新网 基于云计算平台的数据湖系统 V1.0 2025SR1367 040 软著登字第 16023238 号 2025 年 7 月 25 日 3 光环新网 基于云计算平台的数据迁移系统 V1.0 2025SR1367 045 软著",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 21,
+      "line": 706,
+      "heading": "适用 □不适用",
+      "unit": "",
+      "pdf_page_index": 33,
+      "pdf_page_number": 34,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "主要研发项目名称 项目目的 项目进展 拟达到的目标 预计对公司未来发展的影响 用于数据中心的自耦降压起动风机控制方法及系统 1、精准控制自耦变压器的抽头选择,最大限度减少风机起动时对数据中心电网的冲击;2、优化降压起动时间的适配控制,降低启动过程中切换时的电流和转矩冲击;3、针对性优化谐波问题,减少电机起动对数据中心其他设备的干扰;4、实现多运行模式智能切换、设备状态监控、故障报警及节能运行,保障数据中心消防风机及相关制冷系统稳定可靠运",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 22,
+      "line": 718,
+      "heading": "[PDF_PAGE: 45]",
+      "unit": "",
+      "pdf_page_index": 44,
+      "pdf_page_number": 45,
+      "pdf_page_source": "markdown_marker_inferred",
+      "preview": "主要研发项目名称 项目目的 项目进展 拟达到的目标 预计对公司未来发展的影响 用于数据中心的自耦降压起动风机控制方法及系统 1、精准控制自耦变压器的抽头选择,最大限度减少风机起动时对数据中心电网的冲击;2、优化降压起动时间的适配控制,降低启动过程中切换时的电流和转矩冲击;3、针对性优化谐波问题,减少电机起动对数据中心其他设备的干扰;4、实现多运行模式智能切换、设备状态监控、故障报警及节能运行,保障数据中心消防风机及相关制冷系统稳定可靠运",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    },
+    {
+      "table_index": 26,
+      "line": 768,
+      "heading": "单位：元",
+      "unit": "元",
+      "pdf_page_index": 46,
+      "pdf_page_number": 47,
+      "pdf_page_source": "content_list_body_exact",
+      "preview": "金额 占利润总额比例 形成原因说明 是否具有可持续性 投资收益 -4,896,254.20 0.72% 公允价值变动损益 32,736,678.99 4.81% 资产减值 -863,685,624.45 126.82% 报告期计提商誉减值损失 否 营业外收入 3,188,171.48 0.47% 营业外支出 15,620,801.25 2.29%",
+      "table_type": "fact",
+      "report_year": 2025,
+      "fact_year": 2025
+    }
+  ]
+}

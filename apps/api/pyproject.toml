@@ -32,6 +32,7 @@ siq-market-contracts = { path = "../../packages/market-contracts", editable = tr
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
+    "ruff==0.14.10",
 ]
 
 [tool.pytest.ini_options]

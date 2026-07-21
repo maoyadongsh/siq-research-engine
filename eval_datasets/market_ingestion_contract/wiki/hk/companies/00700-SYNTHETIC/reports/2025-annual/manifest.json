@@ -30,7 +30,7 @@
     "retrieved_at": "2026-04-09T00:00:00Z"
   },
   "artifact_hashes": {
-    "README.md": "a38a991c3cf1f86bc8e2139284a3e7565f3778fdb47c3a29a8ec20297a913e78",
+    "README.md": "1a603416c2fe5aae146aacd6b616cbf7fafa1780221e36c20be686b39e9ec471",
     "metrics/financial_checks.json": "2e56cd3ddcdabf957aa857bc3dbab571af99321e3412a2167142db8f93f77938",
     "metrics/financial_data.json": "502cfebd20a37a1074e5472ee2bb8abfde984f2521f5f678f138d7c65413598f",
     "metrics/normalized_metrics.json": "fff5f924adedae27a7f297bd7212e996d1ec003203a4e0eb552d1a59b222845a",

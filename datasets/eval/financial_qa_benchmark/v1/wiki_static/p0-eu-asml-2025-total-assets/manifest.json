@@ -1,0 +1,19 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "EU",
+  "company_id": "EU:NL:ASML",
+  "filing_id": "EU:ASML:2025-annual:0227f921-3412-433a-890e-862c31c57503",
+  "ticker": "ASML",
+  "period_end": "2025-12-31",
+  "source_urls": [],
+  "artifact_hashes": {
+    "document_full.json": "20b4c5d68401ac64684332a5a13b8f7c9c82c892eb8be57183d27011351572a8"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/eu/companies/ASML-ASML-Holding-N-V/reports/2025-annual/document_full.json",
+    "document_sha256": "8f7648ff50c4ff057ef07621a943f4e7277d5850fc4dfabca2f95672bd395003",
+    "manifest_path": "data/wiki/eu/companies/ASML-ASML-Holding-N-V/reports/2025-annual/manifest.json",
+    "manifest_sha256": "4be30207bb43988173880a6024f6f9522d1a9f6bd10bc4edfbbc8d3266821273"
+  }
+}

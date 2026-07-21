@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "company_id": "000333-美的集团",
+  "stock_code": "000333",
+  "exchange": "SZSE",
+  "company_short_name": "美的集团",
+  "company_full_name": "美的集团股份有限公司",
+  "aliases": [
+    "美的集团",
+    "美的集团股份有限公司"
+  ],
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "ready",
+      "task_id": "f4dead73-e0de-42b4-b1b7-d8cf217214ee",
+      "source_filename": "美的集团：2025年年度报告.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-06-06T12:58:33Z",
+  "identity_fix": {
+    "fixed_at": "2026-05-10T08:46:58Z",
+    "old_company_full_name": "2025年年美的集团股份有限公司",
+    "source": "manual_identity_cleanup_after_20_company_working_set"
+  },
+  "industry": "家用电器/白色家电/冰洗",
+  "industry_sw1": "家用电器",
+  "industry_sw2": "白色家电",
+  "industry_profile": "general",
+  "industry_classification": {
+    "taxonomy": "SWHY2021",
+    "source_url": "https://syzx.sufe.edu.cn/syzx/findb/tianxiang/993.html",
+    "mapping_method": "manual_active_company_mapping",
+    "updated_at": "2026-05-10T14:01:52Z"
+  },
+  "industry_tushare": "家用电器",
+  "updated_at": "2026-05-10T21:30:00Z",
+  "industry_sw_version": "SWHY2021",
+  "industry_sw_source": "SUFE Tianxiang SWHY2021 code table + manual active-company mapping",
+  "industry_sw1_code": "330000",
+  "industry_sw2_code": "330100",
+  "industry_sw3_code": "330106",
+  "industry_sw3": "冰洗"
+}

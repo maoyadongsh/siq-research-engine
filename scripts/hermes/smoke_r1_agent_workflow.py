@@ -235,11 +235,16 @@ def smoke_startup_receipt(profile_id: str) -> dict[str, Any]:
     """Build an explicitly synthetic v2 receipt for the temporary smoke wiki."""
 
     agent_id = ic_policy.canonical_ic_profile_id(profile_id)
+    private_collection = agent_id.removeprefix("siq_")
+    physical_collections = {
+        "siq_deal_shared": "ic_collaboration_shared",
+        agent_id: private_collection,
+    }
     background_ref = {
         "ref_id": f"KBREF-SMOKE-{agent_id}",
         "source_class": "background_knowledge",
         "collection": agent_id,
-        "physical_collection": f"smoke-{agent_id}",
+        "physical_collection": private_collection,
         "locator": "synthetic-smoke-methodology",
         "title": "Synthetic R1 smoke methodology",
         "usage": "methodology",
@@ -258,6 +263,22 @@ def smoke_startup_receipt(profile_id: str) -> dict[str, Any]:
         "shared_hits": 1,
         "private_hits": 1,
         "milvus_used": True,
+        "dual_kb_connected": True,
+        "physical_collections": physical_collections,
+        "vector_retrieval": {
+            "shared_filter_applied": True,
+            "shared_project_tag": DEAL_ID,
+            "physical_collections": physical_collections,
+        },
+        "retrieval_strategy": {
+            "mode": "dense_bm25_rrf",
+            "embedding_model": "synthetic-contract-embedding",
+        },
+        "rerank_ready": True,
+        "rerank": {
+            "status": "completed",
+            "model": "synthetic-contract-reranker",
+        },
         "workspace_rules_read": ["SOUL.md", "AGENTS.md"],
         "gaps": [],
         "degraded_reasons": [],

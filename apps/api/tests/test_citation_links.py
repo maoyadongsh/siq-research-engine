@@ -170,6 +170,7 @@ def test_postprocessor_replaces_unsigned_existing_source_link(monkeypatch):
 def test_postprocessor_normalizes_local_api_links_preserving_query_and_fragment(monkeypatch):
     _disable_local_enricher(monkeypatch)
     monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    monkeypatch.setenv("SIQ_SOURCE_TOKEN_SECRET", "test-source-token-secret-with-at-least-32-chars")
     text = (
         f"[1] source_type=wiki_metrics, task_id={PURE_HELPER_TASK_ID}, pdf_page=7, table_index=3，"
         f"[打开PDF定位页7](http://localhost:8276/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html#page%207)，"
@@ -181,9 +182,18 @@ def test_postprocessor_normalizes_local_api_links_preserving_query_and_fragment(
 
     assert "http://localhost" not in cleaned
     assert "http://127.0.0.1" not in cleaned
-    assert f"https://public.example/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html#page%207" in cleaned
-    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html#quote%2F7" in cleaned
-    assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html#table%203" in cleaned
+    assert re.search(
+        rf"https://public\.example/api/pdf_page/{PURE_HELPER_TASK_ID}/7\?format=html&source_token=[^#]+#page%207",
+        cleaned,
+    )
+    assert re.search(
+        rf"https://public\.example/api/source/{PURE_HELPER_TASK_ID}/page/7\?format=html&source_token=[^#]+#quote%2F7",
+        cleaned,
+    )
+    assert re.search(
+        rf"https://public\.example/api/source/{PURE_HELPER_TASK_ID}/table/3\?format=html&source_token=[^#]+#table%203",
+        cleaned,
+    )
     assert cleaned.count(f"/api/pdf_page/{PURE_HELPER_TASK_ID}/7?format=html") == 1
     assert cleaned.count(f"/api/source/{PURE_HELPER_TASK_ID}/page/7?format=html") == 1
     assert cleaned.count(f"/api/source/{PURE_HELPER_TASK_ID}/table/3?format=html") == 1

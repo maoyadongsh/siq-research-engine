@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "company_id": "GENBASF-BASF",
+  "stock_code": "GENBASF",
+  "exchange": "GENERIC",
+  "company_short_name": "BASF",
+  "company_full_name": "BASF",
+  "aliases": [
+    "BASF",
+    "巴斯夫"
+  ],
+  "identity_kind": "generic_subject",
+  "identity_route": "generic_non_a_share_wiki_import",
+  "market": "",
+  "security_code": "",
+  "synthetic_stock_code": true,
+  "primary_report_id": "2025-annual",
+  "reports": [
+    {
+      "report_id": "2025-annual",
+      "report_year": 2025,
+      "report_kind": "annual_report",
+      "status": "ready",
+      "task_id": "03690a47-062e-42eb-9ad7-d609a87cf777",
+      "source_filename": "BASF_Report_2025.pdf",
+      "report_md": "reports/2025-annual/report.md",
+      "report_json": "reports/2025-annual/report.json",
+      "document_full": "reports/2025-annual/document_full.json",
+      "artifact_manifest": "reports/2025-annual/artifact_manifest.json",
+      "artifact_bundle_sha256": "638d28a942fbb5b35463e17d12d0f40c8f3ae5f6b59bf48c37fc68e15d834667",
+      "import_route": "generic_non_a_share",
+      "metrics": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  ],
+  "metrics": {
+    "three_statements": "metrics/three_statements.json",
+    "key_metrics": "metrics/key_metrics.json",
+    "validation": "metrics/validation.json",
+    "latest": {
+      "three_statements": "metrics/latest/three_statements.json",
+      "key_metrics": "metrics/latest/key_metrics.json",
+      "validation": "metrics/latest/validation.json"
+    },
+    "reports_root": "metrics/reports",
+    "by_report": {
+      "2025-annual": {
+        "three_statements": "metrics/reports/2025-annual/three_statements.json",
+        "key_metrics": "metrics/reports/2025-annual/key_metrics.json",
+        "validation": "metrics/reports/2025-annual/validation.json"
+      }
+    }
+  },
+  "evidence": {
+    "evidence_index": "evidence/evidence_index.json",
+    "pdf_refs": "evidence/pdf_refs.json",
+    "image_manifest": "evidence/image_manifest.json"
+  },
+  "generated_at": "2026-06-06T12:58:33Z"
+}

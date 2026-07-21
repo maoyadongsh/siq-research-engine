@@ -1,0 +1,19 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "CN",
+  "company_id": "CN:600519",
+  "filing_id": "CN:600519:2025-annual:e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+  "ticker": "600519",
+  "period_end": "2025-12-31",
+  "source_urls": [],
+  "artifact_hashes": {
+    "document_full.json": "c603e3b0e3beb151767ecea8fa1d4d930400926847ae010d96a7eb648807ca8d"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/companies/600519-贵州茅台/reports/2025-annual/document_full.json",
+    "document_sha256": "854a9811c134004248073b85b79e0f8ba5e3268daa358de0e601652e59aae2f6",
+    "manifest_path": "data/wiki/companies/600519-贵州茅台/reports/2025-annual/artifact_manifest.json",
+    "manifest_sha256": "da75f95d4fa93edcd8203dd80c0dd58c5d815823f8bde6423623825e64c84ee2"
+  }
+}

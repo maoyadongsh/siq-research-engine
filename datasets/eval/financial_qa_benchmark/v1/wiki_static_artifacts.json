@@ -4,25 +4,25 @@
     {
       "case_id": "p0-hk-00700-2025-revenue",
       "status": "ready",
-      "document_full_path": "data/wiki/hk/companies/00700-TENCENT/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/hk/companies/00700-TENCENT/reports/2025-annual/manifest.json",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-hk-00700-2025-revenue/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-hk-00700-2025-revenue/manifest.json",
       "manifest_artifact_key": "document_full.json",
-      "document_sha256": "6c453882bc181791d02e8e74f4cf02f175914f570b8d42c94ccabf72cb1d64d2",
+      "document_sha256": "f78f1b37b46d453010a59847fa5d5bd5710b646795b586044a9a4842f5b033b7",
       "case_identity": {
         "market": "HK",
         "company_id": "HK:00700",
-        "filing_id": "HK:00700:2025-annual:9aecfb55-5069-47b1-8383-47cb118b0b16",
+        "filing_id": "HK:00700:12100024",
         "ticker": "00700",
         "period_end": "2025-12-31"
       },
       "document_identity": {
         "market": "HK",
         "company_id": "HK:00700",
-        "filing_id": "HK:00700:9aecfb55-5069-47b1-8383-47cb118b0b16",
+        "filing_id": "HK:00700:12100024",
         "ticker": "00700",
         "period_end": "2025-12-31",
-        "report_type": "annual",
-        "report_year": 2025
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -44,22 +44,19 @@
       "manifest_identity": {
         "market": "HK",
         "company_id": "HK:00700",
-        "filing_id": "HK:00700:2025-annual:9aecfb55-5069-47b1-8383-47cb118b0b16",
+        "filing_id": "HK:00700:12100024",
         "ticker": "00700",
         "period_end": "2025-12-31"
-      }
+      },
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "6c453882bc181791d02e8e74f4cf02f175914f570b8d42c94ccabf72cb1d64d2"
     },
     {
       "case_id": "p0-cn-600519-2025-cash",
       "status": "ready",
-      "document_full_path": "data/wiki/companies/600519-贵州茅台/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/companies/600519-贵州茅台/reports/2025-annual/artifact_manifest.json",
-      "manifest_artifact_hash_path": [
-        "artifacts",
-        "document_full.json",
-        "sha256"
-      ],
-      "document_sha256": "854a9811c134004248073b85b79e0f8ba5e3268daa358de0e601652e59aae2f6",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-cn-600519-2025-cash/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-cn-600519-2025-cash/manifest.json",
+      "document_sha256": "c603e3b0e3beb151767ecea8fa1d4d930400926847ae010d96a7eb648807ca8d",
       "case_identity": {
         "market": "CN",
         "company_id": "CN:600519",
@@ -69,12 +66,12 @@
       },
       "document_identity": {
         "market": "CN",
-        "company_id": null,
-        "filing_id": null,
-        "ticker": null,
-        "period_end": null,
-        "report_type": "annual_report",
-        "report_year": 2025
+        "company_id": "CN:600519",
+        "filing_id": "CN:600519:2025-annual:e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+        "ticker": "600519",
+        "period_end": "2025-12-31",
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -103,53 +100,23 @@
         }
       ],
       "manifest_identity": {
-        "schema_version": 1,
-        "task_id": "e87eae5e-414e-4f23-91de-a0d2e48a0c26"
+        "market": "CN",
+        "company_id": "CN:600519",
+        "filing_id": "CN:600519:2025-annual:e87eae5e-414e-4f23-91de-a0d2e48a0c26",
+        "ticker": "600519",
+        "period_end": "2025-12-31"
       },
-      "provenance_checks": [
-        {
-          "path": "data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf.metadata.json",
-          "sha256": "686341c3b9f0a742e308fe783d5b4c9d22d054e17b682c2ad78b0327d723fe98",
-          "json_expectations": [
-            {"path": ["candidate", "source_id"], "value": "cninfo"},
-            {"path": ["candidate", "market"], "value": "CN"},
-            {"path": ["candidate", "company_id"], "value": "600519"},
-            {"path": ["candidate", "ticker"], "value": "600519"},
-            {"path": ["candidate", "report_end"], "value": "2025-12-31"},
-            {"path": ["candidate", "accession_number"], "value": "1225114741"},
-            {"path": ["candidate", "document_url"], "value": "https://static.cninfo.com.cn/finalpage/2026-04-17/1225114741.PDF"},
-            {"path": ["downloaded_file", "content_sha256"], "value": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288"}
-          ]
-        },
-        {
-          "path": "data/market-report-finder/downloads/CN/贵州茅台/2025/年报/贵州茅台_CN_600519_2025-12-31_年报_2026-04-16_cninfo_99053aa1.pdf",
-          "sha256": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288"
-        },
-        {
-          "path": "data/pdf-parser/uploads/e87eae5e-414e-4f23-91de-a0d2e48a0c26.pdf",
-          "sha256": "474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288"
-        },
-        {
-          "path": "data/pdf-parser/results/e87eae5e-414e-4f23-91de-a0d2e48a0c26/metadata.json",
-          "sha256": "94e48e8aeed37c457ac8455214eaf1689029c6ff96b36c79b756010ce2403d3d",
-          "json_expectations": [
-            {"path": ["task_id"], "value": "e87eae5e-414e-4f23-91de-a0d2e48a0c26"},
-            {"path": ["market"], "value": "CN"},
-            {"path": ["ticker"], "value": "600519"},
-            {"path": ["company_name"], "value": "贵州茅台"},
-            {"path": ["period_end"], "value": "2025-12-31"},
-            {"path": ["source"], "value": "cninfo"}
-          ]
-        }
-      ]
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "manifest_artifact_key": "document_full.json",
+      "upstream_document_sha256": "854a9811c134004248073b85b79e0f8ba5e3268daa358de0e601652e59aae2f6"
     },
     {
       "case_id": "p0-us-aapl-2025-revenue",
       "status": "ready",
-      "document_full_path": "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079/parser/document_full.json",
-      "manifest_path": "data/wiki/us/companies/AAPL-Apple-Inc/reports/2025-10-K-0000320193-25-000079/manifest.json",
-      "manifest_artifact_key": "parser/document_full.json",
-      "document_sha256": "1b7155da8ebabf3ec523eb68182f6808c1387c52fd0655b1e286c7b605565d35",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-us-aapl-2025-revenue/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-us-aapl-2025-revenue/manifest.json",
+      "manifest_artifact_key": "document_full.json",
+      "document_sha256": "407bb7c663782f009eaa957918075daf5fc190eb9457c39893991a1308734a33",
       "case_identity": {
         "market": "US",
         "company_id": "US:0000320193",
@@ -159,12 +126,12 @@
       },
       "document_identity": {
         "market": "US",
-        "company_id": "US:CIK0000320193",
+        "company_id": "US:0000320193",
         "filing_id": "US:0000320193:0000320193-25-000079",
         "ticker": "AAPL",
         "period_end": "2025-09-27",
-        "report_type": "10-K",
-        "report_year": 2025
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -189,15 +156,17 @@
         "filing_id": "US:0000320193:0000320193-25-000079",
         "ticker": "AAPL",
         "period_end": "2025-09-27"
-      }
+      },
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "1b7155da8ebabf3ec523eb68182f6808c1387c52fd0655b1e286c7b605565d35"
     },
     {
       "case_id": "p0-jp-7203-2025-revenue",
       "status": "ready",
-      "document_full_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/jp/companies/7203-Toyota-Motor-Corporation/reports/2025-annual/manifest.json",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-jp-7203-2025-revenue/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-jp-7203-2025-revenue/manifest.json",
       "manifest_artifact_key": "document_full.json",
-      "document_sha256": "bc32b2cd60dfaf05e5a6492086bf0398fa202d2884e2eca1b16dc35a78abf7f2",
+      "document_sha256": "d421bf0377a00c941f2ac967a5e54cb18df81f8dc9fe12703e5261a451032045",
       "case_identity": {
         "market": "JP",
         "company_id": "JP:7203",
@@ -208,11 +177,11 @@
       "document_identity": {
         "market": "JP",
         "company_id": "JP:7203",
-        "filing_id": "JP:f9dd7278",
+        "filing_id": "JP:7203:2025-annual:3cd47e45-a485-429e-96bf-e828e4458359",
         "ticker": "7203",
         "period_end": "2025-03-31",
-        "report_type": "annual_securities_report",
-        "report_year": 2025
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -239,15 +208,17 @@
         "filing_id": "JP:7203:2025-annual:3cd47e45-a485-429e-96bf-e828e4458359",
         "ticker": "7203",
         "period_end": "2025-03-31"
-      }
+      },
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "bc32b2cd60dfaf05e5a6492086bf0398fa202d2884e2eca1b16dc35a78abf7f2"
     },
     {
       "case_id": "p0-kr-005930-2025-current-assets",
       "status": "ready",
-      "document_full_path": "data/wiki/kr/companies/005930-Samsung-Electronics-Co-Ltd/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/kr/companies/005930-Samsung-Electronics-Co-Ltd/reports/2025-annual/manifest.json",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-kr-005930-2025-current-assets/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-kr-005930-2025-current-assets/manifest.json",
       "manifest_artifact_key": "document_full.json",
-      "document_sha256": "04a7a955c37dbb980aaeed74cb90af30b1bb4fb4c37a66c4897592c21a4fb743",
+      "document_sha256": "93aa070144481dee54cb523d7c403cda609909d465b739f692932194a6a01d7f",
       "case_identity": {
         "market": "KR",
         "company_id": "KR:005930",
@@ -258,11 +229,11 @@
       "document_identity": {
         "market": "KR",
         "company_id": "KR:005930",
-        "filing_id": "2025-annual_4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
+        "filing_id": "KR:005930:2025-annual:4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
         "ticker": "005930",
         "period_end": "2025-12-31",
-        "report_type": "annual",
-        "report_year": 2025
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -288,15 +259,17 @@
         "filing_id": "KR:005930:2025-annual:4f91e58e-04eb-4427-9c82-90c9a8ed7a08",
         "ticker": "005930",
         "period_end": "2025-12-31"
-      }
+      },
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "04a7a955c37dbb980aaeed74cb90af30b1bb4fb4c37a66c4897592c21a4fb743"
     },
     {
       "case_id": "p0-eu-asml-2025-total-assets",
       "status": "ready",
-      "document_full_path": "data/wiki/eu/companies/ASML-ASML-Holding-N-V/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/eu/companies/ASML-ASML-Holding-N-V/reports/2025-annual/manifest.json",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-eu-asml-2025-total-assets/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-eu-asml-2025-total-assets/manifest.json",
       "manifest_artifact_key": "document_full.json",
-      "document_sha256": "8f7648ff50c4ff057ef07621a943f4e7277d5850fc4dfabca2f95672bd395003",
+      "document_sha256": "20b4c5d68401ac64684332a5a13b8f7c9c82c892eb8be57183d27011351572a8",
       "case_identity": {
         "market": "EU",
         "company_id": "EU:NL:ASML",
@@ -306,12 +279,12 @@
       },
       "document_identity": {
         "market": "EU",
-        "company_id": null,
-        "filing_id": null,
-        "ticker": null,
-        "period_end": null,
-        "report_type": "eu_esef_annual_report",
-        "report_year": 2025
+        "company_id": "EU:NL:ASML",
+        "filing_id": "EU:ASML:2025-annual:0227f921-3412-433a-890e-862c31c57503",
+        "ticker": "ASML",
+        "period_end": "2025-12-31",
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -336,49 +309,16 @@
         "ticker": "ASML",
         "period_end": "2025-12-31"
       },
-      "provenance_checks": [
-        {
-          "path": "data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf.metadata.json",
-          "sha256": "b5a16b400a709c2df2e817156e764e9d9d8281e5da78dd8f14586844ef2faabe",
-          "json_expectations": [
-            {"path": ["candidate", "source_id"], "value": "eu_direct"},
-            {"path": ["candidate", "market"], "value": "EU"},
-            {"path": ["candidate", "company_id"], "value": "NL:ASML"},
-            {"path": ["candidate", "ticker"], "value": "ASML"},
-            {"path": ["candidate", "report_end"], "value": "2025-12-31"},
-            {"path": ["candidate", "document_url"], "value": "https://ourbrand.asml.com/m/71076aaad607de4d/original/asml-2025-annual-report-based-on-us-gaap.pdf"},
-            {"path": ["downloaded_file", "content_sha256"], "value": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c"}
-          ]
-        },
-        {
-          "path": "data/market-report-finder/downloads/EU/NL/ASML-Holding-N.V/2025/年报/ASML-Holding-N.V_EU_ASML_2025-12-31_年报_2026-02-25_eu_direct_06003086.pdf",
-          "sha256": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c"
-        },
-        {
-          "path": "data/pdf-parser/uploads/0227f921-3412-433a-890e-862c31c57503.pdf",
-          "sha256": "add58be9d9822ca12584b63c55c089b36e1ae5bf7a1825ebf1d1572628f2c52c"
-        },
-        {
-          "path": "data/pdf-parser/results/0227f921-3412-433a-890e-862c31c57503/metadata.json",
-          "sha256": "162f3f3e16ab9c08a1a56b9b370eec0568cbe83834f81437f79aa5c64fee06e6",
-          "json_expectations": [
-            {"path": ["task_id"], "value": "0227f921-3412-433a-890e-862c31c57503"},
-            {"path": ["market"], "value": "EU"},
-            {"path": ["ticker"], "value": "ASML"},
-            {"path": ["company_name"], "value": "ASML Holding N.V"},
-            {"path": ["period_end"], "value": "2025-12-31"},
-            {"path": ["source"], "value": "issuer"}
-          ]
-        }
-      ]
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "8f7648ff50c4ff057ef07621a943f4e7277d5850fc4dfabca2f95672bd395003"
     },
     {
       "case_id": "p0-eu-vod-2025-group-revenue",
       "status": "ready",
-      "document_full_path": "data/wiki/eu/companies/VOD-Vodafone-Group-Plc/reports/2025-annual/document_full.json",
-      "manifest_path": "data/wiki/eu/companies/VOD-Vodafone-Group-Plc/reports/2025-annual/manifest.json",
+      "document_full_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-eu-vod-2025-group-revenue/document_full.json",
+      "manifest_path": "datasets/eval/financial_qa_benchmark/v1/wiki_static/p0-eu-vod-2025-group-revenue/manifest.json",
       "manifest_artifact_key": "document_full.json",
-      "document_sha256": "573a3fb1ede31b3b4a82455bb80e15839f3413b3abb6197f08be91078c9d132a",
+      "document_sha256": "d24b5f31f54bbb77564bec9e1dc9f2aaf91a8161c5fb4cfd4bb735accb6b86fa",
       "case_identity": {
         "market": "EU",
         "company_id": "EU:GB:VOD",
@@ -388,12 +328,12 @@
       },
       "document_identity": {
         "market": "EU",
-        "company_id": null,
-        "filing_id": null,
-        "ticker": null,
-        "period_end": null,
-        "report_type": "eu_annual_report",
-        "report_year": 2025
+        "company_id": "EU:GB:VOD",
+        "filing_id": "EU:VOD:2025-annual:eu-vod-2025-authoritative-f27c920e",
+        "ticker": "VOD",
+        "period_end": "2025-03-31",
+        "report_type": null,
+        "report_year": null
       },
       "expected_fact_overrides": [
         {
@@ -421,55 +361,8 @@
         "ticker": "VOD",
         "period_end": "2025-03-31"
       },
-      "provenance_checks": [
-        {
-          "path": "artifacts/optimization/2026-07-14/closeout/vodafone-authoritative-staging/Vodafone-Group-Plc_EU_VOD_2025-03-31_annual_2025-06-06_issuer_annual_report_5b4b49a6.pdf.metadata.json",
-          "sha256": "a8d5c907ea1d686a839332ac26ca02f6a1246ff6606707e8a9034859b6e82945",
-          "json_expectations": [
-            {"path": ["candidate", "source_id"], "value": "issuer_annual_report"},
-            {"path": ["candidate", "market"], "value": "EU"},
-            {"path": ["candidate", "company_id"], "value": "GB:VOD"},
-            {"path": ["candidate", "ticker"], "value": "VOD"},
-            {"path": ["candidate", "report_end"], "value": "2025-03-31"},
-            {"path": ["candidate", "document_url"], "value": "https://reports.investors.vodafone.com/view/897876789/linkFull"},
-            {"path": ["downloaded_file", "content_sha256"], "value": "f27c920e89e746164909ce65a72dce00f05266929d59e0be1129336e7cf3d011"},
-            {"path": ["authority_checks", "sec_accession_number"], "value": "0001193125-25-136298"}
-          ]
-        },
-        {
-          "path": "artifacts/optimization/2026-07-14/closeout/vodafone-authoritative-staging/Vodafone-Group-Plc_EU_VOD_2025-03-31_annual_2025-06-06_issuer_annual_report_5b4b49a6.pdf",
-          "sha256": "f27c920e89e746164909ce65a72dce00f05266929d59e0be1129336e7cf3d011"
-        },
-        {
-          "path": "data/pdf-parser/uploads/de5e8563250f4b0d88dc3f818760518b.pdf",
-          "sha256": "f27c920e89e746164909ce65a72dce00f05266929d59e0be1129336e7cf3d011"
-        },
-        {
-          "path": "artifacts/pdf-parser/results/eu-vod-2025-authoritative-f27c920e/metadata.json",
-          "sha256": "613b67c02796e493c21902b2c3d7761582ada242d9e4dfe98cfc723e93f4912f",
-          "json_expectations": [
-            {"path": ["task_id"], "value": "eu-vod-2025-authoritative-f27c920e"},
-            {"path": ["market"], "value": "EU"},
-            {"path": ["ticker"], "value": "VOD"},
-            {"path": ["company_name"], "value": "Vodafone Group Plc"},
-            {"path": ["period_end"], "value": "2025-03-31"},
-            {"path": ["source"], "value": "issuer"},
-            {"path": ["raw_sha256"], "value": "f27c920e89e746164909ce65a72dce00f05266929d59e0be1129336e7cf3d011"},
-            {"path": ["parse_config_hash"], "value": "c33f1bba9eaf73dd87d96f956d9f489afa6a501561cdd29fe342b6879f2c0c0e"},
-            {"path": ["pdf_page_count"], "value": 248},
-            {"path": ["status"], "value": "completed"}
-          ]
-        },
-        {
-          "path": "artifacts/pdf-parser/results/eu-vod-2025-authoritative-f27c920e/artifact_manifest.json",
-          "sha256": "366d5cc8e7f2104d578c3f8fb6992831fa037e4d94c17cffe8108bd9fe4a81bf",
-          "json_expectations": [
-            {"path": ["identity", "raw_sha256"], "value": "f27c920e89e746164909ce65a72dce00f05266929d59e0be1129336e7cf3d011"},
-            {"path": ["identity", "parse_config_hash"], "value": "c33f1bba9eaf73dd87d96f956d9f489afa6a501561cdd29fe342b6879f2c0c0e"},
-            {"path": ["core", "ready"], "value": true}
-          ]
-        }
-      ]
+      "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+      "upstream_document_sha256": "573a3fb1ede31b3b4a82455bb80e15839f3413b3abb6197f08be91078c9d132a"
     }
   ]
 }

@@ -1,0 +1,105 @@
+{
+  "schema_version": "sec_company_wiki_v1",
+  "market": "US",
+  "ticker": "NVDA",
+  "company_id": "US:0001045810",
+  "company_wiki_id": "NVDA-NVIDIA-CORP",
+  "company_wiki_path": "data/wiki/us/companies/NVDA-NVIDIA-CORP",
+  "cik": "0001045810",
+  "company_name": "NVIDIA CORP",
+  "latest_filing_id": "US:0001045810:0001045810-26-000021",
+  "primary_report_id": "2026-10-K-0001045810-26-000021",
+  "latest_fiscal_year": 2026,
+  "latest_period_end": "2026-01-25",
+  "package_count": 2,
+  "report_count": 2,
+  "reports": [
+    {
+      "report_id": "2026-10-K-0001045810-26-000021",
+      "filing_id": "US:0001045810:0001045810-26-000021",
+      "form": "10-K",
+      "report_type": "annual",
+      "fiscal_year": 2026,
+      "period_end": "2026-01-25",
+      "published_at": "2026-02-25",
+      "package_path": "data/wiki/us/companies/NVDA-NVIDIA-CORP/reports/2026-10-K-0001045810-26-000021",
+      "parser_result_dir": "data/parser-results/us-sec/NVDA-10-K-0001045810-26-000021",
+      "parser_result_task_id": "NVDA-10-K-0001045810-26-000021",
+      "wiki_report_path": "data/wiki/us/companies/NVDA-NVIDIA-CORP/reports/2026-10-K-0001045810-26-000021",
+      "quality_status": "warning",
+      "retrieval_status": "ready",
+      "wiki_ready": true,
+      "retrieval_issues": [],
+      "full_document_status": "ready",
+      "full_document_ready": true,
+      "full_document_paths": {
+        "document_full": {
+          "path": "parser/document_full.json",
+          "exists": true
+        },
+        "report_complete": {
+          "path": "parser/report_complete.md",
+          "exists": true
+        },
+        "content_list_enhanced": {
+          "path": "parser/content_list_enhanced.json",
+          "exists": true
+        },
+        "table_relations": {
+          "path": "parser/table_relations.json",
+          "exists": true
+        },
+        "wiki_report_complete": {
+          "path": "sections/report_complete.md",
+          "exists": true
+        }
+      },
+      "wiki_ingestion_status": "ready",
+      "wiki_ingestion_ready": true
+    },
+    {
+      "report_id": "2025-10-K-0001045810-25-000023",
+      "filing_id": "US:0001045810:0001045810-25-000023",
+      "form": "10-K",
+      "report_type": "annual",
+      "fiscal_year": 2025,
+      "period_end": "2025-01-26",
+      "published_at": "2025-02-26",
+      "package_path": "data/wiki/us/companies/NVDA-NVIDIA-CORP/reports/2025-10-K-0001045810-25-000023",
+      "parser_result_dir": "data/parser-results/us-sec/NVDA-10-K-0001045810-25-000023",
+      "parser_result_task_id": "NVDA-10-K-0001045810-25-000023",
+      "wiki_report_path": "data/wiki/us/companies/NVDA-NVIDIA-CORP/reports/2025-10-K-0001045810-25-000023",
+      "quality_status": "warning",
+      "retrieval_status": "ready",
+      "wiki_ready": true,
+      "retrieval_issues": [],
+      "full_document_status": "ready",
+      "full_document_ready": true,
+      "full_document_paths": {
+        "document_full": {
+          "path": "parser/document_full.json",
+          "exists": true
+        },
+        "report_complete": {
+          "path": "parser/report_complete.md",
+          "exists": true
+        },
+        "content_list_enhanced": {
+          "path": "parser/content_list_enhanced.json",
+          "exists": true
+        },
+        "table_relations": {
+          "path": "parser/table_relations.json",
+          "exists": true
+        },
+        "wiki_report_complete": {
+          "path": "sections/report_complete.md",
+          "exists": true
+        }
+      },
+      "wiki_ingestion_status": "ready",
+      "wiki_ingestion_ready": true
+    }
+  ],
+  "updated_at": "2026-07-08T15:34:55Z"
+}

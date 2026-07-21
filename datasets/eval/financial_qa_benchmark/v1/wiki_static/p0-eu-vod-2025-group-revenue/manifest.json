@@ -1,0 +1,19 @@
+{
+  "schema_version": "siq_financial_qa_wiki_snapshot_manifest_v1",
+  "snapshot_kind": "public_disclosure_minimal_fact_snapshot",
+  "market": "EU",
+  "company_id": "EU:GB:VOD",
+  "filing_id": "EU:VOD:2025-annual:eu-vod-2025-authoritative-f27c920e",
+  "ticker": "VOD",
+  "period_end": "2025-03-31",
+  "source_urls": [],
+  "artifact_hashes": {
+    "document_full.json": "d24b5f31f54bbb77564bec9e1dc9f2aaf91a8161c5fb4cfd4bb735accb6b86fa"
+  },
+  "upstream": {
+    "document_full_path": "data/wiki/eu/companies/VOD-Vodafone-Group-Plc/reports/2025-annual/document_full.json",
+    "document_sha256": "573a3fb1ede31b3b4a82455bb80e15839f3413b3abb6197f08be91078c9d132a",
+    "manifest_path": "data/wiki/eu/companies/VOD-Vodafone-Group-Plc/reports/2025-annual/manifest.json",
+    "manifest_sha256": "7f699ba3bc6eccf29ba03bfcb2bdfe7915eb477164b3530a11c1a55f662f3b57"
+  }
+}

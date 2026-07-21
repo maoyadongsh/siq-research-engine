@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "company_id": "601211-国泰海通",
+    "stock_code": "601211",
+    "exchange": "SSE",
+    "company_short_name": "国泰海通",
+    "company_full_name": "国泰海通证券股份有限公司",
+    "aliases": [
+      "国泰海通",
+      "国泰海通证券股份有限公司"
+    ]
+  },
+  "source": {
+    "task_id": "d5d14a1f-d1e1-41e7-b858-0649e786b0b2",
+    "schema_versions": {
+      "document_full": 3,
+      "content_list_enhanced": 10,
+      "quality_report": 11,
+      "financial_data": 13,
+      "financial_checks": 12
+    },
+    "financial_rule_version": "financial_rules_v14",
+    "financial_checks_rule_version": "financial_rules_v14",
+    "pdf_page_count": 396,
+    "pdf_page_url_template": "/api/pdf_page/{task_id}/{page_number}",
+    "source_page_url_template": "/api/source/{task_id}/page/{page_number}",
+    "source_table_url_template": "/api/source/{task_id}/table/{table_index}",
+    "sha256": {
+      "result_complete_md": "0bf44050223f9d1bd556eae97e80f9fbc42ffbd83c9aea4f48d9ecae1b8ab601",
+      "document_full_json": "d772f7c08180cb3998199a48215a6026e72f3056e27427ebe1610b0b1f914141"
+    },
+    "source_filename_metadata": {
+      "source_filename": "国泰海通_CN_601211_2025-12-31_年报_2026-03-27_manual_e31bb62d.pdf",
+      "filename_pattern": "<company_short_name>_<market>_<stock_code>_<report_end>_<report_type>_<published_at>_<source_id>_<url_hash>.pdf",
+      "company_short_name": "国泰海通",
+      "market": "CN",
+      "stock_code": "601211",
+      "raw_ticker": "601211",
+      "report_end": "2025-12-31",
+      "report_type": "年报",
+      "published_at": "2026-03-27",
+      "source_id": "manual",
+      "url_hash": "e31bb62d",
+      "source": "report_finder_filename"
+    }
+  },
+  "status": "needs_review",
+  "quality_summary": {
+    "markdown_chars": 1084865,
+    "table_count": 687,
+    "image_ref_count": 137,
+    "found_financial_tables": [
+      "主要会计数据",
+      "主要财务指标",
+      "非经常性损益",
+      "资产负债表",
+      "利润表",
+      "现金流量表",
+      "所有者权益变动表"
+    ],
+    "financial_overall_status": "pass",
+    "financial_summary": {
+      "total": 60,
+      "pass": 35,
+      "fail": 0,
+      "warning": 0,
+      "skipped": 25
+    },
+    "warnings": [
+      "发现 10 张可疑表样本，建议在前端“优先复核表”中逐项打开可视化溯源。"
+    ]
+  },
+  "tables": []
+}

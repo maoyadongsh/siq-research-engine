@@ -1,0 +1,21 @@
+{
+  "schema_version": "siq_company_catalog_v1",
+  "company_count": 1,
+  "companies": [
+    {
+      "company_id": "JP:7203",
+      "company_wiki_id": "7203-Toyota-Motor-Corporation",
+      "company_path": "companies/7203-Toyota-Motor-Corporation",
+      "stock_code": "7203",
+      "ticker": "7203",
+      "company_short_name": "Toyota Motor Corporation",
+      "company_name": "Toyota Motor Corporation",
+      "aliases": [
+        "Toyota Motor Corporation"
+      ],
+      "market": "JP",
+      "status": "ready",
+      "reports": 2
+    }
+  ]
+}

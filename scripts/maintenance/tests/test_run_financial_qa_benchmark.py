@@ -703,7 +703,7 @@ def test_fixture_contract_mode_validates_synthetic_document_full_golden_facts():
     assert all(result["case_id"].startswith("synthetic-contract-") for result in report["results"])
 
 
-def test_wiki_static_mode_binds_all_authoritative_real_company_artifacts():
+def test_wiki_static_mode_binds_all_published_real_company_snapshots():
     module = _load_module()
 
     report = module.run_benchmark(mode="wiki-static")
@@ -713,6 +713,11 @@ def test_wiki_static_mode_binds_all_authoritative_real_company_artifacts():
     assert report["summary"]["passed_cases"] == 7
     assert report["summary"]["p0_gate_passed"] is True
     assert report["wiki_static_artifacts"].endswith("wiki_static_artifacts.json")
+    binding_payload = json.loads(Path(report["wiki_static_artifacts"]).read_text(encoding="utf-8"))
+    assert all(
+        binding["snapshot_kind"] == "public_disclosure_minimal_fact_snapshot"
+        for binding in binding_payload["bindings"]
+    )
     assert all(":FIXTURE:" not in str(result.get("identity", {}).get("company_id") or "") for result in report["results"])
     results = {result["case_id"]: result for result in report["results"]}
     assert results["p0-cn-600519-2025-cash"]["passed"] is True

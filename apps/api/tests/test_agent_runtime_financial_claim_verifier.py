@@ -4467,7 +4467,7 @@ def test_evidence_recompute_accepts_correct_amount_normalization_and_rejects_ten
     assert correct.runs[0]["operation"] == "normalize_amount"
     assert correct.runs[0]["trace_origin"] == "backend_evidence_recompute"
     assert wrong.allowed is False
-    assert wrong.reason == "trace_unstructured"
+    assert wrong.reason == "trace_claim_result_mismatch"
 
 
 def test_trusted_amount_normalization_receipt_is_bound_and_checks_visible_result():

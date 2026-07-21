@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "company_id": "601229-上海银行",
+  "refs": [
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 2,
+      "table_index": 1,
+      "md_line": 23,
+      "source_type": "content_list_enhanced_table",
+      "heading": null,
+      "preview": "项目 2025年7-9月 较上年同期变动 2025年1-9月 较上年同期变动 营业收入 13,796,621 3.78% 41,140,492 4.04% 归属于母公司股东的净利润 4,844,322 4.90% 18,075,000 2.77% 归属于母公司股东的扣除非经常性损益的净利润 4,868,323 6.58% 18,112,128 3.95% 经营活动产生的现金流量净额 不适用 不适用 -154,412,472 -746.6",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+    },
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 2,
+      "table_index": 1,
+      "md_line": 23,
+      "source_type": "quality_table_index",
+      "heading": "单位：人民币千元",
+      "preview": "项目 2025年7-9月 较上年同期变动 2025年1-9月 较上年同期变动 营业收入 13,796,621 3.78% 41,140,492 4.04% 归属于母公司股东的净利润 4,844,322 4.90% 18,075,000 2.77% 归属于母公司股东的扣除非经常性损益的净利润 4,868,323 6.58% 18,112,128 3.95% 经营活动产生的现金流量净额 不适用 不适用 -154,412,472 -746.6",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+    },
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 2,
+      "table_index": 1,
+      "md_line": 23,
+      "source_type": "report_json_table",
+      "heading": "单位：人民币千元",
+      "preview": "项目 2025年7-9月 较上年同期变动 2025年1-9月 较上年同期变动 营业收入 13,796,621 3.78% 41,140,492 4.04% 归属于母公司股东的净利润 4,844,322 4.90% 18,075,000 2.77% 归属于母公司股东的扣除非经常性损益的净利润 4,868,323 6.58% 18,112,128 3.95% 经营活动产生的现金流量净额 不适用 不适用 -154,412,472 -746.6",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/2",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/2",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/1"
+    },
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 5,
+      "table_index": 7,
+      "md_line": 75,
+      "source_type": "content_list_enhanced_table",
+      "heading": null,
+      "preview": "报告期末普通股股东总数(户) 114,918 报告期末表决权恢复的优先股股东总数(如有)(户) 0 前十名普通股股东(前十名无限售条件流通股股东)持股情况(不含通过转融通出借股份) 股东名称 股东性质 期末持股数量(股) 持股比例 持有有限售条件股份数量(股) 质押、标记或冻结情况 股份种类 上海联和投资有限公司 国有法人 2,092,070,328 14.72% - - 人民币普通股 上海国际港务(集团)股份有限公司 国有法人 1,1",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/5",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/5",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/7"
+    },
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 5,
+      "table_index": 7,
+      "md_line": 75,
+      "source_type": "quality_table_index",
+      "heading": "持股情况表",
+      "preview": "报告期末普通股股东总数(户) 114,918 报告期末表决权恢复的优先股股东总数(如有)(户) 0 前十名普通股股东(前十名无限售条件流通股股东)持股情况(不含通过转融通出借股份) 股东名称 股东性质 期末持股数量(股) 持股比例 持有有限售条件股份数量(股) 质押、标记或冻结情况 股份种类 上海联和投资有限公司 国有法人 2,092,070,328 14.72% - - 人民币普通股 上海国际港务(集团)股份有限公司 国有法人 1,1",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/5",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/5",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/7"
+    },
+    {
+      "company_id": "601229-上海银行",
+      "report_id": "2025-quarterly_report",
+      "task_id": "2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c",
+      "pdf_page_number": 5,
+      "table_index": 7,
+      "md_line": 75,
+      "source_type": "report_json_table",
+      "heading": "持股情况表",
+      "preview": "报告期末普通股股东总数(户) 114,918 报告期末表决权恢复的优先股股东总数(如有)(户) 0 前十名普通股股东(前十名无限售条件流通股股东)持股情况(不含通过转融通出借股份) 股东名称 股东性质 期末持股数量(股) 持股比例 持有有限售条件股份数量(股) 质押、标记或冻结情况 股份种类 上海联和投资有限公司 国有法人 2,092,070,328 14.72% - - 人民币普通股 上海国际港务(集团)股份有限公司 国有法人 1,1",
+      "open_pdf_page_url": "/api/pdf_page/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/5",
+      "open_source_page_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/page/5",
+      "open_source_table_url": "/api/source/2e358b27-cd33-4fa2-ae4d-0be20ad4cc6c/table/7"
+    }
+  ],
+  "generated_at": "2026-07-07T15:28:16Z"
+}
