@@ -31,6 +31,7 @@ SABIC_TASK_ID = "914d6a5a-9aed-47ab-b4ae-a380a9b95253"
 BASF_TASK_ID = "03690a47-062e-42eb-9ad7-d609a87cf777"
 WANHUA_TASK_ID = "f256875c-dad2-4fbf-9240-ef288fea0b0f"
 PURE_HELPER_TASK_ID = "11111111-1111-1111-1111-111111111111"
+SAIC_TASK_ID = "7dbc35a7-7626-4e81-810e-5dbb764434e0"
 
 
 def _write_pdf_market_fixture(
@@ -258,6 +259,27 @@ def test_tool_citation_without_explicit_refs_borrows_recent_source_refs(monkeypa
     assert "md_line=4186,4196" in tool_line
     assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/165?format=html" in tool_line
     assert f"https://public.example/api/source/{PURE_HELPER_TASK_ID}/table/166?format=html" in tool_line
+
+
+def test_calculation_citation_borrows_current_source_refs(monkeypatch):
+    monkeypatch.setenv("SIQ_PUBLIC_ORIGIN", "https://public.example")
+    text = f"""## 引用来源
+
+[1] source_type=wiki_metrics, file=metrics/three_statements.json, metric=资产负债表核心数据, period=2025-annual, task_id={SAIC_TASK_ID}, pdf_page=65, table_index=84, md_line=1840。
+[2] source_type=calculation, file=后端确定性计算结果, metric=商誉账面净值及年度变动, period=2025-annual, calculation_id=calc:4c4c5cdf03bfc75f/calc:7a19b5bc0ba9c481/calc:d99394e89dc77ae6, evidence_id=trusted:8139db412a2a7f52e673ede0/trusted:24523460f7728f530f87313e/trusted:a8c8781288e0145b414a3d71, task_id=未返回, pdf_page=未返回, table_index=未返回, md_line=未返回。
+"""
+
+    cleaned = append_missing_pdf_source_links(text)
+    calculation_line = next(line for line in cleaned.splitlines() if line.startswith("[2]"))
+
+    assert "source_type=calculation" in calculation_line
+    assert f"task_id={SAIC_TASK_ID}" in calculation_line
+    assert "pdf_page=65" in calculation_line
+    assert "table_index=84" in calculation_line
+    assert "md_line=1840" in calculation_line
+    assert "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd" not in calculation_line
+    assert "pdf_page=170" not in calculation_line
+    assert f"https://public.example/api/source/{SAIC_TASK_ID}/table/84?format=html" in calculation_line
 
 
 def test_postprocessor_keeps_printed_page_labels_aligned_with_missing_slots(monkeypatch):

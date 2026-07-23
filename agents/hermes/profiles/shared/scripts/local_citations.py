@@ -57,6 +57,7 @@ TOOL_SOURCE_TYPES = {
     "financial_reconciliation_validator",
     "calculator",
     "reconciliation_validator",
+    "calculation",
 }
 TOOL_FILE_NAMES = ("financial_calculator.py", "financial_reconciliation_validator.py")
 
