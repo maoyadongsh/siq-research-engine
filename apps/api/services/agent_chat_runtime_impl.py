@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequen
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -35,6 +36,7 @@ from services import (
     agent_runtime_diagnostics,
     agent_runtime_display,
     agent_runtime_fallback_contexts,
+    agent_runtime_financial_claim_verifier,
     agent_runtime_financial_evidence,
     agent_runtime_financial_format,
     agent_runtime_financial_guard,
@@ -49,6 +51,7 @@ from services import (
     agent_runtime_postgres_fallback,
     agent_runtime_preflight,
     agent_runtime_progress,
+    agent_runtime_sec_dimensions,
     agent_runtime_statement_context,
     agent_runtime_task_ids,
     agent_runtime_wiki_context,
@@ -2225,9 +2228,10 @@ async def _requested_run_route_with_scope_lifecycle(
         try:
             await openshell_scope_lifecycle.ensure_binding(context)
         except openshell_scope_lifecycle.OpenShellScopeLifecycleError as exc:
-            if runtime_target is not None:
+            if runtime_target is not None or not openshell_scope_lifecycle.implicit_host_fallback_allowed(context):
                 raise RuntimeError(exc.code) from exc
             logger.exception("OpenShell scope auto-provision failed; using Host fallback")
+            return None
     return _requested_run_route(profile, runtime_target, session_id, context)
 
 
@@ -3795,7 +3799,9 @@ def _evidence_url(task_id: Any, pdf_page: Any, table_index: Any, kind: str) -> s
             return _append_source_access_token(public_api_url(path), task_id)
         except Exception:
             pass
-    origin = (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
+    from services.runtime_security import public_origin_from_env
+
+    origin = public_origin_from_env()
     return _append_source_access_token(f"{origin}{path}", task_id)
 
 
@@ -4814,6 +4820,166 @@ def _statement_metric_result(message: str, context: Any | None = None) -> tuple[
     return None, renderer
 
 
+def _us_sec_geographical_revenue_result(
+    message: str,
+    context: Any | None = None,
+) -> dict[str, Any] | None:
+    """Resolve SEC revenue facts carrying the customer-headquarters dimension."""
+
+    if not agent_runtime_sec_dimensions.geographical_revenue_query_applies(message):
+        return None
+    resolved_context = _resolved_research_context(message, context)
+    identity = agent_runtime_context.research_identity(resolved_context)
+    if identity.get("market") != "US" or not all(
+        identity.get(field) for field in agent_runtime_context.COMPLETE_RESEARCH_IDENTITY_FIELDS
+    ):
+        return None
+    company_dir = _resolve_company_dir(message, resolved_context)
+    if not company_dir:
+        return None
+    report = _primary_report_for_company(company_dir, message, resolved_context)
+    if report.get("selection_status") == "identity_mismatch":
+        return None
+    report_id = str(report.get("report_id") or "").strip()
+    if not report_id:
+        return None
+    result = agent_runtime_sec_dimensions.resolve_us_geographical_revenue(
+        company_dir,
+        report_id,
+        read_json_file=_read_json_file,
+    )
+    if not result:
+        return None
+    bound = _result_with_research_identity(result, resolved_context)
+    bound_identity = agent_runtime_context.research_identity(bound)
+    if any(bound_identity.get(field) != identity.get(field) for field in ("market", "company_id", "filing_id", "parse_run_id")):
+        return None
+    return bound
+
+
+def build_us_sec_geographical_revenue_context(
+    message: str,
+    context: Any | None = None,
+) -> str | None:
+    result = _us_sec_geographical_revenue_result(message, context)
+    if not result:
+        return None
+    return agent_runtime_sec_dimensions.render_us_geographical_revenue_context(result)
+
+
+def _append_missing_us_geographical_revenue_refs(
+    reply: str,
+    result: Mapping[str, Any] | None,
+) -> str:
+    if not isinstance(result, Mapping):
+        return reply
+    rows = result.get("rows")
+    if not isinstance(rows, list):
+        return reply
+    visible = "\n".join(_extract_reference_lines(reply))
+    refs: list[str] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, Mapping):
+            continue
+        anchor = str(row.get("source_anchor") or "").strip()
+        evidence_id = str(row.get("evidence_id") or "").strip()
+        if (anchor and anchor in visible) or (evidence_id and evidence_id in visible):
+            continue
+        refs.append(
+            _primary_data_source_ref(
+                index,
+                source_type="sec_xbrl_fact",
+                file=str(result.get("facts_file") or "xbrl/facts_raw.json"),
+                metric=str(row.get("metric_name") or row.get("metric") or "地区营收"),
+                period=row.get("period") or result.get("period"),
+                task_id=None,
+                pdf_page=None,
+                table_index=None,
+                md_line=None,
+                canonical_name=row.get("canonical_name") or "operating_revenue",
+                metric_name=row.get("metric_name") or row.get("region"),
+                value=row.get("value"),
+                raw_value=row.get("raw_value") or row.get("value"),
+                unit=row.get("unit") or "USD",
+                currency=row.get("currency") or "USD",
+                scale=row.get("scale"),
+                market=result.get("market") or "US",
+                company_id=result.get("company_id"),
+                report_id=result.get("report_id"),
+                filing_id=result.get("filing_id"),
+                parse_run_id=result.get("parse_run_id"),
+                evidence_id=evidence_id,
+                quote=row.get("quote"),
+                evidence_source_type=row.get("evidence_source_type") or "sec_xbrl_fact",
+                source_url=row.get("source_url") or result.get("source_url"),
+                source_anchor=anchor,
+                xbrl_tag=row.get("xbrl_tag"),
+            )
+        )
+    return _merge_refs_into_reference_section(reply, refs) if refs else reply
+
+
+def _correct_us_geographical_revenue_answer(
+    reply: str,
+    result: Mapping[str, Any] | None,
+) -> str:
+    """Replace stale no-data statements when SEC geography facts are present."""
+
+    if not isinstance(result, Mapping) or not isinstance(result.get("rows"), list):
+        return reply
+    rows = [row for row in result["rows"] if isinstance(row, Mapping)]
+    us_row = next((row for row in rows if row.get("member") == "country:US"), None)
+    if us_row is None:
+        return reply
+    try:
+        us_value = Decimal(str(us_row.get("value") or "").replace(",", ""))
+    except (InvalidOperation, AttributeError):
+        return reply
+    if not us_value.is_finite():
+        return reply
+    replacement = (
+        f"- 已披露按客户总部所在地划分的地区营收：美国为 {us_value / Decimal('1000000000'):.3f} billion USD"
+        f"（{us_value / Decimal('100000000'):,.2f} 亿美元）。"
+    )
+    unavailable = re.compile(
+        r"^\s*[-*]?\s*.*(?:未提供|未披露|无法|没有).*(?:地区|美国市场营收|geographic|region).*$",
+        re.IGNORECASE,
+    )
+    lines = [replacement if unavailable.search(line) else line for line in (reply or "").splitlines()]
+    normalized_reply = "\n".join(lines)
+    expected_tokens = (
+        f"{us_value / Decimal('1000000000'):.3f} billion USD",
+        f"{us_value / Decimal('100000000'):,.2f} 亿美元",
+        f"{us_value:,.0f} USD",
+    )
+    has_us_value = any(token in normalized_reply for token in expected_tokens) and any(
+        term in normalized_reply for term in ("美国", "United States")
+    )
+    if has_us_value:
+        return normalized_reply
+    table_lines = [
+        "## 地区营收（按客户总部所在地）",
+        "| 客户总部所在地 | 营收（billion USD） | 营收（亿美元） |",
+        "| --- | ---: | ---: |",
+    ]
+    for row in rows:
+        try:
+            value = Decimal(str(row.get("value") or "").replace(",", ""))
+        except (InvalidOperation, AttributeError):
+            continue
+        table_lines.append(
+            f"| {row.get('region') or row.get('region_en') or '未返回'} | "
+            f"{value / Decimal('1000000000'):.3f} | {value / Decimal('100000000'):,.2f} |"
+        )
+    table = "\n".join(table_lines)
+    reference_heading = re.search(r"(?m)^## 引用来源[:：]?\s*$", normalized_reply)
+    if reference_heading:
+        before = normalized_reply[: reference_heading.start()].rstrip()
+        after = normalized_reply[reference_heading.start() :].lstrip()
+        return f"{before}\n\n{table}\n\n{after}".strip()
+    return f"{normalized_reply.rstrip()}\n\n{table}".strip()
+
+
 def build_statement_metric_context(message: str, context: Any | None = None) -> str | None:
     """Inject deterministic main-statement rows for cash-flow/balance/profit questions."""
     if _non_cn_financial_retrieval_blocked(message, context):
@@ -5470,6 +5636,7 @@ def _primary_data_source_ref(
     pdf_page: Any,
     table_index: Any,
     md_line: Any,
+    **structured_fields: Any,
 ) -> str:
     return agent_runtime_citations._primary_data_source_ref(
         index,
@@ -5482,6 +5649,7 @@ def _primary_data_source_ref(
         table_index=table_index,
         md_line=md_line,
         table_source_links=_table_source_links,
+        **structured_fields,
     )
 
 
@@ -6036,6 +6204,14 @@ def _trusted_financial_calculation_evidence(
                         expected_identity=identity,
                     )
                 )
+    geographical_result = _us_sec_geographical_revenue_result(message, resolved_context)
+    if geographical_result:
+        evidence.extend(
+            agent_runtime_financial_evidence.build_trusted_sec_dimension_evidence(
+                geographical_result,
+                expected_identity=identity,
+            )
+        )
     normalized_message = _normalize_financial_text(message)
     if any(term in normalized_message for term in ("偿债", "流动性", "现金流", "现金流量")):
         company_hint = _context_company_hint(resolved_context) or message
@@ -6146,6 +6322,8 @@ def enforce_financial_evidence_contract(
 ) -> str:
     reply = strip_guardrail_diagnostics(reply)
     resolved_context = _resolved_research_context(message, context)
+    geographical_result = _us_sec_geographical_revenue_result(message, resolved_context)
+    reply = _append_missing_us_geographical_revenue_refs(reply, geographical_result)
     trusted_evidence = _trusted_financial_calculation_evidence(message, resolved_context)
     reply = agent_runtime_citations.sanitize_sec_xbrl_reference_lines(
         reply,
@@ -6153,6 +6331,11 @@ def enforce_financial_evidence_contract(
         table_source_links=_table_source_links,
     )
     reply = _append_missing_calculation_evidence_locators(reply, trusted_evidence)
+    reply = agent_runtime_financial_claim_verifier.correct_evidence_bound_unit_normalizations(
+        reply,
+        trusted_evidence,
+    )
+    reply = _correct_us_geographical_revenue_answer(reply, geographical_result)
     baseline_events = list(resolved_context.get("_audit_fallback_events") or [])
     guarded_reply = agent_runtime_financial_guard.enforce_financial_evidence_contract(
         message,
@@ -6695,6 +6878,12 @@ def build_session_contextual_input(
     calculation_pack = agent_runtime_financial_evidence.render_deterministic_calculation_pack(
         _trusted_financial_calculation_evidence(message, context)
     )
+    geographical_context = build_us_sec_geographical_revenue_context(message, context)
+    if geographical_context:
+        contextual_input = contextual_input.replace(
+            f"用户问题：{message}",
+            f"{geographical_context}\n\n用户问题：{message}",
+        )
     if calculation_pack:
         contextual_input = contextual_input.replace(
             f"用户问题：{message}",

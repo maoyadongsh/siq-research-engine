@@ -88,7 +88,10 @@ def test_runtime_coordination_migration_is_repeatable_on_optional_postgres():
                 connection.exec_driver_sql(migration_sql)
                 connection.exec_driver_sql(migration_sql)
 
-            assert database._postgres_runtime_schema_gaps() == []
+            assert not any(
+                item.partition(".")[0] in {model.__tablename__ for model in MODELS}
+                for item in database._postgres_runtime_schema_gaps()
+            )
         finally:
             database.engine = original_engine
 

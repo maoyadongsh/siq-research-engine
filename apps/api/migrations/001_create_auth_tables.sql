@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name VARCHAR(100) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('super_admin', 'admin', 'analyst', 'reviewer', 'viewer')),
     is_active BOOLEAN DEFAULT TRUE,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW(),
     last_login TIMESTAMP,
     CONSTRAINT username_length CHECK (LENGTH(username) >= 3),

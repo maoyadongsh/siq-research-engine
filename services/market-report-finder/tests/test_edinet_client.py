@@ -1,9 +1,8 @@
 from datetime import date
 
 import pytest
-
 from market_report_finder_service.markets.jp.client import EdinetClient
-from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportFamily, ReportType
+from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportFamily, ReportTarget, ReportType
 
 
 def _jp_company() -> CompanyEntity:
@@ -128,6 +127,56 @@ def test_edinet_ignores_late_auxiliary_published_at_when_limiting_year_scan():
     assert windows == [(date(2025, 5, 15), date(2025, 8, 8))]
 
 
+def test_edinet_annual_scan_checks_center_of_window_first_and_stops_on_match(monkeypatch):
+    client = EdinetClient()
+    company = CompanyEntity(
+        market=Market.jp,
+        company_id="JP:7203",
+        ticker="7203",
+        company_name="Toyota Motor Corporation",
+        exchange="JPX",
+        metadata={"catalog_report_end": "2025-03-31", "catalog_published_at": "2026-04-03"},
+    )
+    start = date(2025, 5, 15)
+    end = date(2025, 8, 8)
+    center = start + (end - start) // 2
+    calls: list[date] = []
+    row = {
+        "docID": "S100TOYOTA",
+        "edinetCode": "E02144",
+        "secCode": "72030",
+        "filerName": "トヨタ自動車株式会社",
+        "docDescription": "有価証券報告書－第121期(2024/04/01－2025/03/31)",
+        "submitDateTime": center.isoformat(),
+        "formCode": "030000",
+        "periodEnd": "2025-03-31",
+    }
+
+    def document_rows(target_date: date) -> list[dict]:
+        calls.append(target_date)
+        return [row] if target_date == center else []
+
+    monkeypatch.setattr(client, "_document_rows", document_rows)
+
+    candidates = client.list_filings(
+        company,
+        target=ReportTarget.annual_report,
+        forms=["yuho"],
+        report_year=2025,
+    )
+
+    assert candidates[0].accession_number == "S100TOYOTA"
+    assert calls == [center]
+
+
+def test_edinet_center_out_dates_cover_window_without_duplicates():
+    dates = EdinetClient._center_out_dates(date(2025, 5, 15), date(2025, 5, 19))
+
+    assert dates[0] == date(2025, 5, 17)
+    assert dates == list(dict.fromkeys(dates))
+    assert set(dates) == {date(2025, 5, day) for day in range(15, 20)}
+
+
 def test_edinet_infers_report_types():
     client = EdinetClient()
 
@@ -138,6 +187,10 @@ def test_edinet_infers_report_types():
     assert client._infer_report_type({"formCode": "043000", "docDescription": "四半期報告書"}) == (
         ReportType.quarterly,
         ReportFamily.quarterly,
+    )
+    assert client._infer_report_type({"formCode": "010002", "docDescription": "変更報告書"}) == (
+        None,
+        ReportFamily.current,
     )
 
 

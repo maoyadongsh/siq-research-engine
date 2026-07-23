@@ -5,8 +5,9 @@ import contextlib
 
 import anyio
 import pytest
-from services import openshell_scope_lifecycle
 from services.openshell_pool_adapter import ResolvedPoolBinding
+
+from services import openshell_scope_lifecycle
 
 
 def test_missing_company_binding_is_started_once_for_concurrent_requests(monkeypatch):
@@ -72,6 +73,98 @@ def test_context_without_resolved_company_does_not_start_sandbox(monkeypatch):
     binding = anyio.run(manager.ensure_binding, {})
 
     assert binding.target == "host"
+
+
+def test_registered_binding_is_probed_once_then_uses_short_health_cache(monkeypatch):
+    manager = openshell_scope_lifecycle.OpenShellScopeLifecycleManager()
+    binding = ResolvedPoolBinding(
+        target="openshell",
+        market="cn",
+        company="600104-上汽集团",
+        run_id="canary-0123456789ab",
+    )
+    probes: list[str] = []
+
+    class FakeAdapter:
+        def resolve_binding(self, _context):
+            return binding
+
+    manager.adapter = FakeAdapter()
+    monkeypatch.setattr(
+        manager,
+        "_probe_binding",
+        lambda current: probes.append(current.run_id) or True,
+    )
+    monkeypatch.setattr(manager, "_ensure_sweeper", lambda: None)
+    monkeypatch.setattr(openshell_scope_lifecycle.time, "monotonic", lambda: 100.0)
+
+    async def run_case():
+        return await manager.ensure_binding({}), await manager.ensure_binding({})
+
+    first, second = anyio.run(run_case)
+
+    assert first == second == binding
+    assert probes == ["canary-0123456789ab"]
+
+
+def test_wide_pilot_probe_error_marks_registered_binding_unhealthy(monkeypatch):
+    manager = openshell_scope_lifecycle.OpenShellScopeLifecycleManager()
+    binding = ResolvedPoolBinding(
+        target="openshell",
+        market="cn",
+        company="600104-上汽集团",
+        run_id="canary-0123456789ab",
+    )
+
+    class FakeLifecycleManager:
+        def __init__(self, *, project_root):
+            assert project_root == manager.project_root
+
+        def probe(self, **_kwargs):
+            raise openshell_scope_lifecycle.WidePilotError("canary_pool_runtime_degraded")
+
+    monkeypatch.setattr(openshell_scope_lifecycle, "PoolLifecycleManager", FakeLifecycleManager)
+
+    assert manager._probe_binding(binding) is False
+
+
+def test_degraded_registered_binding_is_replaced_before_routing(monkeypatch):
+    manager = openshell_scope_lifecycle.OpenShellScopeLifecycleManager()
+    replaced = False
+    stale = ResolvedPoolBinding(
+        target="openshell",
+        market="cn",
+        company="600104-上汽集团",
+        run_id="canary-111111111111",
+        base="http://127.0.0.1:28652/v1/runs",
+    )
+    healthy = ResolvedPoolBinding(
+        target="openshell",
+        market="cn",
+        company="600104-上汽集团",
+        run_id="canary-222222222222",
+        base="http://127.0.0.1:28653/v1/runs",
+    )
+
+    class FakeAdapter:
+        def resolve_binding(self, _context):
+            return healthy if replaced else stale
+
+    def fake_replace(current):
+        nonlocal replaced
+        assert current == stale
+        replaced = True
+
+    manager.adapter = FakeAdapter()
+    monkeypatch.setattr(manager, "_probe_binding", lambda current: current == healthy)
+    monkeypatch.setattr(manager, "_replace_binding", fake_replace)
+    monkeypatch.setattr(manager, "_ensure_sweeper", lambda: None)
+
+    binding = anyio.run(manager.ensure_binding, {})
+
+    assert binding == healthy
+    assert replaced is True
+    assert manager._recently_verified(healthy)
 
 
 def test_start_binding_retries_the_next_pool_port(monkeypatch):

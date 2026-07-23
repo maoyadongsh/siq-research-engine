@@ -9,7 +9,11 @@ from datetime import datetime
 from pathlib import Path
 
 
-DEFAULT_WIKI_ROOT = Path(os.environ.get("WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki"))
+DEFAULT_WIKI_ROOT = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or os.environ.get("WIKI_ROOT")
+    or Path(__file__).resolve().parents[5] / "data" / "wiki"
+)
 COMPANY_RE = re.compile(r"^\d{6}-.+")
 SAFE_FILENAME_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._-]+")
 
@@ -48,7 +52,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Save a legal opinion HTML into WIKI_ROOT/companies/<company>/legal/")
     parser.add_argument("company", help="公司目录名或股票代码，例如 000333-美的集团 或 000333")
     parser.add_argument("html_file", help="已生成的 HTML 文件路径")
-    parser.add_argument("--wiki-root", default=str(DEFAULT_WIKI_ROOT), help="Wiki 根目录，默认读取 WIKI_ROOT，未设置则为 /home/maoyd/siq-research-engine/data/wiki")
+    parser.add_argument("--wiki-root", default=str(DEFAULT_WIKI_ROOT), help="Wiki 根目录，默认读取 SIQ_WIKI_ROOT/WIKI_ROOT")
     parser.add_argument("--filename", help="保存后的文件名，默认 legal_opinion_<timestamp>.html")
     args = parser.parse_args()
 

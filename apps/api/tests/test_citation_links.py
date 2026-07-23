@@ -636,6 +636,66 @@ def test_sec_citation_drops_foreign_pdf_locators_but_keeps_filing_anchor(monkeyp
     assert "/api/source/" not in cleaned
 
 
+def test_sec_citation_normalizes_model_aliases_and_adds_openable_filing_link(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    task_id = "dedda13a-f79e-4e80-a5ed-393aa554c1fe"
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    text = (
+        "[S1] source_type=wiki_metrics / us_sec_xbrl_fact, file=metrics/latest/financial_data.json, "
+        "metric=Revenue, period=2025-09-27, xbrl_tag=us-gaap:Revenue, anchor=f-78, "
+        f"url={sec_url}, task_id={task_id}, pdf_page=262, table_index=162, "
+        f"[打开PDF定位页262](/api/pdf_page/{task_id}/262)"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "source_type=wiki_metrics" in cleaned
+    assert "evidence_source_type=sec_xbrl_fact" in cleaned
+    assert "source_url=" + sec_url in cleaned
+    assert "source_anchor=f-78" in cleaned
+    assert f"[打开披露原文]({sec_url}#f-78)" in cleaned
+    assert "task_id=" not in cleaned
+    assert "pdf_page=" not in cleaned
+    assert "table_index=" not in cleaned
+    assert "/api/pdf_page/" not in cleaned
+
+
+def test_sec_html_table_alias_uses_official_url_and_html_anchor(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    text = (
+        "[2] source_type=us_sec_note_table, file=tables/table_0008.json, "
+        f"html_anchor=table_0016, url={sec_url}"
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    assert "source_type=sec_html_table" in cleaned
+    assert "source_anchor=table_0016" in cleaned
+    assert "source_url=" + sec_url in cleaned
+    assert f"[打开披露原文]({sec_url}#table_0016)" in cleaned
+    assert "/api/pdf_page/" not in cleaned
+
+
+def test_sec_html_table_alias_borrows_unique_filing_url_from_same_trace(monkeypatch):
+    _disable_local_enricher(monkeypatch)
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    text = "\n".join(
+        (
+            f"[1] source_type=us_sec_xbrl_fact, anchor=f-78, url={sec_url}",
+            "[2] source_type=us_sec_note_table, file=tables/table_0008.json, html_anchor=table_0016",
+        )
+    )
+
+    cleaned = append_missing_pdf_source_links(text)
+
+    table_line = next(line for line in cleaned.splitlines() if line.startswith("[2]"))
+    assert "source_type=sec_html_table" in table_line
+    assert "source_anchor=table_0016" in table_line
+    assert "source_url=" + sec_url in table_line
+    assert f"[打开披露原文]({sec_url}#table_0016)" in table_line
+
+
 def test_cash_flow_document_link_citation_is_corrected_to_main_statement():
     text = """请评估上汽集团现金流。
 

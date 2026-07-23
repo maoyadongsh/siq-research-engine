@@ -19,6 +19,26 @@ WIKI_ROOT = str(CONFIG_WIKI_ROOT)
 WIKI_ROOT_PATH = CONFIG_WIKI_ROOT.resolve()
 COMPANIES_DIR = os.path.join(WIKI_ROOT, "companies")
 ALLOWED_EXT = {".html", ".json", ".md", ".csv", ".txt", ".png", ".jpg", ".jpeg", ".svg"}
+WIKI_FILE_SECURITY_HEADERS = {
+    "Cache-Control": "no-store, private, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+}
+WIKI_ACTIVE_CONTENT_CSP = (
+    "sandbox allow-popups allow-downloads; "
+    "default-src 'none'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "style-src 'unsafe-inline'; "
+    "base-uri 'none'; "
+    "form-action 'none'; "
+    "frame-ancestors 'self'"
+)
 LIST_CACHE_TTL_SECONDS = 5.0
 RECENT_CACHE_TTL_SECONDS = 5.0
 REPORT_ALIAS_FILENAMES = {"latest.html"}
@@ -319,9 +339,11 @@ def _wiki_result_url(company_dir: str, url_part: str, filename: str) -> str:
 
 def _no_cache_file_response(path: str) -> FileResponse:
     response = FileResponse(path)
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
+    response.headers.update(WIKI_FILE_SECURITY_HEADERS)
+    if Path(path).suffix.lower() in {".html", ".svg"}:
+        # Generated reports remain viewable in the existing same-origin iframe,
+        # but active content cannot execute with the application's privileges.
+        response.headers["Content-Security-Policy"] = WIKI_ACTIVE_CONTENT_CSP
     return response
 
 

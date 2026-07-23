@@ -4,7 +4,6 @@ import os
 import re
 import stat
 import tempfile
-from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
@@ -52,7 +51,10 @@ MINIMAX_PROVIDER = "minimax-cn"
 STEPFUN_MODEL = "step-3.7-flash"
 STEPFUN_PROVIDER_NAME = "StepFun Step-3.7 Flash"
 STEPFUN_PROVIDER = _custom_provider_slug(STEPFUN_PROVIDER_NAME)
-STEPFUN_BASE_URL = "https://api.stepfun.com/v1"
+STEPFUN_BASE_URL = os.environ.get(
+    "SIQ_STEPFUN_LLM_BASE_URL",
+    "https://api.stepfun.com/v1",
+).strip().rstrip("/")
 STEPFUN_CONTEXT_LENGTH = 200000
 STEPFUN_TEMPERATURE = 0.2
 STEPFUN_KEY_ENV = "SIQ_STEPFUN_LLM_API_KEY"

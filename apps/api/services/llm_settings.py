@@ -232,6 +232,16 @@ def _apply_cloud_model_preset_extras(provider: dict[str, Any]) -> dict[str, Any]
             provider["chatTemplateKwargs"] = deepcopy(preset.get("chatTemplateKwargs") or {})
             if str(preset.get("baseUrl") or "").startswith("hermes://"):
                 provider["apiKey"] = ""
+            elif not str(provider.get("apiKey") or "").strip():
+                # StepFun credentials are injected by start_all.sh and must remain
+                # usable when the UI switches away from the persisted Hermes preset.
+                env_key = _env_first(
+                    "SIQ_STEPFUN_LLM_API_KEY",
+                    "STEPFUN_API_KEY",
+                    "STEP_API_KEY",
+                )
+                if env_key:
+                    provider["apiKey"] = env_key
             break
     return provider
 
@@ -285,7 +295,7 @@ def _public_local_model_presets() -> dict[str, Any]:
 
 def _public_cloud_model_presets() -> dict[str, Any]:
     return {
-        key: _public_provider(_sanitize_provider(deepcopy(value)))
+        key: _public_provider(_apply_cloud_model_preset_extras(_sanitize_provider(deepcopy(value))))
         for key, value in CLOUD_MODEL_PRESETS.items()
     }
 

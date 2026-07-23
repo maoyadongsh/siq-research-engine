@@ -2,6 +2,7 @@ from services.agent_runtime_financial_evidence import (
     _decimal,
     _period,
     build_trusted_calculation_evidence,
+    build_trusted_sec_dimension_evidence,
     build_trusted_statement_row_evidence,
     render_deterministic_calculation_pack,
 )
@@ -797,3 +798,51 @@ def test_trusted_statement_rows_preserve_sec_periods_and_external_locators():
     assert all(item["source_url"] == source_url for item in revenue)
     assert {item["source_anchor"] for item in revenue} == {"f-72", "f-73", "f-74"}
     assert len([item for item in evidence if item["metric"] == "operating_revenue_absolute_change"]) == 2
+
+
+def test_trusted_sec_dimension_evidence_keeps_normalized_value_at_base_usd():
+    identity = {
+        "market": "US",
+        "company_id": "US:0001045810",
+        "filing_id": "US:0001045810:0001045810-26-000021",
+        "parse_run_id": "run-nvda-2026",
+    }
+    result = {
+        **identity,
+        "report_id": "2026-10-K-0001045810-26-000021",
+        "period": "2026-01-25",
+        "facts_file": "reports/2026-10-K/xbrl/facts_raw.json",
+        "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm",
+        "rows": [
+            {
+                "region": "美国",
+                "region_en": "United States",
+                "member": "country:US",
+                "metric": "regional_revenue_us",
+                "canonical_name": "regional_revenue_us",
+                "metric_name": "美国地区营收",
+                "period": "2026-01-25",
+                "value": "149617000000",
+                "unit": "USD",
+                "currency": "USD",
+                "scale": "6",
+                "evidence_id": "fact-us",
+                "quote": "149,617",
+                "source_type": "sec_xbrl_fact",
+                "evidence_source_type": "sec_xbrl_fact",
+                "source_url": "https://www.sec.gov/Archives/edgar/data/1045810/filing.htm",
+                "source_anchor": "f-1177",
+                "xbrl_tag": "us-gaap:Revenues",
+            }
+        ],
+    }
+
+    evidence = build_trusted_sec_dimension_evidence(result, expected_identity=identity)
+
+    assert len(evidence) == 1
+    assert evidence[0]["metric"] == "regional_revenue_us"
+    assert evidence[0]["value"] == "149617000000"
+    assert evidence[0]["scale"] is None
+    assert evidence[0]["display_billion"] == "149.617 billion USD"
+    assert evidence[0]["display_100m"] == "1,496.17 亿美元"
+    assert evidence[0]["file"].endswith("xbrl/facts_raw.json")

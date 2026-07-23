@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 MISSING_TOKENS = {"", "none", "null", "n/a", "na", "nan", "unknown", "未返回"}
 
 

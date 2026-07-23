@@ -10,14 +10,45 @@ export interface MessageRendererProps {
   streaming?: boolean
   variant?: 'assistant' | 'user'
   auditTraceApiPrefix?: string
+  auditTraceId?: string
 }
 
 export type TextBlock =
   | { type: 'markdown'; lines: string[] }
   | { type: 'code'; language: string; code: string }
 
-export function splitFencedCode(content: string): TextBlock[] {
+export function unwrapRuntimeCitationFences(content: string) {
   const lines = content.replace(/\r\n?/g, '\n').split('\n')
+  const output: string[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    if (!/^```[\w+-]*\s*$/.test(lines[index])) {
+      output.push(lines[index])
+      index += 1
+      continue
+    }
+
+    const closingIndex = lines.findIndex((line, candidateIndex) => candidateIndex > index && /^```\s*$/.test(line))
+    if (closingIndex < 0) {
+      output.push(...lines.slice(index))
+      break
+    }
+
+    const fencedLines = lines.slice(index + 1, closingIndex)
+    if (hasRuntimeCitationLines(fencedLines.join('\n'))) {
+      output.push(...fencedLines)
+    } else {
+      output.push(...lines.slice(index, closingIndex + 1))
+    }
+    index = closingIndex + 1
+  }
+
+  return output.join('\n')
+}
+
+export function splitFencedCode(content: string): TextBlock[] {
+  const lines = unwrapRuntimeCitationFences(content).split('\n')
   const blocks: TextBlock[] = []
   let markdownLines: string[] = []
   let codeLines: string[] = []
@@ -185,6 +216,13 @@ export function isMarkdownCodeLanguage(language: string) {
 export function hasMarkdownTable(content: string) {
   const lines = content.replace(/\r\n?/g, '\n').split('\n')
   return lines.some((_, index) => isLikelyTableStart(lines, index))
+}
+
+export function hasRuntimeCitationLines(content: string) {
+  return content
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .some((line) => /^\[(?:[A-Z]+)?\d+\]\s+source_type=/i.test(line.trim()))
 }
 
 export function hasHtmlTable(content: string) {
@@ -364,6 +402,19 @@ export function parseCitationActions(item: string) {
       actions.push({ label, href, kind })
     }
   }
+  const secUrlPattern = 'https://(?:www\\.)?sec\\.gov/[^\\s)\\]}>，。；;,"\']+'
+  const explicitTarget = item.match(new RegExp(`打开披露原文\\s*=\\s*(${secUrlPattern})`, 'i'))?.[1]
+  const sourceUrl = item.match(new RegExp(`\\b(?:source_url|url)=(${secUrlPattern})`, 'i'))?.[1]
+  const sourceAnchor = item.match(/\b(?:source_anchor|html_anchor|anchor)=([^,，。;；\s]+)/i)?.[1]
+  const secTarget = explicitTarget || (
+    sourceUrl
+      ? sourceAnchor && sourceAnchor !== '未返回' && !sourceUrl.includes('#')
+        ? `${sourceUrl}#${sourceAnchor}`
+        : sourceUrl
+      : ''
+  )
+  if (secTarget) addAction('打开披露原文', secTarget)
+
   const text = item.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*|#[^)\s]*)\)/g, (match, label, href) => {
     if (
       /\/api\/(?:pdf_page|source|documents\/source|documents\/artifact)\//.test(href) ||
@@ -374,6 +425,10 @@ export function parseCitationActions(item: string) {
     }
     return match
   })
+    .replace(/(打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*|打开披露原文)\s*[:：=]\s*(https?:\/\/[^\s，,。；;]+|\/api\/(?:pdf_page|source)\/[^\s，,。；;]+)/g, (_match, label, href) => {
+      addAction(label, href)
+      return ''
+    })
     .replace(/(?:打开PDF页|打开PDF定位页[0-9]*|查看页来源|查看定位页[0-9]*来源|查看表格|查看可读表格[0-9]*)\((https?:\/\/[^)\s]+|\/api\/(?:pdf_page|source)\/[^)\s]+)\)/g, (match, href) => {
       const label = match.slice(0, match.indexOf('('))
       addAction(label, href)

@@ -10,7 +10,14 @@ from typing import Any
 import httpx
 
 from market_report_finder_service.core.config import settings
-from market_report_finder_service.models.schemas import CompanyEntity, FilingCandidate, Market, ReportFamily, ReportTarget, ReportType
+from market_report_finder_service.models.schemas import (
+    CompanyEntity,
+    FilingCandidate,
+    Market,
+    ReportFamily,
+    ReportTarget,
+    ReportType,
+)
 
 
 class EdinetClient:
@@ -89,10 +96,12 @@ class EdinetClient:
         if report_year and allowed == {ReportType.annual}:
             seen_dates: set[date] = set()
             for start, end in self._company_filing_windows(company, allowed=allowed, report_year=report_year):
-                candidates = self._candidates_from_rows(
+                candidates = self._scan_window_for_first_match(
                     company,
-                    self._scan_date_range(start, end, seen_dates=seen_dates),
-                    allowed,
+                    start,
+                    end,
+                    allowed=allowed,
+                    seen_dates=seen_dates,
                 )
                 if candidates:
                     return self._dedupe_candidates(candidates)
@@ -117,6 +126,7 @@ class EdinetClient:
             report_type, family = self._infer_report_type(row)
             if report_type not in allowed:
                 continue
+            assert report_type is not None
             candidate = self._build_candidate(company, row, report_type, family)
             if candidate:
                 candidates.append(candidate)
@@ -196,6 +206,49 @@ class EdinetClient:
                 seen_dates.add(target_date)
             rows.extend(self._document_rows(target_date))
         return rows
+
+    def _scan_window_for_first_match(
+        self,
+        company: CompanyEntity,
+        start: date,
+        end: date,
+        *,
+        allowed: set[ReportType],
+        seen_dates: set[date] | None = None,
+    ) -> list[FilingCandidate]:
+        """Search likely filing dates first and stop once the issuer is found.
+
+        EDINET exposes a date-based document catalog, so scanning a full filing
+        window before filtering turns a normal lookup into a multi-minute
+        request. Annual securities reports are concentrated around the middle
+        of the filing window; center-out ordering preserves the full fallback
+        range while making common issuers fast.
+        """
+        end = min(end, date.today())
+        if end < start:
+            return []
+        dates = self._center_out_dates(start, end)
+        for target_date in dates:
+            if seen_dates is not None:
+                if target_date in seen_dates:
+                    continue
+                seen_dates.add(target_date)
+            candidates = self._candidates_from_rows(
+                company,
+                self._document_rows(target_date),
+                allowed,
+            )
+            if candidates:
+                return candidates
+        return []
+
+    @staticmethod
+    def _center_out_dates(start: date, end: date) -> list[date]:
+        days = (end - start).days + 1
+        # Tie-break toward the earlier day for even-sized ranges. This keeps
+        # the result deterministic and avoids duplicate dates.
+        offsets = sorted(range(days), key=lambda offset: (abs(2 * offset - (days - 1)), offset))
+        return [start + timedelta(days=offset) for offset in offsets]
 
     def _company_filing_windows(
         self,
@@ -373,7 +426,7 @@ class EdinetClient:
         return mapping.get(normalized)
 
     @classmethod
-    def _infer_report_type(cls, row: dict) -> tuple[ReportType, ReportFamily]:
+    def _infer_report_type(cls, row: dict) -> tuple[ReportType | None, ReportFamily]:
         form_code = str(row.get("formCode") or "")
         title = str(row.get("docDescription") or "").lower()
         if form_code in cls.ANNUAL_FORM_CODES or "有価証券報告書" in title:
@@ -382,7 +435,7 @@ class EdinetClient:
             return ReportType.quarterly, ReportFamily.quarterly
         if form_code in cls.SEMIANNUAL_FORM_CODES or "半期報告書" in title:
             return ReportType.semiannual, ReportFamily.semiannual
-        return ReportType.annual, ReportFamily.annual
+        return None, ReportFamily.current
 
     @staticmethod
     def _score_company_row(

@@ -2,7 +2,7 @@ import { CodeBlock } from './renderers/CodeBlock'
 import { MarkdownBlocks } from './renderers/MarkdownBlocks'
 import { splitFencedCode, type MessageRendererProps } from './renderers/rendererUtils'
 
-export default function MessageRenderer({ content, streaming = false, variant = 'assistant', auditTraceApiPrefix = '/api' }: MessageRendererProps) {
+export default function MessageRenderer({ content, streaming = false, variant = 'assistant', auditTraceApiPrefix = '/api', auditTraceId }: MessageRendererProps) {
   const blocks = splitFencedCode(content)
 
   return (
@@ -20,7 +20,7 @@ export default function MessageRenderer({ content, streaming = false, variant = 
           )
         }
 
-        return <MarkdownBlocks key={index} lines={block.lines} streaming={streaming} auditTraceApiPrefix={auditTraceApiPrefix} />
+        return <MarkdownBlocks key={index} lines={block.lines} streaming={streaming} auditTraceApiPrefix={auditTraceApiPrefix} auditTraceId={auditTraceId} />
       })}
     </div>
   )

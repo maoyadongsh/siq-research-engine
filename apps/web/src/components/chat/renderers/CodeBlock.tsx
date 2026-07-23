@@ -3,7 +3,12 @@ import { Check, Copy } from 'lucide-react'
 import { copyText } from '@/lib/clipboard'
 import { MarkdownBlocks } from './MarkdownBlocks'
 import { renderSafeHtmlFragment } from './HtmlTableRenderer'
-import { hasMarkdownTable, hasHtmlTable, isMarkdownCodeLanguage } from './rendererUtils'
+import {
+  hasMarkdownTable,
+  hasHtmlTable,
+  hasRuntimeCitationLines,
+  isMarkdownCodeLanguage,
+} from './rendererUtils'
 
 export interface CodeBlockProps {
   language: string
@@ -15,6 +20,15 @@ export interface CodeBlockProps {
 export function CodeBlock({ language, code, blockIndex }: CodeBlockProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const codeLanguage = language.trim()
+
+  if (hasRuntimeCitationLines(code) && (isMarkdownCodeLanguage(codeLanguage) || codeLanguage === 'text')) {
+    return (
+      <MarkdownBlocks
+        lines={code.replace(/\r\n?/g, '\n').split('\n')}
+        streaming={false}
+      />
+    )
+  }
 
   if (hasMarkdownTable(code) && (isMarkdownCodeLanguage(codeLanguage) || codeLanguage === 'text')) {
     return (

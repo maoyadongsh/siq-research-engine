@@ -25,7 +25,7 @@ toolsets:
 terminal:
   timeout: 300
 
-workdir: /home/maoyd/siq-research-engine
+workdir: ${SIQ_PROJECT_ROOT}
 
 delegation:
   model: MiniMax-M3

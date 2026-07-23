@@ -1277,6 +1277,59 @@ def test_sec_xbrl_reference_sanitizer_strips_pdf_locators_without_trusted_eviden
     assert "/api/pdf_page/" not in sanitized
 
 
+def test_sec_xbrl_reference_sanitizer_rebuilds_malformed_alias_from_trusted_evidence():
+    sec_url = "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm"
+    reply = "\n".join(
+        (
+            "## 引用来源",
+            "[S1] source_type=wiki_metrics / sec_xbrl_fact,",
+            "[S2] source_type=us_sec_note_table, file=tables/table_0008.json, html_anchor=table_0016",
+            "[S3] source_type=us_sec_validation, file=metrics/latest/financial_checks.json, overall_status=pass",
+        )
+    )
+    trusted = (
+        {
+            "source_type": "wiki_metrics",
+            "file": "reports/2025-10-K-0000320193-25-000079/metrics/financial_data.json",
+            "metric": "operating_revenue",
+            "metric_name": "Revenue",
+            "period": "2025-09-27",
+            "value": "416161000000",
+            "raw_value": "416161000000",
+            "unit": "USD",
+            "currency": "USD",
+            "market": "US",
+            "company_id": "US:0000320193",
+            "filing_id": "US:0000320193:0000320193-25-000079",
+            "parse_run_id": "run-aapl-2025",
+            "evidence_id": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+            "evidence_source_type": "sec_xbrl_fact",
+            "source_url": sec_url,
+            "source_anchor": "f-78",
+            "xbrl_tag": "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+        },
+    )
+
+    sanitized = citations.sanitize_sec_xbrl_reference_lines(
+        reply,
+        trusted,
+        table_source_links=lambda _task_id, _pdf_page, _table_index: "",
+    )
+
+    assert sanitized.count("source_type=wiki_metrics") == 1
+    assert "evidence_source_type=sec_xbrl_fact" in sanitized
+    assert "source_url=" + sec_url in sanitized
+    assert "source_anchor=f-78" in sanitized
+    assert f"[打开披露原文]({sec_url}#f-78)" in sanitized
+    assert "source_type=sec_html_table" in sanitized
+    assert "source_anchor=table_0016" in sanitized
+    assert f"[打开披露原文]({sec_url}#table_0016)" in sanitized
+    assert "us_sec_validation" not in sanitized
+    assert "task_id=" not in sanitized
+    assert "pdf_page=" not in sanitized
+    assert "/api/pdf_page/" not in sanitized
+
+
 def test_three_statement_sec_primary_data_ref_uses_html_anchor_without_pdf_locator():
     sec_url = "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
 

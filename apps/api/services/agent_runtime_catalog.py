@@ -397,7 +397,11 @@ def _alias_match_score(text: str, normalized_text: str, alias: str, normalize_te
     if not normalized_alias:
         return 0
     alias_text = alias.strip().casefold()
-    if alias_text.isalnum() and len(alias_text) <= 6:
+    # Boundary matching is for short ASCII tickers/codes. Python considers
+    # CJK names alphanumeric too; treating 英伟达 as a ticker makes
+    # "英伟达2026" fail because the following year digit violates the ASCII
+    # look-ahead boundary.
+    if re.fullmatch(r"[a-z0-9]+", alias_text) and len(alias_text) <= 6:
         pattern = re.compile(rf"(?<![a-z0-9]){re.escape(alias_text)}(?![a-z0-9])", re.IGNORECASE)
         if not pattern.search(text):
             return 0

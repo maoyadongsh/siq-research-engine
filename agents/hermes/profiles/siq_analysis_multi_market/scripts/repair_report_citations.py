@@ -19,7 +19,12 @@ from typing import Any
 from urllib.parse import urlsplit
 
 
-SHARED_SCRIPT_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
+PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT") or Path(__file__).resolve().parents[5])
+SHARED_SCRIPT_DIR = Path(
+    os.environ.get("SIQ_HERMES_PROFILES_ROOT")
+    or os.environ.get("HERMES_PROFILES_ROOT")
+    or PROJECT_ROOT / "agents" / "hermes" / "profiles"
+) / "shared" / "scripts"
 if str(SHARED_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SHARED_SCRIPT_DIR))
 
@@ -33,7 +38,7 @@ PDF_VALUE_RE = re.compile(r"\bpdf_page(?:_number)?=([0-9]+)\b")
 MD_LINE_RE = re.compile(r"\bmd_line=([0-9]+|未返回)\b")
 MARKDOWN_LINK_RE = re.compile(r"\[([^\[\]]+?)\]\(([^()\s]+?)\)")
 MARKDOWN_LINK_WITH_PREFIX_RE = re.compile(r"([，,]\s*)?(\[([^\[\]]+?)\]\(((?:https?://[^/\s)]+)?/api/(?:pdf_page|source)/[^()\s]+?)\))")
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 
 def public_api_url(path: str) -> str:

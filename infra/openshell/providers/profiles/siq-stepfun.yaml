@@ -22,5 +22,11 @@ endpoints:
       - allow:
           method: POST
           path: /v1/chat/completions
+      - allow:
+          method: GET
+          path: /step_plan/v1/models
+      - allow:
+          method: POST
+          path: /step_plan/v1/chat/completions
 binaries:
   - /opt/siq/hermes/venv/bin/python

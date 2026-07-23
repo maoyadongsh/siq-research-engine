@@ -1,5 +1,4 @@
 import importlib
-import os
 import re
 import sys
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -50,7 +49,7 @@ PRINTED_PAGE_RE = re.compile(
     r"[^,，。.;；\n]+)*)"
 )
 TABLE_INDEX_RE = re.compile(r"\btable_index=([0-9]+(?:\s*[,，]\s*[0-9]+)*)\b")
-CITATION_LINE_RE = re.compile(r"^\s*(\[(?:D)?[0-9]+\]).*$", re.IGNORECASE)
+CITATION_LINE_RE = re.compile(r"^\s*(\[(?:D|S|C)?[0-9]+\]).*$", re.IGNORECASE)
 MARKDOWN_API_LINK_RE = re.compile(
     r"\]\((?P<url>(?:https?://[^)\s]+)?/api/(?:pdf_page|source)/[^)\s]+)\)"
 )
@@ -66,6 +65,26 @@ SOURCE_TYPE_FIELD_RE = re.compile(r"\bsource_type=([^,，。;；\n]+)")
 EVIDENCE_SOURCE_TYPE_FIELD_RE = re.compile(r"\bevidence_source_type=([^,，。;；\n]+)")
 FILE_FIELD_RE = re.compile(r"\bfile=([^,，。;；\n]+)")
 SEC_GOV_URL_RE = re.compile(r"https://(?:www\.)?sec\.gov/", re.IGNORECASE)
+SEC_URL_FIELD_RE = re.compile(
+    r"\b(?:source_url|url)=(https://(?:www\.)?sec\.gov/[^,，。;；\s]+)",
+    re.IGNORECASE,
+)
+SEC_SOURCE_TYPE_ALIASES = {
+    "sec_xbrl_fact": "sec_xbrl_fact",
+    "us_sec_xbrl_fact": "sec_xbrl_fact",
+    "us_sec_ixbrl_fact": "sec_xbrl_fact",
+    "sec_html_table": "sec_html_table",
+    "sec_note_table": "sec_html_table",
+    "us_sec_html_table": "sec_html_table",
+    "us_sec_note_table": "sec_html_table",
+    "sec_html_section": "sec_html_section",
+    "us_sec_html_section": "sec_html_section",
+    "us_sec_section": "sec_html_section",
+}
+SEC_VALIDATION_SOURCE_TYPES = {
+    "sec_validation",
+    "us_sec_validation",
+}
 NON_DOCUMENT_SOURCE_TYPES = {
     "system",
     "meta",
@@ -73,6 +92,7 @@ NON_DOCUMENT_SOURCE_TYPES = {
     "runtime_meta",
     "runtime_config",
     "system_meta",
+    *SEC_VALIDATION_SOURCE_TYPES,
 }
 NON_DOCUMENT_FILES = {
     "meta",
@@ -105,7 +125,9 @@ PDF_DOCUMENT_LOCATOR_FIELDS = (
 
 
 def _public_origin() -> str:
-    return (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
+    from services.runtime_security import public_origin_from_env
+
+    return public_origin_from_env()
 
 
 def _source_task_id(path: str) -> str | None:
@@ -176,10 +198,35 @@ def _field_value(line: str, pattern: re.Pattern[str]) -> str:
     return match.group(1).strip().strip("`\"'").casefold() if match else ""
 
 
+def _source_type_tokens(value: str) -> tuple[str, ...]:
+    return tuple(
+        token
+        for token in re.split(r"[\s/|+]+", str(value or "").strip().casefold())
+        if token
+    )
+
+
+def canonical_sec_source_type(value: str) -> str:
+    """Return the canonical SEC evidence type from model-authored aliases."""
+
+    for token in _source_type_tokens(value):
+        canonical = SEC_SOURCE_TYPE_ALIASES.get(token)
+        if canonical:
+            return canonical
+    return ""
+
+
+def is_sec_validation_source_type(value: str) -> bool:
+    return any(token in SEC_VALIDATION_SOURCE_TYPES for token in _source_type_tokens(value))
+
+
 def _is_non_document_citation_line(line: str) -> bool:
     source_type = _field_value(line, SOURCE_TYPE_FIELD_RE)
     file_value = _field_value(line, FILE_FIELD_RE)
-    return source_type in NON_DOCUMENT_SOURCE_TYPES or file_value in NON_DOCUMENT_FILES
+    return (
+        any(token in NON_DOCUMENT_SOURCE_TYPES for token in _source_type_tokens(source_type))
+        or file_value in NON_DOCUMENT_FILES
+    )
 
 
 def _is_sec_citation_line(line: str) -> bool:
@@ -187,9 +234,65 @@ def _is_sec_citation_line(line: str) -> bool:
     evidence_source_type = _field_value(line, EVIDENCE_SOURCE_TYPE_FIELD_RE)
     return bool(
         SEC_GOV_URL_RE.search(line)
-        or source_type.startswith("sec_")
-        or evidence_source_type.startswith("sec_")
+        or canonical_sec_source_type(source_type)
+        or canonical_sec_source_type(evidence_source_type)
     )
+
+
+def _replace_source_field(line: str, field: str, value: str) -> str:
+    pattern = re.compile(
+        rf"(?P<prefix>(?<![A-Za-z0-9_])){re.escape(field)}=[^,，。;；\n]+",
+        re.IGNORECASE,
+    )
+    return pattern.sub(lambda match: f"{match.group('prefix')}{field}={value}", line, count=1)
+
+
+def _canonicalize_sec_source_type(line: str) -> str:
+    source_type = _field_value(line, SOURCE_TYPE_FIELD_RE)
+    canonical = canonical_sec_source_type(source_type)
+    if not canonical:
+        return line
+    tokens = _source_type_tokens(source_type)
+    non_sec_tokens = [token for token in tokens if token not in SEC_SOURCE_TYPE_ALIASES]
+    if non_sec_tokens:
+        line = _replace_source_field(line, "source_type", non_sec_tokens[0])
+        if not EVIDENCE_SOURCE_TYPE_FIELD_RE.search(line):
+            source_match = SOURCE_TYPE_FIELD_RE.search(line)
+            if source_match:
+                line = line[: source_match.end()] + f", evidence_source_type={canonical}" + line[source_match.end() :]
+        return line
+    return _replace_source_field(line, "source_type", canonical)
+
+
+def _canonicalize_sec_locator_fields(line: str, *, fallback_sec_url: str = "") -> str:
+    cleaned = _canonicalize_sec_source_type(line)
+    if not re.search(r"\bsource_url=", cleaned, re.IGNORECASE):
+        cleaned = re.sub(r"(?<![A-Za-z0-9_])url=", "source_url=", cleaned, count=1, flags=re.IGNORECASE)
+    if not re.search(r"\bsource_anchor=", cleaned, re.IGNORECASE):
+        cleaned = re.sub(
+            r"(?<![A-Za-z0-9_])(?:html_anchor|anchor)=",
+            "source_anchor=",
+            cleaned,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    canonical_type = canonical_sec_source_type(_field_value(cleaned, SOURCE_TYPE_FIELD_RE))
+    has_anchor = re.search(r"\bsource_anchor=[^,，。;；\s]+", cleaned, re.IGNORECASE)
+    if (
+        fallback_sec_url
+        and canonical_type in {"sec_html_table", "sec_html_section"}
+        and has_anchor
+        and not re.search(r"\bsource_url=", cleaned, re.IGNORECASE)
+    ):
+        cleaned = _append_inline_links(cleaned, [f"source_url={fallback_sec_url}"])
+    source_url_match = re.search(r"\bsource_url=(https://(?:www\.)?sec\.gov/[^,，。;；\s]+)", cleaned, re.IGNORECASE)
+    if not source_url_match or "[打开披露原文](" in cleaned:
+        return cleaned
+    source_url = source_url_match.group(1).rstrip(")")
+    anchor_match = re.search(r"\bsource_anchor=([^,，。;；\s/]+)", cleaned, re.IGNORECASE)
+    anchor = anchor_match.group(1).strip().strip("`\"'") if anchor_match else ""
+    target = source_url if not anchor or "#" in source_url else f"{source_url}#{anchor}"
+    return _append_inline_links(cleaned, [f"[打开披露原文]({target})"])
 
 
 def _strip_citation_field(line: str, field: str) -> str:
@@ -211,9 +314,12 @@ def _strip_non_document_citation_locators(line: str) -> str:
     return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
 
 
-def _strip_sec_pdf_locators(line: str) -> str:
+def _strip_sec_pdf_locators(line: str, *, fallback_sec_url: str = "") -> str:
     """SEC HTML/iXBRL evidence never has a local PDF locator."""
-    cleaned = _strip_trace_links(line)
+    cleaned = _canonicalize_sec_locator_fields(
+        _strip_trace_links(line),
+        fallback_sec_url=fallback_sec_url,
+    )
     for field in PDF_DOCUMENT_LOCATOR_FIELDS:
         cleaned = _strip_citation_field(cleaned, field)
     cleaned = re.sub(r"\s+([,，。.;；])", r"\1", cleaned)
@@ -222,12 +328,21 @@ def _strip_sec_pdf_locators(line: str) -> str:
     return re.sub(r"[，,、\s]+$", "", cleaned).rstrip()
 
 
-def strip_sec_pdf_locators(text: str) -> str:
+def strip_sec_pdf_locators(text: str, *, fallback_sec_url: str = "") -> str:
     """Remove impossible PDF affordances from SEC citation lines."""
     if not text:
         return text
+    if not fallback_sec_url:
+        urls = {
+            match.group(1).rstrip(")").split("#", 1)[0]
+            for match in SEC_URL_FIELD_RE.finditer(text)
+        }
+        if len(urls) == 1:
+            fallback_sec_url = next(iter(urls))
     return "\n".join(
-        _strip_sec_pdf_locators(line) if CITATION_LINE_RE.match(line) and _is_sec_citation_line(line) else line
+        _strip_sec_pdf_locators(line, fallback_sec_url=fallback_sec_url)
+        if CITATION_LINE_RE.match(line) and _is_sec_citation_line(line)
+        else line
         for line in text.splitlines()
     )
 

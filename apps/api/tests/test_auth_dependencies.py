@@ -84,6 +84,81 @@ def test_get_current_user_accepts_username_subject(monkeypatch, tmp_path):
     anyio.run(_with_auth_session, tmp_path, run_case)
 
 
+def test_get_current_user_accepts_current_user_token_version(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+
+    async def run_case(session):
+        user = await _add_user(session, username="versioned")
+        user.token_version = 3
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        token = AuthService.create_user_access_token(user)
+
+        resolved = await get_current_user(_credentials(token), session)
+
+        assert resolved.id == user.id
+        assert AuthService.decode_token(token)["ver"] == 3
+
+    anyio.run(_with_auth_session, tmp_path, run_case)
+
+
+def test_get_current_user_rejects_revoked_token_version(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+
+    async def run_case(session):
+        user = await _add_user(session, username="revoked")
+        token = AuthService.create_user_access_token(user)
+        AuthService.bump_token_version(user)
+        session.add(user)
+        await session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(_credentials(token), session)
+
+        assert exc.value.status_code == 401
+        assert exc.value.detail == "Invalid or expired token"
+
+    anyio.run(_with_auth_session, tmp_path, run_case)
+
+
+def test_legacy_token_is_rejected_after_user_security_version_changes(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "local")
+    monkeypatch.delenv("SIQ_AUTH_REQUIRE_TOKEN_VERSION", raising=False)
+
+    async def run_case(session):
+        user = await _add_user(session, username="legacy-revoked")
+        token = AuthService.create_access_token({"sub": user.username})
+        AuthService.bump_token_version(user)
+        session.add(user)
+        await session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(_credentials(token), session)
+
+        assert exc.value.status_code == 401
+
+    anyio.run(_with_auth_session, tmp_path, run_case)
+
+
+def test_production_rejects_legacy_token_without_version(monkeypatch, tmp_path):
+    monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
+    monkeypatch.setenv("SIQ_DEPLOYMENT_PROFILE", "production")
+    monkeypatch.delenv("SIQ_AUTH_REQUIRE_TOKEN_VERSION", raising=False)
+
+    async def run_case(session):
+        user = await _add_user(session, username="legacy-production")
+        token = AuthService.create_access_token({"sub": user.username})
+
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(_credentials(token), session)
+
+        assert exc.value.status_code == 401
+
+    anyio.run(_with_auth_session, tmp_path, run_case)
+
+
 def test_get_current_user_accepts_cookie_token_without_authorization(monkeypatch, tmp_path):
     monkeypatch.setenv("SIQ_AUTH_SECRET_KEY", "auth-deps-secret-with-enough-length")
 

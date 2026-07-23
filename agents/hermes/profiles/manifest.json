@@ -5,8 +5,11 @@
   "profiles": [
     "siq_assistant",
     "siq_analysis",
+    "siq_analysis_multi_market",
     "siq_factchecker",
+    "siq_factchecker_multi_market",
     "siq_tracking",
+    "siq_tracking_multi_market",
     "siq_legal",
     "siq_ic_master_coordinator",
     "siq_ic_chairman",
@@ -25,6 +28,11 @@
       "siq_factchecker",
       "siq_tracking",
       "siq_legal"
+    ],
+    "secondary_market_multi_market": [
+      "siq_analysis_multi_market",
+      "siq_factchecker_multi_market",
+      "siq_tracking_multi_market"
     ],
     "primary_market_ic": [
       "siq_ic_master_coordinator",

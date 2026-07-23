@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 _FINANCIAL_CHART_MODULE_PATH = Path(__file__).resolve().parent / "financial_chart_design.py"
 _financial_chart_spec = importlib.util.spec_from_file_location("siq_financial_chart_design", _FINANCIAL_CHART_MODULE_PATH)
@@ -2167,7 +2167,8 @@ if __name__ == "__main__":
         test_quality,
     )
     
-    output_path = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis/test_v2_renderer.html")
+    output_root = Path(os.environ.get("SIQ_ARTIFACTS_ROOT") or Path(__file__).resolve().parents[5] / "artifacts")
+    output_path = output_root / "hermes" / "siq_analysis" / "test_v2_renderer.html"
     output_path.write_text(result, encoding="utf-8")
     print(f"Test HTML written to: {output_path}")
     print(f"File size: {len(result)} bytes")

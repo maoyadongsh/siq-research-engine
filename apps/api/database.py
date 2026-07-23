@@ -13,6 +13,7 @@ from services.meeting_native_capture_contracts import MEETING_NATIVE_CAPTURE_TAB
 from services.path_config import BACKEND_DATA_ROOT
 from services.runtime_coordination import ActiveRunLease  # noqa: F401
 from services.usage_service import QuotaLedger, QuotaReservation  # noqa: F401
+from services.workflow_queue import WorkflowQueueJob  # noqa: F401
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -28,6 +29,8 @@ DB_PATH = DB_DIR / "agent.db"
 APP_DATABASE_URL = os.getenv("SIQ_APP_DATABASE_URL") or os.getenv("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 DATABASE_URL = APP_DATABASE_URL
 RUNTIME_COORDINATION_MIGRATION = "apps/api/migrations/006_create_runtime_coordination_tables.sql"
+WORKFLOW_QUEUE_MIGRATION = "apps/api/migrations/010_create_workflow_queue_jobs.sql"
+AUTH_TOKEN_VERSION_MIGRATION = "apps/api/migrations/009_add_user_token_version.sql"
 NATIVE_CAPTURE_EPOCH_DIGEST_MIGRATION = (
     "apps/api/migrations/008_add_meeting_native_capture_epoch_manifest_digest.sql"
 )
@@ -38,12 +41,16 @@ RUNTIME_COORDINATION_TABLES = {
     "quota_reservations",
     "durable_background_jobs",
     "ic_task_leases",
+    "workflow_queue_jobs",
 }
 RUNTIME_COORDINATION_CHECKS = {
     ("quota_ledgers", "ck_quota_ledger_nonnegative"),
     ("quota_reservations", "ck_quota_reservation_amount"),
     ("durable_background_jobs", "ck_durable_background_job_attempt"),
     ("ic_task_leases", "ck_ic_task_lease_attempt"),
+}
+WORKFLOW_QUEUE_CHECKS = {
+    ("workflow_queue_jobs", "ck_workflow_queue_job_attempts"),
 }
 RUNTIME_COORDINATION_DEFAULTS = {
     ("active_run_leases", "status"): "'running'",
@@ -56,6 +63,11 @@ RUNTIME_COORDINATION_DEFAULTS = {
     ("ic_task_leases", "status"): "'running'",
     ("ic_task_leases", "attempt"): "1",
     ("ic_task_leases", "history_json"): "'[]'",
+}
+WORKFLOW_QUEUE_DEFAULTS = {
+    ("workflow_queue_jobs", "status"): "'queued'",
+    ("workflow_queue_jobs", "attempt"): "0",
+    ("workflow_queue_jobs", "max_attempts"): "3",
 }
 APP_SCHEMA_INIT_ADVISORY_LOCK_KEY = 1_393_202_607
 APP_SCHEMA_INIT_LOCK_TIMEOUT_SECONDS = max(
@@ -90,6 +102,7 @@ def create_db_and_tables():
         _ensure_chat_message_columns()
         _ensure_quota_reservation_columns()
         _ensure_meeting_columns()
+        _ensure_runtime_coordination_columns()
         _ensure_app_indexes()
         _validate_app_schema()
         _ensure_agent_memory_schema()
@@ -158,7 +171,8 @@ def _ensure_auth_columns():
     if not inspector.has_table("users"):
         return
 
-    columns = {column["name"] for column in inspector.get_columns("users")}
+    columns_by_name = {column["name"]: column for column in inspector.get_columns("users")}
+    columns = set(columns_by_name)
     additions = []
     if "approval_status" not in columns:
         additions.append(("approval_status", "VARCHAR(20) DEFAULT 'approved'"))
@@ -168,13 +182,25 @@ def _ensure_auth_columns():
         additions.append(("approved_by", "INTEGER"))
     if "approved_at" not in columns:
         additions.append(("approved_at", "TIMESTAMP"))
+    # PostgreSQL deployments must run migration 009 before the new image.
+    # Local SQLite databases are upgraded additively for developer usability.
+    if "token_version" not in columns and engine.dialect.name != "postgresql":
+        additions.append(("token_version", "INTEGER NOT NULL DEFAULT 0"))
 
-    if not additions:
+    token_version_needs_backfill = (
+        "token_version" in columns
+        and bool(columns_by_name["token_version"].get("nullable", True))
+        and engine.dialect.name != "postgresql"
+    )
+    if not additions and not token_version_needs_backfill:
         return
 
     with engine.begin() as connection:
         for name, definition in additions:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+        token_version_was_added = any(name == "token_version" for name, _definition in additions)
+        if token_version_was_added or token_version_needs_backfill:
+            connection.execute(text("UPDATE users SET token_version = 0 WHERE token_version IS NULL"))
 
 
 def _ensure_chat_message_columns():
@@ -232,6 +258,39 @@ def _ensure_quota_reservation_columns():
                     "WHERE expires_at IS NULL"
                 )
             )
+
+
+def _ensure_runtime_coordination_columns():
+    """Converge additive lease columns for local SQLite databases only.
+
+    PostgreSQL schema changes are intentionally migration-owned: leaving this
+    as a no-op there keeps production startup fail-closed when migration 006
+    has not been applied.  SQLite is the supported single-process local/test
+    backend and commonly persists an older ``agent.db`` across upgrades, so
+    nullable pool-fencing columns can be added safely in place.
+    """
+
+    if engine.dialect.name == "postgresql":
+        return
+    inspector = inspect(engine)
+    table_name = "active_run_leases"
+    if not inspector.has_table(table_name):
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    additions = {
+        "pool_lease_id": "VARCHAR(80)",
+        "pool_scope_id": "VARCHAR(32)",
+        "pool_binding_run_id": "VARCHAR(80)",
+        "pool_owner_generation": "INTEGER",
+        "pool_tenant_id": "VARCHAR(512)",
+        "pool_user_id": "VARCHAR(512)",
+    }
+    missing = [(name, definition) for name, definition in additions.items() if name not in columns]
+    if not missing:
+        return
+    with engine.begin() as connection:
+        for name, definition in missing:
+            connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {name} {definition}"))
 
 
 def _ensure_meeting_columns():
@@ -323,18 +382,36 @@ def _validate_app_schema():
         if not inspector.has_table(table.name):
             missing.append(f"{table.name}.<table>")
             continue
-        actual_columns = {column["name"] for column in inspector.get_columns(table.name)}
+        inspected_columns = inspector.get_columns(table.name)
+        actual_columns = {column["name"] for column in inspected_columns}
         missing.extend(f"{table.name}.{column.name}" for column in table.columns if column.name not in actual_columns)
+        if (
+            engine.dialect.name == "postgresql"
+            and table.name == "users"
+            and "token_version" in actual_columns
+        ):
+            token_version_column = next(
+                column for column in inspected_columns if column["name"] == "token_version"
+            )
+            if bool(token_version_column.get("nullable", True)):
+                missing.append("users.token_version")
 
     missing.extend(_postgres_runtime_schema_gaps())
 
     if missing:
         missing_text = ", ".join(sorted(missing))
         migration_hints: list[str] = []
-        if any(item.partition(".")[0] in RUNTIME_COORDINATION_TABLES for item in missing):
+        if any(
+            item.partition(".")[0] in RUNTIME_COORDINATION_TABLES - {"workflow_queue_jobs"}
+            for item in missing
+        ):
             migration_hints.append(RUNTIME_COORDINATION_MIGRATION)
+        if any(item.partition(".")[0] == "workflow_queue_jobs" for item in missing):
+            migration_hints.append(WORKFLOW_QUEUE_MIGRATION)
         if "meeting_native_capture_epochs.manifest_sha256" in missing:
             migration_hints.append(NATIVE_CAPTURE_EPOCH_DIGEST_MIGRATION)
+        if "users.token_version" in missing:
+            migration_hints.append(AUTH_TOKEN_VERSION_MIGRATION)
         migration_hint = (
             f" Apply {', '.join(migration_hints)} before restarting production."
             if migration_hints
@@ -388,11 +465,15 @@ def _postgres_runtime_schema_gaps() -> list[str]:
         }
     gaps = [
         f"{table}.{constraint}"
-        for table, constraint in sorted(RUNTIME_COORDINATION_CHECKS - validated_checks)
+        for table, constraint in sorted(
+            (RUNTIME_COORDINATION_CHECKS | WORKFLOW_QUEUE_CHECKS) - validated_checks
+        )
     ]
     gaps.extend(
         f"{table}.{column}<server_default>"
-        for (table, column), expected in sorted(RUNTIME_COORDINATION_DEFAULTS.items())
+        for (table, column), expected in sorted(
+            (RUNTIME_COORDINATION_DEFAULTS | WORKFLOW_QUEUE_DEFAULTS).items()
+        )
         if defaults.get((table, column)) != expected
     )
     return gaps

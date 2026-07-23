@@ -6,12 +6,14 @@ import { test } from 'node:test'
 import {
   collectHeadingSectionLines,
   extractAnswerAuditTraceId,
+  hasRuntimeCitationLines,
   INLINE_URL_RE,
   isAuditHeading,
   matchBoldHeading,
   isLikelyAlignedTableStart,
   parseAlignedTable,
   parseCitationActions,
+  splitFencedCode,
 } from './rendererUtils.ts'
 
 test('parses space-aligned financial tables returned by repair runs', () => {
@@ -92,6 +94,65 @@ test('parseCitationActions exposes SEC filing anchors as source actions', () => 
   ])
 })
 
+test('fenced runtime citations are recognized for citation-card rendering', () => {
+  const citation = [
+    '[S1] source_type=wiki_metrics, evidence_source_type=sec_xbrl_fact,',
+    'source_url=https://www.sec.gov/Archives/edgar/data/1045810/filing.htm, source_anchor=f-72',
+  ].join('\n')
+
+  assert.equal(hasRuntimeCitationLines(citation), true)
+  assert.equal(hasRuntimeCitationLines('const source_type = "example"'), false)
+})
+
+test('splitFencedCode unwraps runtime citations into the surrounding citation section', () => {
+  const blocks = splitFencedCode([
+    '## 引用来源',
+    '',
+    '```',
+    '[S1] source_type=wiki_metrics, evidence_source_type=sec_xbrl_fact, source_url=https://www.sec.gov/Archives/edgar/data/1045810/filing.htm, source_anchor=f-72',
+    '```',
+  ].join('\n'))
+
+  assert.deepEqual(blocks, [
+    {
+      type: 'markdown',
+      lines: [
+        '## 引用来源',
+        '',
+        '[S1] source_type=wiki_metrics, evidence_source_type=sec_xbrl_fact, source_url=https://www.sec.gov/Archives/edgar/data/1045810/filing.htm, source_anchor=f-72',
+      ],
+    },
+  ])
+})
+
+test('parseCitationActions derives SEC source actions from locator fields', () => {
+  const parsed = parseCitationActions(
+    '[S1] source_type=wiki_metrics, source_url=https://www.sec.gov/Archives/edgar/data/320193/filing.htm, source_anchor=f-78',
+  )
+
+  assert.deepEqual(parsed.actions, [
+    {
+      label: '打开披露原文',
+      href: 'https://www.sec.gov/Archives/edgar/data/320193/filing.htm#f-78',
+      kind: 'source',
+    },
+  ])
+})
+
+test('parseCitationActions accepts legacy bare SEC disclosure targets', () => {
+  const parsed = parseCitationActions(
+    '[S1] source_type=wiki_metrics, 打开披露原文=https://www.sec.gov/Archives/edgar/data/320193/filing.htm#f-78',
+  )
+
+  assert.deepEqual(parsed.actions, [
+    {
+      label: '打开披露原文',
+      href: 'https://www.sec.gov/Archives/edgar/data/320193/filing.htm#f-78',
+      kind: 'source',
+    },
+  ])
+})
+
 test('parseCitationActions removes bare source link helpers and dedupes generated buttons', () => {
   const parsed = parseCitationActions(
     '[1] source_type=wiki_document_links, task_id=task_a, pdf_page=137, table_index=165，打开PDF页(/api/pdf_page/task_a/137)，查看页来源(/api/source/task_a/page/137)，查看表格(/api/source/task_a/table/165)，[打开PDF定位页137](https://public.example/api/pdf_page/task_a/137?format=html)，[查看定位页137来源](https://public.example/api/source/task_a/page/137?format=html)，[查看可读表格165](https://public.example/api/source/task_a/table/165?format=html)',
@@ -102,6 +163,22 @@ test('parseCitationActions removes bare source link helpers and dedupes generate
     { label: '打开PDF定位页137', href: 'https://public.example/api/pdf_page/task_a/137?format=html', kind: 'pdf' },
     { label: '查看定位页137来源', href: 'https://public.example/api/source/task_a/page/137?format=html', kind: 'source' },
     { label: '查看可读表格165', href: 'https://public.example/api/source/task_a/table/165?format=html', kind: 'table' },
+  ])
+})
+
+test('parseCitationActions converts colon-delimited absolute source URLs into actions', () => {
+  const parsed = parseCitationActions(
+    '[1] source_type=wiki_metrics, metric=资产负债表核心数据, period=2025-annual，打开PDF页：https://arthurmao.synology.me:9391/api/pdf_page/task-a/65?format=html，查看页来源：https://arthurmao.synology.me:9391/api/source/task-a/page/65?format=html，查看表格：https://arthurmao.synology.me:9391/api/source/task-a/table/84?format=html, printed_page=65 / 205',
+  )
+
+  assert.equal(
+    parsed.text,
+    '[1] source_type=wiki_metrics, metric=资产负债表核心数据, period=2025-annual， printed_page=65 / 205',
+  )
+  assert.deepEqual(parsed.actions, [
+    { label: '打开PDF页', href: 'https://arthurmao.synology.me:9391/api/pdf_page/task-a/65?format=html', kind: 'pdf' },
+    { label: '查看页来源', href: 'https://arthurmao.synology.me:9391/api/source/task-a/page/65?format=html', kind: 'source' },
+    { label: '查看表格', href: 'https://arthurmao.synology.me:9391/api/source/task-a/table/84?format=html', kind: 'table' },
   ])
 })
 

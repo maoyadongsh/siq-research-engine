@@ -120,6 +120,7 @@ def test_create_db_and_tables_keeps_all_schema_steps_inside_lock(monkeypatch):
         "_ensure_chat_message_columns",
         "_ensure_quota_reservation_columns",
         "_ensure_meeting_columns",
+        "_ensure_runtime_coordination_columns",
         "_ensure_app_indexes",
         "_validate_app_schema",
         "_ensure_agent_memory_schema",
@@ -135,6 +136,7 @@ def test_create_db_and_tables_keeps_all_schema_steps_inside_lock(monkeypatch):
         "_ensure_chat_message_columns",
         "_ensure_quota_reservation_columns",
         "_ensure_meeting_columns",
+        "_ensure_runtime_coordination_columns",
         "_ensure_app_indexes",
         "_validate_app_schema",
         "_ensure_agent_memory_schema",
@@ -252,5 +254,40 @@ def test_startup_migration_recovers_partially_added_expiry_column(tmp_path, monk
                 "SELECT expires_at FROM quota_reservations WHERE id = 'partial-reservation'"
             )).scalar_one()
         assert datetime.fromisoformat(str(expires_at)) == datetime(2026, 7, 13, 1, 19)
+    finally:
+        engine.dispose()
+
+
+def test_sqlite_runtime_coordination_migration_adds_legacy_pool_columns(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy-active-run.db'}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                CREATE TABLE active_run_leases (
+                    id INTEGER PRIMARY KEY,
+                    profile VARCHAR(80) NOT NULL,
+                    session_id VARCHAR(255) NOT NULL,
+                    run_id VARCHAR(255) NOT NULL,
+                    owner_id VARCHAR(255) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'running',
+                    lease_until DATETIME NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+            """))
+        monkeypatch.setattr(database, "engine", engine)
+
+        database._ensure_runtime_coordination_columns()
+        database._ensure_runtime_coordination_columns()
+
+        columns = {column["name"] for column in inspect(engine).get_columns("active_run_leases")}
+        assert columns >= {
+            "pool_lease_id",
+            "pool_scope_id",
+            "pool_binding_run_id",
+            "pool_owner_generation",
+            "pool_tenant_id",
+            "pool_user_id",
+        }
     finally:
         engine.dispose()

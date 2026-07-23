@@ -148,6 +148,18 @@ def test_answer_audit_trace_marks_legacy_calculator_marker_as_unvalidated():
     assert all(item["source"] != "reply_structured" for item in record["calculator_runs"])
 
 
+def test_answer_audit_trace_keeps_all_visible_calculation_records():
+    reply = "## 计算器校验\n" + "\n".join(
+        f"- record={index} operation=yoy result={index / 100:.2f}"
+        for index in range(75)
+    )
+
+    runs = audit._extract_calculator_runs(None, reply)
+
+    assert len(runs) == 76
+    assert runs[-1]["line"] == "- record=74 operation=yoy result=0.74"
+
+
 def test_answer_audit_trace_records_only_validated_structured_run_as_calculator_run():
     identity = {
         "market": "HK",

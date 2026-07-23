@@ -7,6 +7,7 @@ export interface LlmSettingsApiResponse {
     cloud?: Partial<ProviderFormData>
     local?: Partial<ProviderFormData>
   }
+  cloudModelPresets?: Record<string, Partial<ProviderFormData>>
 }
 
 export interface LlmProviderPayload {

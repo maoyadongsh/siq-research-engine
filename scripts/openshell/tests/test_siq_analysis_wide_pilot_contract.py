@@ -90,6 +90,29 @@ def test_source_contract_and_output_validation_are_exact(tmp_path: Path) -> None
     assert not paths.output_root.exists()
 
 
+def test_source_contract_accepts_ticker_when_stock_code_is_absent(tmp_path: Path) -> None:
+    source = tmp_path / "company.json"
+    source.write_text(
+        json.dumps({"market": "US", "ticker": "AAPL"}) + "\n",
+        encoding="utf-8",
+    )
+
+    _content, _digest, identifier = pilot.source_contract(source)
+
+    assert identifier == "AAPL"
+
+
+def test_source_contract_does_not_mask_invalid_stock_code_with_ticker(tmp_path: Path) -> None:
+    source = tmp_path / "company.json"
+    source.write_text(
+        json.dumps({"market": "US", "stock_code": "", "ticker": "AAPL"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(pilot.PilotContractError, match="pilot_source_contract_invalid"):
+        pilot.source_contract(source)
+
+
 def test_cleanup_refuses_unexpected_files(tmp_path: Path) -> None:
     root, company = _project(tmp_path)
     paths = _pilot_paths(root, company)

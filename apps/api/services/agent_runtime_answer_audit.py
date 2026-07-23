@@ -704,8 +704,6 @@ def _extract_calculator_runs(
         if operation_match:
             item["operation"] = operation_match.group(1)
         runs.append(redact_audit_value(item, max_string_length=1200))
-        if len(runs) >= 50:
-            break
     return runs
 
 

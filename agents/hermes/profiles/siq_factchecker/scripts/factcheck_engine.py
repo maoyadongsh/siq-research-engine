@@ -6,15 +6,16 @@ old direct script entrypoint working while preserving the no-score/no-rating
 output contract.
 """
 
-from pathlib import Path
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
 
-from factcheck_cli import FactCheckEngine, report_to_dict, _load_env_file  # noqa: E402
+from factcheck_cli import FactCheckEngine, _load_env_file, report_to_dict  # noqa: E402
 from wiki_data_accessor import WikiDataAccessor  # noqa: E402
 
 
@@ -24,7 +25,14 @@ def main() -> None:
     parser.add_argument("company_id", help="公司ID或股票代码，如 600399")
     parser.add_argument("--year", type=int, default=2025, help="报告年份")
     parser.add_argument("--output", type=str, help="输出文件路径（可选）")
-    parser.add_argument("--wiki-dir", type=str, default="/home/maoyd/siq-research-engine/data/wiki", help="Wiki 目录路径")
+    parser.add_argument(
+        "--wiki-dir",
+        type=str,
+        default=os.environ.get("SIQ_WIKI_ROOT")
+        or os.environ.get("WIKI_DIR")
+        or str(Path(__file__).resolve().parents[5] / "data" / "wiki"),
+        help="Wiki 目录路径",
+    )
     args = parser.parse_args()
 
     accessor = WikiDataAccessor(wiki_dir=Path(args.wiki_dir))

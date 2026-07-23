@@ -446,7 +446,16 @@ def test_async_route_keeps_implicit_host_fallback_when_provisioning_fails(monkey
         )
 
     monkeypatch.setattr(runtime.openshell_scope_lifecycle, "ensure_binding", fake_ensure)
-    monkeypatch.setattr(runtime, "_requested_run_route", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        runtime.openshell_scope_lifecycle,
+        "implicit_host_fallback_allowed",
+        lambda _context: True,
+    )
+    monkeypatch.setattr(
+        runtime,
+        "_requested_run_route",
+        lambda *_args, **_kwargs: pytest.fail("implicit fallback must not resolve OpenShell again"),
+    )
 
     route = anyio.run(
         runtime._requested_run_route_with_scope_lifecycle,
@@ -457,6 +466,31 @@ def test_async_route_keeps_implicit_host_fallback_when_provisioning_fails(monkey
     )
 
     assert route is None
+
+
+def test_async_route_fails_closed_when_stale_binding_prevents_host_fallback(monkeypatch):
+    monkeypatch.setattr(runtime, "normalize_runtime_target", lambda *_args, **_kwargs: "openshell")
+
+    async def fake_ensure(_context):
+        raise runtime.openshell_scope_lifecycle.OpenShellScopeLifecycleError(
+            "openshell_scope_stop_failed"
+        )
+
+    monkeypatch.setattr(runtime.openshell_scope_lifecycle, "ensure_binding", fake_ensure)
+    monkeypatch.setattr(
+        runtime.openshell_scope_lifecycle,
+        "implicit_host_fallback_allowed",
+        lambda _context: False,
+    )
+
+    with pytest.raises(RuntimeError, match="openshell_scope_stop_failed"):
+        anyio.run(
+            runtime._requested_run_route_with_scope_lifecycle,
+            "siq_analysis",
+            None,
+            "analysis-session",
+            {"company": {"market": "cn", "dir": "600104-上汽集团"}},
+        )
 
 
 def test_pool_admission_binds_affinity_namespace_and_releases_only_with_terminal_receipt(monkeypatch):

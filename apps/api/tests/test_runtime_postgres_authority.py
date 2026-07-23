@@ -14,6 +14,7 @@ from services.ic_task_lease import (
     ICTaskOwnerReuseError,
     PostgresICTaskLeaseStore,
 )
+from services.workflow_queue import WorkflowQueueCoordinator, WorkflowQueueJob
 from sqlalchemy import create_engine, text
 from sqlmodel import Session
 
@@ -82,6 +83,60 @@ def test_real_postgres_durable_job_claim_reclaim_and_attempt_fence(postgres_runt
         owner="pg-worker-recovery",
         attempt=reclaimed["attempt"],
         status="succeeded",
+        result={"ok": True},
+    ) is True
+
+
+def test_real_postgres_workflow_queue_claim_reclaim_and_attempt_fence(postgres_runtime_engine):
+    WorkflowQueueJob.__table__.create(postgres_runtime_engine)
+    queue = WorkflowQueueCoordinator(
+        session_factory=lambda: Session(postgres_runtime_engine),
+        lease_seconds=60,
+    )
+    queued, reused = queue.enqueue(
+        snapshot={
+            "jobId": "pg-workflow-job",
+            "taskId": "pg-task",
+            "retryScope": "semantic",
+            "idempotencyKey": "pg-workflow-key",
+            "status": "queued",
+            "steps": [],
+        }
+    )
+    assert queued["status"] == "queued" and reused is False
+    barrier = Barrier(2)
+
+    def compete(owner: str):
+        barrier.wait(timeout=5)
+        return queue.claim_next(owner=owner)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claims = list(pool.map(compete, ("pg-workflow-a", "pg-workflow-b")))
+    assert sum(claim is not None for claim in claims) == 1
+    first = next(claim for claim in claims if claim is not None)
+
+    with Session(postgres_runtime_engine) as session:
+        row = session.get(WorkflowQueueJob, "pg-workflow-job")
+        assert row is not None
+        row.lease_until = utcnow_naive() - timedelta(seconds=1)
+        session.add(row)
+        session.commit()
+
+    current = queue.claim_next(owner="pg-workflow-recovery")
+    assert current is not None and current["attempt"] == 2
+    assert queue.finish(
+        "pg-workflow-job",
+        owner=str(first["ownerId"]),
+        attempt=int(first["attempt"]),
+        status="succeeded",
+        snapshot=first,
+    ) is False
+    assert queue.finish(
+        "pg-workflow-job",
+        owner="pg-workflow-recovery",
+        attempt=2,
+        status="succeeded",
+        snapshot=current,
         result={"ok": True},
     ) is True
 

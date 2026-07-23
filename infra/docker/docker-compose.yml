@@ -5,7 +5,9 @@ services:
       context: ../../apps/web
       dockerfile: Dockerfile
       args:
-        SIQ_AUTH_COOKIE_MODE: ${SIQ_AUTH_COOKIE_MODE:-0}
+        # Production-safe default. Local templates explicitly set this to 0
+        # for bearer-token compatibility (including native/desktop clients).
+        SIQ_AUTH_COOKIE_MODE: ${SIQ_AUTH_COOKIE_MODE:-1}
         SIQ_MEETINGS_ENABLED: ${SIQ_MEETINGS_ENABLED:-0}
         SIQ_MEETING_IMPORT_ENABLED: ${SIQ_MEETING_IMPORT_ENABLED:-0}
         SIQ_MULTI_MARKET_RESEARCH_ENABLED: ${SIQ_MULTI_MARKET_RESEARCH_ENABLED:-0}
@@ -22,8 +24,8 @@ services:
       - SIQ_MEETING_STREAM_GATEWAY_URL=${SIQ_MEETING_STREAM_GATEWAY_URL:-http://api:18081}
       - SIQ_REPORT_FINDER_URL=http://report-finder:8000
       - SIQ_FRONTEND_PORT=15173
-      - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
-      - VITE_SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
+      - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-1}
+      - VITE_SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-1}
       - SIQ_MULTI_MARKET_RESEARCH_ENABLED=${SIQ_MULTI_MARKET_RESEARCH_ENABLED:-0}
     depends_on:
       - api
@@ -45,7 +47,7 @@ services:
 
   # 聚合后端
   api:
-    build:
+    build: &api-build
       context: ../..
       dockerfile: apps/api/Dockerfile
     user: "10001:10001"
@@ -56,7 +58,7 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "${SIQ_COMPOSE_BIND_HOST:-127.0.0.1}:${SIQ_BACKEND_PORT:-18081}:18081"
-    environment:
+    environment: &api-environment
       - SIQ_LOCAL_STATE_ROOT=/state
       - SIQ_DEPLOYMENT_PROFILE=${SIQ_DEPLOYMENT_PROFILE:-local}
       - SIQ_METRICS_TOKEN=${SIQ_METRICS_TOKEN:-}
@@ -76,6 +78,10 @@ services:
       - SIQ_APP_DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/siq_app
       - SIQ_BACKGROUND_JOB_BACKEND=${SIQ_BACKGROUND_JOB_BACKEND:-file}
       - SIQ_BACKGROUND_JOB_LEASE_SECONDS=${SIQ_BACKGROUND_JOB_LEASE_SECONDS:-120}
+      - SIQ_WORKFLOW_JOB_BACKEND=${SIQ_WORKFLOW_JOB_BACKEND:-postgres}
+      - SIQ_WORKFLOW_JOB_LEASE_SECONDS=${SIQ_WORKFLOW_JOB_LEASE_SECONDS:-120}
+      - SIQ_WORKFLOW_JOB_HEARTBEAT_SECONDS=${SIQ_WORKFLOW_JOB_HEARTBEAT_SECONDS:-30}
+      - SIQ_WORKFLOW_JOB_MAX_ATTEMPTS=${SIQ_WORKFLOW_JOB_MAX_ATTEMPTS:-3}
       - SIQ_DOCUMENT_PGDATABASE=siq_document_parser
       - SIQ_US_PGDATABASE=siq_us
       - SIQ_HK_PGDATABASE=siq_hk
@@ -122,11 +128,18 @@ services:
       - no_proxy=${no_proxy:-127.0.0.1,localhost,host.docker.internal,postgres,redis,pdf-parser,document-parser,report-finder}
       - SIQ_AUTH_SECRET_KEY=${SIQ_AUTH_SECRET_KEY:?SIQ_AUTH_SECRET_KEY is required}
       - SIQ_CORS_ALLOW_ORIGINS=${SIQ_CORS_ALLOW_ORIGINS:?SIQ_CORS_ALLOW_ORIGINS is required}
+      - SIQ_PUBLIC_ORIGIN=${SIQ_PUBLIC_ORIGIN:-}
       - SIQ_RERANK_BASE_URL=${SIQ_RERANK_BASE_URL:-http://host.docker.internal:8001}
       - SIQ_RERANK_MODEL=${SIQ_RERANK_MODEL:-Qwen3-VL-Reranker-2B}
-      - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-0}
+      - SIQ_AUTH_COOKIE_MODE=${SIQ_AUTH_COOKIE_MODE:-1}
       - SIQ_AUTH_COOKIE_SECURE=${SIQ_AUTH_COOKIE_SECURE:-0}
       - SIQ_AUTH_COOKIE_SAMESITE=${SIQ_AUTH_COOKIE_SAMESITE:-lax}
+      - SIQ_ACCESS_TOKEN_EXPIRE_MINUTES=${SIQ_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - SIQ_AUTH_REQUIRE_TOKEN_VERSION=${SIQ_AUTH_REQUIRE_TOKEN_VERSION:-}
+      - SIQ_AUTH_LOGIN_MAX_FAILURES=${SIQ_AUTH_LOGIN_MAX_FAILURES:-5}
+      - SIQ_AUTH_LOGIN_IP_MAX_FAILURES=${SIQ_AUTH_LOGIN_IP_MAX_FAILURES:-25}
+      - SIQ_AUTH_LOGIN_WINDOW_SECONDS=${SIQ_AUTH_LOGIN_WINDOW_SECONDS:-300}
+      - SIQ_AUTH_LOGIN_LOCKOUT_SECONDS=${SIQ_AUTH_LOGIN_LOCKOUT_SECONDS:-900}
       - SIQ_SOURCE_TOKEN_SECRET=${SIQ_SOURCE_TOKEN_SECRET:-}
       - SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET=${SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET:-0}
       - SIQ_ALLOW_REGISTRATION=${SIQ_ALLOW_REGISTRATION:-0}
@@ -152,7 +165,7 @@ services:
       - SIQ_DOCUMENT_PARSER_HEALTH_URL=http://document-parser:15010/api/ready
       - SIQ_MARKET_REPORT_RULES_HEALTH_URL=http://market-report-rules:8000/healthz
       - PDF2MD_ACCESS_TOKEN=${PDF2MD_ACCESS_TOKEN:?PDF2MD_ACCESS_TOKEN is required}
-    volumes:
+    volumes: &api-volumes
       - wiki_data:/state/data/wiki
       - downloads_data:/state/data/market-report-finder/downloads
       - backend_data:/state/data/backend
@@ -161,6 +174,8 @@ services:
       - ${SIQ_HERMES_HOST_HOME:?SIQ_HERMES_HOST_HOME is required}:/state/var/hermes/home:ro
       - ../../db:/app/db:ro
     depends_on:
+      app-migrations:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -183,6 +198,36 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  # PostgreSQL-backed workflow executor. API instances only enqueue jobs.
+  workflow-worker:
+    build: *api-build
+    command: ["python", "scripts/workflow_worker.py"]
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment: *api-environment
+    volumes: *api-volumes
+    depends_on:
+      app-migrations:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      pdf-parser:
+        condition: service_healthy
+      document-parser:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${SIQ_WORKFLOW_WORKER_MEM_LIMIT:-3g}
+    cpus: ${SIQ_WORKFLOW_WORKER_CPUS:-2.0}
+    restart: on-failure
 
   # 统一公告下载服务
   report-finder:
@@ -384,6 +429,25 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  # PostgreSQL数据库
+  app-migrations:
+    build: *api-build
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      - SIQ_APP_DATABASE_URL=postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/siq_app
+    command: ["python", "scripts/run_migrations.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
 
   # PostgreSQL数据库
   postgres:

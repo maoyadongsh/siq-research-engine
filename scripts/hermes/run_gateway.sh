@@ -9,6 +9,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SIQ_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+export SIQ_PROJECT_ROOT="$PROJECT_ROOT"
 SOURCE_PROFILES_ROOT="$PROJECT_ROOT/agents/hermes/profiles"
 
 source_env_if_exists() {
@@ -32,12 +33,28 @@ export SIQ_DATA_ROOT="${SIQ_DATA_ROOT:-$PROJECT_ROOT/data}"
 export SIQ_RUNTIME_ROOT="${SIQ_RUNTIME_ROOT:-$PROJECT_ROOT/var}"
 export SIQ_ARTIFACTS_ROOT="${SIQ_ARTIFACTS_ROOT:-$PROJECT_ROOT/artifacts}"
 export SIQ_DATASETS_ROOT="${SIQ_DATASETS_ROOT:-$PROJECT_ROOT/datasets}"
+export SIQ_LOCAL_STATE_ROOT="${SIQ_LOCAL_STATE_ROOT:-$PROJECT_ROOT}"
+export SIQ_WIKI_ROOT="${SIQ_WIKI_ROOT:-$SIQ_DATA_ROOT/wiki}"
+export SIQ_HERMES_HOME="${SIQ_HERMES_HOME:-$SIQ_DATA_ROOT/hermes/home}"
+
+deployment_profile="${SIQ_DEPLOYMENT_PROFILE:-development}"
+case "${deployment_profile,,}" in
+    docker|prod|production)
+        if [[ -z "${SIQ_PUBLIC_ORIGIN:-}" ]]; then
+            echo "SIQ_PUBLIC_ORIGIN is required for SIQ_DEPLOYMENT_PROFILE=$deployment_profile" >&2
+            exit 1
+        fi
+        ;;
+esac
 
 case "$profile" in
     assistant|siq_assistant) canonical="siq_assistant" ;;
     analysis|siq_analysis) canonical="siq_analysis" ;;
+    analysis_multi_market|siq_analysis_multi_market) canonical="siq_analysis_multi_market" ;;
     factchecker|siq_factchecker) canonical="siq_factchecker" ;;
+    factchecker_multi_market|siq_factchecker_multi_market) canonical="siq_factchecker_multi_market" ;;
     tracking|siq_tracking) canonical="siq_tracking" ;;
+    tracking_multi_market|siq_tracking_multi_market) canonical="siq_tracking_multi_market" ;;
     legal|siq_legal) canonical="siq_legal" ;;
     ic_master|ic_coordinator|siq_ic_master_coordinator) canonical="siq_ic_master_coordinator" ;;
     ic_chairman|siq_ic_chairman) canonical="siq_ic_chairman" ;;

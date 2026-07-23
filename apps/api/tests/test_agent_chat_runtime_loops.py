@@ -1486,6 +1486,33 @@ def test_us_net_asset_answer_uses_sec_anchor_and_successful_calculation_summary(
     assert len([line for line in guarded.splitlines() if "source_type=" in line]) == 1
 
 
+def test_us_revenue_answer_rebuilds_malformed_source_alias_with_sec_anchors():
+    message = "分析苹果公司的营收"
+    reply = "\n".join(
+        (
+            "## 结论",
+            "- 苹果 FY2025 营收为 **416.161 billion USD**。",
+            "",
+            "## 引用来源",
+            "[S1] source_type=wiki_metrics / sec_xbrl_fact,",
+        )
+    )
+
+    guarded = runtime.enforce_financial_evidence_contract(message, None, reply)
+
+    assert "guardrail_status=blocked" not in guarded
+    assert "trace_input_source_locator_missing" not in guarded
+    assert "## 计算器校验（全部通过）" in guarded
+    assert "company_id=US:0000320193" in guarded
+    assert "source_anchor=f-78" in guarded
+    assert "source_anchor=f-79" in guarded
+    assert "source_anchor=f-80" in guarded
+    assert "[打开披露原文](https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm#f-78)" in guarded
+    assert "task_id=" not in guarded
+    assert "pdf_page=" not in guarded
+    assert "/api/pdf_page/" not in guarded
+
+
 def test_us_sec_answer_drops_foreign_pdf_task_before_invalid_task_guard():
     message = "分析英伟达的营收"
     wrong_pdf_task = "dab4d056-3c8b-4e7d-8cf8-d46b743ca1bd"

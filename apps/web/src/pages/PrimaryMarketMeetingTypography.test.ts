@@ -35,3 +35,12 @@ test('shared chat typography keeps assistant prose readable and headings visibly
   assert.match(chatCss, /\.chat-table-wrap\s*\{[^}]*overflow-x:\s*auto/s)
   assert.match(chatCss, /\.chat-code-block pre\s*\{[^}]*overflow-x:\s*auto/s)
 })
+
+test('mobile citation actions wrap inside a shrinkable assistant message', () => {
+  assert.match(chatCss, /\.agent-chat-panel-messages\s*\{[^}]*overflow-x:\s*hidden/s)
+  assert.match(chatCss, /\.agent-chat-panel \.chat-message-column-assistant \.chat-message-bubble\s*\{[^}]*max-width:\s*calc\(100% - 2\.15rem\)[^}]*flex:\s*1 1 0/s)
+  assert.match(chatCss, /@media \(max-width: 639px\)[\s\S]*?\.chat-citation-item\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s)
+  assert.match(chatCss, /@media \(max-width: 639px\)[\s\S]*?\.chat-citation-text\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*white-space:\s*normal/s)
+  assert.match(chatCss, /@media \(max-width: 639px\)[\s\S]*?\.chat-citation-actions\s*\{[^}]*width:\s*100%[^}]*justify-content:\s*flex-end/s)
+  assert.match(chatCss, /@media \(max-width: 639px\)[\s\S]*?\.chat-citation-action\s*\{[^}]*min-width:\s*2\.75rem[^}]*min-height:\s*2\.75rem/s)
+})

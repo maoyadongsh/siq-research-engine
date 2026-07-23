@@ -229,10 +229,7 @@ def test_login():
                 print("✅ 密码验证成功")
 
                 # 生成JWT令牌
-                token = AuthService.create_access_token({
-                    'sub': admin.username,
-                    'role': admin.role
-                })
+                token = AuthService.create_user_access_token(admin)
                 print(f"✅ JWT令牌生成成功")
                 print(f"   Token前50字符: {token[:50]}...")
 

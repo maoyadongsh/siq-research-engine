@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from database import get_session
+from database import engine, get_session
 from fastapi import APIRouter, Depends, HTTPException
 from services.auth_dependencies import require_permission
 from services.auth_service import PermissionChecker, User
@@ -49,6 +49,10 @@ from services.workflow_job_service import (
     workflow_job_idempotency_key,
     workflow_job_lease_updates,
     workflow_job_now_iso,
+)
+from services.workflow_queue import (
+    WorkflowLeaseLostError,
+    WorkflowQueueCoordinator,
 )
 from sqlalchemy import or_
 from sqlmodel import Session, select
@@ -197,9 +201,41 @@ WORKFLOW_JOB_LEGACY_STALE_SECONDS = max(
     int(os.environ.get("SIQ_WORKFLOW_JOB_LEGACY_STALE_SECONDS", "900")),
 )
 WORKFLOW_JOB_OWNER_ID = f"api-{uuid.uuid4().hex}"
+WORKFLOW_JOB_MAX_ATTEMPTS = max(1, int(os.environ.get("SIQ_WORKFLOW_JOB_MAX_ATTEMPTS", "3")))
+
+
+def _workflow_job_backend() -> str:
+    configured = os.environ.get("SIQ_WORKFLOW_JOB_BACKEND", "").strip().lower()
+    if configured not in {"", "file", "postgres"}:
+        raise RuntimeError("SIQ_WORKFLOW_JOB_BACKEND must be 'file' or 'postgres'.")
+    production = os.environ.get("SIQ_DEPLOYMENT_PROFILE", "local").strip().lower() in {
+        "prod",
+        "production",
+    }
+    backend = configured or ("postgres" if production else "file")
+    if production and backend != "postgres":
+        raise RuntimeError("Production workflow jobs require the PostgreSQL backend.")
+    if backend == "postgres" and engine.dialect.name != "postgresql":
+        raise RuntimeError("PostgreSQL SIQ_APP_DATABASE_URL is required for workflow jobs.")
+    return backend
+
+
+WORKFLOW_JOB_BACKEND = _workflow_job_backend()
+_workflow_queue = (
+    WorkflowQueueCoordinator(
+        session_factory=lambda: Session(engine),
+        lease_seconds=WORKFLOW_JOB_LEASE_SECONDS,
+        max_attempts=WORKFLOW_JOB_MAX_ATTEMPTS,
+    )
+    if WORKFLOW_JOB_BACKEND == "postgres"
+    else None
+)
+_workflow_execution = threading.local()
 
 
 def _load_workflow_jobs() -> dict[str, dict]:
+    if WORKFLOW_JOB_BACKEND == "postgres":
+        return {}
     jobs, _ = recover_workflow_job_store(
         WORKFLOW_JOB_STORE,
         now=workflow_job_now_iso(),
@@ -209,10 +245,14 @@ def _load_workflow_jobs() -> dict[str, dict]:
 
 
 def _persist_workflow_jobs_locked() -> None:
+    if WORKFLOW_JOB_BACKEND == "postgres":
+        return
     persist_workflow_jobs(WORKFLOW_JOB_STORE, _workflow_jobs)
 
 
 def _recover_stale_workflow_jobs_locked() -> list[str]:
+    if WORKFLOW_JOB_BACKEND == "postgres":
+        return []
     jobs, recovered = recover_workflow_job_store(
         WORKFLOW_JOB_STORE,
         now=workflow_job_now_iso(),
@@ -3283,17 +3323,63 @@ def import_task_to_database(
 
 def _job_update(job_id: str, **updates) -> None:
     with _job_lock:
+        if WORKFLOW_JOB_BACKEND == "postgres":
+            claim = getattr(_workflow_execution, "claim", None)
+            if not isinstance(claim, dict) or claim.get("jobId") != job_id or _workflow_queue is None:
+                raise WorkflowLeaseLostError(f"workflow job has no active worker claim: {job_id}")
+
+            def mutate(snapshot: dict[str, Any]) -> None:
+                update_workflow_job({job_id: snapshot}, job_id, now=_now_iso, **updates)
+
+            _workflow_jobs[job_id] = _workflow_queue.mutate_snapshot(
+                job_id,
+                owner=str(claim["ownerId"]),
+                attempt=int(claim["attempt"]),
+                mutate=mutate,
+            )
+            return
         if update_workflow_job(_workflow_jobs, job_id, now=_now_iso, **updates):
             _persist_workflow_jobs_locked()
 
 
 def _job_step(job_id: str, step: str, status: str, **updates) -> None:
     with _job_lock:
+        if WORKFLOW_JOB_BACKEND == "postgres":
+            claim = getattr(_workflow_execution, "claim", None)
+            if not isinstance(claim, dict) or claim.get("jobId") != job_id or _workflow_queue is None:
+                raise WorkflowLeaseLostError(f"workflow job has no active worker claim: {job_id}")
+
+            def mutate(snapshot: dict[str, Any]) -> None:
+                record_workflow_job_step(
+                    {job_id: snapshot},
+                    job_id,
+                    step,
+                    status,
+                    now=_now_iso,
+                    **updates,
+                )
+
+            _workflow_jobs[job_id] = _workflow_queue.mutate_snapshot(
+                job_id,
+                owner=str(claim["ownerId"]),
+                attempt=int(claim["attempt"]),
+                mutate=mutate,
+            )
+            return
         if record_workflow_job_step(_workflow_jobs, job_id, step, status, now=_now_iso, **updates):
             _persist_workflow_jobs_locked()
 
 
-def _job_heartbeat(job_id: str) -> bool:
+def _job_heartbeat(job_id: str, *, claim: dict[str, Any] | None = None) -> bool:
+    if WORKFLOW_JOB_BACKEND == "postgres":
+        active_claim = claim or getattr(_workflow_execution, "claim", None)
+        if not isinstance(active_claim, dict) or _workflow_queue is None:
+            return False
+        return _workflow_queue.heartbeat(
+            job_id,
+            owner=str(active_claim["ownerId"]),
+            attempt=int(active_claim["attempt"]),
+        )
     now = _now_iso()
     with _job_lock:
         job = _workflow_jobs.get(job_id)
@@ -3312,13 +3398,15 @@ def _job_heartbeat(job_id: str) -> bool:
 
 def _run_job_with_heartbeat(job_id: str, runner) -> None:
     stopped = threading.Event()
+    claim = getattr(_workflow_execution, "claim", None)
 
     def heartbeat_loop() -> None:
         while not stopped.wait(WORKFLOW_JOB_HEARTBEAT_SECONDS):
-            if not _job_heartbeat(job_id):
+            if not _job_heartbeat(job_id, claim=claim):
                 return
 
-    _job_heartbeat(job_id)
+    if not _job_heartbeat(job_id, claim=claim):
+        raise WorkflowLeaseLostError(f"workflow job lease lost before execution: {job_id}")
     heartbeat = threading.Thread(target=heartbeat_loop, daemon=True)
     heartbeat.start()
     try:
@@ -3329,6 +3417,35 @@ def _run_job_with_heartbeat(job_id: str, runner) -> None:
 
 
 def _finish_job(job_id: str, *, status: str, **updates) -> None:
+    if WORKFLOW_JOB_BACKEND == "postgres":
+        claim = getattr(_workflow_execution, "claim", None)
+        if not isinstance(claim, dict) or claim.get("jobId") != job_id or _workflow_queue is None:
+            raise WorkflowLeaseLostError(f"workflow job has no active worker claim: {job_id}")
+        snapshot = dict(_workflow_jobs[job_id])
+        update_workflow_job(
+            {job_id: snapshot},
+            job_id,
+            now=_now_iso,
+            status=status,
+            finishedAt=_now_iso(),
+            leaseExpiresAt=None,
+            **updates,
+        )
+        published = _workflow_queue.finish(
+            job_id,
+            owner=str(claim["ownerId"]),
+            attempt=int(claim["attempt"]),
+            status=status,
+            snapshot=snapshot,
+            result=updates.get("result"),
+            error=updates.get("error"),
+        )
+        if not published:
+            raise WorkflowLeaseLostError(f"workflow terminal publish was fenced: {job_id}")
+        latest = _workflow_queue.get(job_id)
+        if latest is not None:
+            _workflow_jobs[job_id] = latest
+        return
     _job_update(
         job_id,
         status=status,
@@ -3356,9 +3473,73 @@ def _run_workflow_step_job(job_id: str, step: str, runner) -> None:
         payload = _http_exception_payload(exc)
         _job_step(job_id, step, "failed", error=str(exc.detail), result=payload)
         _finish_job(job_id, status="failed", error=str(exc.detail), result=payload)
+    except WorkflowLeaseLostError:
+        raise
     except Exception as exc:
         _job_step(job_id, step, "failed", error=str(exc))
         _finish_job(job_id, status="failed", error=str(exc))
+
+
+def process_workflow_queue_claim(claim: dict[str, Any]) -> None:
+    """Execute one serializable queue claim inside an independent worker."""
+
+    if WORKFLOW_JOB_BACKEND != "postgres" or _workflow_queue is None:
+        raise RuntimeError("workflow queue processing requires the PostgreSQL backend")
+    job_id = str(claim.get("jobId") or "")
+    task_id = _safe_task_id(str(claim.get("taskId") or ""))
+    scope = str(claim.get("retryScope") or "")
+    runners = {
+        "semantic": lambda: _run_workflow_step_job(
+            job_id,
+            "semantic",
+            lambda: extract_semantic_for_task(task_id),
+        ),
+        "semantic-generic": lambda: _run_workflow_step_job(
+            job_id,
+            "semantic-generic",
+            lambda: extract_generic_semantic_for_task(task_id),
+        ),
+        "remaining": lambda: _run_remaining_pipeline(job_id, task_id),
+    }
+    runner = runners.get(scope)
+    if runner is None:
+        raise RuntimeError(f"unsupported queued workflow scope: {scope!r}")
+    _workflow_execution.claim = claim
+    _workflow_jobs[job_id] = claim
+    try:
+        _run_job_with_heartbeat(job_id, runner)
+    finally:
+        _workflow_jobs.pop(job_id, None)
+        _workflow_execution.claim = None
+
+
+def claim_next_workflow_queue_job(owner: str) -> dict[str, Any] | None:
+    if WORKFLOW_JOB_BACKEND != "postgres" or _workflow_queue is None:
+        raise RuntimeError("workflow queue claiming requires the PostgreSQL backend")
+    return _workflow_queue.claim_next(owner=owner)
+
+
+def fail_workflow_queue_claim(claim: dict[str, Any], error: str) -> bool:
+    if WORKFLOW_JOB_BACKEND != "postgres" or _workflow_queue is None:
+        raise RuntimeError("workflow queue failure publishing requires the PostgreSQL backend")
+    job_id = str(claim.get("jobId") or "")
+    snapshot = _workflow_queue.get(job_id) or dict(claim)
+    snapshot.update(
+        {
+            "status": "failed",
+            "error": error,
+            "finishedAt": _now_iso(),
+            "leaseExpiresAt": None,
+        }
+    )
+    return _workflow_queue.finish(
+        job_id,
+        owner=str(claim["ownerId"]),
+        attempt=int(claim["attempt"]),
+        status="failed",
+        snapshot=snapshot,
+        error=error,
+    )
 
 
 def _start_workflow_step_job(task_id: str, step: str, runner, *, metadata: dict | None = None) -> dict:
@@ -3366,6 +3547,25 @@ def _start_workflow_step_job(task_id: str, step: str, runner, *, metadata: dict 
     now = _now_iso()
     idempotency_key = workflow_job_idempotency_key(task_id=task_id, retry_scope=step, metadata=metadata)
     with _job_lock:
+        if WORKFLOW_JOB_BACKEND == "postgres":
+            if _workflow_queue is None:
+                raise RuntimeError("workflow queue is unavailable")
+            candidate_jobs: dict[str, dict] = {}
+            job = create_workflow_job(
+                candidate_jobs,
+                job_id=job_id,
+                task_id=task_id,
+                now=lambda: now,
+                retry_scope=step,
+                idempotency_key=idempotency_key,
+            )
+            if metadata:
+                job["metadata"] = metadata
+            selected, _ = _workflow_queue.enqueue(
+                snapshot=job,
+                max_attempts=WORKFLOW_JOB_MAX_ATTEMPTS,
+            )
+            return selected
         _recover_stale_workflow_jobs_locked()
         candidate_jobs: dict[str, dict] = {}
         job = create_workflow_job(
@@ -3450,6 +3650,8 @@ def _run_remaining_pipeline(job_id: str, task_id: str) -> None:
             _job_step(job_id, "db-import", "skipped", message="PostgreSQL 已是最新")
 
         _finish_job(job_id, status="succeeded", result=_workflow_status_payload(task_id))
+    except WorkflowLeaseLostError:
+        raise
     except Exception as exc:
         if current_step:
             _job_step(job_id, current_step, "failed", error=str(exc))
@@ -3498,6 +3700,25 @@ def run_remaining_workflow(
         metadata=metadata,
     )
     with _job_lock:
+        if WORKFLOW_JOB_BACKEND == "postgres":
+            if _workflow_queue is None:
+                raise RuntimeError("workflow queue is unavailable")
+            candidate_jobs: dict[str, dict] = {}
+            job = create_workflow_job(
+                candidate_jobs,
+                job_id=job_id,
+                task_id=task_id,
+                now=lambda: now,
+                retry_scope="remaining",
+                idempotency_key=idempotency_key,
+            )
+            if metadata:
+                job["metadata"] = metadata
+            selected, _ = _workflow_queue.enqueue(
+                snapshot=job,
+                max_attempts=WORKFLOW_JOB_MAX_ATTEMPTS,
+            )
+            return selected
         _recover_stale_workflow_jobs_locked()
         candidate_jobs: dict[str, dict] = {}
         job = create_workflow_job(
@@ -3537,6 +3758,14 @@ def workflow_job_status(
     session: Session = WORKFLOW_SESSION,
 ):
     with _job_lock:
+        if WORKFLOW_JOB_BACKEND == "postgres":
+            if _workflow_queue is None:
+                raise RuntimeError("workflow queue is unavailable")
+            job = _workflow_queue.get(job_id)
+            if not job:
+                raise HTTPException(404, "Workflow job not found")
+            _require_workflow_job_access(job, current_user, session)
+            return job
         _recover_stale_workflow_jobs_locked()
         job = _workflow_jobs.get(job_id)
         if not job:

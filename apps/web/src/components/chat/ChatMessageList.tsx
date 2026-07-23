@@ -134,6 +134,7 @@ export default function ChatMessageList({
                         streaming={msg.streaming}
                         variant={isUser ? 'user' : 'assistant'}
                         auditTraceApiPrefix={auditTraceApiPrefix}
+                        auditTraceId={!isUser ? msg.auditTraceId : undefined}
                       />
                     ) : (
                       msg.streaming && !progressNode ? '正在思考…' : ''

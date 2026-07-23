@@ -912,6 +912,86 @@ def build_trusted_statement_row_evidence(
     return tuple((*evidence, *_change_evidence(evidence, identity)))
 
 
+def build_trusted_sec_dimension_evidence(
+    result: Mapping[str, Any] | None,
+    *,
+    expected_identity: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], ...]:
+    """Convert SEC dimensional rows into claim-verifier trusted evidence."""
+
+    identity = _identity(expected_identity)
+    if not identity or not isinstance(result, Mapping):
+        return ()
+    rows = result.get("rows")
+    if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
+        return ()
+    result_identity = {
+        field: str(result.get(field) or "").strip()
+        for field in IDENTITY_FIELDS
+    }
+    if any(result_identity[field] and result_identity[field] != identity[field] for field in IDENTITY_FIELDS):
+        return ()
+    evidence: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            value = Decimal(str(row.get("value") or row.get("raw_value") or "").replace(",", ""))
+        except (InvalidOperation, AttributeError):
+            continue
+        if not value.is_finite() or not row.get("evidence_id"):
+            continue
+        record = {
+            **identity,
+            "report_id": row.get("report_id") or result.get("report_id"),
+            "metric": row.get("metric") or "regional_revenue",
+            "canonical_name": row.get("canonical_name") or "operating_revenue",
+            "metric_name": row.get("metric_name") or row.get("region") or "地区营收",
+            "aliases": tuple(
+                item
+                for item in (
+                    row.get("region"),
+                    row.get("region_en"),
+                    row.get("member"),
+                    row.get("metric_name"),
+                    "地区营收",
+                    "geographic revenue",
+                    "revenue by geographic area",
+                )
+                if item
+            ),
+            "period": row.get("period") or result.get("period"),
+            "period_key": row.get("period_key") or row.get("period") or result.get("period"),
+            "value": str(value),
+            "raw_value": str(value),
+            "unit": row.get("unit") or "USD",
+            "currency": row.get("currency") or "USD",
+            # value_numeric is already normalized to base USD; the XBRL HTML
+            # scale belongs to value_text (for example 149,617 million), not
+            # to this trusted numeric value.
+            "scale": None,
+            "file": result.get("facts_file") or "xbrl/facts_raw.json",
+            "evidence_id": row.get("evidence_id"),
+            "quote": row.get("quote") or row.get("region") or "",
+            "source_type": row.get("source_type") or "sec_xbrl_fact",
+            "evidence_source_type": row.get("evidence_source_type") or "sec_xbrl_fact",
+            "source_url": row.get("source_url") or result.get("source_url"),
+            "source_anchor": row.get("source_anchor"),
+            "xbrl_tag": row.get("xbrl_tag"),
+        }
+        record.update(
+            _us_sec_usd_display_fields(
+                value=value,
+                unit=str(record.get("unit") or ""),
+                identity=identity,
+                source_url=str(record.get("source_url") or ""),
+                evidence_source_type=record.get("evidence_source_type"),
+            )
+        )
+        evidence.append(record)
+    return tuple(evidence)
+
+
 _AMOUNT_UNIT_TO_BASE = {
     "元": Decimal("1"),
     "人民币元": Decimal("1"),
@@ -1042,6 +1122,7 @@ def render_deterministic_calculation_pack(
 
 __all__ = [
     "build_trusted_calculation_evidence",
+    "build_trusted_sec_dimension_evidence",
     "build_trusted_statement_row_evidence",
     "render_deterministic_calculation_pack",
 ]

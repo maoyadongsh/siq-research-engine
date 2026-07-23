@@ -520,6 +520,11 @@ def company_artifact_paths(
             f"reports/{report_id}/metrics/financial_checks.json",
         ],
         "manifest": [f"reports/{report_id}/manifest.json"],
+        # SEC/XBRL dimensional facts are the authoritative source for
+        # geography/customer-headquarters revenue splits. They are separate
+        # from the consolidated three-statement metric view.
+        "xbrl_facts_raw": [f"reports/{report_id}/xbrl/facts_raw.json"],
+        "source_map": [f"reports/{report_id}/qa/source_map.json"],
         "evidence_index": [
             evidence.get("evidence_index") if isinstance(evidence, dict) else None,
             "evidence/evidence_index.json",
@@ -1199,6 +1204,8 @@ def build_company_wiki_scope_context(
         ("三大表", "three_statements"),
         ("核心指标", "key_metrics"),
         ("校验结果", "validation"),
+        ("SEC/XBRL事实", "xbrl_facts_raw"),
+        ("来源映射", "source_map"),
         ("证据索引", "evidence_index"),
         ("PDF页码映射", "pdf_refs"),
         ("语义证据", "evidence_semantic"),

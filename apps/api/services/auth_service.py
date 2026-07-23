@@ -16,6 +16,7 @@ from typing import List, Optional
 
 import jwt
 from pydantic import BaseModel, EmailStr
+from sqlalchemy import update
 from sqlmodel import Field, Relationship, SQLModel
 
 from services.path_config import ARTIFACTS_ROOT
@@ -81,6 +82,9 @@ class User(SQLModel, table=True):
     approved_by: Optional[int] = Field(default=None, index=True)
     approved_at: Optional[datetime] = None
     is_active: bool = Field(default=True)
+    # Incremented whenever a security-sensitive account change invalidates
+    # previously issued access tokens.
+    token_version: int = Field(default=0, nullable=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
 
@@ -174,7 +178,10 @@ class AuthService:
     """认证服务"""
 
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = _siq_int_env("SIQ_ACCESS_TOKEN_EXPIRE_MINUTES", 480)
+    # Access tokens are intentionally short lived.  Native/desktop clients can
+    # still request a longer, explicitly configured lifetime during migration,
+    # while production defaults to a 30-minute bearer/cookie window.
+    ACCESS_TOKEN_EXPIRE_MINUTES = max(5, _siq_int_env("SIQ_ACCESS_TOKEN_EXPIRE_MINUTES", 30))
     ACCESS_COOKIE_NAME = _siq_env("SIQ_AUTH_ACCESS_COOKIE_NAME", "siq_access_token")
     CSRF_COOKIE_NAME = _siq_env("SIQ_AUTH_CSRF_COOKIE_NAME", "siq_csrf_token")
     ACCESS_COOKIE_PATH = _siq_env("SIQ_AUTH_COOKIE_PATH", "/")
@@ -190,7 +197,11 @@ class AuthService:
 
     @staticmethod
     def cookie_mode_enabled() -> bool:
-        return _siq_bool_env("SIQ_AUTH_COOKIE_MODE")
+        configured = os.getenv("SIQ_AUTH_COOKIE_MODE")
+        if configured is not None:
+            return _siq_bool_env("SIQ_AUTH_COOKIE_MODE")
+        profile = _siq_env("SIQ_DEPLOYMENT_PROFILE", "local").strip().lower()
+        return profile in {"prod", "production", "staging"}
 
     @staticmethod
     def access_cookie_max_age_seconds() -> int:
@@ -198,12 +209,30 @@ class AuthService:
 
     @staticmethod
     def access_cookie_secure() -> bool:
-        return _siq_bool_env("SIQ_AUTH_COOKIE_SECURE")
+        configured = os.getenv("SIQ_AUTH_COOKIE_SECURE")
+        if configured is not None:
+            return _siq_bool_env("SIQ_AUTH_COOKIE_SECURE")
+        profile = _siq_env("SIQ_DEPLOYMENT_PROFILE", "local").strip().lower()
+        return profile in {"prod", "production", "staging"}
 
     @staticmethod
     def access_cookie_samesite() -> str:
         value = _siq_env("SIQ_AUTH_COOKIE_SAMESITE", "lax").strip().lower()
         return value if value in {"lax", "strict", "none"} else "lax"
+
+    @staticmethod
+    def token_version_required() -> bool:
+        """Require the per-user token version claim for authenticated requests.
+
+        Tokens issued before token-version rollout have no ``ver`` claim.  They
+        remain usable in local/dev profiles until their normal expiry, while
+        deployed profiles fail closed unless explicitly configured otherwise.
+        """
+        configured = os.getenv("SIQ_AUTH_REQUIRE_TOKEN_VERSION")
+        if configured is not None and configured.strip():
+            return _siq_bool_env("SIQ_AUTH_REQUIRE_TOKEN_VERSION")
+        profile = _siq_env("SIQ_DEPLOYMENT_PROFILE", "local").strip().lower()
+        return profile in {"prod", "production", "staging"}
 
     @staticmethod
     def create_csrf_token() -> str:
@@ -251,14 +280,90 @@ class AuthService:
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
         """创建JWT访问令牌"""
         to_encode = data.copy()
+        issued_at = datetime.utcnow()
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = issued_at + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=AuthService.ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = issued_at + timedelta(minutes=AuthService.ACCESS_TOKEN_EXPIRE_MINUTES)
 
+        # ``iat`` and ``jti`` support audit correlation and future deny-list
+        # integration.  User tokens additionally carry ``ver`` and are checked
+        # against the current database value by the auth dependency.
+        to_encode.setdefault("iat", issued_at)
+        to_encode.setdefault("jti", secrets.token_urlsafe(24))
+        to_encode.setdefault("typ", "access")
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, AuthService.secret_key(), algorithm=AuthService.ALGORITHM)
         return encoded_jwt
+
+    @staticmethod
+    def user_token_version(user: object) -> int:
+        """Return a normalized token version for model and legacy user objects."""
+        try:
+            version = int(getattr(user, "token_version", 0) or 0)
+        except (TypeError, ValueError):
+            version = 0
+        return max(0, version)
+
+    @staticmethod
+    def bump_token_version(user: User) -> int:
+        """Advance a detached/new user object (persisted paths use atomic bump)."""
+        version = AuthService.user_token_version(user) + 1
+        user.token_version = version
+        return version
+
+    @staticmethod
+    def bump_persisted_token_version(session, user: User) -> int:
+        """Atomically invalidate all tokens issued for a persisted user.
+
+        The SQL expression avoids a lost update when multiple logout, password,
+        or administrator actions race on the same account.
+        """
+        if user.id is None:
+            return AuthService.bump_token_version(user)
+        session.flush()
+        session.execute(
+            update(User)
+            .where(User.id == int(user.id))
+            .values(token_version=User.token_version + 1)
+        )
+        session.flush()
+        session.refresh(user, attribute_names=["token_version"])
+        return AuthService.user_token_version(user)
+
+    @staticmethod
+    def token_version_matches_user(payload: dict, user: object) -> bool:
+        """Return whether a decoded token is current for ``user``.
+
+        This method is intentionally shared by the normal FastAPI dependency
+        and source/download auth paths so token revocation cannot be bypassed
+        by a router that performs its own subject lookup.
+        """
+        current_version = AuthService.user_token_version(user)
+        token_version = payload.get("ver")
+        if token_version is None:
+            return not AuthService.token_version_required() and current_version == 0
+        if isinstance(token_version, bool):
+            return False
+        if isinstance(token_version, int):
+            parsed_version = token_version
+        elif isinstance(token_version, str) and token_version.isdigit():
+            parsed_version = int(token_version)
+        else:
+            return False
+        return parsed_version >= 0 and parsed_version == current_version
+
+    @staticmethod
+    def create_user_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
+        """Issue an access token bound to the user's current security version."""
+        return AuthService.create_access_token(
+            {
+                "sub": user.username,
+                "role": user.role,
+                "ver": AuthService.user_token_version(user),
+            },
+            expires_delta,
+        )
 
     @staticmethod
     def decode_token(token: str) -> Optional[dict]:
@@ -497,6 +602,11 @@ class ReportSignature:
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 class LoginResponse(BaseModel):

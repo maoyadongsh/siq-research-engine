@@ -261,7 +261,7 @@ def recover_stale_workflow_jobs(
         if expires_at > current_time:
             continue
 
-        reason = "workflow worker lease expired; the job may be retried"
+        reason = "workflow worker lease expired; process-local target cannot be recovered"
         current_step = str(job.get("currentStep") or "").strip()
         steps = job.get("steps")
         if current_step and isinstance(steps, list):
@@ -272,9 +272,9 @@ def recover_stale_workflow_jobs(
             if isinstance(step, dict) and str(step.get("status") or "") not in TERMINAL_STEP_STATUSES:
                 step.update({"status": "failed", "error": reason, "finishedAt": now})
         job.update({
-            "status": "failed",
-            "recoverable": True,
-            "recoveryReason": "stale_lease",
+            "status": "interrupted",
+            "recoverable": False,
+            "recoveryReason": "process_restart_unrecoverable_target",
             "recoveredAt": now,
             "finishedAt": now,
             "updatedAt": now,

@@ -7,7 +7,12 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from services.agent_runtime_source_fields import extract_source_fields as _extract_source_fields_shared
-from services.citation_links import append_missing_pdf_source_links, strip_sec_pdf_locators
+from services.citation_links import (
+    append_missing_pdf_source_links,
+    canonical_sec_source_type,
+    is_sec_validation_source_type,
+    strip_sec_pdf_locators,
+)
 
 LATEX_INLINE_SYMBOLS: dict[str, str] = {
     r"\to": "→",
@@ -217,7 +222,6 @@ def sanitize_sec_xbrl_reference_lines(
 ) -> str:
     """Rebuild SEC citation lines from server-trusted XBRL facts only."""
 
-    reply = strip_sec_pdf_locators(reply)
     trusted: dict[tuple[str, str], Mapping[str, Any]] = {}
     trusted_by_fact: dict[str, Mapping[str, Any]] = {}
     trusted_by_metric_period: dict[tuple[str, str], Mapping[str, Any]] = {}
@@ -245,12 +249,18 @@ def sanitize_sec_xbrl_reference_lines(
             metric = _normalized_source_value(metric_value)
             if metric and period:
                 trusted_by_metric_period.setdefault((metric, period), item)
+    trusted_sec_urls = {key[0] for key in trusted}
+    reply = strip_sec_pdf_locators(
+        reply,
+        fallback_sec_url=next(iter(trusted_sec_urls)) if len(trusted_sec_urls) == 1 else "",
+    )
     if not trusted:
         return reply
 
     output: list[str] = []
     emitted: set[str] = set()
     reference_index = 0
+    saw_sec_xbrl_reference = False
     for raw_line in (reply or "").splitlines():
         if "source_type=" not in raw_line:
             if has_us_sec_evidence and _looks_like_us_sec_foreign_pdf_locator(raw_line):
@@ -260,19 +270,27 @@ def sanitize_sec_xbrl_reference_lines(
         fields = _extract_source_fields_shared(raw_line)
         source_type = _normalized_source_value(fields.get("source_type"))
         evidence_source_type = _normalized_source_value(fields.get("evidence_source_type"))
+        if is_sec_validation_source_type(source_type) or is_sec_validation_source_type(evidence_source_type):
+            continue
         is_sec_line = (
-            "sec.gov/" in raw_line.lower()
-            or source_type == "sec_xbrl_fact"
-            or evidence_source_type == "sec_xbrl_fact"
+            canonical_sec_source_type(source_type) == "sec_xbrl_fact"
+            or canonical_sec_source_type(evidence_source_type) == "sec_xbrl_fact"
+            or ("sec.gov/" in raw_line.lower() and bool(fields.get("xbrl_tag")))
         )
         if not is_sec_line:
             if has_us_sec_evidence and _looks_like_us_sec_foreign_pdf_locator(raw_line):
                 continue
             output.append(raw_line)
             continue
+        saw_sec_xbrl_reference = True
         key = (
-            str(fields.get("source_url") or "").strip(),
-            str(fields.get("source_anchor") or "").strip(),
+            str(fields.get("source_url") or fields.get("url") or "").strip(),
+            str(
+                fields.get("source_anchor")
+                or fields.get("anchor")
+                or fields.get("html_anchor")
+                or ""
+            ).strip(),
         )
         item = trusted.get(key)
         if item is None:
@@ -331,7 +349,54 @@ def sanitize_sec_xbrl_reference_lines(
                 xbrl_tag=item.get("xbrl_tag"),
             )
         )
-    return "\n".join(output)
+    sanitized = "\n".join(output)
+    if not saw_sec_xbrl_reference or emitted:
+        return sanitized
+
+    missing_refs: list[str] = []
+    for item in trusted.values():
+        emitted_key = "|".join(
+            str(item.get(field) or "")
+            for field in ("source_url", "source_anchor", "metric", "period", "evidence_id")
+        )
+        if emitted_key in emitted:
+            continue
+        emitted.add(emitted_key)
+        reference_index += 1
+        missing_refs.append(
+            _primary_data_source_ref(
+                reference_index,
+                source_type="wiki_metrics",
+                file=str(item.get("file") or ""),
+                metric=str(item.get("metric_name") or item.get("metric") or ""),
+                period=item.get("period"),
+                task_id=item.get("task_id"),
+                pdf_page=item.get("pdf_page"),
+                table_index=item.get("table_index"),
+                md_line=item.get("md_line"),
+                table_source_links=table_source_links,
+                statement_type=item.get("statement_type"),
+                canonical_name=item.get("canonical_name") or item.get("metric"),
+                metric_name=item.get("metric_name"),
+                value=item.get("value"),
+                raw_value=item.get("raw_value"),
+                unit=item.get("unit"),
+                currency=item.get("currency"),
+                scale=item.get("scale"),
+                market=item.get("market"),
+                company_id=item.get("company_id"),
+                report_id=item.get("report_id"),
+                filing_id=item.get("filing_id"),
+                parse_run_id=item.get("parse_run_id"),
+                evidence_id=item.get("evidence_id"),
+                quote=item.get("quote"),
+                evidence_source_type=item.get("evidence_source_type"),
+                source_url=item.get("source_url"),
+                source_anchor=item.get("source_anchor"),
+                xbrl_tag=item.get("xbrl_tag"),
+            )
+        )
+    return _merge_refs_into_reference_section(sanitized, missing_refs)
 
 
 def _normalized_source_value(value: Any) -> str:

@@ -33,7 +33,7 @@ from provenance_utils import (
 
 TEMPLATE_JSON = Path(__file__).resolve().parent.parent / "templates" / "siq_analysis_report_v1.1.json"
 SECTION_DRAFT_SCHEMA_JSON = Path(__file__).resolve().parent.parent / "templates" / "section_drafts.schema.json"
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 
 def public_api_url(path: str) -> str:

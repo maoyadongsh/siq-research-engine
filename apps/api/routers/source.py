@@ -15,6 +15,7 @@ from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from services.auth_dependencies import get_current_user
 from services.auth_service import AuthService, User
+from services.runtime_security import public_origin_from_env
 from services.usage_service import UserArtifact
 from sqlmodel import Session, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -26,11 +27,14 @@ PDF2MD_FALLBACK_API_BASE = (
 ).rstrip("/")
 PDF2MD_ACCESS_TOKEN = (os.environ.get("SIQ_PDF2MD_ACCESS_TOKEN") or os.environ.get("PDF2MD_ACCESS_TOKEN", "")).strip()
 PDF2MD_PROXY_TIMEOUT = float(os.environ.get("SIQ_PDF2MD_PROXY_TIMEOUT") or os.environ.get("PDF2MD_PROXY_TIMEOUT", "60"))
-PUBLIC_ORIGIN = (os.environ.get("SIQ_PUBLIC_ORIGIN") or os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391")).rstrip("/")
+PUBLIC_ORIGIN = public_origin_from_env()
 
 router = APIRouter(tags=["source"])
 optional_security = HTTPBearer(auto_error=False)
-SOURCE_ACCESS_TOKEN_TTL_SECONDS = int(os.environ.get("SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS", "900"))
+SOURCE_ACCESS_TOKEN_TTL_SECONDS = min(
+    900,
+    max(60, int(os.environ.get("SIQ_SOURCE_ACCESS_TOKEN_TTL_SECONDS", "300"))),
+)
 SOURCE_TOKEN_SECRET_ENV = "SIQ_SOURCE_TOKEN_SECRET"
 SOURCE_ACCEPT_LEGACY_AUTH_SECRET_ENV = "SIQ_SOURCE_ACCEPT_LEGACY_AUTH_SECRET"
 MIN_SOURCE_TOKEN_SECRET_LENGTH = 32
@@ -49,6 +53,17 @@ SOURCE_HTML_SECURITY_HEADERS = {
     ),
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+}
+SOURCE_RESPONSE_SECURITY_HEADERS = {
+    key: value
+    for key, value in SOURCE_HTML_SECURITY_HEADERS.items()
+    if key != "Content-Security-Policy"
 }
 
 
@@ -124,6 +139,8 @@ def _token_user(token: str, session: Session) -> User | None:
         user = session.exec(select(User).where(User.username == subject)).first()
     if not user or not user.is_active:
         return None
+    if not AuthService.token_version_matches_user(payload, user):
+        return None
     if getattr(user, "approval_status", "approved") != "approved":
         return None
     return user
@@ -142,6 +159,8 @@ async def _token_user_async(token: str, async_session: AsyncSession) -> User | N
         result = await async_session.exec(select(User).where(User.username == subject))
     user = result.first()
     if not user or not user.is_active:
+        return None
+    if not AuthService.token_version_matches_user(payload, user):
         return None
     if getattr(user, "approval_status", "approved") != "approved":
         return None
@@ -428,10 +447,14 @@ async def _proxy_pdf2md(
         extra_headers=extra_headers,
     )
     body = b"" if request.method == "HEAD" else upstream.content
+    headers = dict(SOURCE_RESPONSE_SECURITY_HEADERS)
+    if _content_type(upstream.headers).lower().startswith(("text/html", "image/svg+xml")):
+        headers["Content-Security-Policy"] = SOURCE_HTML_SECURITY_HEADERS["Content-Security-Policy"]
     return Response(
         content=body,
         status_code=upstream.status_code,
         media_type=_content_type(upstream.headers),
+        headers=headers,
     )
 
 
@@ -567,12 +590,11 @@ def _html_shell(*, title: str, body: str) -> str:
     (() => {{
       const tracePathRe = /^\\/api\\/(?:pdf_page|source)\\//;
       const privateHostRe = /^(localhost|127\\.0\\.0\\.1|192\\.168\\.|10\\.|172\\.(1[6-9]|2\\d|3[01])\\.)/;
-      const isKnownPublicTraceHost = (url) => url.hostname === 'arthurmao.synology.me';
       document.querySelectorAll('a[href]').forEach((link) => {{
         try {{
           const url = new URL(link.getAttribute('href'), window.location.href);
           if (!tracePathRe.test(url.pathname)) return;
-          if (!privateHostRe.test(url.hostname) && !isKnownPublicTraceHost(url)) return;
+          if (!privateHostRe.test(url.hostname)) return;
           link.href = `${{window.location.origin}}${{url.pathname}}${{url.search}}${{url.hash}}`;
         }} catch (error) {{
           // Keep the original href when the browser cannot parse it.
@@ -826,12 +848,14 @@ def _pdf_page_view_html(
 @router.get("/source_access/{kind}/{task_id}/{identifier}")
 async def get_source_open_url(
     request: Request,
+    response: Response,
     kind: str,
     task_id: str,
     identifier: int,
     credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
     async_session: AsyncSession = Depends(get_async_session),
 ):
+    response.headers.update(SOURCE_RESPONSE_SECURITY_HEADERS)
     source_token = await _authorize_task_access_async(
         request=request,
         task_id=task_id,

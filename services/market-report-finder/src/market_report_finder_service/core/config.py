@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     dart_api_key: str | None = Field(default=None, validation_alias="DART_API_KEY")
     dart_max_requests_per_second: float = Field(default=3.0, validation_alias="DART_MAX_REQUESTS_PER_SECOND")
     edinet_api_key: str | None = Field(default=None, validation_alias="EDINET_API_KEY")
-    edinet_max_requests_per_second: float = Field(default=1.0, validation_alias="EDINET_MAX_REQUESTS_PER_SECOND")
+    edinet_max_requests_per_second: float = Field(default=3.0, validation_alias="EDINET_MAX_REQUESTS_PER_SECOND")
     tdnet_api_key: str | None = Field(default=None, validation_alias="TDNET_API_KEY")
     tdnet_recent_days: int = Field(default=120, validation_alias="TDNET_RECENT_DAYS")
     tdnet_max_pages_per_day: int = Field(default=12, validation_alias="TDNET_MAX_PAGES_PER_DAY")

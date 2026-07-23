@@ -41,8 +41,9 @@ INDUSTRY_RESEARCH_SCRIPT = SCRIPT_DIR / "industry_research_builder.py"
 RECOVER_SCRIPT = SCRIPT_DIR / "recover_report_from_workdir.py"
 VALIDATE_SCRIPT = SCRIPT_DIR / "validate_report_quality.py"
 TEMPLATE_JSON = SCRIPT_DIR.parent / "templates" / "siq_analysis_report_v1.1.json"
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
-PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT", "/home/maoyd/siq-research-engine")).expanduser()
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
+PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT") or Path(__file__).resolve().parents[5]).expanduser()
+WIKI_ROOT = Path(os.environ.get("SIQ_WIKI_ROOT") or PROJECT_ROOT / "data" / "wiki").expanduser()
 COMPANY_INDEX_PUBLISHER = PROJECT_ROOT / "scripts/openshell/publish_company_index.py"
 PUBLISHER_TIMEOUT_SECONDS = 30
 MARKET_COMPANY_PREFIXES = {
@@ -240,7 +241,7 @@ def publish_company_index_after_host_run(company_dir: Path) -> dict[str, Any]:
     if os.environ.get("SIQ_OPENSHELL_SANDBOX") == "1":
         return {"ok": False, "deferred": True, "error_code": "sandbox_host_publish_required"}
     try:
-        relative = company_dir.relative_to(PROJECT_ROOT / "data/wiki")
+        relative = company_dir.relative_to(WIKI_ROOT)
         market = MARKET_COMPANY_PREFIXES[tuple(relative.parts[:-1])]
         company_id = relative.parts[-1]
     except (KeyError, ValueError, IndexError):

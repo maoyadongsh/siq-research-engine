@@ -15,6 +15,7 @@ from services.agent_runtime_financial_claim_verifier import (
     _trace_visible_locator_matches,
     _trusted_evidence_value,
     _trusted_trace_input,
+    correct_evidence_bound_unit_normalizations,
     validate_calculation_traces,
     verify_financial_claims,
 )
@@ -4502,3 +4503,79 @@ def test_trusted_amount_normalization_receipt_is_bound_and_checks_visible_result
     wrong = validate("442.7571")
     assert wrong.allowed is False
     assert wrong.reason == "trace_claim_result_mismatch"
+
+
+def test_corrects_known_usd_billion_number_labeled_as_hundred_million():
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/test.htm"
+    evidence = (
+        {
+            "source_type": "wiki_metrics",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:test",
+            "parse_run_id": "run-test",
+            "metric": "operating_revenue",
+            "metric_name": "营业收入",
+            "aliases": ("总营收", "营业收入", "revenue"),
+            "period": "2026-01-25",
+            "value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "evidence_id": "fact-revenue",
+            "quote": "215,938",
+            "source_url": source_url,
+            "source_anchor": "f-72",
+            "xbrl_tag": "us-gaap:Revenues",
+            "display_raw": "215,938,000,000 USD",
+            "display_billion": "215.938 billion USD",
+            "display_100m": "2,159.38 亿美元",
+            "display_values": (
+                "215,938,000,000 USD",
+                "215.938 billion USD",
+                "2,159.38 亿美元",
+            ),
+        },
+    )
+    source = (
+        "[1] source_type=wiki_metrics, metric=营业收入, period=2026-01-25, value=215938000000, "
+        f"unit=USD, evidence_id=fact-revenue, source_url={source_url}, source_anchor=f-72, "
+        "xbrl_tag=us-gaap:Revenues"
+    )
+    reply = f"英伟达 2026 财年总营收约为 215.938 亿美元。\n{source}"
+
+    corrected = correct_evidence_bound_unit_normalizations(reply, evidence)
+
+    assert "2,159.38 亿美元" in corrected
+    assert "215.938 亿美元" not in corrected
+
+
+def test_does_not_autocorrect_arbitrary_evidence_value_mismatch():
+    source_url = "https://www.sec.gov/Archives/edgar/data/1045810/test.htm"
+    evidence = (
+        {
+            "source_type": "wiki_metrics",
+            "market": "US",
+            "company_id": "US:0001045810",
+            "filing_id": "US:0001045810:test",
+            "parse_run_id": "run-test",
+            "metric": "operating_revenue",
+            "metric_name": "营业收入",
+            "period": "2026-01-25",
+            "value": "215938000000",
+            "unit": "USD",
+            "currency": "USD",
+            "evidence_id": "fact-revenue",
+            "quote": "215,938",
+            "source_url": source_url,
+            "source_anchor": "f-72",
+            "display_billion": "215.938 billion USD",
+            "display_100m": "2,159.38 亿美元",
+        },
+    )
+    source = (
+        "[1] source_type=wiki_metrics, metric=营业收入, period=2026-01-25, value=215938000000, "
+        f"unit=USD, evidence_id=fact-revenue, source_url={source_url}, source_anchor=f-72"
+    )
+    reply = f"英伟达 2026 财年营业收入为 999 亿美元。\n{source}"
+
+    assert correct_evidence_bound_unit_normalizations(reply, evidence) == reply

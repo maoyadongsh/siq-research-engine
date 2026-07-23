@@ -37,7 +37,7 @@ DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",
 )
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 METRIC_SOURCE_TYPES = {"wiki_metrics", "okf_metrics"}
 EVIDENCE_SOURCE_TYPES = {"wiki_evidence", "wiki_index", "okf_evidence", "okf_index"}
@@ -525,8 +525,6 @@ def _company_task_index(wiki_base: Path = WIKI_BASE) -> dict[str, Path]:
 def find_company_dir_from_text(text: str, wiki_base: Path = WIKI_BASE) -> Path | None:
     """Infer a company directory from a chat reply or report snippet."""
     patterns = [
-        r"/home/maoyd/okf_staging/companies/([0-9A-Za-z]+-[^/\s`，,]+)",
-        r"/home/maoyd/siq-research-engine/data/wiki/companies/([0-9]{6}-[^/\s`，,]+)",
         r"companies/([0-9A-Za-z]+-[^/\s`，,]+)",
         r"\b([0-9A-Za-z]+-[^\s`/，,]+)",
     ]
@@ -604,6 +602,34 @@ def _report_is_quarterly(report: dict[str, Any]) -> bool:
     return any(term in text for term in ("quarter", "quarterly", "季报", "季度", "半年报", "半年度"))
 
 
+def _prefer_canonical_report_variant(reports: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Choose the hyphenated report ID when legacy underscore aliases coexist.
+
+    Older imports used ``2025-quarterly_report`` while current report paths use
+    ``2025-quarterly-report``. Both entries can legitimately point to the same
+    filing during migration, so selection must be deterministic without
+    deleting or rewriting the legacy directory.
+    """
+
+    if not reports:
+        return None
+    by_alias: dict[str, list[dict[str, Any]]] = {}
+    for report in reports:
+        report_id = str(report.get("report_id") or "").strip()
+        alias = report_id.replace("_", "-") if report_id else ""
+        by_alias.setdefault(alias, []).append(report)
+    for alias, variants in by_alias.items():
+        if len(variants) < 2 or not alias:
+            continue
+        canonical = next(
+            (item for item in variants if str(item.get("report_id") or "").strip() == alias),
+            None,
+        )
+        if canonical is not None:
+            return canonical
+    return reports[0]
+
+
 def _select_report(reports: list[dict[str, Any]], primary_report_id: str | None, query_text: str | None) -> tuple[dict[str, Any] | None, str | None]:
     if not reports:
         return None, None
@@ -612,7 +638,9 @@ def _select_report(reports: list[dict[str, Any]], primary_report_id: str | None,
     wants_annual = any(term.lower() in text for term in ANNUAL_REPORT_TERMS)
 
     if wants_quarterly:
-        report = next((item for item in reports if _report_is_quarterly(item)), None)
+        report = _prefer_canonical_report_variant(
+            [item for item in reports if _report_is_quarterly(item)]
+        )
         if report:
             return report, report.get("report_id")
     if wants_annual or not wants_quarterly:

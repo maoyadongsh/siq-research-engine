@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 import sys
 from pathlib import Path
@@ -75,6 +76,28 @@ def test_pool_slot_parameterizes_state_and_local_forward_without_changing_target
     assert lifecycle.settings.state_relative == canary.POOL_SLOTS_RELATIVE / slot_id
     assert spec.run_dir == root / canary.POOL_SLOTS_RELATIVE / slot_id / "runs" / spec.run_id
     assert spec.sandbox_name == f"siq-analysis-{spec.run_id}"
+
+
+def test_pool_slot_state_root_is_private_under_permissive_umask(tmp_path: Path) -> None:
+    root, company = _project(tmp_path)
+    slots = root / canary.POOL_SLOTS_RELATIVE
+    slots.mkdir(parents=True, mode=0o700)
+    slot_id = hashlib.sha256(f"cn\0{company}".encode()).hexdigest()[:24]
+    lifecycle = canary.CanaryLifecycle(
+        project_root=root,
+        adapter=LifecycleAdapter(project_root=root),
+        pool_slot_id=slot_id,
+        local_port=28652,
+        reservation_token="reservation-" + "a" * 32,
+    )
+    previous_umask = os.umask(0o002)
+    try:
+        lifecycle._prepare_state_directories()
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(lifecycle.state_root.stat().st_mode) == 0o700
+    assert stat.S_IMODE((root / lifecycle.settings.runs_relative).stat().st_mode) == 0o700
 
 
 def test_pool_slot_guard_uses_the_exact_parameterized_state_root(tmp_path: Path) -> None:

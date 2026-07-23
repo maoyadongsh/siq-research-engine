@@ -23,6 +23,7 @@ export default function Settings() {
   const { apiUrl } = useApi()
   const [apiBase, setApiBase] = useState(() => readSetting('api_base', DEFAULTS.apiBase)); const [wikiRoot, setWikiRoot] = useState(() => readSetting('wiki_root_hint', DEFAULTS.wikiRoot)); const [recentLimit, setRecentLimit] = useState(() => readSetting('recent_task_limit', DEFAULTS.recentLimit))
   const [llmSettings, setLlmSettings] = useState<LLMSettingsForm>(DEFAULT_LLM_SETTINGS); const [saved, setSaved] = useState(false); const [loadingLlm, setLoadingLlm] = useState(true); const [savingLlm, setSavingLlm] = useState(false); const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null); const [loadingSystemStatus, setLoadingSystemStatus] = useState(true); const [systemStatusError, setSystemStatusError] = useState(''); const [showKeys, setShowKeys] = useState<Record<ProviderKey, boolean>>({ cloud: false, local: false }); const [testState, setTestState] = useState<Record<ProviderKey, TestState>>({ cloud: { status: 'idle', message: '' }, local: { status: 'idle', message: '' } })
+  const [stepfunPreset, setStepfunPreset] = useState(CLOUD_STEPFUN_PRESET)
 
   useEffect(() => { if (!saved) return; const timer = window.setTimeout(() => setSaved(false), 1800); return () => window.clearTimeout(timer) }, [saved])
   useEffect(() => { localStorage.removeItem('pdf_api_base') }, [])
@@ -40,6 +41,7 @@ export default function Settings() {
             local: mapProviderFromApi(data.providers?.local || {}, DEFAULT_LLM_SETTINGS.providers.local),
           },
         })
+        setStepfunPreset(mapProviderFromApi(data.cloudModelPresets?.stepfun || {}, CLOUD_STEPFUN_PRESET))
       } catch (e) {
         if (!ignore) setTestState((c) => ({ ...c, local: { status: 'error', message: `无法加载后端模型配置：${e instanceof Error ? e.message : '未知错误'}` } }))
       } finally {
@@ -74,7 +76,7 @@ export default function Settings() {
   const useLocalQwenPreset = () => useLocalPreset(LOCAL_QWEN_PRESET, '本机 vLLM Qwen3.6')
   const useLocalGemmaPreset = () => useLocalPreset(LOCAL_GEMMA4_PRESET, '本机 vLLM Gemma4')
   const useLocalNemotronPreset = () => useLocalPreset(LOCAL_NEMOTRON_PRESET, '本机 vLLM Nemotron 3 Nano Omni')
-  const useCloudStepfunPreset = () => useCloudPreset(CLOUD_STEPFUN_PRESET, 'StepFun Step-3.7 Flash')
+  const useCloudStepfunPreset = () => useCloudPreset(stepfunPreset, 'StepFun Step-3.7 Flash')
   const useCloudMinimaxPreset = () => useCloudPreset(CLOUD_MINIMAX_PRESET, 'Hermes Minimax')
   const useCloudKimiPreset = () => useCloudPreset(CLOUD_KIMI_PRESET, 'Hermes Kimi')
   const save = async () => {
@@ -94,7 +96,7 @@ export default function Settings() {
       setSavingLlm(false)
     }
   }
-  const reset = () => { setApiBase(DEFAULTS.apiBase); setWikiRoot(DEFAULTS.wikiRoot); setRecentLimit(DEFAULTS.recentLimit); setLlmSettings(DEFAULT_LLM_SETTINGS); localStorage.removeItem('api_base'); localStorage.removeItem('pdf_api_base'); localStorage.removeItem('wiki_root_hint'); localStorage.removeItem('recent_task_limit'); setSaved(true) }
+  const reset = () => { setApiBase(DEFAULTS.apiBase); setWikiRoot(DEFAULTS.wikiRoot); setRecentLimit(DEFAULTS.recentLimit); setLlmSettings(DEFAULT_LLM_SETTINGS); setStepfunPreset(CLOUD_STEPFUN_PRESET); localStorage.removeItem('api_base'); localStorage.removeItem('pdf_api_base'); localStorage.removeItem('wiki_root_hint'); localStorage.removeItem('recent_task_limit'); setSaved(true) }
   const testProvider = async (key: ProviderKey) => { const provider = llmSettings.providers[key]; setTestState((c) => ({ ...c, [key]: { status: 'testing', message: '正在调用模型...' } })); try { const data = await testLlmProvider(apiUrl, { provider: key, message: '请只回复 OK，用于 SIQ 连接测试。', config: toProviderPayload(provider) }); setTestState((c) => ({ ...c, [key]: { status: data.ok ? 'success' : 'error', message: data.message || (data.ok ? '连接成功' : '连接失败'), latencyMs: data.latencyMs } })) } catch (e) { setTestState((c) => ({ ...c, [key]: { status: 'error', message: e instanceof Error ? e.message : '连接测试失败' } })) } }
 
   const selectProvider = (key: ProviderKey) => setLlmSettings((c) => ({ ...c, activeProvider: key }))

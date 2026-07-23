@@ -2,13 +2,13 @@
 import hmac
 from urllib.parse import urlparse
 
+from database import get_async_session
 from fastapi import Cookie, Depends, HTTPException, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from database import get_async_session
-from services.auth_service import AuthService, PermissionChecker, User
 
+from services.auth_service import AuthService, PermissionChecker, User
 
 security = HTTPBearer(auto_error=False)
 SAFE_CSRF_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
@@ -109,6 +109,12 @@ async def get_current_user(
 
     if user is None:
         raise HTTPException(401, "User not found")
+
+    # Bind every newly issued token to the current account security version.
+    # Legacy tokens are accepted only in explicitly non-production profiles;
+    # this keeps local clients compatible while production fails closed.
+    if not AuthService.token_version_matches_user(payload, user):
+        raise HTTPException(401, "Invalid or expired token")
 
     approval_status = getattr(user, "approval_status", "approved")
     if approval_status == "pending":

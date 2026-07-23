@@ -148,6 +148,8 @@ def source_contract(path: Path) -> tuple[bytes, str, str]:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PilotContractError("pilot_source_invalid") from exc
     stock_code = payload.get("stock_code") if isinstance(payload, dict) else None
+    if stock_code is None and isinstance(payload, dict):
+        stock_code = payload.get("ticker")
     if not isinstance(stock_code, str) or not STOCK_CODE_RE.fullmatch(stock_code):
         raise PilotContractError("pilot_source_contract_invalid")
     return content, hashlib.sha256(content).hexdigest(), stock_code
@@ -162,10 +164,11 @@ def build_prompt(paths: PilotPaths, *, pilot_id: str) -> str:
         "import hashlib,json,pathlib;"
         f"s=pathlib.Path({source_literal});"
         f"t=pathlib.Path({output_literal});"
-        "b=s.read_bytes();p=json.loads(b);"
+        "b=s.read_bytes();p=json.loads(b);v=p.get('stock_code');"
+        "v=p.get('ticker') if v is None else v;"
         "o={'schema_version':"
         f"{schema_literal},'pilot_id':{pilot_literal},"
-        "'stock_code':str(p['stock_code']),'source_sha256':hashlib.sha256(b).hexdigest()};"
+        "'stock_code':str(v),'source_sha256':hashlib.sha256(b).hexdigest()};"
         "t.open('x',encoding='ascii').write(json.dumps(o,ensure_ascii=True,sort_keys=True)+'\\n');"
         f"print({TOOL_MARKER!r})"
     )

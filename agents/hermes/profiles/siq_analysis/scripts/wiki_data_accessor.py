@@ -11,7 +11,11 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 
 # 从环境变量读取基础路径
-WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/siq-research-engine/data/wiki"))
+WIKI_DIR = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or os.environ.get("WIKI_DIR")
+    or Path(__file__).resolve().parents[5] / "data" / "wiki"
+)
 COMPANY_CATALOG_PATH = WIKI_DIR / "_meta" / "company_catalog.json"
 
 

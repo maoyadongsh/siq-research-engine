@@ -2,12 +2,17 @@
 """Lightweight regression checks for SIQ_factchecker outputs."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WIKI = Path("/home/maoyd/siq-research-engine/data/wiki")
+WIKI = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or os.environ.get("WIKI_DIR")
+    or Path(__file__).resolve().parents[5] / "data" / "wiki"
+)
 LAUNCHER = ROOT / "SIQ_factchecker"
 
 

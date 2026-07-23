@@ -320,6 +320,8 @@ def test_source_html_response_uses_csp_sandbox():
     assert "allow-same-origin" not in response.headers["content-security-policy"]
     assert "allow-scripts" not in response.headers["content-security-policy"]
     assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"].startswith("private, no-store")
+    assert response.headers["cross-origin-resource-policy"] == "same-origin"
 
 
 def test_source_request_error_redacts_auth_query_tokens():

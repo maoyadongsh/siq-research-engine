@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import statistics
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 METRIC_KEYS = [
     "operating_revenue",
@@ -431,7 +431,8 @@ def build_interpretation(target_row: dict[str, Any], aggregates: dict[str, Any],
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--company-dir", required=True, type=Path)
-    parser.add_argument("--wiki-dir", type=Path, default=Path("/home/maoyd/siq-research-engine/data/wiki"))
+    default_wiki_dir = Path(os.environ.get("SIQ_WIKI_ROOT") or os.environ.get("WIKI_DIR") or Path(__file__).resolve().parents[5] / "data" / "wiki")
+    parser.add_argument("--wiki-dir", type=Path, default=default_wiki_dir)
     parser.add_argument("--year", type=int, default=2025)
     parser.add_argument("--min-peers", type=int, default=3)
     parser.add_argument("--output", type=Path)

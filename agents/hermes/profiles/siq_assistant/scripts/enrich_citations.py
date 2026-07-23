@@ -16,24 +16,28 @@ SIQ Assistant Citation Enricher
 
 import argparse
 import os
-import sys
 import re
+import sys
 from pathlib import Path
 
-os.environ.setdefault("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")
+_project_root = Path(os.environ.get("SIQ_PROJECT_ROOT") or Path(__file__).resolve().parents[5])
+os.environ.setdefault("SIQ_WIKI_ROOT", str(_project_root / "data" / "wiki"))
 os.environ.setdefault("SIQ_DEFAULT_SOURCE_TYPE", "wiki_metrics")
 
 # 将 shared scripts 加入路径
-sys.path.insert(0, str(Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")))
-from local_citations import (
-    find_company_dir_from_text,
+_shared_scripts = Path(
+    os.environ.get("SIQ_HERMES_PROFILES_ROOT")
+    or os.environ.get("HERMES_PROFILES_ROOT")
+    or _project_root / "agents" / "hermes" / "profiles"
+) / "shared" / "scripts"
+sys.path.insert(0, str(_shared_scripts))
+from local_citations import (  # noqa: E402
+    _format_citation_lines,
     enrich_citation_line,
     resolve_citation_refs,
-    _with_urls,
-    _format_citation_lines,
 )
 
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 
 def public_api_url(path: str) -> str:

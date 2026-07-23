@@ -1,7 +1,7 @@
 model:
   default: step-3.7-flash
   provider: custom:stepfun-step-3.7-flash
-  base_url: https://api.stepfun.com/v1
+  base_url: https://api.stepfun.com/step_plan/v1
   api_mode: openai_chat
   context_length: 200000
   temperature: 0.2
@@ -12,6 +12,10 @@ fallback_providers:
   model: Qwen3.6-35B-A3B-FP8
   temperature: 0.2
   base_url: http://127.0.0.1:8004/v1
+- provider: custom:nemotron-3-nano-omni-local
+  model: nemotron_3_nano_omni
+  temperature: 0.2
+  base_url: http://127.0.0.1:8007/v1
 - provider: custom:gemma4-local
   model: Gemma-4-26B-A4B-it-NVFP4
   temperature: 0.2
@@ -40,7 +44,7 @@ agent:
   - cronjob
 terminal:
   backend: local
-  cwd: /home/maoyd/siq-research-engine
+  cwd: ${SIQ_PROJECT_ROOT}
   timeout: 300
   env_passthrough:
   - PATH
@@ -82,7 +86,7 @@ custom_providers:
     Qwen3.6-35B-A3B-FP8:
       context_length: 262144
 - name: StepFun Step-3.7 Flash
-  base_url: https://api.stepfun.com/v1
+  base_url: https://api.stepfun.com/step_plan/v1
   model: step-3.7-flash
   api_mode: openai_chat
   context_length: 200000
@@ -91,6 +95,15 @@ custom_providers:
     step-3.7-flash:
       context_length: 200000
   key_env: SIQ_STEPFUN_LLM_API_KEY
+- name: Nemotron 3 Nano Omni Local
+  base_url: http://127.0.0.1:8007/v1
+  model: nemotron_3_nano_omni
+  api_mode: openai_chat
+  context_length: 262144
+  temperature: 0.2
+  models:
+    nemotron_3_nano_omni:
+      context_length: 262144
 platforms:
   api_server:
     enabled: true

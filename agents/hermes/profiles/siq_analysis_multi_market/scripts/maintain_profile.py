@@ -10,14 +10,19 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import os
 import shutil
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-
-PROFILE_DIR = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/siq_analysis")
+PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT") or Path(__file__).resolve().parents[5])
+PROFILE_DIR = Path(
+    os.environ.get("SIQ_HERMES_PROFILES_ROOT")
+    or os.environ.get("HERMES_PROFILES_ROOT")
+    or PROJECT_ROOT / "data" / "hermes" / "home" / "profiles"
+) / "siq_analysis_multi_market"
 
 
 def archive_sessions(profile_dir: Path, older_than_days: int, dry_run: bool) -> dict[str, Any]:

@@ -4865,6 +4865,111 @@ def has_evidence_bound_unit_normalization(
     return bool(_evidence_bound_unit_normalization_claims(reply, trusted_evidence))
 
 
+def _trusted_display_number_for_unit(
+    unit: str,
+    reference: Mapping[str, Any],
+) -> str:
+    normalized_unit = re.sub(r"\s+", "", str(unit or "")).casefold()
+    if "billion" in normalized_unit:
+        display = str(reference.get("display_billion") or "").strip()
+    elif "亿" in normalized_unit:
+        display = str(reference.get("display_100m") or "").strip()
+    else:
+        return ""
+    match = re.search(rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)(?:\.\d+)?", display)
+    return match.group(0) if match else ""
+
+
+def _display_number(value: Any) -> Decimal | None:
+    match = re.search(
+        rf"[+{FINANCIAL_MINUS_SIGN_CLASS}]?(?:\d{{1,3}}(?:,\d{{3}})+|\d+)(?:\.\d+)?",
+        str(value or ""),
+    )
+    if not match:
+        return None
+    return _trace_decimal(match.group(0))
+
+
+def _is_known_display_unit_slip(
+    claim: NumericClaim,
+    reference: Mapping[str, Any],
+) -> bool:
+    """Limit automatic correction to a recognizable billion/100m swap."""
+
+    claimed = _trace_decimal(claim.value_text)
+    if claimed is None:
+        return False
+    normalized_unit = re.sub(r"\s+", "", str(claim.unit or "")).casefold()
+    if "亿" in normalized_unit:
+        alternate = _display_number(reference.get("display_billion"))
+    elif "billion" in normalized_unit:
+        alternate = _display_number(reference.get("display_100m"))
+    else:
+        return False
+    return alternate is not None and claimed == alternate
+
+
+def correct_evidence_bound_unit_normalizations(
+    reply: str,
+    trusted_evidence: Sequence[Mapping[str, Any]],
+) -> str:
+    """Correct uniquely bound display-unit slips before a reply is persisted.
+
+    This intentionally covers only model-authored unit restatements such as a
+    base USD fact rendered as billion USD or 亿美元. Arbitrary evidence/value
+    disagreements remain blocking validation failures.
+    """
+
+    bindings = _evidence_bound_unit_normalization_claims(reply, trusted_evidence)
+    if not bindings:
+        return reply
+    replacements: dict[int, list[tuple[str, str, str]]] = {}
+    seen: set[tuple[int, str, str, str]] = set()
+    for claim, reference, fact in bindings:
+        tolerance = _display_amount_tolerance(
+            claim.value_text,
+            claim.unit,
+            fact.normalized_value,
+            fact.metric,
+        )
+        if _claim_fact_value_distance(
+            claim.normalized_value,
+            fact.normalized_value,
+            fact.metric,
+        ) <= tolerance:
+            continue
+        if not _is_known_display_unit_slip(claim, reference):
+            continue
+        expected_number = _trusted_display_number_for_unit(claim.unit, reference)
+        if not expected_number:
+            continue
+        key = (claim.line_number, claim.value_text, claim.unit, expected_number)
+        if key in seen:
+            continue
+        seen.add(key)
+        replacements.setdefault(claim.line_number, []).append(
+            (claim.value_text, claim.unit, expected_number)
+        )
+    if not replacements:
+        return reply
+
+    output: list[str] = []
+    for line_number, raw_line in enumerate((reply or "").splitlines(keepends=True), start=1):
+        line = raw_line
+        for value_text, unit, expected_number in replacements.get(line_number, ()):
+            pattern = re.compile(
+                rf"(?<![\d,.]){re.escape(value_text)}(?=\s*{re.escape(unit)})"
+            )
+            line, count = pattern.subn(expected_number, line, count=1)
+            if count == 0:
+                # NUMBER_WITH_UNIT_RE may split 亿美元 as unit=亿. Replacing
+                # the exact numeric token remains safe because the line and
+                # evidence binding were already resolved above.
+                line = line.replace(value_text, expected_number, 1)
+        output.append(line)
+    return "".join(output)
+
+
 def _change_direction_matches(claim: NumericClaim, fact: EvidenceFact) -> bool:
     if claim.change_direction == "conflict":
         return False

@@ -24,7 +24,10 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from local_citations import find_company_dir_from_text, primary_report  # noqa: E402
 
-WIKI_BASE = Path(os.environ.get("SIQ_WIKI_ROOT", "/home/maoyd/siq-research-engine/data/wiki")).expanduser()
+WIKI_BASE = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or Path(__file__).resolve().parents[5] / "data" / "wiki"
+).expanduser()
 DEFAULT_SOURCE_TYPE = os.environ.get(
     "SIQ_DEFAULT_SOURCE_TYPE",
     "okf_metrics" if "okf_staging" in str(WIKI_BASE) else "wiki_metrics",
@@ -317,7 +320,7 @@ def to_int(value: Any) -> int | None:
 
 
 def public_origin() -> str:
-    return os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391").rstrip("/")
+    return os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 
 def public_api_url(path: str | None) -> str | None:

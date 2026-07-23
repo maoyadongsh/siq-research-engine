@@ -2,7 +2,10 @@
 认证与权限管理路由
 提供用户登录、注册、权限验证等API
 """
+import hashlib
+import hmac
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -12,12 +15,14 @@ from typing import Optional
 from database import get_async_session as get_async_session, get_session
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from services.auth_dependencies import get_current_user, require_permission
+from services.auth_login_guard import LoginAttemptGuard
 from services.auth_service import (
     AuditLog,
     AuditLogger,
     AuthService,
     LoginRequest,
     LoginResponse,
+    PasswordChangeRequest,
     ReportArtifact,
     ReportArtifactError,
     ReportArtifactPolicy,
@@ -41,6 +46,7 @@ from services.usage_service import (
 from sqlmodel import Session, select
 
 router = APIRouter(tags=["authentication"])
+logger = logging.getLogger(__name__)
 
 REPORT_GENERATOR_METADATA_KEYS = {"generated_by", "generatedby", "generator", "siq:generated_by", "siq:generator"}
 
@@ -161,9 +167,7 @@ def _registration_enabled() -> bool:
 
 
 def _login_response_for_user(user: User) -> LoginResponse:
-    access_token = AuthService.create_access_token(
-        data={"sub": user.username, "role": user.role}
-    )
+    access_token = AuthService.create_user_access_token(user)
     return LoginResponse(
         access_token=access_token,
         user={
@@ -252,7 +256,66 @@ def _is_super_admin(user: User) -> bool:
     return _role_value(user.role) == UserRole.SUPER_ADMIN.value
 
 
+def _request_ip(request: Request) -> str:
+    """Use the socket peer address; forwarded headers are not trusted here."""
+    return str(request.client.host if request.client else "unknown")[:128]
+
+
+def _username_digest(username: str) -> str:
+    return hashlib.sha256(str(username or "").strip().casefold().encode("utf-8")).hexdigest()
+
+
+def _audit_login_failure(
+    session: Session,
+    request: Request,
+    *,
+    username: str,
+    user: User | None,
+    reason: str,
+    blocked: bool,
+) -> None:
+    """Record failed login attempts without exposing credentials or usernames."""
+    ip_address = _request_ip(request)
+    details = {
+        "reason": reason,
+        "blocked": blocked,
+        "username_sha256": _username_digest(username),
+    }
+    if user is not None and user.id is not None:
+        try:
+            AuditLogger.log_action(
+                session=session,
+                user_id=int(user.id),
+                action="LOGIN_FAILED",
+                resource_type="auth",
+                resource_id=str(user.id),
+                details=details,
+                ip_address=ip_address,
+                user_agent=request.headers.get("user-agent"),
+            )
+        except Exception:
+            # Authentication must not become unavailable because an audit sink
+            # is temporarily unhealthy. Keep the structured log as fallback.
+            session.rollback()
+            logger.exception("login_failure_audit_persist_failed")
+    logger.warning(
+        "login_failed",
+        extra={
+            "auth_event": "login_failed",
+            "ip_address": ip_address,
+            "username_sha256": details["username_sha256"],
+            "reason": reason,
+            "blocked": blocked,
+        },
+    )
+
+
 def _validate_user_update(current_user: User, target_user: User, user_data: UserUpdate) -> None:
+    if user_data.approval_status is not None:
+        approval_status = user_data.approval_status.strip().lower()
+        if approval_status not in {"pending", "approved", "rejected"}:
+            raise HTTPException(status_code=400, detail="审批状态必须是 pending、approved 或 rejected")
+
     if not _is_super_admin(current_user):
         if _is_super_admin(target_user) or user_data.role == UserRole.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="只有超级管理员可以管理超级管理员账户")
@@ -266,7 +329,12 @@ def _validate_user_update(current_user: User, target_user: User, user_data: User
             raise HTTPException(status_code=400, detail="不能修改当前登录账户的角色、审批状态或启用状态")
 
 
-def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_user: User) -> None:
+def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_user: User) -> bool:
+    security_state_before = (
+        _role_value(target_user.role),
+        str(getattr(target_user, "approval_status", "approved")),
+        bool(target_user.is_active),
+    )
     if user_data.email is not None:
         target_user.email = user_data.email
     if user_data.full_name is not None:
@@ -275,8 +343,6 @@ def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_
         target_user.role = user_data.role
     if user_data.approval_status is not None:
         approval_status_value = user_data.approval_status.strip().lower()
-        if approval_status_value not in {"pending", "approved", "rejected"}:
-            raise HTTPException(status_code=400, detail="审批状态必须是 pending、approved 或 rejected")
         target_user.approval_status = approval_status_value
         if approval_status_value == "approved":
             target_user.is_active = True
@@ -291,6 +357,13 @@ def _apply_user_update_fields(target_user: User, user_data: UserUpdate, current_
     if user_data.is_active is not None:
         target_user.is_active = user_data.is_active
 
+    security_state_after = (
+        _role_value(target_user.role),
+        str(getattr(target_user, "approval_status", "approved")),
+        bool(target_user.is_active),
+    )
+    return security_state_after != security_state_before
+
 # ============ 认证接口 ============
 
 @router.post("/login", response_model=LoginResponse)
@@ -301,10 +374,43 @@ def login(
     session: Session = Depends(get_session),
 ):
     """用户登录"""
+    ip_address = _request_ip(request)
+    username = str(login_data.username or "").strip()
+    throttle = LoginAttemptGuard.check(username, ip_address)
+    if throttle.blocked:
+        _audit_login_failure(
+            session,
+            request,
+            username=username,
+            user=None,
+            reason="rate_limited",
+            blocked=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录尝试过于频繁，请稍后再试",
+            headers={"Retry-After": str(max(1, throttle.retry_after))},
+        )
+
     # 查找用户
-    user = session.exec(select(User).where(User.username == login_data.username)).first()
+    user = session.exec(select(User).where(User.username == username)).first()
 
     if not user or not AuthService.verify_password(login_data.password, user.hashed_password):
+        failure = LoginAttemptGuard.record_failure(username, ip_address)
+        _audit_login_failure(
+            session,
+            request,
+            username=username,
+            user=user,
+            reason="invalid_credentials",
+            blocked=failure.blocked,
+        )
+        if failure.blocked:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="登录尝试过于频繁，请稍后再试",
+                headers={"Retry-After": str(max(1, failure.retry_after))},
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
@@ -327,6 +433,10 @@ def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="用户已被禁用",
         )
+
+    # Clear only the username/IP bucket. The IP-wide bucket intentionally
+    # remains for the rest of its window to slow down password spraying.
+    LoginAttemptGuard.clear_user(username, ip_address)
 
     # 更新最后登录时间
     user.last_login = datetime.utcnow()
@@ -389,10 +499,19 @@ def demo_login(
 def logout(
     request: Request,
     response: Response,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    session: Session = Depends(get_session),  # noqa: B008
 ):
     """用户登出"""
+    # The API has no server-side session. Advancing the per-user security
+    # version makes this logout effective for the supplied token (and any
+    # other still-active tokens for the account) instead of only deleting a
+    # browser cookie.
+    persisted_user = session.get(User, current_user.id)
+    if persisted_user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    AuthService.bump_persisted_token_version(session, persisted_user)
+    session.commit()
     AuditLogger.log_action(
         session=session,
         user_id=current_user.id,
@@ -404,6 +523,43 @@ def logout(
 
     _clear_access_cookie(response)
     return {"message": "登出成功"}
+
+
+@router.post("/password")
+def change_password(
+    password_data: PasswordChangeRequest,
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Change the current password and immediately revoke old access tokens."""
+    persisted_user = session.get(User, current_user.id)
+    if persisted_user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not AuthService.verify_password(password_data.current_password, persisted_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="当前密码错误")
+    if len(password_data.new_password) < 12:
+        raise HTTPException(status_code=400, detail="新密码至少需要 12 个字符")
+    if hmac.compare_digest(password_data.current_password, password_data.new_password):
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+
+    persisted_user.hashed_password = AuthService.hash_password(password_data.new_password)
+    session.add(persisted_user)
+    AuthService.bump_persisted_token_version(session, persisted_user)
+    session.commit()
+
+    AuditLogger.log_action(
+        session=session,
+        user_id=current_user.id,
+        action="CHANGE_PASSWORD",
+        resource_type="auth",
+        resource_id=str(current_user.id),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    _clear_access_cookie(response)
+    return {"message": "密码修改成功，请重新登录"}
 
 
 @router.get("/me")
@@ -603,8 +759,10 @@ def batch_update_users(
 
         try:
             _validate_user_update(current_user, user, update_payload)
-            _apply_user_update_fields(user, update_payload, current_user)
+            security_changed = _apply_user_update_fields(user, update_payload, current_user)
             session.add(user)
+            if security_changed:
+                AuthService.bump_persisted_token_version(session, user)
             updated += 1
         except HTTPException:
             skipped += 1
@@ -735,9 +893,11 @@ def update_user(
         raise HTTPException(status_code=404, detail="用户不存在")
 
     _validate_user_update(current_user, user, user_data)
-    _apply_user_update_fields(user, user_data, current_user)
+    security_changed = _apply_user_update_fields(user, user_data, current_user)
 
     session.add(user)
+    if security_changed:
+        AuthService.bump_persisted_token_version(session, user)
     session.commit()
 
     # 记录审计日志

@@ -59,7 +59,7 @@ tool_loop_guardrails:
 terminal:
   backend: local
   modal_mode: auto
-  cwd: /home/maoyd
+  cwd: ${SIQ_PROJECT_ROOT}
   timeout: 300
   env_passthrough:
   - PATH

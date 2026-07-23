@@ -210,9 +210,9 @@ def test_workflow_job_recovery_marks_only_expired_leases_recoverable():
     recovered = workflow_jobs.recover_stale_workflow_jobs(jobs, now="2026-07-12T10:00:00Z")
 
     assert recovered == ["stale"]
-    assert jobs["stale"]["status"] == "failed"
-    assert jobs["stale"]["recoverable"] is True
-    assert jobs["stale"]["recoveryReason"] == "stale_lease"
+    assert jobs["stale"]["status"] == "interrupted"
+    assert jobs["stale"]["recoverable"] is False
+    assert jobs["stale"]["recoveryReason"] == "process_restart_unrecoverable_target"
     assert jobs["stale"]["failedStep"] == "semantic"
     assert jobs["stale"]["steps"][0]["status"] == "failed"
     assert jobs["fresh"]["status"] == "running"
@@ -239,9 +239,9 @@ def test_workflow_job_store_recovers_legacy_running_job_after_restart(tmp_path):
     )
 
     assert recovered == ["legacy"]
-    assert jobs["legacy"]["status"] == "failed"
-    assert jobs["legacy"]["recoverable"] is True
-    assert workflow_jobs.load_workflow_jobs(store_path)["legacy"]["status"] == "failed"
+    assert jobs["legacy"]["status"] == "interrupted"
+    assert jobs["legacy"]["recoverable"] is False
+    assert workflow_jobs.load_workflow_jobs(store_path)["legacy"]["status"] == "interrupted"
 
 
 def test_workflow_job_claim_reuses_active_idempotency_key(tmp_path):
@@ -366,8 +366,8 @@ def test_workflow_job_claim_allows_retry_after_stale_lease(tmp_path):
 
     assert reused is False
     assert selected["jobId"] == "job-retry"
-    assert jobs["job-stale"]["status"] == "failed"
-    assert jobs["job-stale"]["recoverable"] is True
+    assert jobs["job-stale"]["status"] == "interrupted"
+    assert jobs["job-stale"]["recoverable"] is False
     assert jobs["job-retry"]["status"] == "queued"
 
 
@@ -691,6 +691,57 @@ def test_workflow_router_duplicate_active_submission_reuses_job(monkeypatch, tmp
     assert duplicate["jobId"] == "job-first"
     assert len(started) == 1
     assert set(workflow._workflow_jobs) == {"job-first"}
+
+
+def test_workflow_router_postgres_backend_enqueues_without_api_thread(monkeypatch):
+    monkeypatch.setattr(workflow, "WORKFLOW_JOB_BACKEND", "postgres")
+    monkeypatch.setattr(workflow, "_workflow_jobs", {})
+    monkeypatch.setattr(workflow.uuid, "uuid4", lambda: type("Uuid", (), {"hex": "job-pg"})())
+    monkeypatch.setattr(workflow, "_workflow_preflight", lambda task_id: {"ok": True})
+    calls = []
+
+    class FakeQueue:
+        def enqueue(self, *, snapshot, max_attempts):
+            calls.append((snapshot, max_attempts))
+            return {**snapshot, "durabilityStatus": "durable"}, False
+
+    monkeypatch.setattr(workflow, "_workflow_queue", FakeQueue())
+
+    class UnexpectedThread:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("PostgreSQL workflow submission must not start an API thread")
+
+    monkeypatch.setattr(workflow.threading, "Thread", UnexpectedThread)
+
+    result = workflow.run_remaining_workflow("task-pg")
+
+    assert result["jobId"] == "job-pg"
+    assert result["taskId"] == "task-pg"
+    assert result["status"] == "queued"
+    assert result["durabilityStatus"] == "durable"
+    assert len(calls) == 1
+    assert calls[0][0]["jobId"] == "job-pg"
+    assert calls[0][0]["retryScope"] == "remaining"
+    assert calls[0][1] == workflow.WORKFLOW_JOB_MAX_ATTEMPTS
+
+
+def test_workflow_router_postgres_status_reads_authoritative_queue(monkeypatch):
+    monkeypatch.setattr(workflow, "WORKFLOW_JOB_BACKEND", "postgres")
+    expected = {
+        "jobId": "job-status",
+        "taskId": "task-status",
+        "status": "running",
+        "steps": [],
+    }
+
+    class FakeQueue:
+        def get(self, job_id):
+            assert job_id == "job-status"
+            return expected
+
+    monkeypatch.setattr(workflow, "_workflow_queue", FakeQueue())
+
+    assert workflow.workflow_job_status("job-status") == expected
 
 
 def test_workflow_job_heartbeat_renews_active_lease(monkeypatch, tmp_path):

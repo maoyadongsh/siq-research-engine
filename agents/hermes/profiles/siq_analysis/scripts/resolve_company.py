@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_WIKI_DIR = Path(os.environ.get("WIKI_DIR", "/home/maoyd/siq-research-engine/data/wiki"))
+DEFAULT_WIKI_DIR = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or os.environ.get("WIKI_DIR")
+    or Path(__file__).resolve().parents[5] / "data" / "wiki"
+)
 
 
 def load_json(path: Path) -> dict[str, Any]:

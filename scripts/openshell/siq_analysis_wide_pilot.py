@@ -404,6 +404,13 @@ class WidePilotLifecycle:
         self._validate_policy_scope(spec, paths, summary=summary, filesystem=filesystem)
         return snapshot, mount_plan, compiled_mounts.digest, policy, _sha256_file(policy)
 
+    def _prepare_state_directories(self) -> None:
+        _mkdir_private(self.state_root, root=self.project_root)
+        _mkdir_private(
+            self.project_root / self.settings.runs_relative,
+            root=self.project_root,
+        )
+
     def _validate_policy_scope(
         self,
         spec: RunSpec,
@@ -822,7 +829,7 @@ class WidePilotLifecycle:
         sandbox_attempted = False
         nonce = ""
         cleanup_failed = False
-        _mkdir_private(self.project_root / self.settings.runs_relative, root=self.project_root)
+        self._prepare_state_directories()
         try:
             try:
                 if self.settings.pool_managed:

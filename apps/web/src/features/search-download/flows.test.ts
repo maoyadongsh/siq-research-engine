@@ -6,6 +6,7 @@ import { test } from 'node:test'
 const {
   annualFormsForMarket,
   identifierPayloadForSearch,
+  shouldFetchFinancialReports,
 } = await import('./flows.ts')
 
 test('identifierPayloadForSearch prefers explicit ticker and company id for foreign smart-search results', () => {
@@ -41,4 +42,9 @@ test('identifierPayloadForSearch keeps EU country-qualified identifier from smar
 
 test('annualFormsForMarket requests JP statutory YUHO instead of IR fallback', () => {
   assert.deepEqual(annualFormsForMarket('JP'), ['yuho'])
+})
+
+test('JP annual search does not trigger a second broad financial-report scan', () => {
+  assert.equal(shouldFetchFinancialReports('JP'), false)
+  assert.equal(shouldFetchFinancialReports('CN'), true)
 })

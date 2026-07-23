@@ -11,6 +11,7 @@ run_step() {
 }
 
 run_step "API tests" bash -lc "cd '$ROOT_DIR/apps/api' && uv sync --frozen --extra dev && uv run --frozen python -m pytest tests"
+run_step "Hermes profile portability and registration" bash -lc "cd '$ROOT_DIR' && python3 scripts/hermes/validate_profiles.py && python3 -m pytest -q scripts/hermes/tests/test_profile_portability.py scripts/hermes/tests/test_run_gateway_profile_governance.py scripts/hermes/tests/test_sync_profile_runtime_config.py"
 run_step "PDF parser tests" bash -lc "cd '$ROOT_DIR/apps/pdf-parser' && python3 -m pytest tests"
 run_step "Document parser tests" bash -lc "cd '$ROOT_DIR/apps/document-parser' && python3 -m pytest tests"
 run_step "Market report finder tests" bash -lc "cd '$ROOT_DIR/services/market-report-finder' && uv sync --frozen --extra dev && uv run --frozen python -m pytest tests"

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from market_report_finder_service.markets.base import MarketReportFinder
-from market_report_finder_service.markets.jp.client import EdinetClient
 from market_report_finder_service.markets.jp.catalog import JpAnnualReportCatalog
+from market_report_finder_service.markets.jp.client import EdinetClient
 from market_report_finder_service.markets.jp.tdnet import TdnetClient
 from market_report_finder_service.markets.url_ownership import market_owns_url
 from market_report_finder_service.models.schemas import (
@@ -92,9 +92,9 @@ class JpReportFinder(MarketReportFinder):
             catalog_error = exc
         try:
             return self.client.resolve_company(company_name=company_name, ticker=ticker, company_id=company_id)
-        except Exception:
+        except Exception as client_error:
             if catalog_error:
-                raise catalog_error
+                raise catalog_error from client_error
             raise
 
     def list_filings(
@@ -132,7 +132,11 @@ class JpReportFinder(MarketReportFinder):
                     include_auxiliary=self._allows_integrated_reports(forms),
                 )
             )
-        candidates.extend(self.tdnet.list_filings(company, target=target, forms=forms, report_year=report_year))
+        # EDINET and statutory issuer mirrors are authoritative for annual
+        # securities reports. Avoid a second 120-day TDnet crawl once one of
+        # those sources has already produced a candidate.
+        if target != ReportTarget.annual_report or not candidates:
+            candidates.extend(self.tdnet.list_filings(company, target=target, forms=forms, report_year=report_year))
         if not candidates and edinet_error and not self._is_missing_edinet_key(edinet_error):
             raise edinet_error
         return self._dedupe_candidates(candidates)

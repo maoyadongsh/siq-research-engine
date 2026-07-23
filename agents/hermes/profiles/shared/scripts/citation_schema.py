@@ -61,7 +61,7 @@ VALID_SOURCE_TYPES = {
     "milvus",
     "external",
 }
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:9391").rstrip("/")
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
 
 # Legacy → canonical field aliases. Add new aliases here when you spot more
 # variants in old artifacts.

@@ -75,6 +75,44 @@ def test_nemotron_preset_enables_thinking_for_direct_calls():
     assert provider["chatTemplateKwargs"] == {"enable_thinking": True}
 
 
+def test_stepfun_preset_uses_environment_key_without_exposing_it(monkeypatch):
+    monkeypatch.setenv("SIQ_STEPFUN_LLM_API_KEY", "stepfun-test-key")
+
+    presets = llm_settings._public_cloud_model_presets()
+
+    assert presets["stepfun"]["hasApiKey"] is True
+    assert "apiKey" not in presets["stepfun"]
+
+
+def test_stepfun_request_falls_back_to_environment_key(monkeypatch):
+    monkeypatch.setenv("SIQ_STEPFUN_LLM_API_KEY", "stepfun-test-key")
+    monkeypatch.setattr(
+        llm_settings,
+        "load_llm_settings",
+        lambda include_secrets=True: {
+            "providers": {
+                "cloud": dict(llm_settings.MINIMAX_PROVIDER),
+                "local": dict(llm_settings.LOCAL_QWEN_PROVIDER),
+            }
+        },
+    )
+
+    request = llm_settings.LLMTestRequest(
+        provider="cloud",
+        config=llm_settings.LLMProviderUpdate(
+            providerName="StepFun / Step-3.7 Flash",
+            baseUrl="https://api.stepfun.com/v1",
+            model="step-3.7-flash",
+            apiKey=None,
+            clearApiKey=False,
+        ),
+    )
+
+    provider = llm_settings._provider_from_request(request)
+
+    assert provider["apiKey"] == "stepfun-test-key"
+
+
 def test_connection_test_disables_thinking_and_limits_output(monkeypatch):
     captured = {}
 

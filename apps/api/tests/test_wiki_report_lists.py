@@ -432,6 +432,10 @@ def test_wiki_report_html_route_serves_encoded_analysis_url(tmp_path, monkeypatc
             assert "text/html" in response.headers["content-type"]
             assert "上汽集团 HTML 报告" in response.text
             assert response.headers["Cache-Control"].startswith("no-store")
+            assert "sandbox" in response.headers["Content-Security-Policy"]
+            assert "allow-scripts" not in response.headers["Content-Security-Policy"]
+            assert response.headers["X-Content-Type-Options"] == "nosniff"
+            assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
     finally:
         main.app.dependency_overrides.clear()
         main.app.dependency_overrides.update(original_overrides)
@@ -451,3 +455,15 @@ def test_wiki_report_paths_reject_traversal(tmp_path, monkeypatch):
         assert getattr(exc, "status_code", None) in {400, 403}
     else:
         raise AssertionError("path traversal was not rejected")
+
+
+def test_wiki_svg_response_is_sandboxed_without_forcing_download(tmp_path):
+    svg_path = tmp_path / "chart.svg"
+    svg_path.write_text("<svg><script>alert(1)</script></svg>", encoding="utf-8")
+
+    response = wiki._no_cache_file_response(str(svg_path))
+
+    assert "sandbox" in response.headers["Content-Security-Policy"]
+    assert "allow-scripts" not in response.headers["Content-Security-Policy"]
+    assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert "attachment" not in response.headers.get("Content-Disposition", "").lower()

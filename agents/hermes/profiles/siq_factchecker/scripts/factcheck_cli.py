@@ -23,11 +23,20 @@ from generate_factcheck_html import generate_html
 
 scripts_dir = Path(__file__).parent
 sys.path.insert(0, str(scripts_dir))
-shared_scripts_dir = Path("/home/maoyd/siq-research-engine/data/hermes/home/profiles/shared/scripts")
+project_root = Path(os.environ.get("SIQ_PROJECT_ROOT") or Path(__file__).resolve().parents[5])
+shared_scripts_dir = Path(
+    os.environ.get("SIQ_HERMES_PROFILES_ROOT")
+    or os.environ.get("HERMES_PROFILES_ROOT")
+    or project_root / "agents" / "hermes" / "profiles"
+) / "shared" / "scripts"
 if str(shared_scripts_dir) not in sys.path:
     sys.path.insert(0, str(shared_scripts_dir))
 # Legacy fallback: tracking scripts still ship a re-export shim.
-tracking_scripts_dir = Path("/home/maoyd/siq-research-engine/data/wiki/tracking/scripts")
+tracking_scripts_dir = Path(
+    os.environ.get("SIQ_WIKI_ROOT")
+    or os.environ.get("WIKI_DIR")
+    or project_root / "data" / "wiki"
+) / "tracking" / "scripts"
 if str(tracking_scripts_dir) not in sys.path:
     sys.path.append(str(tracking_scripts_dir))
 
@@ -43,8 +52,8 @@ except Exception:
     collect_company_evidence_refs = None
 
 CN_TZ = timezone(timedelta(hours=8))
-PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "https://arthurmao.synology.me:8276").rstrip("/")
-PROJECT_ROOT = Path(os.environ.get("SIQ_PROJECT_ROOT", "/home/maoyd/siq-research-engine")).expanduser()
+PUBLIC_ORIGIN = os.environ.get("SIQ_PUBLIC_ORIGIN", "").rstrip("/")
+PROJECT_ROOT = project_root.expanduser()
 COMPANY_INDEX_PUBLISHER = PROJECT_ROOT / "scripts/openshell/publish_company_index.py"
 PUBLISHER_TIMEOUT_SECONDS = 30
 MARKET_COMPANY_PREFIXES = {

@@ -245,6 +245,9 @@ export SIQ_AGENT_MEMORY_DEFAULT_VISIBILITY="${SIQ_AGENT_MEMORY_DEFAULT_VISIBILIT
 export SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY="${SIQ_AGENT_MEMORY_PRIMARY_MARKET_VISIBILITY:-project_shared}"
 export SIQ_HERMES_RUNTIME_SELECTION_ENABLED="${SIQ_HERMES_RUNTIME_SELECTION_ENABLED:-1}"
 export SIQ_OPENSHELL_SCOPE_AUTO_PROVISION="${SIQ_OPENSHELL_SCOPE_AUTO_PROVISION:-1}"
+export SIQ_BACKEND_PORT="$BACKEND_PORT"
+export SIQ_OPENSHELL_POOL_RECOVERY_ENABLED="${SIQ_OPENSHELL_POOL_RECOVERY_ENABLED:-1}"
+export SIQ_OPENSHELL_POOL_RECOVERY_REQUIRED="${SIQ_OPENSHELL_POOL_RECOVERY_REQUIRED:-1}"
 export SIQ_VECTOR_RETRIEVAL_ENABLED="${SIQ_VECTOR_RETRIEVAL_ENABLED:-1}"
 export SIQ_RERANK_ENABLED="${SIQ_RERANK_ENABLED:-1}"
 export SIQ_RERANK_BASE_URL="${SIQ_RERANK_BASE_URL:-http://127.0.0.1:8001}"
@@ -837,8 +840,8 @@ openshell_analysis_should_start() {
 }
 
 parse_openshell_analysis_binding_json() {
-    local payload=$1
-    python3 - "$payload" <<'PY'
+    local payload=$1 require_ok=${2:-1}
+    python3 - "$payload" "$require_ok" <<'PY'
 import json
 import sys
 
@@ -854,7 +857,8 @@ try:
     payload = last_json_line(sys.argv[1])
 except (IndexError, ValueError, json.JSONDecodeError):
     raise SystemExit(1)
-if payload.get("ok") is not True:
+require_ok = sys.argv[2] == "1"
+if require_ok and payload.get("ok") is not True:
     raise SystemExit(1)
 run_id = str(payload.get("run_id") or "")
 local_port = payload.get("local_port")
@@ -889,8 +893,8 @@ PY
 }
 
 set_openshell_analysis_binding_from_json() {
-    local payload=$1 parsed status
-    parsed="$(parse_openshell_analysis_binding_json "$payload")" || return 1
+    local payload=$1 require_ok=${2:-1} parsed status
+    parsed="$(parse_openshell_analysis_binding_json "$payload" "$require_ok")" || return 1
     IFS=$'\t' read -r OPENSHELL_ANALYSIS_RUN_ID OPENSHELL_ANALYSIS_ACTIVE_PORT status <<<"$parsed"
     [[ -n "$OPENSHELL_ANALYSIS_RUN_ID" && -n "$OPENSHELL_ANALYSIS_ACTIVE_PORT" && -n "$status" ]]
 }
@@ -900,7 +904,7 @@ probe_openshell_analysis_binding() {
     if output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" probe \
         --market "$OPENSHELL_ANALYSIS_MARKET" \
         --company "$OPENSHELL_ANALYSIS_COMPANY" 2>&1)"; then
-        set_openshell_analysis_binding_from_json "$output"
+        printf '%s\n' "$output"
         return 0
     fi
     printf '%s\n' "$output"
@@ -908,14 +912,11 @@ probe_openshell_analysis_binding() {
 }
 
 stop_registered_openshell_analysis_binding() {
-    local status_output error_code
-    if ! status_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" status \
+    local status_output
+    status_output="$("$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" status \
         --market "$OPENSHELL_ANALYSIS_MARKET" \
-        --company "$OPENSHELL_ANALYSIS_COMPANY" 2>&1)"; then
-        error_code="$(openshell_analysis_error_code "$status_output")"
-        die "OpenShell siq_analysis 绑定异常且无法读取状态 ($error_code)。"
-    fi
-    set_openshell_analysis_binding_from_json "$status_output" || \
+        --company "$OPENSHELL_ANALYSIS_COMPANY" 2>&1)" || true
+    set_openshell_analysis_binding_from_json "$status_output" 0 || \
         die "OpenShell siq_analysis 绑定状态不可解析；拒绝盲目覆盖。"
     warn "OpenShell siq_analysis 既有绑定未通过 probe，准备回收后重建 (run $OPENSHELL_ANALYSIS_RUN_ID)。"
     "$SIQ_PROJECT_ROOT/scripts/openshell/run_siq_analysis_pool_lifecycle.sh" stop \
@@ -949,6 +950,8 @@ ensure_openshell_analysis_pool() {
     fi
 
     if probe_output="$(probe_openshell_analysis_binding 2>&1)"; then
+        set_openshell_analysis_binding_from_json "$probe_output" || \
+            die "OpenShell siq_analysis probe 结果不可解析；拒绝继续切流。"
         OPENSHELL_ANALYSIS_LIFECYCLE_STATE="preexisting"
         ok "OpenShell siq_analysis 已就绪  -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)"
         switch_siq_analysis_runtime_to_openshell
@@ -994,6 +997,8 @@ PY
         error_code="$(openshell_analysis_error_code "$verify_output")"
         die "OpenShell siq_analysis 池绑定启动后 probe 失败 ($error_code)。"
     fi
+    set_openshell_analysis_binding_from_json "$verify_output" || \
+        die "OpenShell siq_analysis 启动后 probe 结果不可解析；拒绝继续切流。"
     switch_siq_analysis_runtime_to_openshell
     ok "OpenShell siq_analysis 已就绪  -> http://127.0.0.1:$OPENSHELL_ANALYSIS_ACTIVE_PORT/v1/runs ($OPENSHELL_ANALYSIS_COMPANY)"
 }

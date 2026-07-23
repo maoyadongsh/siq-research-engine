@@ -162,6 +162,13 @@ export function financialFormsForMarket(targetMarket: MarketCode, targetFilter =
   return ['10-Q', '6-K']
 }
 
+export function shouldFetchFinancialReports(targetMarket: MarketCode) {
+  // JP's financial_report fallback performs a broad EDINET date scan. The
+  // annual search already returns the authoritative YUHO candidate; callers
+  // can request quarterly/semiannual reports explicitly through quick download.
+  return targetMarket !== 'JP'
+}
+
 export function fileFormatFromDocumentUrl(url: string, market: MarketCode) {
   const clean = url.toLowerCase().split(/[?#]/, 1)[0]
   if (clean.includes('dart.fss.or.kr/pdf/download/pdf.do')) return 'pdf'
@@ -271,14 +278,15 @@ export async function fetchReportCandidates({
     annualReports = normalizeReportList(annualData)
   }
 
-  const financialData = await fetchRecentReports<ReportListResponse | ReportItem[]>({
-    ...baseReportPayload,
-    target: 'financial_report',
-    report_year: parseInt(targetYear, 10),
-    forms: financialForms,
-    limit: 20,
-  }, signal)
-  const financialReports = normalizeReportList(financialData)
+  const financialReports = shouldFetchFinancialReports(targetMarket)
+    ? normalizeReportList(await fetchRecentReports<ReportListResponse | ReportItem[]>({
+      ...baseReportPayload,
+      target: 'financial_report',
+      report_year: parseInt(targetYear, 10),
+      forms: financialForms,
+      limit: 20,
+    }, signal))
+    : []
 
   return {
     annualReports,

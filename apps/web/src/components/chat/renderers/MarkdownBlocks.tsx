@@ -25,10 +25,12 @@ export function MarkdownBlocks({
   lines,
   streaming,
   auditTraceApiPrefix = '/api',
+  auditTraceId,
 }: {
   lines: string[]
   streaming?: boolean
   auditTraceApiPrefix?: string
+  auditTraceId?: string
 }) {
   const elements: ReactNode[] = []
   let i = 0
@@ -88,6 +90,7 @@ export function MarkdownBlocks({
           blockKey={`audit-${i}`}
           lines={auditLines}
           apiPrefix={auditTraceApiPrefix}
+          auditTraceId={auditTraceId}
           title={auditHeadingTitle(trimmed)}
         />,
       )

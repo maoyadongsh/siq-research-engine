@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROFILES_ROOT = PROJECT_ROOT / "agents" / "hermes" / "profiles"
@@ -74,7 +73,9 @@ def validate_profiles() -> list[str]:
         if unknown:
             errors.append(f"manifest: group {required_group} references unknown profiles: {', '.join(unknown)}")
 
-    grouped_business_profiles = set(groups.get("secondary_market") or []) | set(groups.get("primary_market_ic") or [])
+    grouped_business_profiles = set(groups.get("secondary_market") or []) | set(
+        groups.get("secondary_market_multi_market") or []
+    ) | set(groups.get("primary_market_ic") or [])
     missing_from_groups = sorted(profile_set - SHARED_PROFILE_IDS - grouped_business_profiles)
     if missing_from_groups:
         errors.append(f"manifest: business profiles missing from market groups: {', '.join(missing_from_groups)}")

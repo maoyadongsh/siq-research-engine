@@ -1,6 +1,6 @@
 from market_report_finder_service.markets.jp.service import JpReportFinder
 from market_report_finder_service.markets.jp.tdnet import TdnetClient
-from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportTarget, ReportType
+from market_report_finder_service.models.schemas import CompanyEntity, Market, ReportFamily, ReportTarget, ReportType
 
 
 def test_jp_finder_resolves_but_does_not_use_integrated_report_as_annual_fallback(monkeypatch):
@@ -69,6 +69,44 @@ def test_jp_statutory_catalog_mirror_is_allowed_without_edinet_key(monkeypatch):
     assert reports[0].form == "yuho"
     assert reports[0].metadata["jp_report_role"] == "statutory_annual_securities_report"
     assert reports[0].metadata["is_primary_financial_report"] is True
+
+
+def test_jp_annual_search_skips_tdnet_when_edinet_found_statutory_report(monkeypatch):
+    finder = JpReportFinder()
+    company, _ = finder.resolve_company(ticker="7203")
+    candidate = finder.client._build_candidate(
+        company,
+        {
+            "docID": "S100TOYOTA",
+            "edinetCode": "E02144",
+            "secCode": "72030",
+            "filerName": "トヨタ自動車株式会社",
+            "docDescription": "有価証券報告書－第121期(2024/04/01－2025/03/31)",
+            "submitDateTime": "2025-06-24 15:00",
+            "formCode": "030000",
+            "periodEnd": "2025-03-31",
+        },
+        ReportType.annual,
+        ReportFamily.annual,
+    )
+    assert candidate is not None
+    monkeypatch.setattr(finder.client, "list_filings", lambda *args, **kwargs: [candidate])
+    monkeypatch.setattr(
+        finder.tdnet,
+        "list_filings",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("TDnet should not be scanned")),
+    )
+
+    reports = finder.list_filings(
+        company,
+        target=ReportTarget.annual_report,
+        forms=["yuho"],
+        include_amendments=False,
+        include_earnings=False,
+        report_year=2025,
+    )
+
+    assert [report.accession_number for report in reports] == ["S100TOYOTA"]
 
 
 def test_jp_finder_does_not_fail_when_edinet_key_missing_and_tdnet_has_no_recent_match(monkeypatch):
