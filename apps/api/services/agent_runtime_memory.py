@@ -13,7 +13,7 @@ from models import ChatMessage, ChatSessionMemory
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from services import agent_memory_service, agent_runtime_context
+from services import agent_memory_analytics, agent_memory_service, agent_runtime_context
 
 
 class MemoryMessage(Protocol):
@@ -343,6 +343,9 @@ async def ensure_agent_memory_context(
     strict: bool = False,
     context_from_session_id: Callable[..., Any | None] = agent_memory_service.context_from_session_id,
     build_memory_context: Callable[..., Awaitable[str | None]] = agent_memory_service.build_memory_context,
+    build_question_history_context: Callable[..., Awaitable[str | None]] = agent_memory_analytics.build_question_history_context,
+    classify_memory_query: Callable[[str], agent_memory_analytics.MemoryQueryKind] = agent_memory_analytics.classify_memory_query,
+    question_history_enabled: Callable[[Any | None], bool] = agent_memory_analytics.analytics_enabled,
     log: Callable[[str], None] = print,
 ) -> str | None:
     if len(str(message or "").strip()) < max(0, min_query_chars):
@@ -358,12 +361,30 @@ async def ensure_agent_memory_context(
         return None
     budget_ms = max(100, retrieval_budget_ms)
     try:
-        return await asyncio.wait_for(
-            build_memory_context(
+        query_kind = classify_memory_query(message)
+        if query_kind == agent_memory_analytics.MemoryQueryKind.QUESTION_HISTORY:
+            if not question_history_enabled(async_session):
+                return None
+            context_builder = build_question_history_context(
                 async_session,
                 context,
                 query=message,
-            ),
+            )
+        elif query_kind == agent_memory_analytics.MemoryQueryKind.PERSONAL_MEMORY:
+            context_builder = build_memory_context(
+                async_session,
+                context,
+                query=message,
+                visibility_scope="user_private",
+            )
+        else:
+            context_builder = build_memory_context(
+                async_session,
+                context,
+                query=message,
+            )
+        return await asyncio.wait_for(
+            context_builder,
             timeout=budget_ms / 1000,
         )
     except asyncio.TimeoutError:

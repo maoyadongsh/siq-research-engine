@@ -860,7 +860,15 @@ async def maybe_promote_explicit_memory(
     )
 
 
-def _memory_acl_sql() -> str:
+def _memory_acl_sql(visibility_scope: str = "all") -> str:
+    if visibility_scope == "user_private":
+        return """
+      AND mi.visibility = 'user_private'
+      AND mi.owner_user_id = :user_id
+      AND mi.profile = :profile
+    """
+    if visibility_scope != "all":
+        raise ValueError(f"unsupported memory visibility scope: {visibility_scope}")
     return """
       AND (
         (
@@ -933,6 +941,7 @@ async def search_memory_items(
     query: str,
     limit: int | None = None,
     min_score: float | None = None,
+    visibility_scope: str = "all",
 ) -> list[dict[str, Any]]:
     if not memory_retrieval_enabled(async_session):
         return []
@@ -941,6 +950,8 @@ async def search_memory_items(
     query_text = " ".join(str(query or "").split())
     if not query_text:
         return []
+    if visibility_scope not in {"all", "user_private"}:
+        raise ValueError(f"unsupported memory visibility scope: {visibility_scope}")
     raw_identity = context_research_identity(context)
     research_identity = complete_context_research_identity(context)
     if raw_identity and research_identity is None:
@@ -989,6 +1000,7 @@ async def search_memory_items(
                 profile=context.profile,
                 agent_group=context.agent_group,
                 research_identity=research_identity,
+                visibility_scope=visibility_scope,
             )
             milvus_hits = await asyncio.to_thread(
                 agent_memory_milvus.search_records,
@@ -1047,7 +1059,7 @@ async def search_memory_items(
               AND mi.deleted_at IS NULL
               AND (mi.valid_from IS NULL OR mi.valid_from <= now())
               AND (mi.valid_until IS NULL OR mi.valid_until > now())
-              {_memory_acl_sql()}
+              {_memory_acl_sql(visibility_scope)}
               {identity_sql}
               AND 1 - (me.embedding <=> CAST(:embedding AS vector)) >= :min_score
             ORDER BY me.embedding <=> CAST(:embedding AS vector), mi.importance DESC, mi.updated_at DESC
@@ -1086,7 +1098,7 @@ async def search_memory_items(
           AND mi.deleted_at IS NULL
           AND (mi.valid_from IS NULL OR mi.valid_from <= now())
           AND (mi.valid_until IS NULL OR mi.valid_until > now())
-          {_memory_acl_sql()}
+          {_memory_acl_sql(visibility_scope)}
           {identity_sql}
           AND (mi.normalized_content ILIKE :query_like OR mi.title ILIKE :query_like)
         ORDER BY score DESC, mi.importance DESC, mi.updated_at DESC
@@ -1162,8 +1174,15 @@ async def build_memory_context(
     *,
     query: str,
     limit: int | None = None,
+    visibility_scope: str = "all",
 ) -> str | None:
-    items = await search_memory_items(async_session, context, query=query, limit=limit)
+    items = await search_memory_items(
+        async_session,
+        context,
+        query=query,
+        limit=limit,
+        visibility_scope=visibility_scope,
+    )
     return build_memory_context_block(items)
 
 

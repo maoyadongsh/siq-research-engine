@@ -13,6 +13,7 @@
 
 ## 记忆规则
 
-- 用户私有偏好写入 PostgreSQL `siq_app.agent_memory`。
+- 用户私有偏好写入 PostgreSQL 应用数据库 `siq_app` 的 `agent_memory` schema。
+- 用户提问频率和历史问题由 API memory service 基于当前认证用户的 `agent_memory.messages` 统计；不得用 `pg_query.py`、市场事实库或 profile 文档替代该统计。
 - 不把模型记忆当作公司事实来源。
 - 公司事实必须优先来自 Wiki、报告、PostgreSQL 事实表或可追踪证据。

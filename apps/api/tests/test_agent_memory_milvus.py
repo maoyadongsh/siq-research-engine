@@ -201,6 +201,22 @@ def test_agent_memory_milvus_project_shared_fails_closed_without_agent_group():
     assert 'visibility == "project_shared"' not in expr
 
 
+def test_agent_memory_milvus_private_scope_excludes_system_and_project_records():
+    expr = agent_memory_milvus.acl_expr(
+        tenant_id="tenant-a",
+        user_id=7,
+        deal_id="deal-a",
+        profile="siq_assistant",
+        agent_group="secondary_market",
+        visibility_scope="user_private",
+    )
+
+    assert 'visibility == "user_private"' in expr
+    assert 'owner_user_id == "7"' in expr
+    assert 'visibility == "system_shared"' not in expr
+    assert 'visibility == "project_shared"' not in expr
+
+
 def test_agent_memory_milvus_primary_system_memory_allows_only_role_and_ic_shared():
     expr = agent_memory_milvus.acl_expr(
         tenant_id="tenant-a",

@@ -24,6 +24,9 @@ SIQ Research Engine 通过环境变量统一管理各服务的运行态路径、
 | SIQ_AUTH_COOKIE_MODE | 0 | 启用 HttpOnly cookie 登录兼容模式 |
 | SIQ_MEETINGS_ENABLED | 0 | 会议应用中心功能开关 |
 | SIQ_AGENT_MEMORY_ENABLED | true | Agent memory 总开关 |
+| SIQ_AGENT_MEMORY_ANALYTICS_ENABLED | true | 当前认证用户的提问历史统计开关；不开放任意 SQL |
+| SIQ_AGENT_MEMORY_ANALYTICS_SCAN_LIMIT | 10000 | 单次历史统计最多扫描的用户消息数；超限时结果标记为不完整 |
+| SIQ_AGENT_MEMORY_ANALYTICS_MAX_ITEMS | 10 | 注入到智能体上下文的高频问题最大条数 |
 | SIQ_AGENT_MEMORY_MILVUS_COLLECTION | siq_agent_memory_active | Agent memory 语义索引 collection |
 
 ## 配置文件

@@ -26,6 +26,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from services import (
+    agent_memory_analytics,
     agent_memory_service,
     agent_runtime_answer_audit,
     agent_runtime_attachments,
@@ -631,6 +632,14 @@ GENERAL_ASSISTANT_CONTEXT = (
     "不要套用其他智能体身份，特别是不要把所有角色都写成全局财报问答助手。"
     "若需要举公司示例，优先使用当前 profile 可访问的实时 Wiki catalog；无法读取时使用“某个已入库公司”。"
     "默认财报口径必须以实时 catalog/company.json 的 primary_report_id 说明，不要写死任何年份或 report_id。"
+)
+MEMORY_MANAGEMENT_CONTEXT = (
+    "当前用户正在查询自己的会话历史、提问统计或个人长期记忆。"
+    "这不是公司研究或财报事实问题。"
+    "如上下文含有 <user-history-analytics>，必须直接依据其中的确定性统计回答；"
+    "不得调用 pg_query.py、不得访问市场事实库、不得以 profile 文档替代用户历史，也不得编造 PDF 或财报引用。"
+    "如统计块明确为空或不完整，必须如实说明其范围和限制。"
+    "如上下文只含 <memory-context>，其中仅能作为已授权长期记忆使用，且当前用户问题优先。"
 )
 NOTE_DETAIL_SCRIPT_DIR = HERMES_SHARED_SCRIPTS_ROOT
 STATEMENT_QUERY_TERMS = (
@@ -6059,6 +6068,8 @@ def build_postgres_fallback_context(message: str, context: Any | None = None) ->
 
 
 def _needs_financial_evidence_contract(message: str, context: Any | None = None) -> bool:
+    if agent_memory_analytics.is_memory_management_query(message):
+        return False
     if _is_runtime_connectivity_question(message):
         return False
     return (
@@ -6842,6 +6853,12 @@ def build_session_contextual_input(
 ) -> str:
     profile = _runtime_profile(profile)
     primary_market_agent_runtime.validate_market_runtime_context(profile, context)
+    if agent_memory_analytics.is_memory_management_query(message):
+        blocks = [MEMORY_MANAGEMENT_CONTEXT]
+        if local_memory_context:
+            blocks.append(local_memory_context)
+        blocks.append(f"用户问题：{message}")
+        return "\n\n".join(blocks)
     if primary_market_agent_runtime.is_primary_market_ic_runtime(profile, context):
         return primary_market_agent_runtime.build_primary_market_ic_input(
             message,

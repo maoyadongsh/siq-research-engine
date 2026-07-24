@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from services import agent_chat_runtime, agent_runtime_memory
+from services import agent_chat_runtime, agent_memory_analytics, agent_runtime_memory
 
 
 async def _with_temp_chat_session_memory(tmp_path, callback):
@@ -652,6 +652,94 @@ def test_ensure_agent_memory_context_owner_builds_vector_memory_context():
             "请延续上次的公司口径",
         ),
     ]
+
+
+def test_ensure_agent_memory_context_uses_deterministic_history_analytics_before_vector_recall():
+    async def run_case():
+        calls: list[tuple] = []
+
+        def fake_context_from_session_id(session_id, *, profile):
+            calls.append(("context", profile, session_id))
+            return {"profile": profile, "session_id": session_id}
+
+        async def fake_history_context(async_session, context, *, query):
+            calls.append(("history", async_session, context, query))
+            return "<user-history-analytics>deterministic stats</user-history-analytics>"
+
+        async def forbidden_vector_recall(*_args, **_kwargs):
+            raise AssertionError("history analytics must not fall back to profile-vector recall")
+
+        session = object()
+        result = await agent_runtime_memory.ensure_agent_memory_context(
+            session,
+            "siq_assistant",
+            "siq-assistant-history-memory",
+            "本用户问得最多的问题是什么",
+            min_query_chars=1,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=forbidden_vector_recall,
+            build_question_history_context=fake_history_context,
+            classify_memory_query=lambda _query: agent_memory_analytics.MemoryQueryKind.QUESTION_HISTORY,
+            question_history_enabled=lambda _session: True,
+        )
+        return result, calls
+
+    result, calls = anyio.run(run_case)
+
+    assert result == "<user-history-analytics>deterministic stats</user-history-analytics>"
+    assert calls[0] == ("context", "siq_assistant", "siq-assistant-history-memory")
+    assert calls[1][0] == "history"
+
+
+def test_ensure_agent_memory_context_scopes_personal_queries_to_private_memory():
+    async def run_case():
+        calls: list[tuple] = []
+
+        def fake_context_from_session_id(session_id, *, profile):
+            return {"profile": profile, "session_id": session_id}
+
+        async def fake_build_memory_context(async_session, context, *, query, visibility_scope="all"):
+            calls.append((async_session, context, query, visibility_scope))
+            return "<memory-context>private preference</memory-context>"
+
+        session = object()
+        result = await agent_runtime_memory.ensure_agent_memory_context(
+            session,
+            "siq_assistant",
+            "siq-assistant-private-memory",
+            "我之前告诉过你什么偏好",
+            min_query_chars=1,
+            context_from_session_id=fake_context_from_session_id,
+            build_memory_context=fake_build_memory_context,
+            question_history_enabled=lambda _session: False,
+        )
+        return result, calls
+
+    result, calls = anyio.run(run_case)
+
+    assert result == "<memory-context>private preference</memory-context>"
+    assert len(calls) == 1
+    assert calls[0][1:] == (
+        {"profile": "siq_assistant", "session_id": "siq-assistant-private-memory"},
+        "我之前告诉过你什么偏好",
+        "user_private",
+    )
+
+
+def test_memory_management_input_skips_company_context_and_keeps_injected_analytics():
+    prompt = agent_chat_runtime.build_session_contextual_input(
+        "本用户问得最多的问题是什么",
+        profile="siq_assistant",
+        session_id="siq-assistant-history-input",
+        context={"company": {"code": "600104", "name": "上汽集团"}},
+        local_memory_context="<user-history-analytics>deterministic stats</user-history-analytics>",
+    )
+
+    assert "当前用户正在查询自己的会话历史" in prompt
+    assert "<user-history-analytics>deterministic stats</user-history-analytics>" in prompt
+    assert "用户问题：本用户问得最多的问题是什么" in prompt
+    assert "当前公司：" not in prompt
+    assert "财务派生计算硬约束" not in prompt
 
 
 def test_ensure_agent_memory_context_threads_complete_research_identity():

@@ -329,6 +329,16 @@ def test_memory_acl_casts_nullable_scope_parameters_for_asyncpg():
     assert "mi.project_id = CAST(:project_id AS TEXT)" in sql
 
 
+def test_private_memory_acl_excludes_system_and_project_memory():
+    sql = memory._memory_acl_sql("user_private")
+
+    assert "mi.visibility = 'user_private'" in sql
+    assert "mi.owner_user_id = :user_id" in sql
+    assert "mi.profile = :profile" in sql
+    assert "system_shared" not in sql
+    assert "project_shared" not in sql
+
+
 def test_memory_acl_requires_deal_and_project_to_match_when_both_are_bound():
     connection = sqlite3.connect(":memory:")
     connection.execute(

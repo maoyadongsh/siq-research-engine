@@ -292,9 +292,12 @@ def acl_expr(
     profile: str | None = None,
     agent_group: str | None = None,
     research_identity: dict[str, str] | None = None,
+    visibility_scope: str = "all",
 ) -> str:
+    if visibility_scope not in {"all", "user_private"}:
+        raise ValueError(f"unsupported memory visibility scope: {visibility_scope}")
     visibility_parts: list[str] = []
-    if agent_group:
+    if visibility_scope == "all" and agent_group:
         shared_profile = "siq_ic_shared" if agent_group == "primary_market" else "shared"
         system_profiles = [
             f"profile == {_escape_expr(profile)}"
@@ -327,7 +330,7 @@ def acl_expr(
         project_parts.append(f"deal_id == {_escape_expr(deal_id)}")
     if project_id:
         project_parts.append(f"project_id == {_escape_expr(project_id)}")
-    if project_parts and agent_group:
+    if visibility_scope == "all" and project_parts and agent_group:
         project_scope = (
             " and ".join(project_parts)
             if deal_id and project_id
