@@ -1593,6 +1593,7 @@ def _pdf2md_parse_only_matches(message: str, context: Any | None = None, *, limi
         pdf2md_info_matches_message=_pdf2md_info_matches_message,
         wiki_company_exists_for_pdf2md_info=_wiki_company_exists_for_pdf2md_info,
         is_general_assistant_request=_is_general_assistant_request,
+        is_memory_management_request=agent_memory_analytics.is_memory_management_query,
         resolve_company_dir=_resolve_company_dir,
     )
 
@@ -1603,6 +1604,7 @@ def _should_consider_pdf2md_parse_only_context(message: str, context: Any | None
         context,
         pdf2md_parse_only_matches=_pdf2md_parse_only_matches,
         is_general_assistant_request=_is_general_assistant_request,
+        is_memory_management_request=agent_memory_analytics.is_memory_management_query,
         resolve_company_dir=_resolve_company_dir,
         report_fulltext_fallback_terms=REPORT_FULLTEXT_FALLBACK_TERMS,
         context_company_hint=_context_company_hint,

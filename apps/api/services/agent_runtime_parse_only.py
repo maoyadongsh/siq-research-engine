@@ -7,7 +7,6 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-
 Pdf2mdInfoIterator = Callable[[], Iterable[dict[str, Any]]]
 InfoPredicate = Callable[[dict[str, Any]], bool]
 MessagePredicate = Callable[[str], bool]
@@ -81,9 +80,12 @@ def _pdf2md_parse_only_matches(
     pdf2md_info_matches_message: MatchPredicate,
     wiki_company_exists_for_pdf2md_info: InfoPredicate,
     is_general_assistant_request: MessagePredicate,
+    is_memory_management_request: MessagePredicate | None = None,
     resolve_company_dir: ResolveCompanyDir,
 ) -> list[dict[str, Any]]:
     if is_general_assistant_request(message):
+        return []
+    if is_memory_management_request and is_memory_management_request(message):
         return []
     if resolve_company_dir(message, context):
         return []
@@ -107,12 +109,15 @@ def _should_consider_pdf2md_parse_only_context(
     *,
     pdf2md_parse_only_matches: Callable[..., list[dict[str, Any]]],
     is_general_assistant_request: MessagePredicate,
+    is_memory_management_request: MessagePredicate | None = None,
     resolve_company_dir: ResolveCompanyDir,
     report_fulltext_fallback_terms: Iterable[str],
     context_company_hint: ContextHint,
 ) -> bool:
     text = re.sub(r"\s+", "", message or "")
     if not text or is_general_assistant_request(text):
+        return False
+    if is_memory_management_request and is_memory_management_request(text):
         return False
     if resolve_company_dir(message, context):
         return False

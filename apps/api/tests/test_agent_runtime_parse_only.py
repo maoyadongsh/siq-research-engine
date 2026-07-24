@@ -2,8 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from services import agent_runtime_parse_only as parse_only
-from services import agent_chat_runtime as runtime
+from services import agent_chat_runtime as runtime, agent_runtime_parse_only as parse_only
 
 
 def test_pdf2md_filename_and_alias_helpers_are_pure_service_logic():
@@ -71,7 +70,9 @@ def test_pdf2md_info_matches_message_uses_context_hint_and_runtime_wrapper():
 
 def test_pdf2md_info_matches_message_ignores_short_aliases_but_accepts_stock_code():
     info = {"company_name": "A", "stock_code": "000001"}
-    normalize = lambda value: "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+    def normalize(value):
+        return "".join(ch.lower() for ch in str(value) if ch.isalnum())
 
     assert not parse_only.pdf2md_info_matches_message(
         info,
@@ -100,7 +101,9 @@ def test_pdf2md_info_matches_message_accepts_stock_code_alias_from_filename():
 
 def test_pdf2md_info_matches_message_ignores_market_prefix_aliases_from_filename():
     info = {"filename": "Alpha_SZ_300750_2025年度报告.pdf"}
-    normalize = lambda value: "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+    def normalize(value):
+        return "".join(ch.lower() for ch in str(value) if ch.isalnum())
 
     assert not parse_only.pdf2md_info_matches_message(
         info,
@@ -253,6 +256,40 @@ def test_should_consider_pdf2md_parse_only_context_short_circuits_general_and_ex
         report_fulltext_fallback_terms=("全文",),
         context_company_hint=lambda context: "Alpha",
     )
+    assert calls == []
+
+
+def test_memory_management_questions_never_backtrack_pdf_parse_only():
+    calls: list[str] = []
+
+    def matches(current_message, context=None, *, limit=None):
+        calls.append(current_message)
+        return [{"task_id": "task-1"}]
+
+    common_kwargs = {
+        "pdf2md_parse_only_matches": matches,
+        "is_general_assistant_request": lambda _value: False,
+        "is_memory_management_request": lambda value: "提问频率" in value,
+        "resolve_company_dir": lambda _current_message, _context: None,
+        "report_fulltext_fallback_terms": ("全文",),
+        "context_company_hint": lambda _context: "Alpha",
+    }
+
+    assert not parse_only._should_consider_pdf2md_parse_only_context(
+        "本用户提问频率最高的问题是什么",
+        {"company": {"name": "Alpha"}},
+        **common_kwargs,
+    )
+    assert parse_only._pdf2md_parse_only_matches(
+        "本用户提问频率最高的问题是什么",
+        {"company": {"name": "Alpha"}},
+        iter_pdf2md_task_infos=lambda: [{"task_id": "task-1"}],
+        pdf2md_info_matches_message=lambda *_args: True,
+        wiki_company_exists_for_pdf2md_info=lambda _info: False,
+        is_general_assistant_request=lambda _value: False,
+        is_memory_management_request=lambda value: "提问频率" in value,
+        resolve_company_dir=lambda _current_message, _context: None,
+    ) == []
     assert calls == []
 
 
